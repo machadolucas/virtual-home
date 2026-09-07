@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>net.machadolucas.virtual-home.worker</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>__APP_DIR__/scripts/launchd/run-worker.sh</string></array>
+  <key>WorkingDirectory</key><string>__APP_DIR__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>VH_APP_DIR</key><string>__APP_DIR__</string>
+    <key>VH_DATA_DIR</key><string>__DATA_DIR__</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>ExitTimeOut</key><integer>20</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+  <key>StandardOutPath</key><string>__DATA_DIR__/logs/worker.launchd.log</string>
+  <key>StandardErrorPath</key><string>__DATA_DIR__/logs/worker.launchd.log</string>
+</dict>
+</plist>

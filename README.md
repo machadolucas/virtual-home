@@ -1,36 +1,22 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# virtual-home
 
-## Getting Started
+A local, self-hosted home-management app for one household: maintenance plans and guided procedures,
+supplies and stock, equipment and infrastructure placed in a measured 3D model of the house, and
+Home Assistant integration (live state, mobile notifications).
 
-First, run the development server:
+- Stack: Next.js 16 · React 19 · TypeScript · SQLite (Drizzle) · Better Auth · React Three Fiber ·
+  a small Node worker · launchd.
+- Docs: start with [`CLAUDE.md`](CLAUDE.md), then [`docs/architecture.md`](docs/architecture.md),
+  [`docs/operations.md`](docs/operations.md), [`docs/decisions.md`](docs/decisions.md).
+- This repository is public and contains **no household data**: the house model, database, photos,
+  manuals and secrets live in a private data directory (`VH_DATA_DIR`).
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+cp .env.example .env.local        # set VH_DATA_DIR, BETTER_AUTH_SECRET
+pnpm db:migrate
+pnpm vh-admin init-users
+pnpm dev                          # http://localhost:3010
+pnpm worker:dev                   # in a second terminal
+pnpm check                        # typecheck + lint + tests
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

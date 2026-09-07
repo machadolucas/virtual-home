@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>net.machadolucas.virtual-home.backup</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>__APP_DIR__/scripts/backup.sh</string></array>
+  <key>WorkingDirectory</key><string>__APP_DIR__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>VH_DATA_DIR</key><string>__DATA_DIR__</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>30</integer></dict>
+  <key>RunAtLoad</key><false/>
+  <key>Nice</key><integer>5</integer>
+  <key>StandardOutPath</key><string>__DATA_DIR__/logs/backup.log</string>
+  <key>StandardErrorPath</key><string>__DATA_DIR__/logs/backup.log</string>
+</dict>
+</plist>

@@ -1,0 +1,22 @@
+# Caddy site block for virtual-home (TLS terminated by Caddy; app on loopback).
+# Replace home.example.net with the real hostname; set VH_BASE_URL to the same https origin.
+home.example.net {
+	encode zstd gzip
+	request_body {
+		max_size 32MB
+	}
+	reverse_proxy 127.0.0.1:3010 {
+		# SSE (/api/events) must not be buffered
+		flush_interval -1
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+		transport http {
+			read_timeout 0
+		}
+	}
+	log {
+		output file /opt/homebrew/var/log/caddy/virtual-home.access.log
+	}
+}
+# cloudflared later: point the tunnel at https://home.example.net (or http://127.0.0.1:3010) and keep
+# VH_BASE_URL / VH_TRUSTED_ORIGINS in sync with the public hostname.
