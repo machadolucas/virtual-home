@@ -12,13 +12,21 @@
  *
  * A position, when given, follows the same rule as every other coordinate: physical site metres in
  * `viewMode: "normal"`, in bounds, stamped with the current revision (CLAUDE.md rule 7).
+ *
+ * `endpoint.newAsset` is the maintenance bridge. A maintenance plan targets an `asset_id`, and
+ * `infra_endpoint.asset_id` is the only link between an endpoint and a piece of equipment — so
+ * creating the unit here, in the same transaction, is what lets a duct inlet carry a "clean the
+ * vents" plan. Nothing about the maintenance schema changes; the endpoint simply gains something
+ * a plan can already point at.
  */
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb, writeTx } from "@/db/client";
 import { newId, nowMs } from "@/db/ids";
 import { asset, infraEndpoint, location } from "@/db/schema";
+import { writeAudit } from "@/domain/inventory";
 import { EndpointPutSchema } from "@/features/projects/wire";
 import { authed, badRequest, conflict, HttpError, notFound } from "@/server/api/handler";
+import { userContext } from "@/server/queries/settings/household";
 import { currentPackageForRequest, NO_STORE } from "@/server/house-model/http";
 import { manifestIndexOf } from "@/server/house-model/package";
 import {
@@ -61,6 +69,11 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
       hint: "give a position, a locationId or a modelNodeId — an endpoint nobody can find is not a record",
     });
 
+  if (e.assetId != null && e.newAsset != null)
+    throw badRequest("asset_link_ambiguous", {
+      hint: "link an existing unit or create a new one, not both",
+    });
+
   if (e.locationId != null) {
     const found = db
       .select({ id: location.id })
@@ -85,6 +98,27 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
   if (existing && existing.modelRevisionId !== null && !revisionIds.includes(existing.modelRevisionId))
     throw conflict("endpoint_belongs_to_other_model", { endpointId: existing.id });
 
+  /**
+   * Where a unit created for this endpoint lives. An explicit `locationId` wins; otherwise the
+   * household `location` row the import made for this model node, so equipment for a duct inlet
+   * lands in the room the inlet is in instead of nowhere. Still nullable: a model without imported
+   * locations is not a reason to refuse the unit.
+   */
+  const assetLocationId =
+    e.locationId ??
+    (e.modelNodeId != null && revisionIds.length > 0
+      ? (db
+          .select({ id: location.id })
+          .from(location)
+          .where(
+            and(
+              eq(location.modelNodeId, e.modelNodeId),
+              inArray(location.modelRevisionId, revisionIds),
+            ),
+          )
+          .get()?.id ?? null)
+      : null);
+
   // A coordinate is what needs a revision to be interpretable; a location-only endpoint does not,
   // so it is accepted before the first model import instead of being blocked by it.
   const revisionId = position ? requireCurrentRevisionId(db, modelId, "endpoints") : null;
@@ -96,7 +130,6 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     name: e.name,
     kind: e.kind,
     locationId: e.locationId ?? null,
-    assetId: e.assetId ?? null,
     modelRevisionId: revisionId,
     modelNodeId: e.modelNodeId ?? null,
     posX: position ? mm(position[0]) : null,
@@ -109,11 +142,42 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
   };
 
   writeTx(db, (tx) => {
-    if (existing) tx.update(infraEndpoint).set(shared).where(eq(infraEndpoint.id, id)).run();
+    let assetId = e.assetId ?? null;
+    if (e.newAsset) {
+      // In service, not planned: the endpoint is being recorded because it is there. Retiring it
+      // later records *when*, which is why there is no status field on this form.
+      assetId = newId();
+      tx
+        .insert(asset)
+        .values({
+          id: assetId,
+          name: e.newAsset.name,
+          category: e.newAsset.category,
+          locationId: assetLocationId,
+          isVirtual: false,
+          status: "installed",
+          currency: "EUR",
+          notes: `Created for the ${e.kind} “${e.name}”.`,
+          createdAtMs: at,
+          createdBy: actor,
+          updatedAtMs: at,
+          updatedBy: actor,
+        })
+        .run();
+      writeAudit(tx, userContext(session, tx), {
+        entityTable: "asset",
+        entityId: assetId,
+        action: "created",
+        summary: `equipment ${e.newAsset.name} created for endpoint ${e.name}`,
+      });
+    }
+
+    const values = { ...shared, assetId };
+    if (existing) tx.update(infraEndpoint).set(values).where(eq(infraEndpoint.id, id)).run();
     else
       tx
         .insert(infraEndpoint)
-        .values({ id, createdAtMs: at, createdBy: actor, ...shared })
+        .values({ id, createdAtMs: at, createdBy: actor, ...values })
         .run();
   });
 

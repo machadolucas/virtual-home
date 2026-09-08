@@ -19,8 +19,10 @@ import { isRunVisibleOn, runVisibilityReason } from "@/features/projects/renovat
 import { NotPersistedError, type ProjectOption, type RouteSave } from "@/house/store/dataApi";
 // The enum *values* come from the client-safe mirrors in `wire`, never from the drizzle schema.
 import { CERTAINTIES, LIFECYCLES, MEDIA, type RouteDto } from "@/features/projects/wire";
+import { ENDPOINT_KIND_SHORT } from "@/features/projects/infraEndpoint";
 import type { Route, RouteId } from "@/house/model/types";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
+import { useEndpoints } from "./useEndpoints";
 
 /**
  * The legend, spelled out. Referenced by name from the tests so it cannot be quietly softened.
@@ -54,6 +56,8 @@ interface Draft {
   offsetSurfaceId: string;
   offsetM: string;
   projectId: string;
+  fromEndpointId: string;
+  toEndpointId: string;
   note: string;
 }
 
@@ -71,6 +75,8 @@ function draftOf(route: Route & Partial<RouteDto>): Draft {
     offsetSurfaceId: route.offsetFrom?.surfaceId ?? "",
     offsetM: route.offsetFrom === undefined ? "" : String(route.offsetFrom.offsetM),
     projectId: route.projectId ?? route.renovationId ?? "",
+    fromEndpointId: route.fromEndpointId ?? "",
+    toEndpointId: route.toEndpointId ?? "",
     note: route.note ?? "",
   };
 }
@@ -89,6 +95,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
   );
   const upsertRoute = useHouseStore((s) => s.upsertRoute);
   const setDataError = useHouseStore((s) => s.setDataError);
+  const endpointCatalog = useEndpoints();
 
   const route = routes.find((r) => r.id === routeId) as (Route & Partial<RouteDto>) | undefined;
   /**
@@ -168,6 +175,8 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
           }
         : {}),
       projectId: next.projectId === "" ? null : next.projectId,
+      fromEndpointId: next.fromEndpointId === "" ? null : next.fromEndpointId,
+      toEndpointId: next.toEndpointId === "" ? null : next.toEndpointId,
       note: next.note.trim() === "" ? undefined : next.note.trim(),
       photoIds: photoIds ?? route.photoIds,
     };
@@ -429,6 +438,41 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
           ))}
         </select>
       </label>
+
+      <fieldset className="flex flex-col gap-1">
+        <legend className="text-xs text-ink-2">Runs between</legend>
+        <div className="grid grid-cols-2 gap-2">
+          {(["fromEndpointId", "toEndpointId"] as const).map((field) => (
+            <label key={field} className="flex flex-col gap-1 text-xs">
+              <span className="text-ink-2">{field === "fromEndpointId" ? "From" : "To"}</span>
+              <select
+                value={draft[field]}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  set(field, value);
+                  void save(
+                    field === "fromEndpointId"
+                      ? { fromEndpointId: value }
+                      : { toEndpointId: value },
+                  );
+                }}
+                className="min-h-8 rounded-md border border-line px-1 text-xs"
+              >
+                <option value="">Not recorded</option>
+                {endpointCatalog.endpoints.map((endpoint) => (
+                  <option key={endpoint.id} value={endpoint.id}>
+                    {endpoint.name} ({ENDPOINT_KIND_SHORT[endpoint.kind]})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+        <p className="text-[11px] text-ink-3">
+          The fixed things at each end — a manifold, a vent, a shutoff. Recording them is what makes
+          &ldquo;where do I turn this off&rdquo; answerable from the run itself.
+        </p>
+      </fieldset>
 
       <fieldset className="flex flex-col gap-2">
         <legend className="text-xs text-ink-2">Photos</legend>

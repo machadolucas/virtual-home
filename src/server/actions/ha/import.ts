@@ -1,17 +1,25 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb, writeTx, type Db } from "@/db/client";
 import { newId, nowMs } from "@/db/ids";
-import { ASSET_CATEGORIES, asset, assetHaLink, haDevice, type AssetCategory } from "@/db/schema";
+import {
+  ASSET_CATEGORIES,
+  asset,
+  assetHaLink,
+  haDevice,
+  haEntity,
+  type AssetCategory,
+} from "@/db/schema";
 import { NotFoundError, ValidationError } from "@/domain/errors";
 import { resolveAlert, writeAudit } from "@/domain/inventory";
 import { action } from "@/server/api/action";
 import { insertDeviceLink, insertEntityLink } from "@/server/actions/assets/linkWrites";
 import { mapDomainErrors } from "@/server/actions/inventory/errors";
 import { userContext } from "@/server/queries/settings/household";
-import { importDeviceInput } from "./schemas";
+import { readAreaMappings } from "@/server/queries/ha/registry";
+import { importDeviceInput, importDevicesInput } from "./schemas";
 
 /**
  * "Import & link": turn a cached Home Assistant device into a piece of equipment, or attach it to
@@ -143,6 +151,123 @@ export const importHaDevice = action(importDeviceInput, async (input, session) =
   revalidatePath("/settings/home-assistant");
   return result;
 });
+
+/**
+ * Bulk "import & link" for a registry with hundreds of devices.
+ *
+ * What it deliberately does not do: pick entity roles. Which entity is a device's primary reading
+ * is a judgement per device, and inventing it two hundred times would be fabrication (CLAUDE.md
+ * rule 6 in spirit). So each device becomes one piece of equipment with the **device row** linked;
+ * entity links stay a per-device decision in the dialog.
+ *
+ * Already-linked devices are skipped rather than duplicated, and the result reports the three
+ * outcomes separately so the caller can state them instead of claiming "imported 50".
+ */
+export const importHaDevices = action(importDevicesInput, async (input, session) => {
+  const category = mapDomainErrors((): AssetCategory => {
+    if (!isAssetCategory(input.category)) {
+      throw new ValidationError("unknown_category", `unknown equipment category ${input.category}`);
+    }
+    return input.category;
+  });
+
+  const { db } = getDb();
+  const result = mapDomainErrors(() =>
+    writeTx(db, (tx) => {
+      const ctx = userContext(session, tx);
+      const at = nowMs();
+      const mappings = input.useMappedLocation ? readAreaMappings(tx) : new Map();
+
+      const created: string[] = [];
+      const skipped: { deviceId: string; reason: string }[] = [];
+
+      for (const deviceId of input.deviceIds) {
+        const device = tx.select().from(haDevice).where(eq(haDevice.deviceId, deviceId)).get();
+        if (!device) {
+          skipped.push({ deviceId, reason: "not_in_registry" });
+          continue;
+        }
+        if (device.removedAtMs !== null) {
+          skipped.push({ deviceId, reason: "removed_in_ha" });
+          continue;
+        }
+        if (linkedAssetIdFor(tx, deviceId) !== null) {
+          skipped.push({ deviceId, reason: "already_linked" });
+          continue;
+        }
+
+        const isVirtual = device.entryType === "service";
+        // Only a *confirmed* mapping sets a location in bulk. A suggestion is the name matcher's
+        // guess, and applying it to a batch would turn a guess into recorded fact.
+        const mapping = device.areaId === null ? undefined : mappings.get(device.areaId);
+        const locationId =
+          !isVirtual && mapping?.source === "confirmed" ? mapping.locationId : null;
+
+        const assetId = newId();
+        tx.insert(asset)
+          .values({
+            id: assetId,
+            name: device.nameByUser ?? device.name ?? deviceId,
+            category,
+            manufacturer: device.manufacturer,
+            modelName: device.model,
+            serialNumber: null,
+            productCode: null,
+            locationId,
+            parentAssetId: null,
+            isVirtual,
+            status: "installed",
+            installedOn: null,
+            installedOnPrecision: "unknown",
+            currency: "EUR",
+            notes: null,
+            createdAtMs: at,
+            createdBy: ctx.actorUserId,
+            updatedAtMs: at,
+            updatedBy: ctx.actorUserId,
+          })
+          .run();
+
+        insertDeviceLink(tx, ctx, { assetId, deviceId, role: "primary", atMs: at });
+        resolveAlert(tx, ctx, `ha_link_missing:asset:${assetId}`);
+        writeAudit(tx, ctx, {
+          entityTable: "asset",
+          entityId: assetId,
+          action: "created",
+          summary:
+            `created from Home Assistant device ${device.nameByUser ?? device.name ?? deviceId} ` +
+            `in a bulk import of ${input.deviceIds.length}`,
+        });
+        created.push(assetId);
+      }
+
+      return { createdCount: created.length, skipped };
+    }),
+  );
+
+  revalidatePath("/equipment");
+  revalidatePath("/settings/home-assistant");
+  return result;
+});
+
+/** Any active link for this device, entity links included — the "already imported" test. */
+function linkedAssetIdFor(tx: Db, deviceId: string): string | null {
+  const byDevice = tx
+    .select({ assetId: assetHaLink.assetId })
+    .from(assetHaLink)
+    .where(and(eq(assetHaLink.haDeviceId, deviceId), inArray(assetHaLink.linkState, ACTIVE_LINKS)))
+    .get();
+  if (byDevice) return byDevice.assetId;
+  const byEntity = tx
+    .select({ assetId: assetHaLink.assetId })
+    .from(assetHaLink)
+    .innerJoin(haEntity, eq(haEntity.registryId, assetHaLink.haEntityRegistryId))
+    .where(and(eq(haEntity.deviceId, deviceId), inArray(assetHaLink.linkState, ACTIVE_LINKS)))
+    .get();
+  return byEntity?.assetId ?? null;
+}
+
+const ACTIVE_LINKS = ["active", "renamed"] as const;
 
 /** Does this asset already hold the `primary` role? The partial unique index allows exactly one. */
 function hasPrimary(tx: Db, assetId: string): boolean {

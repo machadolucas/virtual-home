@@ -15,6 +15,7 @@
  * bundle. The duplication is checked at compile time below, so drift is a type error.
  */
 import { z } from "zod";
+import type { AssetCategory } from "@/db/schema/assets";
 import type {
   AnnotationKind,
   AnnotationTargetKind,
@@ -85,6 +86,23 @@ export const PROJECT_KINDS = [
   "improvement",
 ] as const;
 export const PROJECT_STATUSES = ["idea", "planned", "in_progress", "done", "abandoned"] as const;
+/**
+ * `asset.category`, mirrored for the same reason as the rest: the endpoint form offers it in the
+ * browser, where importing the drizzle schema would pull the ORM into the client bundle.
+ */
+export const ASSET_CATEGORIES = [
+  "appliance",
+  "hvac",
+  "plumbing",
+  "electrical",
+  "network",
+  "safety",
+  "structure",
+  "outdoor",
+  "vehicle",
+  "software",
+  "other",
+] as const;
 export const PROJECT_LINK_KINDS = [
   "asset",
   "location",
@@ -118,6 +136,7 @@ const _complete: {
   projectKind: Complete<ProjectKind, (typeof PROJECT_KINDS)[number]>;
   projectStatus: Complete<ProjectStatus, (typeof PROJECT_STATUSES)[number]>;
   projectLink: Complete<ProjectLinkEntityKind, (typeof PROJECT_LINK_KINDS)[number]>;
+  assetCategory: Complete<AssetCategory, (typeof ASSET_CATEGORIES)[number]>;
 } = {
   media: true,
   certainty: true,
@@ -130,6 +149,7 @@ const _complete: {
   projectKind: true,
   projectStatus: true,
   projectLink: true,
+  assetCategory: true,
 };
 void _complete;
 
@@ -238,12 +258,30 @@ export const ROUTE_PARTIAL_FIELDS = ["kind", "endpoints", "segments.roomId"] as 
 // endpoints
 // ---------------------------------------------------------------------------
 
+/**
+ * The equipment to create *for* an endpoint, in the same request.
+ *
+ * This is the bridge that makes an endpoint maintainable: a maintenance plan targets an
+ * `asset_id`, and `infra_endpoint.asset_id` is the only link between the two. Creating the unit
+ * here rather than sending the user to the equipment screen first is what lets a duct inlet carry
+ * a "clean the vents" plan without inventing a second way to schedule work.
+ *
+ * Deliberately the minimum a unit needs to exist. Everything else about it — serial number,
+ * warranty, price — is edited on the equipment page, which already owns those fields.
+ */
+export const EndpointNewAssetSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  category: z.enum(ASSET_CATEGORIES),
+});
+
 export const EndpointWriteSchema = z.object({
   id: RowIdSchema.optional(),
   name: z.string().trim().min(1).max(200),
   kind: z.enum(ENDPOINT_KINDS),
   locationId: RowIdSchema.nullish(),
   assetId: RowIdSchema.nullish(),
+  /** Create the equipment as part of this write. Mutually exclusive with `assetId`. */
+  newAsset: EndpointNewAssetSchema.nullish(),
   modelNodeId: ManifestIdSchema.nullish(),
   /** `null` = a location-only endpoint (a panel "in the utility room", not at a point). */
   position: PositionSchema.nullish(),

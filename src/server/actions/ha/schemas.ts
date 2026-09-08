@@ -19,6 +19,26 @@ export const decideMappingInput = z.object({
  * low-battery rule watches, and guessing that from a device class would quietly point a rule at
  * the wrong sensor.
  */
+/**
+ * Bulk "import & link", for the case the single-device dialog cannot serve: a registry with
+ * hundreds of devices, none of which is going to get individual attention today.
+ *
+ * Deliberately narrower than `importDeviceInput`: one category for the batch, the device row
+ * linked, and **no entity role links** — which entity is the primary reading is a per-device
+ * judgement, and guessing it for two hundred devices would be fabrication. The location comes from
+ * the device's own confirmed area mapping, or nothing.
+ *
+ * Capped at 50 per call because CLAUDE.md rule 3 asks for short transactions and chunked bulk
+ * work; the caller sends chunks and reports progress.
+ */
+export const importDevicesInput = z.object({
+  deviceIds: z.array(z.string().min(1)).min(1).max(50),
+  category: z.string().min(1),
+  /** Apply each device's confirmed area→room mapping as the equipment location. */
+  useMappedLocation: z.boolean().default(true),
+  idempotencyKey: z.string().min(8).max(200).optional(),
+});
+
 export const importDeviceInput = z.object({
   deviceId: z.string().min(1),
   /** `null` creates a new asset; a value links the device to that existing one. */
