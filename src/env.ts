@@ -11,9 +11,10 @@ import { z } from "zod";
 
 export type ProcessRole = "web" | "worker" | "cli" | "test";
 
-const bool = z
-  .enum(["true", "false", "1", "0"])
-  .transform((v) => v === "true" || v === "1");
+const bool = z.preprocess(
+  (v) => (v === undefined || v === "" ? undefined : v === "true" || v === "1" || v === true),
+  z.boolean(),
+);
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -35,9 +36,10 @@ const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3010),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
   BETTER_AUTH_SECRET: z.string().min(32, "BETTER_AUTH_SECRET must be at least 32 characters"),
-  HA_URL: z.string().url().optional(),
-  HA_TOKEN: z.string().min(20).optional(),
-  HA_WS_URL: z.string().url().optional(),
+  HA_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
+  // Length is enforced only for the worker (below); the web process must boot without a token.
+  HA_TOKEN: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+  HA_WS_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
   VH_EVENT_POLL_MS: z.coerce.number().int().min(200).max(10_000).default(1000),
   VH_SSE_MAX_CLIENTS: z.coerce.number().int().min(1).max(64).default(8),
   VH_WORKER_HEARTBEAT_MS: z.coerce.number().int().min(5_000).default(15_000),
@@ -45,8 +47,8 @@ const schema = z.object({
   VH_UPLOAD_MAX_BYTES: z.coerce.number().int().min(1024).default(26_214_400),
   VH_BACKUP_RETAIN_DAILY: z.coerce.number().int().min(1).default(14),
   VH_BACKUP_RETAIN_WEEKLY: z.coerce.number().int().min(1).default(8),
-  VH_SHOW_ACCOUNT_HINTS: bool.default("true"),
-  VH_HA_HISTORY_ENABLED: bool.default("true"),
+  VH_SHOW_ACCOUNT_HINTS: bool.default(true),
+  VH_HA_HISTORY_ENABLED: bool.default(true),
   /** Enables window.__vh test hooks in the browser bundle (build-time). */
   NEXT_PUBLIC_VH_TEST_HOOK: z.string().optional(),
 });
@@ -88,12 +90,9 @@ export function parseEnv(source: NodeJS.ProcessEnv, role: ProcessRole): Env {
     throw new EnvError(parsed.error.flatten().fieldErrors as Record<string, string[] | undefined>);
   }
   const e = parsed.data;
-  if (role === "worker" && !e.HA_URL) {
-    // The worker can run without HA (scheduling still works) but must say so loudly.
-    // Missing HA_URL is allowed; missing HA_TOKEN with HA_URL set is a configuration error.
-  }
-  if (e.HA_URL && role === "worker" && !e.HA_TOKEN) {
-    throw new EnvError({ HA_TOKEN: ["HA_TOKEN is required for the worker when HA_URL is set"] });
+  // The worker may run without HA (scheduling still works), but a configured HA_URL needs a token.
+  if (role === "worker" && e.HA_URL && (!e.HA_TOKEN || e.HA_TOKEN.length < 20)) {
+    throw new EnvError({ HA_TOKEN: ["HA_TOKEN (a long-lived access token) is required for the worker when HA_URL is set"] });
   }
   let haWsUrl: string | null = null;
   if (e.HA_WS_URL) haWsUrl = e.HA_WS_URL;

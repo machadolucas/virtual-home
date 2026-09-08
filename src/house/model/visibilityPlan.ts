@@ -1,0 +1,166 @@
+/**
+ * The single declarative visibility resolver.
+ *
+ * Visibility is a **pure function of view state**, re-resolved and re-applied in full on every
+ * change. ~500 boolean writes is microseconds; the alternative (many independent handlers mutating
+ * `.visible`) is the single largest source of "the model is in a weird state" bugs, and it is what
+ * desynchronises the toolbar checkboxes from the scene.
+ *
+ * Decisions are keyed `assetId/nodeName`, never by bare node name: `f-upper` exists in four assets
+ * and `f-ground` in three, and each copy is a different object.
+ */
+import { assetEdgesSpanGroups, explodeGroupOf, isRoofGroup, nodeLayer } from "./explodeGroups";
+import { nodeKey, type ManifestIndex } from "./manifestIndex";
+import type { Asset, AssetId, FloorId, LayerId, Projection, ViewMode } from "./types";
+import { SITE_GROUP } from "./types";
+
+/** Structural element kinds; a `detail` asset made only of these is gated by the structure layer. */
+const STRUCTURAL_KINDS = new Set([
+  "truss",
+  "beam",
+  "footing",
+  "slab",
+  "slab-edge",
+  "frame",
+  "concrete",
+]);
+
+/** What the resolver knows about the loaded GLB hierarchy. Supplied by `SceneIndex`. */
+export interface AssetNodeInventory {
+  assetId: AssetId;
+  /** Node names that are floor ids (`f-*`), at any depth under the asset root. */
+  floorNodes: string[];
+  /** Element group nodes that are **not** inside a floor node. */
+  floorlessElementNodes: string[];
+  edgesNode: string | null;
+}
+
+export interface VisibilityInput {
+  viewMode: ViewMode;
+  projection?: Projection;
+  activeFloorId: FloorId | null;
+  roofVisible: boolean;
+  ceilingsVisible: boolean;
+  edgesVisible: boolean;
+  layers: Record<LayerId, boolean>;
+  loadedAssetIds: readonly AssetId[];
+  explode?: { enabled: boolean; gap: number };
+  inventory: readonly AssetNodeInventory[];
+}
+
+export interface VisibilityPlan {
+  /** Asset root objects. */
+  assets: Map<AssetId, boolean>;
+  /** `assetId/nodeName` → visible. Floor nodes, floor-less element nodes, edges, ceiling faces. */
+  nodes: Map<string, boolean>;
+}
+
+const ISOLATING: ReadonlySet<ViewMode> = new Set<ViewMode>(["floor", "plan", "section"]);
+
+/** Which layer checkbox gates a whole asset, if any. Derived from the manifest, not hard-coded ids. */
+export function assetLayer(index: ManifestIndex, asset: Asset): LayerId | undefined {
+  if (asset.kind === "scan-reference") return "scanReferences";
+  if (asset.kind === "terrain") return "yard";
+  if (asset.kind === "detail") {
+    const kinds = new Set<string>();
+    for (const e of index.manifest.elements) {
+      if (e.nodeRefs[0]?.assetId === asset.id) kinds.add(e.kind);
+    }
+    if (kinds.size > 0 && [...kinds].every((k) => STRUCTURAL_KINDS.has(k))) return "structure";
+    return "outdoor";
+  }
+  return undefined;
+}
+
+export function computeVisibility(index: ManifestIndex, v: VisibilityInput): VisibilityPlan {
+  const assets = new Map<AssetId, boolean>();
+  const nodes = new Map<string, boolean>();
+  const loaded = new Set(v.loadedAssetIds);
+  const isolating = ISOLATING.has(v.viewMode) && v.activeFloorId !== null;
+  const exploded = (v.explode?.enabled ?? false) && (v.explode?.gap ?? 0) > 0;
+
+  // 1. asset roots: loaded ∩ layer gating ∩ (floor isolation, where the asset belongs to a floor)
+  for (const asset of index.manifest.assets) {
+    let visible = loaded.has(asset.id);
+    const layer = assetLayer(index, asset);
+    if (visible && layer && !v.layers[layer]) visible = false;
+    if (visible && isolating && asset.floorId && asset.floorId !== v.activeFloorId) visible = false;
+    assets.set(asset.id, visible);
+  }
+
+  for (const inv of v.inventory) {
+    const assetVisible = assets.get(inv.assetId) ?? false;
+
+    // 2. floor isolation, across all assets that carry a copy of the floor node
+    for (const fname of inv.floorNodes) {
+      nodes.set(nodeKey(inv.assetId, fname), !isolating || fname === v.activeFloorId);
+    }
+
+    // 3. floor-less element nodes: the static policy table decides
+    for (const ename of inv.floorlessElementNodes) {
+      const group = explodeGroupOf(index, inv.assetId, ename) ?? SITE_GROUP;
+      const layer = nodeLayer(index, inv.assetId, ename);
+      let visible = true;
+      if (layer && !v.layers[layer]) visible = false;
+      else if (isRoofGroup(group)) visible = v.roofVisible;
+      else if (group === SITE_GROUP) visible = true; // grade-level: isolation does not apply
+      else visible = !isolating || group === v.activeFloorId;
+      nodes.set(nodeKey(inv.assetId, ename), visible);
+    }
+
+    // 5. edges overlay. One object per asset; it cannot be split, so an asset whose nodes span
+    //    more than one explode group hides its edges while exploded.
+    if (inv.edgesNode) {
+      const spans = assetEdgesSpanGroups(index, inv.assetId, [
+        ...inv.floorNodes,
+        ...inv.floorlessElementNodes,
+      ]);
+      nodes.set(
+        nodeKey(inv.assetId, inv.edgesNode),
+        v.edgesVisible && assetVisible && !(exploded && spans),
+      );
+    }
+  }
+
+  // 4. ceilings, by surface node name (this also covers `dormer-ceiling`, which an element-level
+  //    rule on `e-<floorId>-ceiling` would miss)
+  for (const sid of index.ceilingSurfaceIds) {
+    const s = index.surfaces.get(sid);
+    if (!s) continue;
+    const floorId = index.floorOfSurface.get(sid) ?? null;
+    const hide =
+      !v.ceilingsVisible && (!isolating || floorId === null || floorId === v.activeFloorId);
+    for (const nr of s.nodeRefs) nodes.set(nodeKey(nr.assetId, nr.nodeName), !hide);
+  }
+
+  return { assets, nodes };
+}
+
+/** Whether an explode group is currently on screen — used by the label overlay. */
+export function isGroupVisible(
+  index: ManifestIndex,
+  plan: VisibilityPlan,
+  group: string,
+  input: Pick<VisibilityInput, "viewMode" | "activeFloorId" | "roofVisible">,
+): boolean {
+  if (isRoofGroup(group)) return input.roofVisible;
+  if (group === SITE_GROUP) return true;
+  if (!ISOLATING.has(input.viewMode) || input.activeFloorId === null) return true;
+  return group === input.activeFloorId;
+}
+
+/** The dollhouse preset: a *store write*, not a mode, so the checkboxes stay in sync. */
+export const DOLLHOUSE_PRESET = {
+  roofVisible: false,
+  ceilingsVisible: false,
+  viewMode: "overview" as ViewMode,
+};
+
+export const OVERVIEW_PRESET = {
+  roofVisible: true,
+  ceilingsVisible: true,
+  edgesVisible: true,
+  viewMode: "overview" as ViewMode,
+  projection: "perspective" as Projection,
+  activeFloorId: null,
+};

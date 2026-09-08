@@ -12,6 +12,8 @@ import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+// Relative, not `@/env`: this module is bundled by esbuild for the worker, where `@/` is not mapped.
+import { loadEnv } from "../env";
 import * as schema from "./schema";
 
 export type Db = BetterSQLite3Database<typeof schema>;
@@ -86,8 +88,8 @@ let shared: DbHandle | null = null;
 /** Process-wide handle for the configured database file (web + worker). */
 export function getDb(): DbHandle {
   if (shared) return shared;
-  // Lazy import keeps env loading out of module scope for tests that use openDatabase directly.
-  const { loadEnv } = require("@/env") as typeof import("@/env");
+  // `loadEnv()` is called here, not at import time, so tests that use `openDatabase` directly
+  // never touch the developer's real configuration.
   shared = openDatabase(loadEnv().dbPath);
   return shared;
 }

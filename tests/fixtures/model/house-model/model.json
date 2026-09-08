@@ -1,0 +1,1276 @@
+{
+ "schemaVersion": "1.0",
+ "modelId": "fixture-house",
+ "name": "Fixture house",
+ "generated": "2026-01-01T00:00:00",
+ "generator": "virtual-home scripts/make-fixture-model.ts",
+ "coordinateSystem": {
+  "units": "m",
+  "upAxis": "Y",
+  "handedness": "right",
+  "originDescription": "Outer north-west corner of the fixture house at lower-floor level. X = plan-east, Z = plan-south, Y up.",
+  "siteElevationOffset": 100,
+  "north": {
+   "bearingDeg": 12.5,
+   "certainty": "inferred",
+   "description": "synthetic value; true north measured clockwise from -Z towards +X"
+  },
+  "floorDatums": {
+   "f-lower": 0,
+   "r-l-b": -0.2,
+   "f-upper": 2.7
+  }
+ },
+ "bounds": {
+  "min": [
+   -4,
+   -1,
+   -4
+  ],
+  "max": [
+   10,
+   7,
+   8
+  ],
+  "note": "all fixture assets"
+ },
+ "buildings": [
+  {
+   "id": "b-fx",
+   "name": "Fixture house",
+   "placementStatus": "verified",
+   "floorIds": [
+    "f-lower",
+    "f-upper"
+   ],
+   "assetIds": [
+    "fixture-lower",
+    "fixture-upper",
+    "fixture-roof",
+    "fixture-scan"
+   ]
+  }
+ ],
+ "floors": [
+  {
+   "id": "f-lower",
+   "buildingId": "b-fx",
+   "name": "Lower floor",
+   "nameFi": "1. kerros",
+   "elevation": 0,
+   "assetIds": [
+    "fixture-lower"
+   ],
+   "scanAssetIds": [
+    "fixture-scan"
+   ],
+   "roomIds": [
+    "r-l-a",
+    "r-l-b",
+    "r-l-closet"
+   ]
+  },
+  {
+   "id": "f-upper",
+   "buildingId": "b-fx",
+   "name": "Upper floor",
+   "nameFi": "2. kerros",
+   "elevation": 2.7,
+   "assetIds": [
+    "fixture-upper"
+   ],
+   "scanAssetIds": [],
+   "roomIds": [
+    "r-u-a"
+   ]
+  }
+ ],
+ "rooms": [
+  {
+   "id": "r-l-a",
+   "floorId": "f-lower",
+   "buildingId": "b-fx",
+   "name": "Room A",
+   "nameFi": "HUONE A",
+   "aliases": [
+    "A"
+   ],
+   "kind": "room",
+   "note": "footprint has a hole (the flue) so point-in-ring with holes is exercised",
+   "floorElevation": 0,
+   "ceilingHeight": 2.5,
+   "certainty": "measured",
+   "area": 9.72,
+   "color": "#d9c3a5",
+   "footprint": {
+    "outer": [
+     [
+      0.2,
+      0.2
+     ],
+     [
+      3,
+      0.2
+     ],
+     [
+      3,
+      3.8
+     ],
+     [
+      0.2,
+      3.8
+     ]
+    ],
+    "holes": [
+     [
+      [
+       1,
+       1
+      ],
+      [
+       1.6,
+       1
+      ],
+      [
+       1.6,
+       1.6
+      ],
+      [
+       1,
+       1.6
+      ]
+     ]
+    ]
+   },
+   "surfaceIds": [
+    "s-e-l-ext--r-l-a",
+    "s-w-l-ab--r-l-a",
+    "s-r-l-a-floor",
+    "s-r-l-a-ceiling"
+   ]
+  },
+  {
+   "id": "r-l-b",
+   "floorId": "f-lower",
+   "buildingId": "b-fx",
+   "name": "Room B",
+   "nameFi": "HUONE B",
+   "aliases": [],
+   "kind": "room",
+   "note": "floor sits 0.20 m below the floor datum, like the real package's living room",
+   "floorElevation": -0.2,
+   "ceilingHeight": 2.7,
+   "certainty": "measured",
+   "area": 5.4,
+   "color": "#bfd8e6",
+   "footprint": {
+    "outer": [
+     [
+      3.1,
+      0.2
+     ],
+     [
+      4.6,
+      0.2
+     ],
+     [
+      4.6,
+      3.8
+     ],
+     [
+      3.1,
+      3.8
+     ]
+    ],
+    "holes": []
+   },
+   "surfaceIds": [
+    "s-e-l-ext--r-l-b",
+    "s-w-l-ab--r-l-b",
+    "s-w-l-bc--r-l-b",
+    "s-r-l-b-floor",
+    "s-r-l-b-ceiling"
+   ]
+  },
+  {
+   "id": "r-l-closet",
+   "floorId": "f-lower",
+   "buildingId": "b-fx",
+   "name": "Entrance closet",
+   "nameFi": "VH",
+   "aliases": [],
+   "kind": "closet",
+   "floorElevation": 0,
+   "ceilingHeight": 2.2,
+   "certainty": "derived",
+   "area": 3.96,
+   "color": "#e8dcc4",
+   "footprint": {
+    "outer": [
+     [
+      4.7,
+      0.2
+     ],
+     [
+      5.8,
+      0.2
+     ],
+     [
+      5.8,
+      3.8
+     ],
+     [
+      4.7,
+      3.8
+     ]
+    ],
+    "holes": []
+   },
+   "surfaceIds": [
+    "s-e-l-ext--r-l-closet",
+    "s-w-l-bc--r-l-closet",
+    "s-r-l-closet-floor",
+    "s-r-l-closet-ceiling"
+   ]
+  },
+  {
+   "id": "r-u-a",
+   "floorId": "f-upper",
+   "buildingId": "b-fx",
+   "name": "Upper room",
+   "nameFi": "YLÄKERTA",
+   "aliases": [],
+   "kind": "room",
+   "note": "concave: the diagonal wall makes the area centroid a poor label anchor",
+   "floorElevation": 2.7,
+   "ceilingHeight": 2.3,
+   "certainty": "inferred",
+   "area": 18.4,
+   "color": "#dfd7c6",
+   "footprint": {
+    "outer": [
+     [
+      0.2,
+      0.2
+     ],
+     [
+      5.8,
+      0.2
+     ],
+     [
+      5.8,
+      3
+     ],
+     [
+      4,
+      3.8
+     ],
+     [
+      0.2,
+      3.8
+     ]
+    ],
+    "holes": []
+   },
+   "surfaceIds": [
+    "s-e-f-upper-ext--r-u-a",
+    "s-w-u-diag--r-u-a",
+    "s-r-u-a-floor",
+    "s-r-u-a-ceiling",
+    "s-e-dormer-fx-wall",
+    "s-e-dormer-fx-ceiling"
+   ]
+  }
+ ],
+ "assets": [
+  {
+   "id": "fixture-lower",
+   "path": "assets/fixture-lower.glb",
+   "kind": "shell",
+   "loadByDefault": true,
+   "edgesNode": "edges-fixture-lower",
+   "stats": {
+    "triangles": 34,
+    "surfaces": 18,
+    "bytes": 21296,
+    "edgeSegments": 24
+   },
+   "buildingId": "b-fx",
+   "floorId": "f-lower",
+   "bounds": {
+    "min": [
+     0,
+     -0.2,
+     0
+    ],
+    "max": [
+     6.6,
+     2.5,
+     4
+    ]
+   }
+  },
+  {
+   "id": "fixture-upper",
+   "path": "assets/fixture-upper.glb",
+   "kind": "shell",
+   "loadByDefault": true,
+   "edgesNode": "edges-fixture-upper",
+   "stats": {
+    "triangles": 12,
+    "surfaces": 6,
+    "bytes": 8772,
+    "edgeSegments": 24
+   },
+   "buildingId": "b-fx",
+   "floorId": "f-upper",
+   "bounds": {
+    "min": [
+     0,
+     2.7,
+     0
+    ],
+    "max": [
+     6,
+     5,
+     3.8
+    ]
+   }
+  },
+  {
+   "id": "fixture-roof",
+   "path": "assets/fixture-roof.glb",
+   "kind": "shell",
+   "loadByDefault": true,
+   "edgesNode": "edges-fixture-roof",
+   "stats": {
+    "triangles": 8,
+    "surfaces": 4,
+    "bytes": 6340,
+    "edgeSegments": 24
+   },
+   "buildingId": "b-fx",
+   "bounds": {
+    "min": [
+     -0.3,
+     4.2,
+     -0.3
+    ],
+    "max": [
+     6.3,
+     6.2,
+     4.4
+    ]
+   }
+  },
+  {
+   "id": "fixture-terrain",
+   "path": "assets/fixture-terrain.glb",
+   "kind": "terrain",
+   "loadByDefault": true,
+   "edgesNode": "edges-fixture-terrain",
+   "stats": {
+    "triangles": 2,
+    "surfaces": 1,
+    "bytes": 2616,
+    "edgeSegments": 24
+   },
+   "bounds": {
+    "min": [
+     -4,
+     -0.4,
+     -4
+    ],
+    "max": [
+     10,
+     -0.4,
+     8
+    ]
+   }
+  },
+  {
+   "id": "fixture-scan",
+   "path": "assets/fixture-scan.glb",
+   "kind": "scan-reference",
+   "loadByDefault": false,
+   "edgesNode": null,
+   "stats": {
+    "triangles": 2,
+    "surfaces": 1,
+    "bytes": 1616,
+    "edgeSegments": 0
+   },
+   "buildingId": "b-fx",
+   "floorId": "f-lower",
+   "bounds": {
+    "min": [
+     0.2,
+     0.01,
+     0.2
+    ],
+    "max": [
+     5.8,
+     0.01,
+     3.8
+    ]
+   }
+  }
+ ],
+ "elements": [
+  {
+   "id": "e-l-ext",
+   "kind": "exterior-wall",
+   "certainty": "measured",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "e-l-ext"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-ext--r-l-a"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-ext--r-l-b"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-ext--r-l-closet"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-ext-out"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-ext-out-band"
+    }
+   ],
+   "surfaceIds": [
+    "s-e-l-ext--r-l-a",
+    "s-e-l-ext--r-l-b",
+    "s-e-l-ext--r-l-closet",
+    "s-e-l-ext-out",
+    "s-e-l-ext-out-band"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-lower",
+   "properties": {
+    "thickness": 0.2,
+    "material": "brick leaf + timber frame"
+   }
+  },
+  {
+   "id": "e-w-l-ab",
+   "kind": "wall",
+   "certainty": "measured",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "e-w-l-ab"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-w-l-ab--r-l-a"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-w-l-ab--r-l-b"
+    }
+   ],
+   "surfaceIds": [
+    "s-w-l-ab--r-l-a",
+    "s-w-l-ab--r-l-b"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-lower",
+   "roomIds": [
+    "r-l-a",
+    "r-l-b"
+   ],
+   "properties": {
+    "thickness": 0.1
+   },
+   "note": "the shared wall: one physical wall, two independently colourable faces"
+  },
+  {
+   "id": "e-w-l-bc",
+   "kind": "wall",
+   "certainty": "derived",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "e-w-l-bc"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-w-l-bc--r-l-b"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-w-l-bc--r-l-closet"
+    }
+   ],
+   "surfaceIds": [
+    "s-w-l-bc--r-l-b",
+    "s-w-l-bc--r-l-closet"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-lower",
+   "roomIds": [
+    "r-l-b",
+    "r-l-closet"
+   ]
+  },
+  {
+   "id": "e-f-lower-slab",
+   "kind": "floor",
+   "certainty": "measured",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "e-f-lower-slab"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-a-floor"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-b-floor"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-closet-floor"
+    }
+   ],
+   "surfaceIds": [
+    "s-r-l-a-floor",
+    "s-r-l-b-floor",
+    "s-r-l-closet-floor"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-lower"
+  },
+  {
+   "id": "e-f-lower-ceiling",
+   "kind": "ceiling",
+   "certainty": "inferred",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "e-f-lower-ceiling"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-a-ceiling"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-b-ceiling"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-closet-ceiling"
+    }
+   ],
+   "surfaceIds": [
+    "s-r-l-a-ceiling",
+    "s-r-l-b-ceiling",
+    "s-r-l-closet-ceiling"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-lower"
+  },
+  {
+   "id": "e-o-l-door",
+   "kind": "door",
+   "certainty": "measured",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "e-o-l-door"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-o-l-door-reveal"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-o-l-door-leaf"
+    }
+   ],
+   "surfaceIds": [
+    "s-o-l-door-reveal",
+    "s-o-l-door-leaf"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-lower",
+   "wallId": "e-w-l-ab",
+   "properties": {
+    "width": 0.9,
+    "sill": 0,
+    "head": 2.04,
+    "wallId": "e-w-l-ab",
+    "glazed": false,
+    "leaves": 1
+   }
+  },
+  {
+   "id": "e-l-step",
+   "kind": "step",
+   "certainty": "inferred",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "e-l-step"
+    },
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-step"
+    }
+   ],
+   "surfaceIds": [
+    "s-e-l-step"
+   ],
+   "buildingId": "b-fx",
+   "note": "outdoor entrance step; deliberately a sibling of the floor node"
+  },
+  {
+   "id": "e-f-upper-ext",
+   "kind": "exterior-wall",
+   "certainty": "measured",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "e-f-upper-ext"
+    },
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-e-f-upper-ext--r-u-a"
+    },
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-e-f-upper-ext-out"
+    }
+   ],
+   "surfaceIds": [
+    "s-e-f-upper-ext--r-u-a",
+    "s-e-f-upper-ext-out"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-upper",
+   "properties": {
+    "thickness": 0.2
+   }
+  },
+  {
+   "id": "e-w-u-diag",
+   "kind": "wall",
+   "certainty": "derived",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "e-w-u-diag"
+    },
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-w-u-diag--r-u-a"
+    }
+   ],
+   "surfaceIds": [
+    "s-w-u-diag--r-u-a"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-upper",
+   "roomIds": [
+    "r-u-a"
+   ],
+   "note": "non-axis-aligned wall: an AABB would overstate its extents by ~1 m"
+  },
+  {
+   "id": "e-f-upper-slab",
+   "kind": "floor",
+   "certainty": "measured",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "e-f-upper-slab"
+    },
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-r-u-a-floor"
+    }
+   ],
+   "surfaceIds": [
+    "s-r-u-a-floor"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-upper"
+  },
+  {
+   "id": "e-f-upper-ceiling",
+   "kind": "ceiling",
+   "certainty": "inferred",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "e-f-upper-ceiling"
+    },
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-r-u-a-ceiling"
+    }
+   ],
+   "surfaceIds": [
+    "s-r-u-a-ceiling"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-upper"
+  },
+  {
+   "id": "e-o-u-win",
+   "kind": "window",
+   "certainty": "measured",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "e-o-u-win"
+    },
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-o-u-win-reveal"
+    }
+   ],
+   "surfaceIds": [
+    "s-o-u-win-reveal"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-upper",
+   "wallId": "e-f-upper-ext",
+   "properties": {
+    "width": 1.2,
+    "sill": 1,
+    "head": 2.14,
+    "wallId": "e-f-upper-ext"
+   }
+  },
+  {
+   "id": "e-dormer-fx",
+   "kind": "dormer",
+   "certainty": "inferred",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-roof",
+     "nodeName": "e-dormer-fx"
+    },
+    {
+     "assetId": "fixture-roof",
+     "nodeName": "s-e-dormer-fx-wall"
+    },
+    {
+     "assetId": "fixture-roof",
+     "nodeName": "s-e-dormer-fx-ceiling"
+    }
+   ],
+   "surfaceIds": [
+    "s-e-dormer-fx-wall",
+    "s-e-dormer-fx-ceiling"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-upper",
+   "roomIds": [
+    "r-u-a"
+   ]
+  },
+  {
+   "id": "e-roof-fx",
+   "kind": "roof",
+   "certainty": "inferred",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-roof",
+     "nodeName": "e-roof-fx"
+    },
+    {
+     "assetId": "fixture-roof",
+     "nodeName": "s-e-roof-fx-north"
+    },
+    {
+     "assetId": "fixture-roof",
+     "nodeName": "s-e-roof-fx-south"
+    }
+   ],
+   "surfaceIds": [
+    "s-e-roof-fx-north",
+    "s-e-roof-fx-south"
+   ],
+   "buildingId": "b-fx"
+  },
+  {
+   "id": "e-terrain-fx",
+   "kind": "terrain",
+   "certainty": "inferred",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-terrain",
+     "nodeName": "e-terrain-fx"
+    },
+    {
+     "assetId": "fixture-terrain",
+     "nodeName": "s-e-terrain-fx"
+    }
+   ],
+   "surfaceIds": [
+    "s-e-terrain-fx"
+   ]
+  },
+  {
+   "id": "e-scan-fx",
+   "kind": "scan-reference",
+   "certainty": "measured",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-scan",
+     "nodeName": "e-scan-fx"
+    },
+    {
+     "assetId": "fixture-scan",
+     "nodeName": "s-e-scan-fx"
+    }
+   ],
+   "surfaceIds": [
+    "s-e-scan-fx"
+   ],
+   "buildingId": "b-fx",
+   "floorId": "f-lower"
+  }
+ ],
+ "surfaces": [
+  {
+   "id": "s-e-l-ext--r-l-a",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-ext--r-l-a"
+    }
+   ],
+   "defaultColor": "#d9c3a5",
+   "roomId": "r-l-a",
+   "elementId": "e-l-ext"
+  },
+  {
+   "id": "s-e-l-ext--r-l-b",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-ext--r-l-b"
+    }
+   ],
+   "defaultColor": "#bfd8e6",
+   "roomId": "r-l-b",
+   "elementId": "e-l-ext"
+  },
+  {
+   "id": "s-e-l-ext--r-l-closet",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-ext--r-l-closet"
+    }
+   ],
+   "defaultColor": "#e8dcc4",
+   "roomId": "r-l-closet",
+   "elementId": "e-l-ext"
+  },
+  {
+   "id": "s-e-l-ext-out",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-ext-out"
+    }
+   ],
+   "defaultColor": "#c8b48f",
+   "elementId": "e-l-ext",
+   "role": "exterior"
+  },
+  {
+   "id": "s-e-l-ext-out-band",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-ext-out-band"
+    }
+   ],
+   "defaultColor": "#b39a72",
+   "elementId": "e-l-ext",
+   "role": "exterior"
+  },
+  {
+   "id": "s-w-l-ab--r-l-a",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-w-l-ab--r-l-a"
+    }
+   ],
+   "defaultColor": "#d9c3a5",
+   "roomId": "r-l-a",
+   "elementId": "e-w-l-ab"
+  },
+  {
+   "id": "s-w-l-ab--r-l-b",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-w-l-ab--r-l-b"
+    }
+   ],
+   "defaultColor": "#bfd8e6",
+   "roomId": "r-l-b",
+   "elementId": "e-w-l-ab"
+  },
+  {
+   "id": "s-w-l-bc--r-l-b",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-w-l-bc--r-l-b"
+    }
+   ],
+   "defaultColor": "#bfd8e6",
+   "roomId": "r-l-b",
+   "elementId": "e-w-l-bc"
+  },
+  {
+   "id": "s-w-l-bc--r-l-closet",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-w-l-bc--r-l-closet"
+    }
+   ],
+   "defaultColor": "#e8dcc4",
+   "roomId": "r-l-closet",
+   "elementId": "e-w-l-bc"
+  },
+  {
+   "id": "s-r-l-a-floor",
+   "kind": "floor",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-a-floor"
+    }
+   ],
+   "defaultColor": "#8a7a63",
+   "roomId": "r-l-a",
+   "elementId": "e-f-lower-slab"
+  },
+  {
+   "id": "s-r-l-b-floor",
+   "kind": "floor",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-b-floor"
+    }
+   ],
+   "defaultColor": "#7f8f9a",
+   "roomId": "r-l-b",
+   "elementId": "e-f-lower-slab"
+  },
+  {
+   "id": "s-r-l-closet-floor",
+   "kind": "floor",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-closet-floor"
+    }
+   ],
+   "defaultColor": "#94856c",
+   "roomId": "r-l-closet",
+   "elementId": "e-f-lower-slab"
+  },
+  {
+   "id": "s-r-l-a-ceiling",
+   "kind": "ceiling",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-a-ceiling"
+    }
+   ],
+   "defaultColor": "#f2ece0",
+   "roomId": "r-l-a",
+   "elementId": "e-f-lower-ceiling"
+  },
+  {
+   "id": "s-r-l-b-ceiling",
+   "kind": "ceiling",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-b-ceiling"
+    }
+   ],
+   "defaultColor": "#eef2f4",
+   "roomId": "r-l-b",
+   "elementId": "e-f-lower-ceiling"
+  },
+  {
+   "id": "s-r-l-closet-ceiling",
+   "kind": "ceiling",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-r-l-closet-ceiling"
+    }
+   ],
+   "defaultColor": "#f4efe4",
+   "roomId": "r-l-closet",
+   "elementId": "e-f-lower-ceiling"
+  },
+  {
+   "id": "s-o-l-door-reveal",
+   "kind": "other",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-o-l-door-reveal"
+    }
+   ],
+   "defaultColor": "#e6e2d8",
+   "elementId": "e-o-l-door",
+   "role": "reveal"
+  },
+  {
+   "id": "s-o-l-door-leaf",
+   "kind": "other",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-o-l-door-leaf"
+    }
+   ],
+   "defaultColor": "#cfc4ae",
+   "elementId": "e-o-l-door",
+   "role": "door-leaf"
+  },
+  {
+   "id": "s-e-l-step",
+   "kind": "other",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-lower",
+     "nodeName": "s-e-l-step"
+    }
+   ],
+   "defaultColor": "#9a9a95",
+   "elementId": "e-l-step",
+   "role": "step"
+  },
+  {
+   "id": "s-e-f-upper-ext--r-u-a",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-e-f-upper-ext--r-u-a"
+    }
+   ],
+   "defaultColor": "#dfd7c6",
+   "roomId": "r-u-a",
+   "elementId": "e-f-upper-ext"
+  },
+  {
+   "id": "s-e-f-upper-ext-out",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-e-f-upper-ext-out"
+    }
+   ],
+   "defaultColor": "#c8b48f",
+   "elementId": "e-f-upper-ext",
+   "role": "exterior"
+  },
+  {
+   "id": "s-w-u-diag--r-u-a",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-w-u-diag--r-u-a"
+    }
+   ],
+   "defaultColor": "#dfd7c6",
+   "roomId": "r-u-a",
+   "elementId": "e-w-u-diag"
+  },
+  {
+   "id": "s-r-u-a-floor",
+   "kind": "floor",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-r-u-a-floor"
+    }
+   ],
+   "defaultColor": "#8f8069",
+   "roomId": "r-u-a",
+   "elementId": "e-f-upper-slab"
+  },
+  {
+   "id": "s-r-u-a-ceiling",
+   "kind": "ceiling",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-r-u-a-ceiling"
+    }
+   ],
+   "defaultColor": "#f2ece0",
+   "roomId": "r-u-a",
+   "elementId": "e-f-upper-ceiling"
+  },
+  {
+   "id": "s-o-u-win-reveal",
+   "kind": "other",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-upper",
+     "nodeName": "s-o-u-win-reveal"
+    }
+   ],
+   "defaultColor": "#e6e2d8",
+   "elementId": "e-o-u-win",
+   "role": "reveal"
+  },
+  {
+   "id": "s-e-dormer-fx-wall",
+   "kind": "wall",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-roof",
+     "nodeName": "s-e-dormer-fx-wall"
+    }
+   ],
+   "defaultColor": "#dfd7c6",
+   "roomId": "r-u-a",
+   "elementId": "e-dormer-fx",
+   "role": "dormer-front-wall"
+  },
+  {
+   "id": "s-e-dormer-fx-ceiling",
+   "kind": "ceiling",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-roof",
+     "nodeName": "s-e-dormer-fx-ceiling"
+    }
+   ],
+   "defaultColor": "#f2ece0",
+   "roomId": "r-u-a",
+   "elementId": "e-dormer-fx",
+   "role": "dormer-ceiling"
+  },
+  {
+   "id": "s-e-roof-fx-north",
+   "kind": "other",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-roof",
+     "nodeName": "s-e-roof-fx-north"
+    }
+   ],
+   "defaultColor": "#5b5b58",
+   "elementId": "e-roof-fx",
+   "role": "roof"
+  },
+  {
+   "id": "s-e-roof-fx-south",
+   "kind": "other",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-roof",
+     "nodeName": "s-e-roof-fx-south"
+    }
+   ],
+   "defaultColor": "#54544f",
+   "elementId": "e-roof-fx",
+   "role": "roof"
+  },
+  {
+   "id": "s-e-terrain-fx",
+   "kind": "other",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-terrain",
+     "nodeName": "s-e-terrain-fx"
+    }
+   ],
+   "defaultColor": "#7f8a6a",
+   "elementId": "e-terrain-fx",
+   "role": "ground"
+  },
+  {
+   "id": "s-e-scan-fx",
+   "kind": "other",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-scan",
+     "nodeName": "s-e-scan-fx"
+    }
+   ],
+   "defaultColor": "#9aa0a6",
+   "elementId": "e-scan-fx",
+   "role": "scan"
+  }
+ ],
+ "sources": [
+  {
+   "id": "src-fx-01",
+   "label": "fixture generator",
+   "description": "scripts/make-fixture-model.ts — synthetic, no household data",
+   "includedInPackage": true
+  }
+ ],
+ "issues": [
+  {
+   "id": "iss-fx-01",
+   "severity": "medium",
+   "description": "Fixture geometry is synthetic; dimensions are illustrative only.",
+   "affects": [
+    "b-fx"
+   ]
+  },
+  {
+   "id": "iss-fx-02",
+   "severity": "info",
+   "description": "Room B's floor level is set 0.20 m below the floor datum on purpose.",
+   "affects": [
+    "r-l-b"
+   ]
+  }
+ ],
+ "conventions": {
+  "picking": "Pick a mesh node and read extras.surfaceId / extras.elementId / extras.roomId; parent nodes carry elementId, floorId, buildingId.",
+  "coloring": "Each surface node has its own material; set baseColorFactor of that node's material at runtime.",
+  "visibility": "Hide by asset, by floor node (name = floorId) or by element node (name = elementId). Edges are a separate node 'edges-<assetId>'.",
+  "certainty": "measured = printed dimension; derived = computed from measured values; inferred = typical value; unknown = no evidence"
+ }
+}

@@ -3,7 +3,7 @@
 set -euo pipefail
 DATA_DIR="${VH_DATA_DIR:-$HOME/virtual-home-data}"; WARMUP="${WARMUP_S:-600}"; SAMPLES="${SAMPLES:-30}"; INTERVAL="${INTERVAL_S:-60}"
 OUT="$DATA_DIR/logs/resources-$(date +%Y%m%d-%H%M%S).tsv"; mkdir -p "$DATA_DIR/logs"
-WEB_PID="$(pgrep -f 'next start' | head -1 || true)"; WRK_PID="$(pgrep -f 'dist/worker/index.js' | head -1 || true)"
+WEB_PID="$(pgrep -f 'next start' | head -1 || true)"; WRK_PID="$(pgrep -f 'dist/worker/index.mjs' | head -1 || true)"
 [ -n "$WEB_PID" ] && [ -n "$WRK_PID" ] || { echo "processes not running (web=$WEB_PID worker=$WRK_PID)" >&2; exit 1; }
 echo "warm-up ${WARMUP}s: browse the app, open the 3D model, upload a photo, leave a tab open"; sleep "$WARMUP"
 printf 'ts\trole\tpid\trss_kb\tcpu_pct\n' > "$OUT"

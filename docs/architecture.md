@@ -4,7 +4,7 @@
 | Process | Entry | Responsibilities |
 |---|---|---|
 | web | `next start` (127.0.0.1:3010) | UI (server components, server actions), route handlers (files, model assets, uploads, SSE, HA history proxy), auth |
-| worker | `dist/worker/index.js` | HA WebSocket (state, registries, notification actions), scheduler tick (occurrences, reminder slots, catch-up), outbox drain (notify/clear), condition rules (low battery), heartbeat/metrics, housekeeping |
+| worker | `dist/worker/index.mjs` | HA WebSocket (state, registries, notification actions), scheduler tick (occurrences, reminder slots, catch-up), outbox drain (notify/clear), condition rules (low battery), heartbeat/metrics, housekeeping |
 | cli | `pnpm vh-admin` | provisioning, recovery, model import, doctor |
 | launchd | plists in `scripts/launchd/` | supervises web + worker; nightly backup job |
 
@@ -39,5 +39,5 @@ Package installed under `VH_DATA_DIR/model/<fingerprint>/` (`vh-admin model-impo
 first → SceneIndex (ids → objects) → colour overrides / placements / routes applied by semantic ids
 in physical coordinates → exploded/cutaway are presentation-only.
 
-See `docs/data-model.md`, `docs/model-contract.md`, `docs/home-assistant.md`, `docs/security.md`,
-`docs/operations.md`, `docs/ux.md`, `docs/verification.md`.
+See `docs/data-model.md`, `docs/model-contract.md`, `docs/home-assistant.md`, `docs/worker.md`,
+`docs/security.md`, `docs/operations.md`, `docs/ux.md`, `docs/verification.md`.

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://virtual-home.test/fixture-house/manifest.schema.json",
+  "title": "House model package manifest (shared model-package contract v1.0) — fixture subset",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion",
+    "modelId",
+    "coordinateSystem",
+    "bounds",
+    "buildings",
+    "floors",
+    "rooms",
+    "assets",
+    "elements",
+    "surfaces",
+    "sources",
+    "issues"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "modelId": {
+      "$ref": "#/$defs/id"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "color": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "certainty": {
+      "enum": [
+        "measured",
+        "derived",
+        "inferred",
+        "unknown"
+      ]
+    },
+    "vec2": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "number"
+      }
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "number"
+      }
+    },
+    "ring": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "$ref": "#/$defs/vec2"
+      }
+    },
+    "nodeRef": {
+      "type": "object",
+      "required": [
+        "assetId",
+        "nodeName"
+      ],
+      "properties": {
+        "assetId": {
+          "$ref": "#/$defs/id"
+        },
+        "nodeName": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

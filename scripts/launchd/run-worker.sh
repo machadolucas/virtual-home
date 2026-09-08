@@ -16,4 +16,4 @@ set -a; . "$ENV_FILE"; set +a
 export VH_DATA_DIR="$DATA_DIR" NODE_ENV=production VH_ROLE=worker
 export PATH="/opt/homebrew/bin:/opt/homebrew/opt/node@24/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 cd "$APP_DIR"
-exec node dist/worker/index.js
+exec node dist/worker/index.mjs

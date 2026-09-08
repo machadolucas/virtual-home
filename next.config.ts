@@ -13,7 +13,10 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self' data:",
   // Two trusted users on a private origin; nonce-based CSP is deliberately not used (see docs/security.md).
-  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+  // React dev tooling needs eval; production never gets it.
+  process.env.NODE_ENV === "production"
+    ? "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
   "worker-src 'self' blob:",
   "connect-src 'self'",
   "manifest-src 'self'",

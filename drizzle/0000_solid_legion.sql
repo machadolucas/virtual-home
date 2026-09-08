@@ -1,0 +1,1768 @@
+CREATE TABLE `account` (
+	`id` text PRIMARY KEY NOT NULL,
+	`accountId` text NOT NULL,
+	`providerId` text NOT NULL,
+	`userId` text NOT NULL,
+	`accessToken` text,
+	`refreshToken` text,
+	`idToken` text,
+	`accessTokenExpiresAt` integer,
+	`refreshTokenExpiresAt` integer,
+	`scope` text,
+	`password` text,
+	`createdAt` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
+	`updatedAt` integer NOT NULL,
+	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `account_userId_idx` ON `account` (`userId`);--> statement-breakpoint
+CREATE TABLE `rateLimit` (
+	`id` text PRIMARY KEY NOT NULL,
+	`key` text NOT NULL,
+	`count` integer NOT NULL,
+	`lastRequest` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `rateLimit_key_unique` ON `rateLimit` (`key`);--> statement-breakpoint
+CREATE TABLE `session` (
+	`id` text PRIMARY KEY NOT NULL,
+	`expiresAt` integer NOT NULL,
+	`token` text NOT NULL,
+	`createdAt` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
+	`updatedAt` integer NOT NULL,
+	`ipAddress` text,
+	`userAgent` text,
+	`userId` text NOT NULL,
+	`impersonatedBy` text,
+	FOREIGN KEY (`userId`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `session_token_unique` ON `session` (`token`);--> statement-breakpoint
+CREATE INDEX `session_userId_idx` ON `session` (`userId`);--> statement-breakpoint
+CREATE TABLE `user` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`email` text NOT NULL,
+	`emailVerified` integer DEFAULT false NOT NULL,
+	`image` text,
+	`createdAt` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
+	`updatedAt` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
+	`username` text,
+	`displayUsername` text,
+	`role` text,
+	`banned` integer DEFAULT false,
+	`banReason` text,
+	`banExpires` integer,
+	`displayColor` text
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `user_email_unique` ON `user` (`email`);--> statement-breakpoint
+CREATE UNIQUE INDEX `user_username_unique` ON `user` (`username`);--> statement-breakpoint
+CREATE TABLE `verification` (
+	`id` text PRIMARY KEY NOT NULL,
+	`identifier` text NOT NULL,
+	`value` text NOT NULL,
+	`expiresAt` integer NOT NULL,
+	`createdAt` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
+	`updatedAt` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);--> statement-breakpoint
+CREATE TABLE `audit_log` (
+	`id` text PRIMARY KEY NOT NULL,
+	`at_ms` integer NOT NULL,
+	`actor_kind` text NOT NULL,
+	`actor_user_id` text,
+	`entity_table` text NOT NULL,
+	`entity_id` text NOT NULL,
+	`action` text NOT NULL,
+	`summary` text NOT NULL,
+	`changes_json` text,
+	`request_id` text,
+	FOREIGN KEY (`actor_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_audit_log_actor_kind" CHECK(actor_kind IN ('user', 'worker', 'system', 'ha'))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_audit_entity` ON `audit_log` (`entity_table`,`entity_id`,`at_ms`);--> statement-breakpoint
+CREATE INDEX `ix_audit_at` ON `audit_log` (`at_ms`);--> statement-breakpoint
+CREATE INDEX `ix_audit_actor` ON `audit_log` (`actor_user_id`,`at_ms`);--> statement-breakpoint
+CREATE TABLE `household_setting` (
+	`id` text PRIMARY KEY NOT NULL,
+	`display_name` text NOT NULL,
+	`timezone` text DEFAULT 'Europe/Helsinki' NOT NULL,
+	`delivery_time` text DEFAULT '09:00' NOT NULL,
+	`reminder_interval_days` integer DEFAULT 7 NOT NULL,
+	`send_window_start` text DEFAULT '08:00' NOT NULL,
+	`send_window_end` text DEFAULT '21:30' NOT NULL,
+	`catchup_gap_minutes` integer DEFAULT 120 NOT NULL,
+	`catchup_digest_threshold` integer DEFAULT 3 NOT NULL,
+	`slot_grace_minutes` integer DEFAULT 30 NOT NULL,
+	`action_ttl_days` integer DEFAULT 30 NOT NULL,
+	`battery_threshold_pct` integer DEFAULT 15 NOT NULL,
+	`battery_clear_pct` integer DEFAULT 30 NOT NULL,
+	`battery_sustain_minutes` integer DEFAULT 120 NOT NULL,
+	`battery_clear_sustain_minutes` integer DEFAULT 360 NOT NULL,
+	`battery_stale_hours` integer DEFAULT 48 NOT NULL,
+	`reorder_horizon_days` integer DEFAULT 90 NOT NULL,
+	`ha_base_url` text DEFAULT 'http://homeassistant.local:8123' NOT NULL,
+	`current_model_id` text NOT NULL,
+	`current_model_revision_id` text,
+	`inventory_push_enabled` integer DEFAULT false NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`current_model_revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_household_setting_singleton" CHECK("household_setting"."id" = 'household'),
+	CONSTRAINT "ck_household_setting_delivery_time" CHECK(delivery_time GLOB '[0-2][0-9]:[0-5][0-9]'),
+	CONSTRAINT "ck_household_setting_send_window_start" CHECK(send_window_start GLOB '[0-2][0-9]:[0-5][0-9]'),
+	CONSTRAINT "ck_household_setting_send_window_end" CHECK(send_window_end GLOB '[0-2][0-9]:[0-5][0-9]'),
+	CONSTRAINT "ck_household_setting_reminder_interval" CHECK("household_setting"."reminder_interval_days" >= 1),
+	CONSTRAINT "ck_household_setting_catchup_gap" CHECK("household_setting"."catchup_gap_minutes" >= 1),
+	CONSTRAINT "ck_household_setting_digest_threshold" CHECK("household_setting"."catchup_digest_threshold" >= 1),
+	CONSTRAINT "ck_household_setting_slot_grace" CHECK("household_setting"."slot_grace_minutes" >= 0),
+	CONSTRAINT "ck_household_setting_action_ttl" CHECK("household_setting"."action_ttl_days" >= 1),
+	CONSTRAINT "ck_household_setting_battery_pct" CHECK("household_setting"."battery_threshold_pct" BETWEEN 0 AND 100 AND "household_setting"."battery_clear_pct" BETWEEN 0 AND 100),
+	CONSTRAINT "ck_household_setting_battery_clear" CHECK("household_setting"."battery_clear_pct" > "household_setting"."battery_threshold_pct"),
+	CONSTRAINT "ck_household_setting_reorder_horizon" CHECK("household_setting"."reorder_horizon_days" >= 1)
+);
+--> statement-breakpoint
+CREATE TABLE `user_notify_device` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`label` text NOT NULL,
+	`notify_service` text NOT NULL,
+	`ha_device_name` text,
+	`is_active` integer DEFAULT true NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_notify_device_service` ON `user_notify_device` (`notify_service`);--> statement-breakpoint
+CREATE INDEX `ix_notify_device_user` ON `user_notify_device` (`user_id`,`is_active`);--> statement-breakpoint
+CREATE TABLE `location` (
+	`id` text PRIMARY KEY NOT NULL,
+	`kind` text NOT NULL,
+	`parent_id` text,
+	`name` text NOT NULL,
+	`slug` text NOT NULL,
+	`sort_order` integer DEFAULT 0 NOT NULL,
+	`floor_level` integer,
+	`is_outdoor` integer DEFAULT false NOT NULL,
+	`model_revision_id` text,
+	`model_node_id` text,
+	`needs_reconciliation` integer DEFAULT false NOT NULL,
+	`notes` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`parent_id`) REFERENCES `location`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`model_revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_location_kind" CHECK(kind IN ('property', 'building', 'floor', 'room', 'zone')),
+	CONSTRAINT "ck_location_root" CHECK((kind = 'property') = (parent_id IS NULL))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_location_slug` ON `location` (`slug`);--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_location_model_node` ON `location` (`model_revision_id`,`model_node_id`) WHERE model_node_id IS NOT NULL;--> statement-breakpoint
+CREATE INDEX `ix_location_parent` ON `location` (`parent_id`,`sort_order`);--> statement-breakpoint
+CREATE INDEX `ix_location_kind` ON `location` (`kind`);--> statement-breakpoint
+CREATE TABLE `location_mapping` (
+	`id` text PRIMARY KEY NOT NULL,
+	`ha_kind` text NOT NULL,
+	`ha_id` text NOT NULL,
+	`location_id` text NOT NULL,
+	`source` text NOT NULL,
+	`confidence` real,
+	`match_reason` text,
+	`decided_by` text,
+	`decided_at_ms` integer,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`location_id`) REFERENCES `location`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`decided_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_location_mapping_ha_kind" CHECK(ha_kind IN ('area', 'floor')),
+	CONSTRAINT "ck_location_mapping_source" CHECK(source IN ('suggested', 'confirmed', 'rejected')),
+	CONSTRAINT "ck_location_mapping_confidence" CHECK(confidence IS NULL OR (confidence >= 0 AND confidence <= 1))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_location_mapping_ha` ON `location_mapping` (`ha_kind`,`ha_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_location_mapping_confirmed_area` ON `location_mapping` (`location_id`) WHERE source = 'confirmed' AND ha_kind = 'area';--> statement-breakpoint
+CREATE TABLE `model_node` (
+	`id` text PRIMARY KEY NOT NULL,
+	`revision_id` text NOT NULL,
+	`node_id` text NOT NULL,
+	`kind` text NOT NULL,
+	`parent_node_id` text,
+	`name` text NOT NULL,
+	`centroid_x` real,
+	`centroid_y` real,
+	`centroid_z` real,
+	`bbox_min_x` real,
+	`bbox_min_y` real,
+	`bbox_min_z` real,
+	`bbox_max_x` real,
+	`bbox_max_y` real,
+	`bbox_max_z` real,
+	`area_m2` real,
+	FOREIGN KEY (`revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ck_model_node_kind" CHECK(kind IN ('building', 'floor', 'room', 'zone', 'surface', 'element'))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_model_node_revision_node` ON `model_node` (`revision_id`,`node_id`);--> statement-breakpoint
+CREATE INDEX `ix_model_node_kind` ON `model_node` (`revision_id`,`kind`);--> statement-breakpoint
+CREATE INDEX `ix_model_node_parent` ON `model_node` (`revision_id`,`parent_node_id`);--> statement-breakpoint
+CREATE TABLE `model_node_alias` (
+	`id` text PRIMARY KEY NOT NULL,
+	`model_id` text NOT NULL,
+	`from_revision_id` text NOT NULL,
+	`to_revision_id` text NOT NULL,
+	`old_node_id` text NOT NULL,
+	`new_node_id` text,
+	`decided_by` text,
+	`decided_at_ms` integer NOT NULL,
+	`note` text,
+	FOREIGN KEY (`from_revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`to_revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`decided_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_model_node_alias` ON `model_node_alias` (`model_id`,`from_revision_id`,`to_revision_id`,`old_node_id`);--> statement-breakpoint
+CREATE TABLE `model_reconciliation` (
+	`id` text PRIMARY KEY NOT NULL,
+	`from_revision_id` text NOT NULL,
+	`to_revision_id` text NOT NULL,
+	`status` text NOT NULL,
+	`summary_json` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`applied_at_ms` integer,
+	`applied_by` text,
+	FOREIGN KEY (`from_revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`to_revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`applied_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_model_reconciliation_status" CHECK(status IN ('open', 'applied', 'abandoned'))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_model_reconciliation_open` ON `model_reconciliation` (`to_revision_id`) WHERE status = 'open';--> statement-breakpoint
+CREATE TABLE `model_reconciliation_item` (
+	`id` text PRIMARY KEY NOT NULL,
+	`reconciliation_id` text NOT NULL,
+	`entity_kind` text NOT NULL,
+	`entity_id` text NOT NULL,
+	`old_node_id` text NOT NULL,
+	`issue` text NOT NULL,
+	`candidates_json` text,
+	`proposed_action` text NOT NULL,
+	`proposed_new_node_id` text,
+	`decision` text,
+	`decided_new_node_id` text,
+	`decided_by` text,
+	`decided_at_ms` integer,
+	`note` text,
+	FOREIGN KEY (`reconciliation_id`) REFERENCES `model_reconciliation`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`decided_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_reconciliation_item_entity_kind" CHECK(entity_kind IN ('location', 'asset_placement', 'infra_route', 'infra_route_point', 'infra_endpoint', 'annotation', 'storage_place', 'surface_color_override')),
+	CONSTRAINT "ck_reconciliation_item_issue" CHECK(issue IN ('node_missing', 'kind_changed', 'moved_beyond_tolerance', 'parent_changed', 'duplicate_node')),
+	CONSTRAINT "ck_reconciliation_item_proposed" CHECK(proposed_action IN ('remap', 'keep', 'archive', 'none')),
+	CONSTRAINT "ck_reconciliation_item_decision" CHECK(decision IN ('remap', 'keep', 'archive'))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_reconciliation_item` ON `model_reconciliation_item` (`reconciliation_id`,`entity_kind`,`entity_id`,`old_node_id`);--> statement-breakpoint
+CREATE TABLE `model_revision` (
+	`id` text PRIMARY KEY NOT NULL,
+	`model_id` text NOT NULL,
+	`schema_version` text NOT NULL,
+	`generated_at_ms` integer NOT NULL,
+	`content_hash` text NOT NULL,
+	`coordinate_system_json` text NOT NULL,
+	`node_count` integer NOT NULL,
+	`imported_at_ms` integer NOT NULL,
+	`imported_by` text,
+	`status` text NOT NULL,
+	FOREIGN KEY (`imported_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_model_revision_status" CHECK(status IN ('imported', 'current', 'superseded')),
+	CONSTRAINT "ck_model_revision_node_count" CHECK("model_revision"."node_count" >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_model_revision_hash` ON `model_revision` (`model_id`,`content_hash`);--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_model_revision_current` ON `model_revision` (`model_id`) WHERE status = 'current';--> statement-breakpoint
+CREATE TABLE `surface_color_override` (
+	`id` text PRIMARY KEY NOT NULL,
+	`model_id` text NOT NULL,
+	`model_revision_id` text NOT NULL,
+	`surface_id` text NOT NULL,
+	`room_id` text,
+	`color_hex` text NOT NULL,
+	`needs_reconciliation` integer DEFAULT false NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`model_revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_surface_color_override_hex" CHECK(color_hex GLOB '#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_surface_color_override` ON `surface_color_override` (`model_id`,`surface_id`);--> statement-breakpoint
+CREATE INDEX `ix_surface_color_override_revision` ON `surface_color_override` (`model_revision_id`,`surface_id`);--> statement-breakpoint
+CREATE INDEX `ix_surface_color_override_room` ON `surface_color_override` (`model_id`,`room_id`);--> statement-breakpoint
+CREATE TABLE `asset` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`category` text NOT NULL,
+	`manufacturer` text,
+	`model_name` text,
+	`serial_number` text,
+	`product_code` text,
+	`location_id` text,
+	`parent_asset_id` text,
+	`is_virtual` integer DEFAULT false NOT NULL,
+	`status` text NOT NULL,
+	`installed_on` text,
+	`installed_on_precision` text,
+	`removed_on` text,
+	`replaces_asset_id` text,
+	`replaced_by_asset_id` text,
+	`purchase_price_cents` integer,
+	`currency` text DEFAULT 'EUR',
+	`warranty_until` text,
+	`expected_life_years` integer,
+	`notes` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`location_id`) REFERENCES `location`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`parent_asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`replaces_asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`replaced_by_asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_asset_category" CHECK(category IN ('appliance', 'hvac', 'plumbing', 'electrical', 'network', 'safety', 'structure', 'outdoor', 'vehicle', 'software', 'other')),
+	CONSTRAINT "ck_asset_status" CHECK(status IN ('planned', 'installed', 'removed', 'retired', 'lost')),
+	CONSTRAINT "ck_asset_installed_precision" CHECK(installed_on_precision IN ('exact', 'month', 'year', 'unknown')),
+	CONSTRAINT "ck_asset_not_self_parent" CHECK(parent_asset_id IS NULL OR parent_asset_id <> id),
+	CONSTRAINT "ck_asset_price_non_negative" CHECK(purchase_price_cents IS NULL OR purchase_price_cents >= 0)
+);
+--> statement-breakpoint
+CREATE INDEX `ix_asset_location` ON `asset` (`location_id`);--> statement-breakpoint
+CREATE INDEX `ix_asset_status` ON `asset` (`status`);--> statement-breakpoint
+CREATE INDEX `ix_asset_category` ON `asset` (`category`);--> statement-breakpoint
+CREATE INDEX `ix_asset_parent` ON `asset` (`parent_asset_id`);--> statement-breakpoint
+CREATE INDEX `ix_asset_replaced_by` ON `asset` (`replaced_by_asset_id`);--> statement-breakpoint
+CREATE TABLE `asset_consumable` (
+	`id` text PRIMARY KEY NOT NULL,
+	`asset_id` text NOT NULL,
+	`part_id` text NOT NULL,
+	`role` text NOT NULL,
+	`qty_milli` integer NOT NULL,
+	`notes` text,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`part_id`) REFERENCES `part`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_asset_consumable_role" CHECK(role IN ('battery', 'filter', 'bag', 'belt', 'lamp', 'fluid', 'seal', 'other')),
+	CONSTRAINT "ck_asset_consumable_qty" CHECK(qty_milli > 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_asset_consumable` ON `asset_consumable` (`asset_id`,`part_id`,`role`);--> statement-breakpoint
+CREATE INDEX `ix_asset_consumable_part` ON `asset_consumable` (`part_id`);--> statement-breakpoint
+CREATE TABLE `asset_ha_link` (
+	`id` text PRIMARY KEY NOT NULL,
+	`asset_id` text NOT NULL,
+	`link_kind` text NOT NULL,
+	`ha_device_id` text,
+	`ha_entity_registry_id` text,
+	`role` text NOT NULL,
+	`entity_id_snapshot` text,
+	`unique_id_snapshot` text,
+	`platform_snapshot` text,
+	`link_state` text DEFAULT 'active' NOT NULL,
+	`link_state_changed_at_ms` integer,
+	`notes` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`ha_device_id`) REFERENCES `ha_device`(`device_id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`ha_entity_registry_id`) REFERENCES `ha_entity`(`registry_id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_asset_ha_link_kind" CHECK(link_kind IN ('device', 'entity')),
+	CONSTRAINT "ck_asset_ha_link_role" CHECK(role IN ('primary', 'battery_level', 'power', 'status', 'control', 'diagnostic', 'other')),
+	CONSTRAINT "ck_asset_ha_link_state" CHECK(link_state IN ('active', 'renamed', 'missing', 'replaced', 'retired')),
+	CONSTRAINT "ck_asset_ha_link_target" CHECK((link_kind = 'device') = (ha_device_id IS NOT NULL AND ha_entity_registry_id IS NULL))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_asset_ha_link_target` ON `asset_ha_link` (`asset_id`,`link_kind`,`ha_device_id`,`ha_entity_registry_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_asset_ha_link_role` ON `asset_ha_link` (`asset_id`,`role`) WHERE role IN ('primary', 'battery_level');--> statement-breakpoint
+CREATE INDEX `ix_asset_ha_link_entity` ON `asset_ha_link` (`ha_entity_registry_id`);--> statement-breakpoint
+CREATE INDEX `ix_asset_ha_link_device` ON `asset_ha_link` (`ha_device_id`);--> statement-breakpoint
+CREATE INDEX `ix_asset_ha_link_state` ON `asset_ha_link` (`link_state`);--> statement-breakpoint
+CREATE TABLE `asset_placement` (
+	`id` text PRIMARY KEY NOT NULL,
+	`asset_id` text NOT NULL,
+	`model_revision_id` text NOT NULL,
+	`model_node_id` text NOT NULL,
+	`pos_x` real,
+	`pos_y` real,
+	`pos_z` real,
+	`rot_yaw_deg` real,
+	`placement_kind` text DEFAULT 'body' NOT NULL,
+	`needs_reconciliation` integer DEFAULT false NOT NULL,
+	`color_override` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`model_revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_asset_placement_kind" CHECK(placement_kind IN ('body', 'access_panel', 'label', 'shutoff')),
+	CONSTRAINT "ck_asset_placement_color" CHECK(color_override IS NULL OR color_override GLOB '#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_asset_placement_kind` ON `asset_placement` (`asset_id`,`placement_kind`);--> statement-breakpoint
+CREATE INDEX `ix_asset_placement_node` ON `asset_placement` (`model_revision_id`,`model_node_id`);--> statement-breakpoint
+CREATE TABLE `asset_replacement` (
+	`id` text PRIMARY KEY NOT NULL,
+	`old_asset_id` text NOT NULL,
+	`new_asset_id` text NOT NULL,
+	`occurrence_id` text,
+	`completion_id` text,
+	`replaced_on` text NOT NULL,
+	`reason` text NOT NULL,
+	`notes` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`old_asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`new_asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`occurrence_id`) REFERENCES `maintenance_occurrence`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`completion_id`) REFERENCES `completion`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_asset_replacement_reason" CHECK(reason IN ('failure', 'end_of_life', 'upgrade', 'damage', 'recall', 'other')),
+	CONSTRAINT "ck_asset_replacement_distinct" CHECK(old_asset_id <> new_asset_id)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_asset_replacement_pair` ON `asset_replacement` (`old_asset_id`,`new_asset_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_asset_replacement_old` ON `asset_replacement` (`old_asset_id`);--> statement-breakpoint
+CREATE INDEX `ix_asset_replacement_new` ON `asset_replacement` (`new_asset_id`);--> statement-breakpoint
+CREATE TABLE `system` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`kind` text NOT NULL,
+	`description` text,
+	`status` text DEFAULT 'active' NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_system_kind" CHECK(kind IN ('ventilation', 'water', 'wastewater', 'heating', 'electrical', 'networking', 'security', 'irrigation', 'other')),
+	CONSTRAINT "ck_system_status" CHECK(status IN ('active', 'decommissioned'))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_system_kind` ON `system` (`kind`);--> statement-breakpoint
+CREATE TABLE `system_asset` (
+	`system_id` text NOT NULL,
+	`asset_id` text NOT NULL,
+	`role` text,
+	PRIMARY KEY(`system_id`, `asset_id`),
+	FOREIGN KEY (`system_id`) REFERENCES `system`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `ix_system_asset_asset` ON `system_asset` (`asset_id`);--> statement-breakpoint
+CREATE TABLE `system_location` (
+	`system_id` text NOT NULL,
+	`location_id` text NOT NULL,
+	PRIMARY KEY(`system_id`, `location_id`),
+	FOREIGN KEY (`system_id`) REFERENCES `system`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`location_id`) REFERENCES `location`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `ix_system_location_location` ON `system_location` (`location_id`);--> statement-breakpoint
+CREATE TABLE `procedure` (
+	`id` text PRIMARY KEY NOT NULL,
+	`title` text NOT NULL,
+	`slug` text NOT NULL,
+	`summary` text,
+	`default_effort_minutes` integer,
+	`current_version_id` text,
+	`archived_at_ms` integer,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`current_version_id`) REFERENCES `procedure_version`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_procedure_effort" CHECK(default_effort_minutes IS NULL OR default_effort_minutes > 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_procedure_slug` ON `procedure` (`slug`);--> statement-breakpoint
+CREATE TABLE `procedure_checklist_item` (
+	`id` text PRIMARY KEY NOT NULL,
+	`version_id` text NOT NULL,
+	`step_id` text,
+	`seq` integer NOT NULL,
+	`text` text NOT NULL,
+	`requires_value` text,
+	`unit` text,
+	FOREIGN KEY (`version_id`) REFERENCES `procedure_version`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`step_id`) REFERENCES `procedure_step`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ck_procedure_checklist_value" CHECK(requires_value IN ('number', 'text', 'photo')),
+	CONSTRAINT "ck_procedure_checklist_seq" CHECK(seq >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_procedure_checklist_seq` ON `procedure_checklist_item` (`version_id`,`step_id`,`seq`);--> statement-breakpoint
+CREATE TABLE `procedure_equipment_note` (
+	`id` text PRIMARY KEY NOT NULL,
+	`version_id` text NOT NULL,
+	`asset_id` text,
+	`asset_model_name` text,
+	`note` text NOT NULL,
+	FOREIGN KEY (`version_id`) REFERENCES `procedure_version`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE set null,
+	CONSTRAINT "ck_procedure_equipment_note_target" CHECK(asset_id IS NOT NULL OR asset_model_name IS NOT NULL)
+);
+--> statement-breakpoint
+CREATE INDEX `ix_procedure_equipment_note_version` ON `procedure_equipment_note` (`version_id`);--> statement-breakpoint
+CREATE TABLE `procedure_material` (
+	`id` text PRIMARY KEY NOT NULL,
+	`version_id` text NOT NULL,
+	`part_id` text NOT NULL,
+	`qty_milli` integer NOT NULL,
+	`is_required` integer DEFAULT true NOT NULL,
+	`notes` text,
+	FOREIGN KEY (`version_id`) REFERENCES `procedure_version`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`part_id`) REFERENCES `part`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_procedure_material_qty" CHECK(qty_milli > 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_procedure_material` ON `procedure_material` (`version_id`,`part_id`);--> statement-breakpoint
+CREATE INDEX `ix_procedure_material_part` ON `procedure_material` (`part_id`);--> statement-breakpoint
+CREATE TABLE `procedure_reference` (
+	`id` text PRIMARY KEY NOT NULL,
+	`version_id` text NOT NULL,
+	`kind` text NOT NULL,
+	`label` text NOT NULL,
+	`url` text,
+	`manual_name` text,
+	`page_from` integer,
+	`page_to` integer,
+	`attachment_id` text,
+	FOREIGN KEY (`version_id`) REFERENCES `procedure_version`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`attachment_id`) REFERENCES `attachment`(`id`) ON UPDATE no action ON DELETE set null,
+	CONSTRAINT "ck_procedure_reference_kind" CHECK(kind IN ('manual', 'page', 'url', 'video', 'datasheet')),
+	CONSTRAINT "ck_procedure_reference_pages" CHECK(page_to IS NULL OR (page_from IS NOT NULL AND page_to >= page_from))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_procedure_reference_version` ON `procedure_reference` (`version_id`);--> statement-breakpoint
+CREATE TABLE `procedure_step` (
+	`id` text PRIMARY KEY NOT NULL,
+	`version_id` text NOT NULL,
+	`seq` integer NOT NULL,
+	`title` text NOT NULL,
+	`body_md` text,
+	`expected_minutes` integer,
+	`is_optional` integer DEFAULT false NOT NULL,
+	`warning` text,
+	FOREIGN KEY (`version_id`) REFERENCES `procedure_version`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ck_procedure_step_seq" CHECK(seq >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_procedure_step_seq` ON `procedure_step` (`version_id`,`seq`);--> statement-breakpoint
+CREATE TABLE `procedure_tool` (
+	`id` text PRIMARY KEY NOT NULL,
+	`version_id` text NOT NULL,
+	`name` text NOT NULL,
+	`is_required` integer DEFAULT true NOT NULL,
+	`notes` text,
+	FOREIGN KEY (`version_id`) REFERENCES `procedure_version`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `ix_procedure_tool_version` ON `procedure_tool` (`version_id`);--> statement-breakpoint
+CREATE TABLE `procedure_version` (
+	`id` text PRIMARY KEY NOT NULL,
+	`procedure_id` text NOT NULL,
+	`version` integer NOT NULL,
+	`status` text DEFAULT 'draft' NOT NULL,
+	`published_at_ms` integer,
+	`published_by` text,
+	`change_note` text,
+	`safety_notes` text,
+	`prerequisites` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`procedure_id`) REFERENCES `procedure`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`published_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_procedure_version_status" CHECK(status IN ('draft', 'published', 'superseded')),
+	CONSTRAINT "ck_procedure_version_number" CHECK(version > 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_procedure_version` ON `procedure_version` (`procedure_id`,`version`);--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_procedure_version_draft` ON `procedure_version` (`procedure_id`) WHERE status = 'draft';--> statement-breakpoint
+CREATE TABLE `completion` (
+	`id` text PRIMARY KEY NOT NULL,
+	`request_id` text NOT NULL,
+	`occurrence_id` text NOT NULL,
+	`plan_id` text,
+	`asset_id` text,
+	`procedure_version_id` text,
+	`completed_at_ms` integer NOT NULL,
+	`completed_local_date` text NOT NULL,
+	`completed_at_precision` text DEFAULT 'exact' NOT NULL,
+	`performed_by_user_id` text,
+	`performed_by_provider_id` text,
+	`recorded_by` text,
+	`notes` text,
+	`effort_minutes` integer,
+	`outcome` text DEFAULT 'done' NOT NULL,
+	`stock_resolution` text DEFAULT 'none' NOT NULL,
+	`is_replacement` integer DEFAULT false NOT NULL,
+	`voided_at_ms` integer,
+	`voided_by` text,
+	`void_reason` text,
+	`source` text DEFAULT 'web' NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`occurrence_id`) REFERENCES `maintenance_occurrence`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`plan_id`) REFERENCES `maintenance_plan`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`procedure_version_id`) REFERENCES `procedure_version`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`performed_by_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`performed_by_provider_id`) REFERENCES `service_provider`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`recorded_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`voided_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_completion_precision" CHECK(completed_at_precision IN ('exact', 'day', 'month')),
+	CONSTRAINT "ck_completion_outcome" CHECK(outcome IN ('done', 'done_with_issues', 'partial')),
+	CONSTRAINT "ck_completion_stock_resolution" CHECK(stock_resolution IN ('none', 'sufficient', 'adjusted_up', 'consumed_available', 'discrepancy_noted')),
+	CONSTRAINT "ck_completion_source" CHECK(source IN ('web', 'notification_action', 'import')),
+	CONSTRAINT "ck_completion_performer" CHECK(performed_by_user_id IS NOT NULL OR performed_by_provider_id IS NOT NULL),
+	CONSTRAINT "ck_completion_effort" CHECK(effort_minutes IS NULL OR effort_minutes >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_completion_request` ON `completion` (`request_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_completion_live_per_occurrence` ON `completion` (`occurrence_id`) WHERE voided_at_ms IS NULL;--> statement-breakpoint
+CREATE INDEX `ix_completion_occurrence` ON `completion` (`occurrence_id`);--> statement-breakpoint
+CREATE INDEX `ix_completion_asset` ON `completion` (`asset_id`,`completed_local_date`);--> statement-breakpoint
+CREATE INDEX `ix_completion_plan` ON `completion` (`plan_id`,`completed_local_date`);--> statement-breakpoint
+CREATE TABLE `completion_material` (
+	`id` text PRIMARY KEY NOT NULL,
+	`completion_id` text NOT NULL,
+	`part_id` text NOT NULL,
+	`lot_id` text,
+	`expected_qty_milli` integer,
+	`actual_qty_milli` integer NOT NULL,
+	`shortfall_milli` integer DEFAULT 0 NOT NULL,
+	`resolution` text NOT NULL,
+	`stock_transaction_id` text,
+	`notes` text,
+	FOREIGN KEY (`completion_id`) REFERENCES `completion`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`part_id`) REFERENCES `part`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`lot_id`) REFERENCES `part_lot`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`stock_transaction_id`) REFERENCES `stock_transaction`(`id`) ON UPDATE no action ON DELETE set null,
+	CONSTRAINT "ck_completion_material_resolution" CHECK(resolution IN ('sufficient', 'adjusted_up', 'consumed_available', 'discrepancy_noted')),
+	CONSTRAINT "ck_completion_material_actual" CHECK(actual_qty_milli >= 0),
+	CONSTRAINT "ck_completion_material_shortfall" CHECK(shortfall_milli >= 0),
+	CONSTRAINT "ck_completion_material_expected" CHECK(expected_qty_milli IS NULL OR expected_qty_milli >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_completion_material` ON `completion_material` (`completion_id`,`part_id`,`lot_id`);--> statement-breakpoint
+CREATE INDEX `ix_completion_material_part` ON `completion_material` (`part_id`);--> statement-breakpoint
+CREATE TABLE `maintenance_occurrence` (
+	`id` text PRIMARY KEY NOT NULL,
+	`plan_id` text,
+	`source` text NOT NULL,
+	`condition_rule_id` text,
+	`condition_episode_id` text,
+	`asset_id` text,
+	`system_id` text,
+	`location_id` text,
+	`title` text NOT NULL,
+	`procedure_version_id` text,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`due_date` text NOT NULL,
+	`original_due_date` text NOT NULL,
+	`window_start_date` text,
+	`window_end_date` text,
+	`generation_note_json` text,
+	`assignment_mode` text NOT NULL,
+	`assignee_user_id` text,
+	`priority` text DEFAULT 'normal' NOT NULL,
+	`estimated_minutes` integer,
+	`blocked_reason` text,
+	`blocked_at_ms` integer,
+	`blocked_by` text,
+	`service_booking_id` text,
+	`became_due_at_ms` integer,
+	`completion_id` text,
+	`closed_at_ms` integer,
+	`close_reason` text,
+	`condition_rule_key` text GENERATED ALWAYS AS ((condition_rule_id || ':' || coalesce(asset_id, ''))) VIRTUAL,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`plan_id`) REFERENCES `maintenance_plan`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`condition_rule_id`) REFERENCES `condition_rule`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`condition_episode_id`) REFERENCES `condition_episode`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`system_id`) REFERENCES `system`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`location_id`) REFERENCES `location`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`procedure_version_id`) REFERENCES `procedure_version`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`assignee_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`blocked_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`service_booking_id`) REFERENCES `service_booking`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`completion_id`) REFERENCES `completion`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_occ_source" CHECK(source IN ('plan', 'manual', 'condition')),
+	CONSTRAINT "ck_occ_status" CHECK(status IN ('pending', 'due', 'completed', 'skipped', 'cancelled')),
+	CONSTRAINT "ck_occ_assignment_mode" CHECK(assignment_mode IN ('user', 'shared')),
+	CONSTRAINT "ck_occ_priority" CHECK(priority IN ('low', 'normal', 'high', 'urgent')),
+	CONSTRAINT "ck_occ_completion" CHECK((status = 'completed') = (completion_id IS NOT NULL)),
+	CONSTRAINT "ck_occ_closed" CHECK((status IN ('completed', 'skipped', 'cancelled')) = (closed_at_ms IS NOT NULL)),
+	CONSTRAINT "ck_occ_window" CHECK(window_end_date IS NULL OR window_start_date IS NOT NULL),
+	CONSTRAINT "ck_occ_condition_rule" CHECK((source = 'condition') = (condition_rule_id IS NOT NULL))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_occ_open_per_plan` ON `maintenance_occurrence` (`plan_id`) WHERE plan_id IS NOT NULL AND status IN ('pending', 'due');--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_occ_open_per_condition` ON `maintenance_occurrence` (`condition_rule_key`) WHERE source = 'condition' AND status IN ('pending', 'due');--> statement-breakpoint
+CREATE INDEX `ix_occ_status_due` ON `maintenance_occurrence` (`status`,`due_date`);--> statement-breakpoint
+CREATE INDEX `ix_occ_asset` ON `maintenance_occurrence` (`asset_id`,`status`);--> statement-breakpoint
+CREATE INDEX `ix_occ_assignee` ON `maintenance_occurrence` (`assignee_user_id`,`status`,`due_date`);--> statement-breakpoint
+CREATE INDEX `ix_occ_episode` ON `maintenance_occurrence` (`condition_episode_id`);--> statement-breakpoint
+CREATE TABLE `maintenance_plan` (
+	`id` text PRIMARY KEY NOT NULL,
+	`title` text NOT NULL,
+	`description` text,
+	`asset_id` text,
+	`system_id` text,
+	`location_id` text,
+	`procedure_id` text,
+	`pin_procedure_version_id` text,
+	`schedule_kind` text NOT NULL,
+	`recurrence_json` text NOT NULL,
+	`schedule_anchor_date` text,
+	`schedule_anchor_source` text DEFAULT 'none' NOT NULL,
+	`schedule_anchor_note` text,
+	`last_completion_id` text,
+	`assignment_mode` text NOT NULL,
+	`assignee_user_id` text,
+	`priority` text DEFAULT 'normal' NOT NULL,
+	`estimated_minutes` integer,
+	`requires_professional` integer DEFAULT false NOT NULL,
+	`default_provider_id` text,
+	`status` text DEFAULT 'active' NOT NULL,
+	`cancelled_at_ms` integer,
+	`cancel_reason` text,
+	`allow_quick_done` integer DEFAULT false NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`system_id`) REFERENCES `system`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`location_id`) REFERENCES `location`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`procedure_id`) REFERENCES `procedure`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`pin_procedure_version_id`) REFERENCES `procedure_version`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`last_completion_id`) REFERENCES `completion`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`assignee_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`default_provider_id`) REFERENCES `service_provider`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_plan_schedule_kind" CHECK(schedule_kind IN ('interval_from_completion', 'fixed_calendar', 'seasonal_window', 'one_off', 'condition')),
+	CONSTRAINT "ck_plan_anchor_source" CHECK(schedule_anchor_source IN ('completion', 'baseline_exact', 'baseline_approx', 'user_chosen', 'skipped_due_date', 'install_date', 'none')),
+	CONSTRAINT "ck_plan_assignment_mode" CHECK(assignment_mode IN ('user', 'shared')),
+	CONSTRAINT "ck_plan_priority" CHECK(priority IN ('low', 'normal', 'high', 'urgent')),
+	CONSTRAINT "ck_plan_status" CHECK(status IN ('active', 'paused', 'cancelled')),
+	CONSTRAINT "ck_plan_one_target" CHECK((asset_id IS NOT NULL) + (system_id IS NOT NULL) + (location_id IS NOT NULL) = 1),
+	CONSTRAINT "ck_plan_assignee" CHECK((assignment_mode = 'user') = (assignee_user_id IS NOT NULL)),
+	CONSTRAINT "ck_plan_estimated_minutes" CHECK(estimated_minutes IS NULL OR estimated_minutes > 0)
+);
+--> statement-breakpoint
+CREATE INDEX `ix_plan_status` ON `maintenance_plan` (`status`);--> statement-breakpoint
+CREATE INDEX `ix_plan_asset` ON `maintenance_plan` (`asset_id`);--> statement-breakpoint
+CREATE INDEX `ix_plan_system` ON `maintenance_plan` (`system_id`);--> statement-breakpoint
+CREATE INDEX `ix_plan_location` ON `maintenance_plan` (`location_id`);--> statement-breakpoint
+CREATE INDEX `ix_plan_schedule_kind` ON `maintenance_plan` (`schedule_kind`);--> statement-breakpoint
+CREATE INDEX `ix_plan_assignee` ON `maintenance_plan` (`assignee_user_id`);--> statement-breakpoint
+CREATE TABLE `occurrence_event` (
+	`id` text PRIMARY KEY NOT NULL,
+	`occurrence_id` text NOT NULL,
+	`at_ms` integer NOT NULL,
+	`actor_kind` text NOT NULL,
+	`actor_user_id` text,
+	`kind` text NOT NULL,
+	`from_status` text,
+	`to_status` text,
+	`from_due_date` text,
+	`to_due_date` text,
+	`reason` text,
+	`detail_json` text,
+	FOREIGN KEY (`occurrence_id`) REFERENCES `maintenance_occurrence`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`actor_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_occurrence_event_kind" CHECK(kind IN ('created', 'became_due', 'completed', 'completion_voided', 'postponed', 'snoozed', 'skipped', 'cancelled', 'blocked', 'unblocked', 'booked', 'booking_cancelled', 'reopened', 'notified', 'condition_recovered', 'materials_reconciled')),
+	CONSTRAINT "ck_occurrence_event_actor_kind" CHECK(actor_kind IN ('user', 'worker', 'system', 'ha'))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_occurrence_event` ON `occurrence_event` (`occurrence_id`,`at_ms`);--> statement-breakpoint
+CREATE TABLE `occurrence_progress_item` (
+	`id` text PRIMARY KEY NOT NULL,
+	`occurrence_id` text NOT NULL,
+	`item_kind` text NOT NULL,
+	`step_id` text,
+	`checklist_item_id` text,
+	`state` text DEFAULT 'todo' NOT NULL,
+	`value_text` text,
+	`value_number` real,
+	`attachment_id` text,
+	`changed_at_ms` integer NOT NULL,
+	`changed_by` text,
+	FOREIGN KEY (`occurrence_id`) REFERENCES `maintenance_occurrence`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`step_id`) REFERENCES `procedure_step`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`checklist_item_id`) REFERENCES `procedure_checklist_item`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`attachment_id`) REFERENCES `attachment`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`changed_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_progress_item_kind" CHECK(item_kind IN ('step', 'checklist')),
+	CONSTRAINT "ck_progress_state" CHECK(state IN ('todo', 'in_progress', 'done', 'skipped'))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_progress_item` ON `occurrence_progress_item` (`occurrence_id`,`item_kind`,`step_id`,`checklist_item_id`);--> statement-breakpoint
+CREATE TABLE `plan_material` (
+	`id` text PRIMARY KEY NOT NULL,
+	`plan_id` text NOT NULL,
+	`part_id` text NOT NULL,
+	`qty_milli` integer NOT NULL,
+	`is_required` integer DEFAULT true NOT NULL,
+	`notes` text,
+	FOREIGN KEY (`plan_id`) REFERENCES `maintenance_plan`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`part_id`) REFERENCES `part`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_plan_material_qty" CHECK(qty_milli > 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_plan_material` ON `plan_material` (`plan_id`,`part_id`);--> statement-breakpoint
+CREATE INDEX `ix_plan_material_part` ON `plan_material` (`part_id`);--> statement-breakpoint
+CREATE TABLE `service_booking` (
+	`id` text PRIMARY KEY NOT NULL,
+	`occurrence_id` text,
+	`provider_id` text NOT NULL,
+	`status` text DEFAULT 'requested' NOT NULL,
+	`requested_at_ms` integer NOT NULL,
+	`scheduled_start_ms` integer,
+	`scheduled_end_ms` integer,
+	`scheduled_local_date` text,
+	`window_note` text,
+	`reference` text,
+	`quoted_price_cents` integer,
+	`currency` text DEFAULT 'EUR',
+	`contact_note` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`occurrence_id`) REFERENCES `maintenance_occurrence`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`provider_id`) REFERENCES `service_provider`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_service_booking_status" CHECK(status IN ('requested', 'confirmed', 'rescheduled', 'cancelled', 'attended', 'no_show')),
+	CONSTRAINT "ck_service_booking_window" CHECK(scheduled_end_ms IS NULL OR (scheduled_start_ms IS NOT NULL AND scheduled_end_ms >= scheduled_start_ms)),
+	CONSTRAINT "ck_service_booking_price" CHECK(quoted_price_cents IS NULL OR quoted_price_cents >= 0)
+);
+--> statement-breakpoint
+CREATE INDEX `ix_service_booking_occurrence` ON `service_booking` (`occurrence_id`);--> statement-breakpoint
+CREATE INDEX `ix_service_booking_start` ON `service_booking` (`scheduled_start_ms`);--> statement-breakpoint
+CREATE TABLE `service_document` (
+	`id` text PRIMARY KEY NOT NULL,
+	`kind` text NOT NULL,
+	`provider_id` text,
+	`booking_id` text,
+	`completion_id` text,
+	`asset_id` text,
+	`document_no` text,
+	`issued_on` text,
+	`valid_until` text,
+	`amount_cents` integer,
+	`currency` text DEFAULT 'EUR',
+	`attachment_id` text,
+	`notes` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`provider_id`) REFERENCES `service_provider`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`booking_id`) REFERENCES `service_booking`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`completion_id`) REFERENCES `completion`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`attachment_id`) REFERENCES `attachment`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_service_document_kind" CHECK(kind IN ('quote', 'invoice', 'receipt', 'certificate', 'report', 'warranty')),
+	CONSTRAINT "ck_service_document_target" CHECK(booking_id IS NOT NULL OR completion_id IS NOT NULL OR asset_id IS NOT NULL)
+);
+--> statement-breakpoint
+CREATE INDEX `ix_service_document_provider` ON `service_document` (`provider_id`);--> statement-breakpoint
+CREATE INDEX `ix_service_document_completion` ON `service_document` (`completion_id`);--> statement-breakpoint
+CREATE INDEX `ix_service_document_asset` ON `service_document` (`asset_id`);--> statement-breakpoint
+CREATE TABLE `service_provider` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`trade` text,
+	`contact_name` text,
+	`phone` text,
+	`email` text,
+	`website` text,
+	`address` text,
+	`vat_id` text,
+	`notes` text,
+	`is_preferred` integer DEFAULT false NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict
+);
+--> statement-breakpoint
+CREATE INDEX `ix_service_provider_trade` ON `service_provider` (`trade`);--> statement-breakpoint
+CREATE TABLE `app_alert` (
+	`id` text PRIMARY KEY NOT NULL,
+	`kind` text NOT NULL,
+	`severity` text NOT NULL,
+	`entity_table` text,
+	`entity_id` text,
+	`title` text NOT NULL,
+	`body` text,
+	`dedupe_key` text NOT NULL,
+	`first_seen_at_ms` integer NOT NULL,
+	`last_seen_at_ms` integer NOT NULL,
+	`seen_count` integer DEFAULT 1 NOT NULL,
+	`acknowledged_at_ms` integer,
+	`acknowledged_by` text,
+	`resolved_at_ms` integer,
+	FOREIGN KEY (`acknowledged_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_app_alert_kind" CHECK(kind IN ('low_stock', 'negative_stock', 'expiring_part', 'ha_link_missing', 'ha_entity_renamed', 'stale_sensor', 'model_reconciliation', 'notify_device_missing', 'worker_outage')),
+	CONSTRAINT "ck_app_alert_severity" CHECK(severity IN ('info', 'warning', 'error')),
+	CONSTRAINT "ck_app_alert_seen_count" CHECK(seen_count >= 1)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_app_alert_dedupe` ON `app_alert` (`dedupe_key`) WHERE resolved_at_ms IS NULL;--> statement-breakpoint
+CREATE INDEX `ix_app_alert_kind` ON `app_alert` (`kind`,`resolved_at_ms`);--> statement-breakpoint
+CREATE INDEX `ix_app_alert_last_seen` ON `app_alert` (`last_seen_at_ms`);--> statement-breakpoint
+CREATE TABLE `kit_component` (
+	`kit_part_id` text NOT NULL,
+	`component_part_id` text NOT NULL,
+	`qty_milli` integer NOT NULL,
+	PRIMARY KEY(`kit_part_id`, `component_part_id`),
+	FOREIGN KEY (`kit_part_id`) REFERENCES `part`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`component_part_id`) REFERENCES `part`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_kit_component_qty" CHECK(qty_milli > 0),
+	CONSTRAINT "ck_kit_component_distinct" CHECK(kit_part_id <> component_part_id)
+);
+--> statement-breakpoint
+CREATE INDEX `ix_kit_component_component` ON `kit_component` (`component_part_id`);--> statement-breakpoint
+CREATE TABLE `part` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`spec` text,
+	`dimensions` text,
+	`manufacturer` text,
+	`product_code` text,
+	`ean` text,
+	`tracking_mode` text NOT NULL,
+	`unit` text NOT NULL,
+	`is_kit` integer DEFAULT false NOT NULL,
+	`stock_mode` text DEFAULT 'stocked' NOT NULL,
+	`reorder_threshold_milli` integer,
+	`reorder_target_milli` integer,
+	`lead_time_days` integer,
+	`default_storage_place_id` text,
+	`tracks_lots` integer DEFAULT false NOT NULL,
+	`notes` text,
+	`archived_at_ms` integer,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`default_storage_place_id`) REFERENCES `storage_place`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_part_tracking_mode" CHECK(tracking_mode IN ('discrete', 'measured', 'estimated')),
+	CONSTRAINT "ck_part_unit" CHECK(unit IN ('pcs', 'l', 'ml', 'm', 'kg', 'g')),
+	CONSTRAINT "ck_part_stock_mode" CHECK(stock_mode IN ('stocked', 'not_stocked')),
+	CONSTRAINT "ck_part_kit_stock_mode" CHECK(is_kit = 1 OR stock_mode = 'stocked'),
+	CONSTRAINT "ck_part_reorder_non_negative" CHECK((reorder_threshold_milli IS NULL OR reorder_threshold_milli >= 0) AND (reorder_target_milli IS NULL OR reorder_target_milli >= 0)),
+	CONSTRAINT "ck_part_lead_time" CHECK(lead_time_days IS NULL OR lead_time_days >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_part_product_code` ON `part` (`manufacturer`,`product_code`) WHERE product_code IS NOT NULL;--> statement-breakpoint
+CREATE INDEX `ix_part_name` ON `part` (`name`);--> statement-breakpoint
+CREATE TABLE `part_compatibility` (
+	`id` text PRIMARY KEY NOT NULL,
+	`part_id` text NOT NULL,
+	`asset_id` text,
+	`asset_model_name` text,
+	`manufacturer` text,
+	`confidence` text NOT NULL,
+	`note` text,
+	FOREIGN KEY (`part_id`) REFERENCES `part`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ck_part_compatibility_confidence" CHECK(confidence IN ('confirmed', 'likely', 'unverified')),
+	CONSTRAINT "ck_part_compatibility_target" CHECK(asset_id IS NOT NULL OR asset_model_name IS NOT NULL)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_part_compatibility_asset` ON `part_compatibility` (`part_id`,`asset_id`) WHERE asset_id IS NOT NULL;--> statement-breakpoint
+CREATE TABLE `part_lot` (
+	`id` text PRIMARY KEY NOT NULL,
+	`part_id` text NOT NULL,
+	`label` text NOT NULL,
+	`storage_place_id` text,
+	`purchased_on` text,
+	`expires_on` text,
+	`opened_on` text,
+	`initial_qty_milli` integer,
+	`is_open` integer DEFAULT false NOT NULL,
+	`estimate_pct` integer,
+	`notes` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`part_id`) REFERENCES `part`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`storage_place_id`) REFERENCES `storage_place`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_part_lot_estimate_pct" CHECK(estimate_pct IS NULL OR (estimate_pct BETWEEN 0 AND 100)),
+	CONSTRAINT "ck_part_lot_initial_qty" CHECK(initial_qty_milli IS NULL OR initial_qty_milli >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_part_lot_label` ON `part_lot` (`part_id`,`label`);--> statement-breakpoint
+CREATE INDEX `ix_part_lot_expiry` ON `part_lot` (`part_id`,`expires_on`);--> statement-breakpoint
+CREATE TABLE `part_supplier` (
+	`id` text PRIMARY KEY NOT NULL,
+	`part_id` text NOT NULL,
+	`supplier_name` text NOT NULL,
+	`supplier_sku` text,
+	`url` text,
+	`last_price_cents` integer,
+	`currency` text DEFAULT 'EUR',
+	`pack_qty_milli` integer,
+	`lead_time_days` integer,
+	`is_preferred` integer DEFAULT false NOT NULL,
+	`note` text,
+	FOREIGN KEY (`part_id`) REFERENCES `part`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ck_part_supplier_price" CHECK(last_price_cents IS NULL OR last_price_cents >= 0),
+	CONSTRAINT "ck_part_supplier_pack" CHECK(pack_qty_milli IS NULL OR pack_qty_milli > 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_part_supplier_preferred` ON `part_supplier` (`part_id`) WHERE is_preferred = 1;--> statement-breakpoint
+CREATE INDEX `ix_part_supplier_part` ON `part_supplier` (`part_id`);--> statement-breakpoint
+CREATE TABLE `stock_transaction` (
+	`id` text PRIMARY KEY NOT NULL,
+	`part_id` text NOT NULL,
+	`lot_id` text,
+	`storage_place_id` text,
+	`qty_milli` integer NOT NULL,
+	`kind` text NOT NULL,
+	`reason` text NOT NULL,
+	`occurrence_id` text,
+	`completion_id` text,
+	`transaction_group_id` text,
+	`reverses_transaction_id` text,
+	`unit_price_cents` integer,
+	`occurred_at_ms` integer NOT NULL,
+	`occurred_local_date` text NOT NULL,
+	`notes` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	FOREIGN KEY (`part_id`) REFERENCES `part`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`lot_id`) REFERENCES `part_lot`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`storage_place_id`) REFERENCES `storage_place`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`occurrence_id`) REFERENCES `maintenance_occurrence`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`completion_id`) REFERENCES `completion`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`reverses_transaction_id`) REFERENCES `stock_transaction`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_stock_transaction_kind" CHECK(kind IN ('purchase', 'consumption', 'adjustment', 'correction', 'kit_explode_in', 'kit_explode_out', 'estimate_update', 'initial_count', 'disposal')),
+	CONSTRAINT "ck_stock_transaction_reason" CHECK(reason IN ('purchase', 'maintenance_consumption', 'stock_take', 'reconcile_missing_stock', 'reconcile_surplus', 'completion_voided', 'kit_explode', 'kit_explode_undo', 'expired', 'damaged', 'estimate_update', 'manual_correction', 'initial_seed')),
+	CONSTRAINT "ck_stock_transaction_qty_nonzero" CHECK(qty_milli <> 0),
+	CONSTRAINT "ck_stock_transaction_consumption_sign" CHECK(kind <> 'consumption' OR qty_milli < 0),
+	CONSTRAINT "ck_stock_transaction_inbound_sign" CHECK(kind NOT IN ('purchase', 'initial_count', 'kit_explode_in') OR qty_milli > 0),
+	CONSTRAINT "ck_stock_transaction_price" CHECK(unit_price_cents IS NULL OR unit_price_cents >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_stock_transaction_reverses` ON `stock_transaction` (`reverses_transaction_id`) WHERE reverses_transaction_id IS NOT NULL;--> statement-breakpoint
+CREATE INDEX `ix_stock_transaction_part` ON `stock_transaction` (`part_id`,`occurred_at_ms`);--> statement-breakpoint
+CREATE INDEX `ix_stock_transaction_completion` ON `stock_transaction` (`completion_id`);--> statement-breakpoint
+CREATE INDEX `ix_stock_transaction_group` ON `stock_transaction` (`transaction_group_id`);--> statement-breakpoint
+CREATE INDEX `ix_stock_transaction_lot` ON `stock_transaction` (`lot_id`);--> statement-breakpoint
+CREATE TABLE `storage_place` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`location_id` text NOT NULL,
+	`model_node_id` text,
+	`parent_place_id` text,
+	`needs_reconciliation` integer DEFAULT false NOT NULL,
+	`notes` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`location_id`) REFERENCES `location`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`parent_place_id`) REFERENCES `storage_place`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_storage_place_name` ON `storage_place` (`location_id`,`name`);--> statement-breakpoint
+CREATE INDEX `ix_storage_place_parent` ON `storage_place` (`parent_place_id`);--> statement-breakpoint
+CREATE TABLE `annotation` (
+	`id` text PRIMARY KEY NOT NULL,
+	`target_kind` text NOT NULL,
+	`target_id` text,
+	`model_revision_id` text NOT NULL,
+	`model_node_id` text,
+	`pos_x` real,
+	`pos_y` real,
+	`pos_z` real,
+	`kind` text NOT NULL,
+	`title` text NOT NULL,
+	`body` text,
+	`measurement_value` real,
+	`measurement_unit` text,
+	`needs_reconciliation` integer DEFAULT false NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`model_revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_annotation_target_kind" CHECK(target_kind IN ('location', 'asset', 'route', 'node')),
+	CONSTRAINT "ck_annotation_kind" CHECK(kind IN ('note', 'measurement', 'warning', 'todo', 'photo_point')),
+	CONSTRAINT "ck_annotation_measurement" CHECK(kind <> 'measurement' OR measurement_value IS NOT NULL)
+);
+--> statement-breakpoint
+CREATE INDEX `ix_annotation_target` ON `annotation` (`target_kind`,`target_id`);--> statement-breakpoint
+CREATE INDEX `ix_annotation_node` ON `annotation` (`model_revision_id`,`model_node_id`);--> statement-breakpoint
+CREATE TABLE `infra_endpoint` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`kind` text NOT NULL,
+	`location_id` text,
+	`asset_id` text,
+	`model_revision_id` text,
+	`model_node_id` text,
+	`pos_x` real,
+	`pos_y` real,
+	`pos_z` real,
+	`needs_reconciliation` integer DEFAULT false NOT NULL,
+	`notes` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`location_id`) REFERENCES `location`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`model_revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_infra_endpoint_kind" CHECK(kind IN ('source', 'terminal', 'junction', 'meter', 'shutoff', 'panel', 'patch_port'))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_infra_endpoint_location` ON `infra_endpoint` (`location_id`);--> statement-breakpoint
+CREATE INDEX `ix_infra_endpoint_asset` ON `infra_endpoint` (`asset_id`);--> statement-breakpoint
+CREATE TABLE `infra_route` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`system_id` text,
+	`medium` text NOT NULL,
+	`nominal_size` text,
+	`from_endpoint_id` text,
+	`to_endpoint_id` text,
+	`model_revision_id` text NOT NULL,
+	`is_estimated` integer DEFAULT true NOT NULL,
+	`certainty` text DEFAULT 'inferred' NOT NULL,
+	`lifecycle` text DEFAULT 'installed' NOT NULL,
+	`notes` text,
+	`needs_reconciliation` integer DEFAULT false NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`system_id`) REFERENCES `system`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`from_endpoint_id`) REFERENCES `infra_endpoint`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`to_endpoint_id`) REFERENCES `infra_endpoint`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`model_revision_id`) REFERENCES `model_revision`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_infra_route_medium" CHECK(medium IN ('cold_water', 'hot_water', 'waste', 'supply_air', 'extract_air', 'electricity', 'ethernet', 'fiber', 'coax', 'gas', 'heating_water', 'drain')),
+	CONSTRAINT "ck_infra_route_certainty" CHECK(certainty IN ('measured', 'observed', 'inferred', 'unknown')),
+	CONSTRAINT "ck_infra_route_lifecycle" CHECK(lifecycle IN ('planned', 'installed', 'removed'))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_infra_route_system` ON `infra_route` (`system_id`);--> statement-breakpoint
+CREATE INDEX `ix_infra_route_medium` ON `infra_route` (`medium`);--> statement-breakpoint
+CREATE INDEX `ix_infra_route_lifecycle` ON `infra_route` (`lifecycle`);--> statement-breakpoint
+CREATE TABLE `infra_route_point` (
+	`id` text PRIMARY KEY NOT NULL,
+	`route_id` text NOT NULL,
+	`seq` integer NOT NULL,
+	`pos_x` real NOT NULL,
+	`pos_y` real NOT NULL,
+	`pos_z` real NOT NULL,
+	`model_node_id` text,
+	`point_kind` text DEFAULT 'vertex' NOT NULL,
+	`asset_id` text,
+	`needs_reconciliation` integer DEFAULT false NOT NULL,
+	FOREIGN KEY (`route_id`) REFERENCES `infra_route`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE set null,
+	CONSTRAINT "ck_infra_route_point_kind" CHECK(point_kind IN ('vertex', 'junction', 'valve', 'outlet', 'penetration')),
+	CONSTRAINT "ck_infra_route_point_seq" CHECK(seq >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_infra_route_point_seq` ON `infra_route_point` (`route_id`,`seq`);--> statement-breakpoint
+CREATE INDEX `ix_infra_route_point_asset` ON `infra_route_point` (`asset_id`);--> statement-breakpoint
+CREATE TABLE `project` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`kind` text NOT NULL,
+	`status` text DEFAULT 'idea' NOT NULL,
+	`started_on` text,
+	`ended_on` text,
+	`budget_cents` integer,
+	`actual_cost_cents` integer,
+	`currency` text DEFAULT 'EUR',
+	`summary` text,
+	`notes` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_project_kind" CHECK(kind IN ('renovation', 'repair', 'installation', 'inspection', 'improvement')),
+	CONSTRAINT "ck_project_status" CHECK(status IN ('idea', 'planned', 'in_progress', 'done', 'abandoned')),
+	CONSTRAINT "ck_project_costs" CHECK((budget_cents IS NULL OR budget_cents >= 0) AND (actual_cost_cents IS NULL OR actual_cost_cents >= 0)),
+	CONSTRAINT "ck_project_dates" CHECK(ended_on IS NULL OR started_on IS NOT NULL)
+);
+--> statement-breakpoint
+CREATE INDEX `ix_project_status` ON `project` (`status`);--> statement-breakpoint
+CREATE TABLE `project_link` (
+	`id` text PRIMARY KEY NOT NULL,
+	`project_id` text NOT NULL,
+	`entity_kind` text NOT NULL,
+	`entity_id` text NOT NULL,
+	`role` text,
+	FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ck_project_link_entity_kind" CHECK(entity_kind IN ('asset', 'location', 'system', 'occurrence', 'completion', 'service_document', 'part', 'infra_route'))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_project_link` ON `project_link` (`project_id`,`entity_kind`,`entity_id`);--> statement-breakpoint
+CREATE INDEX `ix_project_link_entity` ON `project_link` (`entity_kind`,`entity_id`);--> statement-breakpoint
+CREATE TABLE `condition_episode` (
+	`id` text PRIMARY KEY NOT NULL,
+	`rule_id` text NOT NULL,
+	`ha_entity_registry_id` text NOT NULL,
+	`asset_id` text,
+	`opened_at_ms` integer NOT NULL,
+	`opened_value` real,
+	`open_local_date` text NOT NULL,
+	`closed_at_ms` integer,
+	`closed_value` real,
+	`close_reason` text,
+	`occurrence_id` text,
+	`min_value` real,
+	`notes` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	FOREIGN KEY (`rule_id`) REFERENCES `condition_rule`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`ha_entity_registry_id`) REFERENCES `ha_entity`(`registry_id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`occurrence_id`) REFERENCES `maintenance_occurrence`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_condition_episode_close_reason" CHECK(close_reason IN ('recovered', 'entity_removed', 'rule_disabled', 'manual', 'completed')),
+	CONSTRAINT "ck_condition_episode_closed" CHECK((closed_at_ms IS NULL) = (close_reason IS NULL))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_condition_episode_open` ON `condition_episode` (`rule_id`,`ha_entity_registry_id`) WHERE closed_at_ms IS NULL;--> statement-breakpoint
+CREATE INDEX `ix_condition_episode_entity` ON `condition_episode` (`ha_entity_registry_id`,`opened_at_ms`);--> statement-breakpoint
+CREATE INDEX `ix_condition_episode_occurrence` ON `condition_episode` (`occurrence_id`);--> statement-breakpoint
+CREATE TABLE `condition_rule` (
+	`id` text PRIMARY KEY NOT NULL,
+	`kind` text NOT NULL,
+	`name` text NOT NULL,
+	`scope` text NOT NULL,
+	`asset_id` text,
+	`ha_entity_registry_id` text,
+	`threshold_pct` integer,
+	`clear_threshold_pct` integer,
+	`sustain_minutes` integer,
+	`clear_sustain_minutes` integer,
+	`procedure_id` text,
+	`default_part_id` text,
+	`priority` text DEFAULT 'normal' NOT NULL,
+	`assignment_mode` text DEFAULT 'shared' NOT NULL,
+	`assignee_user_id` text,
+	`title_template` text NOT NULL,
+	`enabled` integer DEFAULT true NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`asset_id`) REFERENCES `asset`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`ha_entity_registry_id`) REFERENCES `ha_entity`(`registry_id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`procedure_id`) REFERENCES `procedure`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`default_part_id`) REFERENCES `part`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`assignee_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_condition_rule_kind" CHECK(kind IN ('low_battery', 'unavailable_device', 'threshold_below', 'threshold_above')),
+	CONSTRAINT "ck_condition_rule_scope" CHECK(scope IN ('all_batteries', 'asset', 'entity')),
+	CONSTRAINT "ck_condition_rule_priority" CHECK(priority IN ('low', 'normal', 'high', 'urgent')),
+	CONSTRAINT "ck_condition_rule_assignment_mode" CHECK(assignment_mode IN ('user', 'shared')),
+	CONSTRAINT "ck_condition_rule_assignee" CHECK((assignment_mode = 'user') = (assignee_user_id IS NOT NULL)),
+	CONSTRAINT "ck_condition_rule_threshold" CHECK(threshold_pct IS NULL OR (threshold_pct BETWEEN 0 AND 100)),
+	CONSTRAINT "ck_condition_rule_clear_threshold" CHECK(clear_threshold_pct IS NULL OR (clear_threshold_pct BETWEEN 0 AND 100 AND (threshold_pct IS NULL OR clear_threshold_pct > threshold_pct))),
+	CONSTRAINT "ck_condition_rule_sustain" CHECK((sustain_minutes IS NULL OR sustain_minutes >= 0) AND (clear_sustain_minutes IS NULL OR clear_sustain_minutes >= 0)),
+	CONSTRAINT "ck_condition_rule_scope_target" CHECK((scope = 'asset') <= (asset_id IS NOT NULL) AND (scope = 'entity') <= (ha_entity_registry_id IS NOT NULL))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_condition_rule_enabled` ON `condition_rule` (`enabled`,`kind`);--> statement-breakpoint
+CREATE INDEX `ix_condition_rule_asset` ON `condition_rule` (`asset_id`);--> statement-breakpoint
+CREATE TABLE `condition_signal` (
+	`ha_entity_registry_id` text PRIMARY KEY NOT NULL,
+	`raw_state` text NOT NULL,
+	`numeric_value` real,
+	`is_valid` integer NOT NULL,
+	`invalid_reason` text,
+	`last_changed_ms` integer NOT NULL,
+	`last_updated_ms` integer NOT NULL,
+	`observed_at_ms` integer NOT NULL,
+	`below_since_ms` integer,
+	`above_since_ms` integer,
+	`is_stale` integer DEFAULT false NOT NULL,
+	FOREIGN KEY (`ha_entity_registry_id`) REFERENCES `ha_entity`(`registry_id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ck_condition_signal_invalid_reason" CHECK(invalid_reason IN ('unknown', 'unavailable', 'non_numeric', 'missing_unit')),
+	CONSTRAINT "ck_condition_signal_valid" CHECK((is_valid = 1) = (invalid_reason IS NULL))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_condition_signal_observed` ON `condition_signal` (`observed_at_ms`);--> statement-breakpoint
+CREATE TABLE `ha_area` (
+	`area_id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`floor_id` text,
+	`icon` text,
+	`aliases_json` text,
+	`last_seen_ms` integer NOT NULL,
+	`removed_at_ms` integer,
+	FOREIGN KEY (`floor_id`) REFERENCES `ha_floor`(`floor_id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE INDEX `ix_ha_area_floor` ON `ha_area` (`floor_id`);--> statement-breakpoint
+CREATE TABLE `ha_connection_state` (
+	`id` text PRIMARY KEY NOT NULL,
+	`connected` integer DEFAULT false NOT NULL,
+	`connected_since_ms` integer,
+	`last_disconnected_at_ms` integer,
+	`last_error` text,
+	`ha_version` text,
+	`reconnect_attempts` integer DEFAULT 0 NOT NULL,
+	`updated_at_ms` integer NOT NULL,
+	CONSTRAINT "ck_ha_connection_state_singleton" CHECK("ha_connection_state"."id" = 'ha')
+);
+--> statement-breakpoint
+CREATE TABLE `ha_device` (
+	`device_id` text PRIMARY KEY NOT NULL,
+	`name` text,
+	`name_by_user` text,
+	`manufacturer` text,
+	`model` text,
+	`sw_version` text,
+	`hw_version` text,
+	`area_id` text,
+	`via_device_id` text,
+	`identifiers_json` text,
+	`connections_json` text,
+	`entry_type` text,
+	`disabled_by` text,
+	`canonical_battery_entity_id` text,
+	`first_seen_ms` integer NOT NULL,
+	`last_seen_ms` integer NOT NULL,
+	`removed_at_ms` integer,
+	FOREIGN KEY (`area_id`) REFERENCES `ha_area`(`area_id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`via_device_id`) REFERENCES `ha_device`(`device_id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`canonical_battery_entity_id`) REFERENCES `ha_entity`(`registry_id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE INDEX `ix_ha_device_area` ON `ha_device` (`area_id`);--> statement-breakpoint
+CREATE INDEX `ix_ha_device_via` ON `ha_device` (`via_device_id`);--> statement-breakpoint
+CREATE TABLE `ha_entity` (
+	`registry_id` text PRIMARY KEY NOT NULL,
+	`entity_id` text NOT NULL,
+	`unique_id` text,
+	`platform` text,
+	`config_entry_id` text,
+	`device_id` text,
+	`area_id` text,
+	`domain` text NOT NULL,
+	`device_class` text,
+	`original_device_class` text,
+	`unit_of_measurement` text,
+	`state_class` text,
+	`name` text,
+	`original_name` text,
+	`entity_category` text,
+	`disabled_by` text,
+	`hidden_by` text,
+	`first_seen_ms` integer NOT NULL,
+	`last_seen_ms` integer NOT NULL,
+	`removed_at_ms` integer,
+	FOREIGN KEY (`device_id`) REFERENCES `ha_device`(`device_id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`area_id`) REFERENCES `ha_area`(`area_id`) ON UPDATE no action ON DELETE set null
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_ha_entity_entity_id` ON `ha_entity` (`entity_id`) WHERE removed_at_ms IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_ha_entity_unique_id` ON `ha_entity` (`platform`,`unique_id`) WHERE unique_id IS NOT NULL AND removed_at_ms IS NULL;--> statement-breakpoint
+CREATE INDEX `ix_ha_entity_device` ON `ha_entity` (`device_id`);--> statement-breakpoint
+CREATE INDEX `ix_ha_entity_class` ON `ha_entity` (`device_class`,`unit_of_measurement`);--> statement-breakpoint
+CREATE INDEX `ix_ha_entity_entity_id` ON `ha_entity` (`entity_id`);--> statement-breakpoint
+CREATE TABLE `ha_entity_rename` (
+	`id` text PRIMARY KEY NOT NULL,
+	`registry_id` text NOT NULL,
+	`old_entity_id` text NOT NULL,
+	`new_entity_id` text NOT NULL,
+	`detected_at_ms` integer NOT NULL,
+	`source` text NOT NULL,
+	FOREIGN KEY (`registry_id`) REFERENCES `ha_entity`(`registry_id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ck_ha_entity_rename_source" CHECK(source IN ('registry_sync', 'event'))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_ha_entity_rename_registry` ON `ha_entity_rename` (`registry_id`,`detected_at_ms`);--> statement-breakpoint
+CREATE TABLE `ha_floor` (
+	`floor_id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`level` integer,
+	`icon` text,
+	`last_seen_ms` integer NOT NULL,
+	`removed_at_ms` integer
+);
+--> statement-breakpoint
+CREATE TABLE `ha_sync_run` (
+	`id` text PRIMARY KEY NOT NULL,
+	`started_at_ms` integer NOT NULL,
+	`finished_at_ms` integer,
+	`status` text NOT NULL,
+	`devices_seen` integer DEFAULT 0 NOT NULL,
+	`entities_seen` integer DEFAULT 0 NOT NULL,
+	`areas_seen` integer DEFAULT 0 NOT NULL,
+	`renames_detected` integer DEFAULT 0 NOT NULL,
+	`removals_detected` integer DEFAULT 0 NOT NULL,
+	`additions_detected` integer DEFAULT 0 NOT NULL,
+	`error` text,
+	CONSTRAINT "ck_ha_sync_run_status" CHECK(status IN ('running', 'ok', 'failed'))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_ha_sync_run_started` ON `ha_sync_run` (`started_at_ms`);--> statement-breakpoint
+CREATE TABLE `integration_status` (
+	`id` text PRIMARY KEY NOT NULL,
+	`state` text NOT NULL,
+	`ha_version` text,
+	`last_ok_at_ms` integer,
+	`heartbeat_at_ms` integer NOT NULL,
+	`last_error` text,
+	`reconnect_count` integer DEFAULT 0 NOT NULL,
+	`entity_count` integer DEFAULT 0 NOT NULL,
+	`updated_at_ms` integer NOT NULL,
+	CONSTRAINT "ck_integration_status_state" CHECK(state IN ('connecting', 'authenticating', 'syncing', 'subscribed', 'degraded', 'auth_failed', 'disconnected'))
+);
+--> statement-breakpoint
+CREATE TABLE `delivery_attempt` (
+	`id` text PRIMARY KEY NOT NULL,
+	`command_id` text NOT NULL,
+	`attempt_no` integer NOT NULL,
+	`started_at_ms` integer NOT NULL,
+	`finished_at_ms` integer,
+	`outcome` text,
+	`http_status` integer,
+	`ha_response` text,
+	`error` text,
+	`worker_id` text,
+	FOREIGN KEY (`command_id`) REFERENCES `ha_notify_command`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ck_delivery_attempt_outcome" CHECK(outcome IN ('accepted', 'ha_unavailable', 'ha_error', 'timeout', 'no_device', 'invalid_payload')),
+	CONSTRAINT "ck_delivery_attempt_no" CHECK(attempt_no >= 1)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_delivery_attempt` ON `delivery_attempt` (`command_id`,`attempt_no`);--> statement-breakpoint
+CREATE INDEX `ix_delivery_attempt_command` ON `delivery_attempt` (`command_id`);--> statement-breakpoint
+CREATE INDEX `ix_delivery_attempt_started` ON `delivery_attempt` (`started_at_ms`);--> statement-breakpoint
+CREATE TABLE `ha_notify_command` (
+	`id` text PRIMARY KEY NOT NULL,
+	`kind` text NOT NULL,
+	`notify_service` text NOT NULL,
+	`payload_json` text NOT NULL,
+	`tag` text NOT NULL,
+	`slot_id` text,
+	`recipient_state_id` text,
+	`dedupe_key` text NOT NULL,
+	`state` text DEFAULT 'queued' NOT NULL,
+	`attempt_count` integer DEFAULT 0 NOT NULL,
+	`next_attempt_at_ms` integer,
+	`claimed_by` text,
+	`claim_fence` integer,
+	`claim_expires_at_ms` integer,
+	`sent_at_ms` integer,
+	`last_error` text,
+	`created_at_ms` integer NOT NULL,
+	FOREIGN KEY (`slot_id`) REFERENCES `reminder_slot`(`id`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (`recipient_state_id`) REFERENCES `notification_recipient_state`(`id`) ON UPDATE no action ON DELETE set null,
+	CONSTRAINT "ck_ha_notify_command_kind" CHECK(kind IN ('notify', 'clear')),
+	CONSTRAINT "ck_ha_notify_command_state" CHECK(state IN ('queued', 'claimed', 'sent', 'failed', 'abandoned')),
+	CONSTRAINT "ck_ha_notify_command_attempts" CHECK(attempt_count >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_ha_notify_command_dedupe` ON `ha_notify_command` (`dedupe_key`);--> statement-breakpoint
+CREATE INDEX `ix_ha_notify_command_ready` ON `ha_notify_command` (`state`,`next_attempt_at_ms`);--> statement-breakpoint
+CREATE INDEX `ix_ha_notify_command_kind` ON `ha_notify_command` (`kind`,`state`);--> statement-breakpoint
+CREATE TABLE `notification_action_event` (
+	`id` text PRIMARY KEY NOT NULL,
+	`received_at_ms` integer NOT NULL,
+	`ha_context_id` text,
+	`nonce` text,
+	`action` text NOT NULL,
+	`raw_json` text NOT NULL,
+	`claimed_occurrence_id` text,
+	`claimed_recipient_user_id` text,
+	`claimed_slot_id` text,
+	`source_device_name` text,
+	`validation` text NOT NULL,
+	`applied_effect` text,
+	`completion_id` text,
+	`processed_at_ms` integer,
+	FOREIGN KEY (`completion_id`) REFERENCES `completion`(`id`) ON UPDATE no action ON DELETE set null,
+	CONSTRAINT "ck_action_event_validation" CHECK(validation IN ('accepted', 'duplicate', 'unknown_nonce', 'expired', 'wrong_recipient', 'occurrence_closed', 'action_not_offered', 'device_mismatch', 'malformed')),
+	CONSTRAINT "ck_action_event_effect" CHECK(applied_effect IN ('snoozed', 'completed', 'noop'))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_action_replay` ON `notification_action_event` (`nonce`,`action`) WHERE nonce IS NOT NULL AND validation = 'accepted';--> statement-breakpoint
+CREATE INDEX `ix_action_context` ON `notification_action_event` (`ha_context_id`);--> statement-breakpoint
+CREATE INDEX `ix_action_received` ON `notification_action_event` (`received_at_ms`);--> statement-breakpoint
+CREATE TABLE `notification_recipient_state` (
+	`id` text PRIMARY KEY NOT NULL,
+	`occurrence_id` text NOT NULL,
+	`recipient_user_id` text NOT NULL,
+	`tag` text NOT NULL,
+	`anchor_date` text NOT NULL,
+	`state` text DEFAULT 'active' NOT NULL,
+	`next_slot_index` integer DEFAULT 0 NOT NULL,
+	`snoozed_until_ms` integer,
+	`snooze_count` integer DEFAULT 0 NOT NULL,
+	`last_sent_at_ms` integer,
+	`last_sent_slot_index` integer,
+	`interacted_at_ms` integer,
+	`cleared_at_ms` integer,
+	`clear_reason` text,
+	`created_at_ms` integer NOT NULL,
+	`updated_at_ms` integer NOT NULL,
+	FOREIGN KEY (`occurrence_id`) REFERENCES `maintenance_occurrence`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`recipient_user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_recipient_state_state" CHECK(state IN ('active', 'snoozed', 'cleared', 'suppressed')),
+	CONSTRAINT "ck_recipient_state_clear_reason" CHECK(clear_reason IN ('completed', 'skipped', 'cancelled', 'postponed', 'reopened')),
+	CONSTRAINT "ck_recipient_state_next_slot" CHECK(next_slot_index >= 0),
+	CONSTRAINT "ck_recipient_state_snooze_count" CHECK(snooze_count >= 0),
+	CONSTRAINT "ck_recipient_state_cleared" CHECK((state = 'cleared') = (cleared_at_ms IS NOT NULL))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_recipient_state_occurrence` ON `notification_recipient_state` (`occurrence_id`,`recipient_user_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_recipient_state_tag` ON `notification_recipient_state` (`tag`);--> statement-breakpoint
+CREATE INDEX `ix_recipient_state_state` ON `notification_recipient_state` (`state`,`occurrence_id`);--> statement-breakpoint
+CREATE INDEX `ix_recipient_state_user` ON `notification_recipient_state` (`recipient_user_id`,`state`);--> statement-breakpoint
+CREATE TABLE `reminder_slot` (
+	`id` text PRIMARY KEY NOT NULL,
+	`recipient_state_id` text NOT NULL,
+	`slot_index` integer NOT NULL,
+	`scheduled_at_ms` integer NOT NULL,
+	`scheduled_local_date` text NOT NULL,
+	`state` text DEFAULT 'pending' NOT NULL,
+	`is_snooze` integer DEFAULT false NOT NULL,
+	`consolidated_from_index` integer,
+	`consolidated_count` integer DEFAULT 1 NOT NULL,
+	`held_until_ms` integer,
+	`nonce` text NOT NULL,
+	`offered_actions_json` text,
+	`claimed_by` text,
+	`claim_fence` integer,
+	`claim_expires_at_ms` integer,
+	`attempt_count` integer DEFAULT 0 NOT NULL,
+	`next_attempt_at_ms` integer,
+	`sent_at_ms` integer,
+	`cancel_reason` text,
+	`created_at_ms` integer NOT NULL,
+	FOREIGN KEY (`recipient_state_id`) REFERENCES `notification_recipient_state`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ck_reminder_slot_state" CHECK(state IN ('pending', 'claimed', 'sent', 'failed', 'snoozed', 'cancelled', 'superseded')),
+	CONSTRAINT "ck_reminder_slot_index" CHECK(slot_index >= 0),
+	CONSTRAINT "ck_reminder_slot_consolidated_count" CHECK(consolidated_count >= 1),
+	CONSTRAINT "ck_reminder_slot_attempt_count" CHECK(attempt_count >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_slot_one_open` ON `reminder_slot` (`recipient_state_id`) WHERE state IN ('pending', 'claimed');--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_slot_nonce` ON `reminder_slot` (`nonce`);--> statement-breakpoint
+CREATE INDEX `ix_slot_ready` ON `reminder_slot` (`state`,`scheduled_at_ms`);--> statement-breakpoint
+CREATE INDEX `ix_slot_state_recipient` ON `reminder_slot` (`recipient_state_id`,`slot_index`);--> statement-breakpoint
+CREATE TABLE `worker_heartbeat` (
+	`name` text PRIMARY KEY NOT NULL,
+	`worker_id` text,
+	`last_tick_started_ms` integer,
+	`last_tick_finished_ms` integer,
+	`last_ok_ms` integer,
+	`tick_count` integer DEFAULT 0 NOT NULL,
+	`last_error` text,
+	`ha_connected` integer DEFAULT false NOT NULL,
+	`ha_last_connected_ms` integer
+);
+--> statement-breakpoint
+CREATE TABLE `worker_lease` (
+	`name` text PRIMARY KEY NOT NULL,
+	`holder_id` text,
+	`fence` integer DEFAULT 0 NOT NULL,
+	`acquired_at_ms` integer,
+	`expires_at_ms` integer DEFAULT 0 NOT NULL,
+	`updated_at_ms` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `attachment` (
+	`id` text PRIMARY KEY NOT NULL,
+	`kind` text NOT NULL,
+	`mime` text NOT NULL,
+	`byte_size` integer NOT NULL,
+	`sha256` text NOT NULL,
+	`storage_path` text NOT NULL,
+	`original_filename` text NOT NULL,
+	`width` integer,
+	`height` integer,
+	`has_web_copy` integer DEFAULT false NOT NULL,
+	`taken_at_ms` integer,
+	`caption` text,
+	`created_at_ms` integer NOT NULL,
+	`created_by` text,
+	`updated_at_ms` integer NOT NULL,
+	`updated_by` text,
+	FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_attachment_kind" CHECK(kind IN ('photo', 'pdf', 'manual', 'video', 'other')),
+	CONSTRAINT "ck_attachment_byte_size" CHECK(byte_size >= 0)
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_attachment_sha256` ON `attachment` (`sha256`);--> statement-breakpoint
+CREATE INDEX `ix_attachment_created` ON `attachment` (`created_at_ms`);--> statement-breakpoint
+CREATE TABLE `attachment_link` (
+	`id` text PRIMARY KEY NOT NULL,
+	`attachment_id` text NOT NULL,
+	`entity_kind` text NOT NULL,
+	`entity_id` text NOT NULL,
+	`role` text,
+	`seq` integer DEFAULT 0 NOT NULL,
+	FOREIGN KEY (`attachment_id`) REFERENCES `attachment`(`id`) ON UPDATE no action ON DELETE cascade,
+	CONSTRAINT "ck_attachment_link_entity_kind" CHECK(entity_kind IN ('asset', 'location', 'occurrence', 'completion', 'procedure_version', 'procedure_step', 'part', 'part_lot', 'annotation', 'service_document', 'project', 'infra_route'))
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_attachment_link` ON `attachment_link` (`attachment_id`,`entity_kind`,`entity_id`,`role`);--> statement-breakpoint
+CREATE INDEX `ix_attachment_link_entity` ON `attachment_link` (`entity_kind`,`entity_id`,`seq`);--> statement-breakpoint
+CREATE TABLE `export_run` (
+	`id` text PRIMARY KEY NOT NULL,
+	`requested_by` text NOT NULL,
+	`format` text NOT NULL,
+	`datasets_json` text NOT NULL,
+	`started_at_ms` integer NOT NULL,
+	`finished_at_ms` integer,
+	`status` text DEFAULT 'running' NOT NULL,
+	`output_path` text,
+	`row_counts_json` text,
+	`error` text,
+	FOREIGN KEY (`requested_by`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_export_run_format" CHECK(format IN ('json', 'csv')),
+	CONSTRAINT "ck_export_run_status" CHECK(status IN ('running', 'done', 'failed'))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_export_run_started` ON `export_run` (`started_at_ms`);--> statement-breakpoint
+CREATE TABLE `backup_run` (
+	`id` text PRIMARY KEY NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`label` text NOT NULL,
+	`path` text NOT NULL,
+	`bytes` integer NOT NULL,
+	`ok` integer NOT NULL,
+	`error` text,
+	CONSTRAINT "ck_backup_run_bytes" CHECK(bytes >= 0)
+);
+--> statement-breakpoint
+CREATE INDEX `ix_backup_run_created` ON `backup_run` (`created_at_ms`);--> statement-breakpoint
+CREATE TABLE `event_cursor` (
+	`id` integer PRIMARY KEY NOT NULL,
+	`seq` integer DEFAULT 0 NOT NULL,
+	CONSTRAINT "ck_event_cursor_singleton" CHECK("event_cursor"."id" = 1)
+);
+--> statement-breakpoint
+CREATE TABLE `event_outbox` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`topic` text NOT NULL,
+	`entity_key` text,
+	`payload_json` text NOT NULL,
+	`created_at_ms` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `ix_event_outbox_created` ON `event_outbox` (`created_at_ms`);--> statement-breakpoint
+CREATE INDEX `ix_event_outbox_topic` ON `event_outbox` (`topic`,`entity_key`);--> statement-breakpoint
+CREATE TABLE `idempotency_key` (
+	`key` text PRIMARY KEY NOT NULL,
+	`user_id` text,
+	`response_json` text NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `ix_idempotency_key_created` ON `idempotency_key` (`created_at_ms`);--> statement-breakpoint
+CREATE TABLE `process_metric` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`role` text NOT NULL,
+	`pid` integer NOT NULL,
+	`rss_bytes` integer NOT NULL,
+	`heap_used_bytes` integer NOT NULL,
+	`external_bytes` integer NOT NULL,
+	`uptime_s` integer NOT NULL,
+	`at_ms` integer NOT NULL,
+	CONSTRAINT "ck_process_metric_role" CHECK(role IN ('web', 'worker', 'cli'))
+);
+--> statement-breakpoint
+CREATE INDEX `ix_process_metric_at` ON `process_metric` (`at_ms`);--> statement-breakpoint
+CREATE INDEX `ix_process_metric_role_at` ON `process_metric` (`role`,`at_ms`);--> statement-breakpoint
+CREATE VIEW `part_stock` AS SELECT p.id AS part_id,
+       COALESCE(SUM(t.qty_milli), 0) AS on_hand_milli,
+       COALESCE(SUM(CASE WHEN t.occurred_at_ms <= unixepoch() * 1000 THEN t.qty_milli END), 0) AS effective_milli,
+       MAX(t.occurred_at_ms) AS last_movement_ms
+FROM part p LEFT JOIN stock_transaction t ON t.part_id = p.id
+GROUP BY p.id;

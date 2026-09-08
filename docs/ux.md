@@ -1,0 +1,387 @@
+# UX and the design system
+
+What the app should feel like: **a calm architectural workspace**, not a dashboard. Crisp
+typography on paper-coloured surfaces, restrained colour, one accent, real density on desktop and
+real thumb targets on a phone. No decorative charts, no fake statistics, no animation that loops.
+
+Tokens live in `src/app/globals.css`; components in `src/ui` (`src/ui/shell` for the app frame).
+Where this document and the code disagree, the code wins — but change both.
+
+---
+
+## 1. Navigation
+
+Four sections, in this order, everywhere:
+
+| Section | Route | What it answers |
+|---|---|---|
+| Today | `/today` | What needs doing now, and what was just finished. |
+| House | `/house` | The 3D house: rooms, surfaces, equipment, their history. |
+| Supplies | `/supplies` | What is in stock, what to buy. |
+| History | `/history` | What was actually done, by whom, with proof. |
+
+Plus **Settings** (`/settings`), which is not a fifth section: it sits at the bottom of the sidebar
+on desktop and inside the account menu on phones. Its sub-navigation is
+`Security · Household · Users · Home Assistant · House model · System`, grouped as *Your account*,
+*Household*, *System*.
+
+`/` redirects to `/today`. There is no landing page: the app opens on the work.
+
+The nav table is `src/ui/shell/nav.ts` — a single source for the sidebar, the phone tab bar, the
+settings sub-navigation and the settings index. `isActive(href, pathname)` decides selection by
+longest prefix, so `/house/room/kitchen` still highlights House.
+
+## 2. Layout rules
+
+The shell (`src/ui/shell/AppShell.tsx`) is a fixed-height frame:
+
+```
+h-dvh, overflow-hidden
+├─ sidebar (desktop only)        w-sidebar / w-sidebar-collapsed
+└─ column
+   ├─ header                     h-topbar   search · HA pill · account
+   ├─ main   min-h-0 flex-1 overflow-hidden      <-- DOES NOT SCROLL
+   └─ tab bar (phones only)      h-tabbar   in normal flow, not fixed
+```
+
+**`<main>` never scrolls.** A page therefore chooses one of two contracts:
+
+- **Ordinary page** — wrap content in `PageScroll`, which owns the scroll container, the max width
+  (`max-w-6xl`) and the page padding. Every page except `/house` does this.
+- **Workspace page** — fill the box and manage overflow yourself (`Workspace` is the helper).
+  `/house` needs this: a full-viewport 3D canvas with no page scroll and no iOS rubber-banding.
+
+Two consequences worth knowing:
+
+- A page that forgets `PageScroll` simply cannot be scrolled. That is the intended failure mode —
+  better than two nested scrollbars nobody can explain.
+- The phone tab bar is in normal document flow, so `<main>` already excludes its height. Nothing
+  needs bottom padding to compensate, and the workspace gets exactly the space that is left.
+
+Inside a page: `PageHeader` (eyebrow, `<h1>`, description, actions) then `Panel`s. **Panels do not
+nest.** A panel inside a panel means the information architecture is wrong, not that a border is
+missing.
+
+## 3. Tokens
+
+### Colour
+
+Light is the design target; dark is a full re-tint, not an inversion. `:root` holds the light ramp
+as `--vh-*` values; two blocks override the ramp for dark (`prefers-color-scheme: dark` unless
+`[data-theme="light"]`, and `[data-theme="dark"]` for an explicit choice). `@theme inline` maps the
+ramp onto Tailwind names, so **one class follows both modes** and there is no `dark:` variant
+anywhere in the codebase.
+
+| Group | Tailwind names | Use |
+|---|---|---|
+| Paper | `paper`, `surface`, `surface-2`, `surface-3`, `surface-4` | page → panel → input/stripe → hover → pressed |
+| Lines | `line`, `line-strong` | hairlines; input and emphasis borders |
+| Ink | `ink`, `ink-2`, `ink-3`, `on-accent` | primary, secondary, muted, text on accent |
+| Accent | `accent`, `accent-hover`, `accent-active`, `accent-soft`, `accent-text` | one deep blue (`#2f5fd0`) for selection and primary actions |
+| Status | `ok`, `due`, `overdue`, `blocked`, `unknown`, `stale` (+ `*-soft`) | see §5 |
+| Effects | `ring`, `scrim` | focus ring, overlay backdrop |
+
+Every ink and status foreground clears 4.5:1 on its intended background in both modes. Avatar
+display colours are used at ~20 % over the panel surface with ink-coloured text, so an arbitrary
+stored hue can never make initials unreadable — and a non-hex value is rejected before it reaches
+CSS.
+
+### Space, radius, shadow
+
+Spacing is Tailwind's 4 px scale. Named layout metrics: `--vh-sidebar-w` (15rem),
+`--vh-sidebar-w-collapsed` (3.5rem), `--vh-topbar-h` (3.25rem), `--vh-tabbar-h` (3.75rem) — exposed
+as `w-sidebar`, `h-topbar`, `h-tabbar`.
+
+Radius: `rounded-xs` 3px (dots, key caps) · `sm` 5px (inputs, badges) · `md` 8px (buttons, rows) ·
+`lg` 12px (panels) · `xl` 16px (dialogs, sheets).
+
+Shadow: `shadow-panel` (a panel sitting on paper) · `shadow-pop` (popovers, toasts) ·
+`shadow-overlay` (dialogs, sheets). Nothing else casts a shadow.
+
+### Typography
+
+Inter Variable, vendored under `src/app/fonts/` (SIL OFL 1.1, `Inter-LICENSE.txt`, unmodified) and
+loaded with `next/font/local` — not a CDN, because the CSP is `font-src 'self' data:` and the app
+must work with no internet. Monospace is a system stack (`--font-mono`), used only for ids, keys and
+`Kbd`.
+
+Numbers use **tabular numerals**: `th`, `td`, `time`, `output` and the `.vh-tnum` class. Any figure
+that can change between renders (quantities, due dates, counters) must be tabular so it does not
+jitter.
+
+### Motion
+
+`--vh-dur-instant` 80ms · `--vh-dur-fast` 120ms · `--vh-dur-base` 180ms · `--vh-dur-slow` 260ms,
+with `--vh-ease` and `--vh-ease-out`. Enter/exit animations are named keyframes (`vh-fade-in`,
+`vh-pop-in`, `vh-slide-up`, `vh-slide-from-right`, …) applied through Radix `data-state`.
+
+**No continuous animation exists in this app** — no shimmer skeletons, no marching progress stripes,
+no pulsing status dots. The single exception is the busy spinner, and a global
+`prefers-reduced-motion` block in `globals.css` clamps every duration to 1 ms and every iteration
+count to 1, which leaves the spinner a static glyph. That block is the guarantee: it also covers
+animations that come from Radix rather than from our classes.
+
+## 4. Component inventory (`src/ui`)
+
+| Component | Notes |
+|---|---|
+| `Button` | `primary` / `secondary` / `ghost` / `danger`; `sm` `md` `lg`; `loading` (spinner + `aria-busy` + disabled); `icon`, `iconTrailing`. `buttonClasses()` styles an `<a>`/`Link` identically. |
+| `IconButton` | Icon-only; `label` is **required** and becomes the accessible name and title. 44 px below `md:`, 28–36 px above. |
+| `Input`, `Textarea` | Shared `fieldSurface` chrome; `icon` / `trailing` slots; `aria-invalid` restyles the field. |
+| `Field` | Label + control + help + error with real ids, via a **render callback** (`{ id, describedBy, invalid, errorId }`) — no `cloneElement` magic. Help text is never replaced by the error; both are announced. |
+| `Select` | Radix; options carry an optional `hint` line. Keyboard and typeahead from Radix. |
+| `Checkbox`, `Switch`, `RadioGroup` | 18 px controls inside ≥44 px rows on phones. `Switch` means "applies immediately"; `Checkbox` belongs in submitted forms. |
+| `SegmentedControl` | Radix ToggleGroup, single mode; one tab stop, arrow keys between segments. Ignores deselection — a segmented control always has a selection. |
+| `Dialog` | Centred modal for short decisions. Focus trap/restore, Escape, scroll lock from Radix. More than a couple of fields belongs on a page. |
+| `Sheet` | Same Radix Dialog, anchored to an edge. `bottom` (phone default, ≤88 dvh, safe-area padded, grab handle) or `right` (desktop inspector). |
+| `Popover` | Non-modal transient surface: filters, small menus, the account menu. |
+| `Tooltip` | Supplementary only — tooltips do not exist on touch, so nothing essential lives here. `TooltipProvider` is mounted once by the shell. |
+| `Tabs` | Underline + weight change marks the active tab. `TabsPanel` is the content. |
+| `Badge`, `StatusBadge`, `StatusDot` | See §5. |
+| `ConnectionPill` | `connected` / `degraded` / `disconnected` / `unknown` for Home Assistant. |
+| `Panel` | The app's one container: bordered paper, optional header/footer, `flush` for tables, `fill` for workspace columns. |
+| `EmptyState` | Icon, title, description, `bullets` (what *will* be here), actions, provenance `note`. The default look of an unfinished screen. |
+| `Skeleton` | Static, unanimated placeholder. |
+| `Kbd` | One key cap; compose for chords. |
+| `Toast` | Module-scope store + `ToastViewport` (mounted in the root layout), no dependency. Outcomes of user actions only — never background events, because a toast nobody sees is a lost message. Errors persist until dismissed; other tones auto-dismiss. |
+| `DataTable` | Dense, quiet, deliberately dumb: sorting/filtering/paging belong to the URL, not to component state. Sortable headers are real `<button>`s with `aria-sort` on the `<th>`. |
+| `Breadcrumb` | House trails; the last crumb is `aria-current="page"` and never a link. |
+| `Avatar` | Initials over a tint of the person's display colour; deterministic fallback colour from the name. |
+| `ProgressBar` | Determinate, or a **static** striped track when indeterminate. |
+| `Spinner` | The only looping animation; stops looping under reduced motion. |
+
+Shell (`src/ui/shell`): `AppShell`, `SidebarNav`, `MobileTabBar`, `GlobalSearch`, `UserMenu`,
+`HouseMark`, `PageScroll`, `PageHeader`, `Workspace`, `nav.ts`, `sidebarStore.ts`.
+
+Helpers: `cn()`, `focusRing`, `focusRingInset`, and `status.ts` (pure, React-free, so the worker and
+tests can use it).
+
+`cn()` has no `tailwind-merge`, and that has one consequence worth knowing: **conflicting utilities
+are resolved by stylesheet order, not by class-list order.** Appending the caller's `className` last
+does not make it win — `p-1.5` after `p-3` still loses. So primitives do not set utilities callers
+commonly override; they expose a prop instead (`Popover`'s `padded`, `Button`'s `size`, `Panel`'s
+`flush`) or let `className` replace the default outright (`HouseMark`). Margins, `hidden` and grid
+placement are safe to pass, because nothing sets them.
+
+## 5. States
+
+Six status kinds, each with its **own glyph** as well as its own colour:
+
+| Kind | Glyph | Means |
+|---|---|---|
+| `ok` | check | Nothing due; last completion is inside the interval. |
+| `due` | clock | Due now or within the household lead time. |
+| `overdue` | warning triangle | Due date passed, no completion recorded. |
+| `blocked` | ban | A supply is missing, or a professional is booked. |
+| `unknown` | question | No data. **Never a value** — not zero, not "fine". |
+| `stale` | cloud-off | The last reading is too old to trust. |
+
+`unknown` and `stale` are different on purpose: "we have no reading" is not "we have an old
+reading", and neither is "everything is fine". `STATUS_URGENCY` sorts `overdue → due → blocked →
+stale → unknown → ok`; `unknown` ranks **above** `ok` because missing information is something to
+look at.
+
+Rules:
+
+- **No colour-only meaning.** Status carries a glyph; selection carries a left rule *and* a tint;
+  the active tab carries an underline *and* a weight change; a required field says "(required)".
+- `Badge` wherever there is room for words. `StatusDot` only in dense rows, and it still carries an
+  accessible name (pass `label={null}` only when the same status is spelled out in adjacent text).
+- **Empty ≠ zero.** An empty screen gets an `EmptyState` that says what will appear and where it
+  comes from. Never a "0" tile, never a placeholder chart, never an invented statistic.
+- Loading is a `Skeleton` or a disabled control with a spinner — never a layout that jumps.
+- Errors are specific about what failed and what was *not* changed. Sign-in is the one place with a
+  deliberately generic message ("Wrong username or password"), with rate limiting as the single
+  exception ("Too many attempts, wait a minute") because lockout and a typo need different
+  reactions.
+
+## 6. Keyboard conventions
+
+| Key | Effect |
+|---|---|
+| `Tab` / `Shift-Tab` | Move between controls. Every interactive element is reachable. |
+| `/` | Focus the global search — suppressed while typing in a field or contenteditable. |
+| `Escape` | Close the top dialog, sheet, popover, select or tooltip; clear the search field. |
+| `Enter` / `Space` | Activate the focused control. Password fields carry `enterKeyHint="go"`. |
+| `↑` `↓` | Move within a Select/menu list. |
+| `←` `→` | Move between tabs and segmented-control segments (one tab stop per group). |
+| `Home` / `End` | First/last item in a Radix list. |
+
+Also:
+
+- **Skip to content** is the first focusable element on every app page (`#main`).
+- Focus is always visible: a 2 px `ring`-coloured outline, offset 2 px (inset where an offset ring
+  would be clipped). No component ever sets `outline: none` without a replacement.
+- Focus order follows the DOM; nothing uses a positive `tabindex`.
+- Dialogs and sheets trap focus and restore it to the trigger on close (Radix).
+- The sidebar is a plain list of links — one tab stop each, `aria-current="page"` on the active row.
+  No roving-focus widget to relearn.
+
+## 7. Phones (below `md:`, 768 px)
+
+Phones are for doing the work in front of you: instructions, completing a task, taking a photo,
+checking a supply, finding a piece of equipment. Desktop is for planning and for the house model.
+
+- Sidebar is replaced by a **bottom tab bar** with the same four sections in the same order; the
+  active tab gets a tinted roundel plus a heavier stroke. Settings moves into the account menu.
+- Every touch target is ≥44 px. `IconButton` grows to 44 px below `md:`; checkbox, switch and radio
+  rows are ≥44 px tall even though the control itself is 18 px.
+- Detail surfaces are bottom `Sheet`s (grab handle, ≤88 dvh, `env(safe-area-inset-bottom)` padding),
+  not centred dialogs.
+- `viewport-fit=cover` plus safe-area padding on the top bar, the tab bar and bottom sheets, so the
+  notch and home indicator never overlap content.
+- Toasts sit above the tab bar, centred, within thumb reach.
+- Tables hide `desktopOnly` columns rather than shrinking to unreadable; wide content scrolls inside
+  its own container so the page never scrolls sideways.
+- The account menu, search hint key caps and tooltips degrade gracefully: nothing important is
+  reachable only by hover.
+
+## 8. Login (`/login`)
+
+Centred card on a masked drafting grid — architectural, not cute. Behind
+`VH_SHOW_ACCOUNT_HINTS`, the household members are pre-listed as avatar buttons: clicking one fills
+the username and focuses the password field. That is deliberate user enumeration, and it is the
+right trade for two accounts on a private hostname (see
+`docs/design-notes/auth-security-operations.md` §3.7).
+
+- The `username` input is **always in the DOM** — visually hidden when hints are shown, never
+  removed and never `display: none` — so iOS Passwords and other managers can fill it and offer to
+  save the pair. "Sign in as someone else" reveals it.
+- "Keep me signed in" defaults to **on** (30 days of inactivity), wired to `rememberMe`.
+- `next` is validated by `safeNextPath` (same-origin relative paths only), so a crafted Home
+  Assistant notification link cannot bounce the user off-site after sign-in.
+- On success the page does a **full navigation**, not a client push, so the proxy and every server
+  component see the new cookie on the first request.
+- Recovery is CLI-only (`pnpm vh-admin set-password`), stated in small text on the page. There is no
+  mail transport, so there is no reset link to send — and none to steal.
+
+## 9. Settings → Security
+
+Reads a **fresh** session (bypassing the 60 s cookie cache) because it shows and revokes sessions.
+
+Better Auth puts `/list-sessions` behind its fresh-session middleware (`freshAge` is 10 minutes), so
+an ordinary long-lived session gets `403 SESSION_NOT_FRESH` instead of a list. That is a normal
+state for this page, not an error: it renders an explanation and still offers "sign out all other
+devices", which does not require freshness. Password change and single-session revoke work from any
+valid session.
+
+## 10. Maintenance screens
+
+The maintenance slice is five routes plus one export handler. Server components by default, server
+actions for every write, client components only where a decision needs a form.
+
+| Route | What it is |
+|---|---|
+| `/today` | The daily list. Sections, an honest health banner, two quick actions per row. |
+| `/tasks/[id]` | One task. The primary phone screen. |
+| `/plans`, `/plans/new`, `/plans/[id]` | The recurring obligations and the form that defines them. |
+| `/procedures`, `/procedures/[id]` | Written instructions, versioned and frozen on publish. |
+| `/history` | What was actually done — and what was not. |
+| `GET /api/exports/maintenance` | JSON (all datasets) or CSV (one dataset), with the §8.4 envelope. |
+
+Code: pages under `src/app/(app)/{today,tasks,plans,procedures,history}`, reads in
+`src/server/queries/maintenance/*`, writes in `src/server/actions/maintenance/*`, client components
+and the pure helpers in `src/features/maintenance/*`. The helpers are React-free and tested
+(`tests/unit/features/maintenance/`): `grouping.ts` (which section a row belongs to), `dueDate.ts`
+(every date and due phrase in the slice), `materials.ts` (pre-fill and the short-line diff),
+`schedule.ts` (form ↔ `RecurrenceRule`, and the preview), `progress.ts` (resume position).
+
+### 10.1 The rule the whole slice is shaped by
+
+CLAUDE.md rule 6 — **never fabricate maintenance history** — is a UI problem as much as a schema
+one, because every convenient shortcut is a way to write a lie. So, concretely:
+
+- **Nothing completes in one tap.** "Complete…" opens a dialog that asks when, who, and what was
+  used. There is no "done" button on a list row.
+- **A schedule anchor is not a completion.** Plan setup and the plan page say so in words; History
+  shows no row for it, and the task header spells out where the next date came from
+  (`anchorWording`).
+- **A snooze is only a reminder.** The dialog says what it does not touch, and it is per person.
+- **A postpone keeps `original_due_date`**, and the row shows both dates.
+- **A skip requires a reason** and is labelled "skipped" everywhere, never "completed".
+- **A booking is not a completion**, and neither is a provider attending. Both stay under
+  "Blocked / waiting" with the task still open; moving the due date to the appointment is a
+  separate checkbox.
+- **A recovered condition reading closes nothing.** §6.5's three choices are the only way out.
+- **A void is a visible correction**, not a deletion: History keeps the row, struck through, with
+  the reason.
+- **An approximate anchor never gets an exact overdue count** — the wording becomes "estimated
+  overdue" rather than "overdue by 47 days".
+
+### 10.2 `/today`
+
+Five sections from `groupToday`, in this order: **Needs attention** (overdue or due today, split
+into yours / shared / the other member's), **Ready to do** (inside 7 days), **Condition alerts**
+(HA-derived, with the reading and the threshold), **Blocked / waiting**, **Upcoming 30 days**. A
+sixth panel lists plans still waiting for a starting point.
+
+Blocking beats the due date: a task you cannot start is in "waiting", not in "needs attention".
+Condition work gets its own section at any due date, because the row needs the battery reading
+beside it. Sort is `(priority DESC, due_date ASC)`, exactly as §3.3 specifies.
+
+Row actions are **Open**, **Snooze 1 day** and **Postpone…** — the two that need no decision, plus
+the one that needs a small one. Snooze is hidden when the viewer is not a recipient.
+
+The health banner reads `integration_status` **and** `worker_heartbeat`, and keeps them apart: a
+stale heartbeat means the *worker* is down, which is a different sentence from "Home Assistant is
+unreachable". With no status row at all it says so — `unknown` is never rendered as healthy. When
+everything is fine it collapses to one quiet line.
+
+No page in this slice shows a computed statistic. Counts are counts of rows on the screen.
+
+### 10.3 `/tasks/[id]`
+
+The phone screen. Header (status, due, original due when postponed, assignee avatars, priority,
+effort), the target with **Locate in house** (`/house?sel=equipment:<placementId>`, falling back to
+`asset:<id>` / `room:<modelNodeId>`; a system says it has no single place), the condition panel
+where relevant, the frozen instructions, materials with live stock, photos, the completion record,
+the typed timeline, and earlier work on the same plan or unit.
+
+- **Instructions come from the occurrence's frozen `procedure_version_id`**, never from the
+  procedure's current version. Progress is stored per step and per checklist item, and the runner
+  opens at the first step that is neither done nor skipped.
+- **Materials** show the ledger balance — the same number the completion transaction checks — with
+  a one-click "waiting for materials" that writes a block whose reason names the parts.
+- **Photos** post to `/api/upload` (which sniffs the type and strips GPS) and are then linked by a
+  server action; the input is `capture="environment"`, so a phone opens the camera.
+- **Actions** live in a sticky bottom bar: Complete…, Snooze, Postpone, Waiting for…, Book a
+  professional, Skip. Big targets, thumb reach, and `Complete…` first.
+- **Insufficient stock** (§5.3) is handled inside the completion dialog: the response comes back
+  with its lines, every field the user typed stays, each short line gets *Adjust stock up /
+  Consume what's there / Note the discrepancy*, and resubmitting reuses the same `requestId` so a
+  lost response cannot double-complete.
+
+### 10.4 `/plans`
+
+One page, not a wizard: every answer changes the schedule preview, and a wizard would hide it
+behind "next". The schedule chooser offers six questions in plain language and says, for each, what
+it does about drift — the difference between "6 months after it was last done" (drifts on purpose)
+and "every April and October" (never moves) is the single hardest idea in the app. Under it, a live
+preview of the next three dates, computed on the *server* by the same `computeNextDue` the
+scheduler uses, in the household time zone, with its assumption stated.
+
+The setup section ("When was this last done?") offers exact / approximate / pick a date / start now
+/ the install date / ask me later. All six write an anchor. "Ask me later" saves the plan paused
+and generates nothing.
+
+Editing a plan never rewrites open work: an occurrence is a snapshot, so changes take effect on the
+next one, and the page says that out loud.
+
+### 10.5 `/procedures`
+
+One editable draft per procedure. Publishing freezes the version and supersedes the previous one
+without deleting it; editing a published version forks a new draft by copying it. `?version=<id>`
+shows an older version read-only, which is how you check what a task from two years ago said. A
+version with no steps cannot be published — a task with empty instructions is worse than none.
+
+### 10.6 `/history`
+
+One table, with the row type labelled: completions, voided completions, skipped, cancelled,
+bookings. Filters (date range, target, types) live in the URL, so a filtered view is shareable and
+survives a reload.
+
+Exports are the whole record rather than the filtered view, because an export that silently omitted
+rows is a worse file to keep. `?format=json` returns the envelope plus every dataset;
+`?format=csv&dataset=…` returns one flat table and carries the envelope in `X-VH-Export-Context`
+(one dataset per request rather than a zip, which would mean an archiver dependency to serve two
+people on a LAN).

@@ -50,7 +50,9 @@ export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
     session: {
       expiresIn: 60 * 60 * 24 * 30,
       updateAge: 60 * 60 * 24,
-      freshAge: 60 * 10,
+      // 0 disables the "fresh session" gate: with it, list-sessions returns 403 for any session
+      // older than freshAge. Password change still requires the current password.
+      freshAge: 0,
       cookieCache: { enabled: true, maxAge: 60 },
     },
 

@@ -1,26 +1,387 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   virtual-home design tokens
+   ---------------------------------------------------------------------------
+   A warm, architectural workspace: paper-coloured surfaces, ink text, a single
+   deep blue accent for selection and actions, and six semantic status colours.
+
+   Structure
+     1. `:root` holds the LIGHT palette as raw `--vh-*` ramp values.
+     2. Two override blocks hold the DARK palette: `prefers-color-scheme: dark`
+        (unless `[data-theme="light"]` opts out) and `[data-theme="dark"]`.
+        Only ramp values are overridden; nothing else needs to know about mode.
+     3. `@theme inline` maps the ramps onto Tailwind colour/radius/shadow names
+        so utilities (`bg-surface`, `text-ink-2`, `rounded-md`, `shadow-panel`,
+        `outline-ring`) resolve to the tokens.
+
+   Contrast: every `--vh-ink-*`, `--vh-accent-text` and status foreground is
+   >= 4.5:1 on its intended background in both modes.
+   --------------------------------------------------------------------------- */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+
+  /* --- surfaces: paper ---------------------------------------------------- */
+  --vh-paper-0: #faf9f5; /* app background */
+  --vh-paper-1: #f6f5f1; /* panels, cards, bars */
+  --vh-paper-2: #efeee8; /* inputs, table stripes, sunken fills */
+  --vh-paper-3: #e7e5dd; /* hover */
+  --vh-paper-4: #dcd9cf; /* pressed */
+  --vh-line: #dad7cd; /* hairline borders */
+  --vh-line-strong: #bdb8a9; /* emphasised borders, input borders */
+
+  /* --- text: ink --------------------------------------------------------- */
+  --vh-ink-1: #1c1b18; /* primary */
+  --vh-ink-2: #4b4841; /* secondary */
+  --vh-ink-3: #6f6b62; /* muted labels, metadata */
+  --vh-ink-on-accent: #ffffff; /* text on an accent-filled surface */
+
+  /* --- accent: one deep blue --------------------------------------------- */
+  --vh-accent: #2f5fd0;
+  --vh-accent-hover: #2851bb;
+  --vh-accent-active: #20428f;
+  --vh-accent-soft: #e6ecfb; /* selected row / active nav background */
+  --vh-accent-text: #254da8; /* accent text on paper or accent-soft */
+
+  /* --- semantic status --------------------------------------------------- */
+  --vh-ok: #1f7a4d;
+  --vh-ok-soft: #e2f0e7;
+  --vh-due: #8a5a00;
+  --vh-due-soft: #fbeed2;
+  --vh-overdue: #b2301c;
+  --vh-overdue-soft: #fbe3de;
+  --vh-blocked: #6b46b8;
+  --vh-blocked-soft: #ece5f9;
+  --vh-unknown: #6f6b62;
+  --vh-unknown-soft: #eceae3;
+  --vh-stale: #4f6473;
+  --vh-stale-soft: #e4eaee;
+
+  /* --- effects ----------------------------------------------------------- */
+  --vh-ring: #2f5fd0; /* focus ring */
+  --vh-scrim: rgb(28 27 24 / 0.45); /* dialog/sheet backdrop */
+  --vh-shadow-1: 0 1px 2px rgb(60 55 40 / 0.06);
+  --vh-shadow-2: 0 2px 4px rgb(60 55 40 / 0.08), 0 8px 16px rgb(60 55 40 / 0.06);
+  --vh-shadow-3: 0 4px 8px rgb(60 55 40 / 0.10), 0 16px 40px rgb(60 55 40 / 0.14);
+
+  /* --- motion (durations are clamped to ~0 under reduced motion, below) --- */
+  --vh-dur-instant: 80ms;
+  --vh-dur-fast: 120ms;
+  --vh-dur-base: 180ms;
+  --vh-dur-slow: 260ms;
+  --vh-ease: cubic-bezier(0.2, 0, 0.2, 1);
+  --vh-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* --- layout metrics used by the app shell ------------------------------ */
+  --vh-sidebar-w: 15rem;
+  --vh-sidebar-w-collapsed: 3.5rem;
+  --vh-topbar-h: 3.25rem;
+  --vh-tabbar-h: 3.75rem;
+
+  /* --- hit targets ------------------------------------------------------- */
+  --vh-hit-min: 1.5rem; /* 24px: absolute floor for any control */
+  --vh-hit-touch: 2.75rem; /* 44px: touch target on phones */
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
+/* Dark palette — system preference (unless the user pinned light). */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --vh-paper-0: #161513;
+    --vh-paper-1: #1e1d1a;
+    --vh-paper-2: #262521;
+    --vh-paper-3: #302e29;
+    --vh-paper-4: #3a3831;
+    --vh-line: #35332d;
+    --vh-line-strong: #544f45;
+
+    --vh-ink-1: #f2f0ea;
+    --vh-ink-2: #c6c2b8;
+    --vh-ink-3: #98938a;
+    --vh-ink-on-accent: #ffffff;
+
+    --vh-accent: #3b6fe0;
+    --vh-accent-hover: #4d7de6;
+    --vh-accent-active: #2f5fd0;
+    --vh-accent-soft: #1b2440;
+    --vh-accent-text: #9db8f5;
+
+    --vh-ok: #5cc08a;
+    --vh-ok-soft: #132a1f;
+    --vh-due: #e0a94a;
+    --vh-due-soft: #2e2313;
+    --vh-overdue: #f08a76;
+    --vh-overdue-soft: #331914;
+    --vh-blocked: #b79bf0;
+    --vh-blocked-soft: #241c3a;
+    --vh-unknown: #98938a;
+    --vh-unknown-soft: #232220;
+    --vh-stale: #8fa8ba;
+    --vh-stale-soft: #1a2228;
+
+    --vh-ring: #7fa2f0;
+    --vh-scrim: rgb(0 0 0 / 0.62);
+    --vh-shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+    --vh-shadow-2: 0 2px 4px rgb(0 0 0 / 0.45), 0 8px 16px rgb(0 0 0 / 0.35);
+    --vh-shadow-3: 0 4px 8px rgb(0 0 0 / 0.5), 0 16px 40px rgb(0 0 0 / 0.55);
   }
 }
 
+/* Dark palette — explicitly pinned by the user (`<html data-theme="dark">`). */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --vh-paper-0: #161513;
+  --vh-paper-1: #1e1d1a;
+  --vh-paper-2: #262521;
+  --vh-paper-3: #302e29;
+  --vh-paper-4: #3a3831;
+  --vh-line: #35332d;
+  --vh-line-strong: #544f45;
+
+  --vh-ink-1: #f2f0ea;
+  --vh-ink-2: #c6c2b8;
+  --vh-ink-3: #98938a;
+  --vh-ink-on-accent: #ffffff;
+
+  --vh-accent: #3b6fe0;
+  --vh-accent-hover: #4d7de6;
+  --vh-accent-active: #2f5fd0;
+  --vh-accent-soft: #1b2440;
+  --vh-accent-text: #9db8f5;
+
+  --vh-ok: #5cc08a;
+  --vh-ok-soft: #132a1f;
+  --vh-due: #e0a94a;
+  --vh-due-soft: #2e2313;
+  --vh-overdue: #f08a76;
+  --vh-overdue-soft: #331914;
+  --vh-blocked: #b79bf0;
+  --vh-blocked-soft: #241c3a;
+  --vh-unknown: #98938a;
+  --vh-unknown-soft: #232220;
+  --vh-stale: #8fa8ba;
+  --vh-stale-soft: #1a2228;
+
+  --vh-ring: #7fa2f0;
+  --vh-scrim: rgb(0 0 0 / 0.62);
+  --vh-shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --vh-shadow-2: 0 2px 4px rgb(0 0 0 / 0.45), 0 8px 16px rgb(0 0 0 / 0.35);
+  --vh-shadow-3: 0 4px 8px rgb(0 0 0 / 0.5), 0 16px 40px rgb(0 0 0 / 0.55);
+}
+
+/* ---------------------------------------------------------------------------
+   Tailwind theme mapping. `inline` keeps the `var(--vh-*)` reference in the
+   utility so the same class follows light/dark without a `dark:` variant.
+   --------------------------------------------------------------------------- */
+@theme inline {
+  --color-paper: var(--vh-paper-0);
+  --color-surface: var(--vh-paper-1);
+  --color-surface-2: var(--vh-paper-2);
+  --color-surface-3: var(--vh-paper-3);
+  --color-surface-4: var(--vh-paper-4);
+  --color-line: var(--vh-line);
+  --color-line-strong: var(--vh-line-strong);
+
+  --color-ink: var(--vh-ink-1);
+  --color-ink-2: var(--vh-ink-2);
+  --color-ink-3: var(--vh-ink-3);
+  --color-on-accent: var(--vh-ink-on-accent);
+
+  --color-accent: var(--vh-accent);
+  --color-accent-hover: var(--vh-accent-hover);
+  --color-accent-active: var(--vh-accent-active);
+  --color-accent-soft: var(--vh-accent-soft);
+  --color-accent-text: var(--vh-accent-text);
+
+  --color-ok: var(--vh-ok);
+  --color-ok-soft: var(--vh-ok-soft);
+  --color-due: var(--vh-due);
+  --color-due-soft: var(--vh-due-soft);
+  --color-overdue: var(--vh-overdue);
+  --color-overdue-soft: var(--vh-overdue-soft);
+  --color-blocked: var(--vh-blocked);
+  --color-blocked-soft: var(--vh-blocked-soft);
+  --color-unknown: var(--vh-unknown);
+  --color-unknown-soft: var(--vh-unknown-soft);
+  --color-stale: var(--vh-stale);
+  --color-stale-soft: var(--vh-stale-soft);
+
+  --color-ring: var(--vh-ring);
+  --color-scrim: var(--vh-scrim);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+
+  --radius-xs: 0.1875rem; /* 3px  — dots, tiny chips */
+  --radius-sm: 0.3125rem; /* 5px  — inputs, badges */
+  --radius-md: 0.5rem; /* 8px  — buttons, list rows */
+  --radius-lg: 0.75rem; /* 12px — panels */
+  --radius-xl: 1rem; /* 16px — dialogs, sheets */
+  --radius-full: 9999px;
+
+  --shadow-panel: var(--vh-shadow-1);
+  --shadow-pop: var(--vh-shadow-2);
+  --shadow-overlay: var(--vh-shadow-3);
+
+  --spacing-sidebar: var(--vh-sidebar-w);
+  --spacing-sidebar-collapsed: var(--vh-sidebar-w-collapsed);
+  --spacing-topbar: var(--vh-topbar-h);
+  --spacing-tabbar: var(--vh-tabbar-h);
+  --spacing-hit: var(--vh-hit-min);
+  --spacing-touch: var(--vh-hit-touch);
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+   --------------------------------------------------------------------------- */
+html {
+  background-color: var(--vh-paper-0);
+  /* iOS: keep content clear of the home indicator / notch with viewport-fit=cover */
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--vh-paper-0);
+  color: var(--vh-ink-1);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "cv05" 1, "cv08" 1, "ss03" 1; /* Inter: single-storey l, disambiguated i/l */
+  text-rendering: optimizeLegibility;
+}
+
+/* Numbers must never jitter between renders (schedules, quantities, counters). */
+.vh-tnum,
+th,
+td,
+time,
+output {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "cv05" 1;
+}
+
+::selection {
+  background-color: var(--vh-accent-soft);
+  color: var(--vh-ink-1);
+}
+
+/* Native form controls should follow the accent, not the browser default blue. */
+:root {
+  accent-color: var(--vh-accent);
+}
+
+/* ---------------------------------------------------------------------------
+   Motion. Every transition/animation in the app is short and one-shot; this
+   block is the single guarantee that `prefers-reduced-motion` is honoured,
+   including animations that come from Radix data-state attributes.
+   --------------------------------------------------------------------------- */
+@keyframes vh-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes vh-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vh-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes vh-pop-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97) translateY(2px);
+  }
+}
+@keyframes vh-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes vh-slide-down {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes vh-slide-from-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes vh-slide-to-right {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes vh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --vh-dur-instant: 1ms;
+    --vh-dur-fast: 1ms;
+    --vh-dur-base: 1ms;
+    --vh-dur-slow: 1ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The only looping animation in the app is the busy spinner, and it stops
+   looping under reduced motion (the rule above), leaving a static glyph. */
+.vh-spin {
+  animation: vh-spin 900ms linear infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   Scrollbars: thin and paper-coloured so scrolling panels stay quiet.
+   --------------------------------------------------------------------------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--vh-line-strong) transparent;
 }

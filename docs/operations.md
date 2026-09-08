@@ -74,11 +74,16 @@ Offsite copies are out of scope here: consider Time Machine or an encrypted `rcl
 
 ## Account recovery and secrets
 ```bash
+pnpm vh-admin init-users                      # first run: creates whichever household account is missing
 pnpm vh-admin list-users
 pnpm vh-admin set-password <username>         # resets and revokes that user's sessions
 pnpm vh-admin revoke-sessions --all
 pnpm vh-admin doctor                          # env, perms, integrity, migrations, HA, launchd, disk
 ```
+Passwords are typed at a hidden prompt and are never accepted as an argument (argv is world-readable
+via `ps` and lands in shell history); without a TTY, pipe one in with `--password-from-stdin`. A reset
+revokes that user's sessions, but the 60 s session cookie cache can still satisfy an already-issued
+cookie on read paths for up to a minute — security pages and destructive actions re-check immediately.
 Rotate `BETTER_AUTH_SECRET`: backup → edit `vh.env` → restart web → `revoke-sessions --all` → sign in again.
 Rotate `HA_TOKEN`: create the new token first → edit `vh.env` → restart worker → verify HA state on
 Settings → System → delete the old token in HA.

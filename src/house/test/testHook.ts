@@ -1,0 +1,262 @@
+/**
+ * `window.__vh` — the browser-test surface described in the verification plan.
+ *
+ * Mounted **only** when `NEXT_PUBLIC_VH_TEST_HOOK === '1'`, so it is dead-code-eliminated from a
+ * production bundle. It only reads state and dispatches actions the UI already exposes: it is not
+ * a back door around authentication or around the store's own invariants.
+ */
+import * as THREE from "three";
+import { allMaterialHex, materialHex } from "@/house/scene/applyColors";
+import { worldY } from "@/house/scene/explode";
+import type { PickResult } from "@/house/scene/picker";
+import type { Selection } from "@/house/model/types";
+import type { HouseRuntime } from "../runtime";
+
+export interface VhFrameStats {
+  frames: number;
+  avgMs: number;
+  p95Ms: number;
+  reset(): void;
+}
+
+export interface VhHook {
+  ready: Promise<void>;
+  settled: Promise<void>;
+  status(): {
+    phase: string;
+    modelId: string | null;
+    fingerprint: string | null;
+    loadedAssetIds: string[];
+    failedAssetIds: string[];
+    diagnostics: Array<{ severity: string; code: string; message: string }>;
+  };
+  materialHex(surfaceId: string): string | null;
+  allMaterialHex(): Record<string, string>;
+  materialAudit(): Array<{ assetId: string; materialCount: number; cloned: number }>;
+  visible(assetId: string, nodeName: string): boolean;
+  worldY(assetId: string, nodeName: string): number | null;
+  pickables(): number;
+  select(selection: Selection | null): void;
+  selection(): Selection | null;
+  camera(): { position: [number, number, number]; target: [number, number, number]; projection: string };
+  screenOf(world: [number, number, number]): [number, number] | null;
+  roomAnchor(roomId: string): [number, number, number] | null;
+  pick(cssX: number, cssY: number): PickResult | null;
+  renderInfo(): {
+    calls: number;
+    triangles: number;
+    geometries: number;
+    textures: number;
+    programs: number;
+  };
+  frameStats(): VhFrameStats;
+  invalidateCount(): number;
+  lastSavePayload(): unknown;
+  disposedInfo(): { geometries: number; textures: number } | null;
+}
+
+declare global {
+  interface Window {
+    __vh?: VhHook;
+  }
+}
+
+export const TEST_HOOK_ENABLED = process.env.NEXT_PUBLIC_VH_TEST_HOOK === "1";
+
+export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): (() => void) | void {
+  if (!TEST_HOOK_ENABLED || typeof window === "undefined") return;
+
+  const deferredReady = deferred();
+  const deferredSettled = deferred();
+  let disposed: { geometries: number; textures: number } | null = null;
+
+  const unsubscribe = runtime.store.subscribe(
+    (s) => s.phase,
+    (phase) => {
+      if (phase === "interactive" || phase === "ready" || phase === "degraded") deferredReady.resolve();
+      if (phase === "ready" || phase === "degraded" || phase === "failed") deferredSettled.resolve();
+    },
+    { fireImmediately: true },
+  );
+
+  // rAF frame sampler. It only samples frames that are actually produced, which is the meaningful
+  // measure under `frameloop="demand"`.
+  const deltas: number[] = [];
+  let last = performance.now();
+  let rafHandle = 0;
+  const sample = () => {
+    const now = performance.now();
+    deltas.push(now - last);
+    last = now;
+    if (deltas.length > 600) deltas.shift();
+    rafHandle = requestAnimationFrame(sample);
+  };
+  rafHandle = requestAnimationFrame(sample);
+
+  const hook: VhHook = {
+    ready: deferredReady.promise,
+    settled: deferredSettled.promise,
+
+    status() {
+      const s = runtime.store.getState();
+      return {
+        phase: s.phase,
+        modelId: s.modelId,
+        fingerprint: s.fingerprint,
+        loadedAssetIds: [...s.loadedAssetIds],
+        failedAssetIds: [...s.failedAssetIds],
+        diagnostics: s.diagnostics.map((d) => ({
+          severity: d.severity,
+          code: d.code,
+          message: d.message,
+        })),
+      };
+    },
+
+    materialHex(surfaceId) {
+      return runtime.index ? materialHex(runtime.index, surfaceId) : null;
+    },
+
+    allMaterialHex() {
+      return runtime.index ? allMaterialHex(runtime.index) : {};
+    },
+
+    materialAudit() {
+      return runtime.materialAudits.map((a) => ({
+        assetId: a.assetId,
+        materialCount: a.materialCount,
+        cloned: a.cloned,
+      }));
+    },
+
+    visible(assetId, nodeName) {
+      const node = runtime.index?.assets.get(assetId)?.nodes.get(nodeName);
+      if (!node) return false;
+      let o: THREE.Object3D | null = node;
+      while (o) {
+        if (!o.visible) return false;
+        o = o.parent;
+      }
+      return true;
+    },
+
+    worldY(assetId, nodeName) {
+      return runtime.index ? worldY(runtime.index, assetId, nodeName) : null;
+    },
+
+    pickables() {
+      return runtime.index?.pickables.length ?? 0;
+    },
+
+    select(selection) {
+      runtime.select(selection);
+    },
+
+    selection() {
+      return runtime.store.getState().selection;
+    },
+
+    camera() {
+      const pose = runtime.camera?.pose() ?? {
+        position: [0, 0, 0] as [number, number, number],
+        target: [0, 0, 0] as [number, number, number],
+      };
+      return { ...pose, projection: runtime.store.getState().projection };
+    },
+
+    screenOf(world) {
+      const el = runtime.canvasEl;
+      if (!el) return null;
+      const rect = el.getBoundingClientRect();
+      const v = vector(world).project(camera);
+      return [(v.x * 0.5 + 0.5) * rect.width, (-v.y * 0.5 + 0.5) * rect.height];
+    },
+
+    roomAnchor(roomId) {
+      return runtime.manifest?.roomAnchors.get(roomId)?.point ?? null;
+    },
+
+    pick(cssX, cssY) {
+      const el = runtime.canvasEl;
+      const index = runtime.index;
+      const clip = runtime.clip;
+      const picker = runtime.picker;
+      if (!el || !index || !clip || !picker) return null;
+      const rect = el.getBoundingClientRect();
+      return picker.pick(cssX + rect.left, cssY + rect.top, rect, camera, index, clip);
+    },
+
+    renderInfo() {
+      const gl = rendererOf(runtime);
+      if (!gl) return { calls: 0, triangles: 0, geometries: 0, textures: 0, programs: 0 };
+      return {
+        calls: gl.info.render.calls,
+        triangles: gl.info.render.triangles,
+        geometries: gl.info.memory.geometries,
+        textures: gl.info.memory.textures,
+        programs: gl.info.programs?.length ?? 0,
+      };
+    },
+
+    frameStats() {
+      const sorted = [...deltas].sort((a, b) => a - b);
+      const avg = deltas.length ? deltas.reduce((a, b) => a + b, 0) / deltas.length : 0;
+      const p95 = sorted.length ? (sorted[Math.floor(sorted.length * 0.95)] ?? 0) : 0;
+      return {
+        frames: deltas.length,
+        avgMs: avg,
+        p95Ms: p95,
+        reset() {
+          deltas.length = 0;
+          last = performance.now();
+        },
+      };
+    },
+
+    invalidateCount() {
+      return runtime.invalidateCount;
+    },
+
+    lastSavePayload() {
+      return runtime.lastSavePayload;
+    },
+
+    disposedInfo() {
+      return disposed;
+    },
+  };
+
+  window.__vh = hook;
+
+  return () => {
+    cancelAnimationFrame(rafHandle);
+    unsubscribe();
+    const gl = rendererOf(runtime);
+    disposed = gl ? { geometries: gl.info.memory.geometries, textures: gl.info.memory.textures } : { geometries: 0, textures: 0 };
+    if (window.__vh === hook) {
+      // Keep `disposedInfo()` readable after unmount; the rest is inert.
+      window.__vh = { ...hook, disposedInfo: () => disposed };
+    }
+  };
+}
+
+function rendererOf(runtime: HouseRuntime): THREE.WebGLRenderer | null {
+  return runtime.gl;
+}
+
+function vector(v: [number, number, number]): THREE.Vector3 {
+  return new THREE.Vector3(v[0], v[1], v[2]);
+}
+
+interface Deferred {
+  promise: Promise<void>;
+  resolve(): void;
+}
+
+function deferred(): Deferred {
+  let resolve: () => void = () => {};
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
