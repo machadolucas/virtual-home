@@ -101,10 +101,16 @@ Run `scripts/measure-resources.sh` after an update on a normally loaded mini (on
 3D view open, an SSE stream alive). Record p50/p95/max RSS per process here with the date and commit;
 set the alert threshold at 1.5 × measured p95. Watch the trend across updates, not the absolute level.
 
+> The 2026-09-08 Mac mini row is an **idle floor, not a working figure**: the run happened right after the
+> install, before any account existed, so there was no signed-in session, no 3D view and no SSE stream — the
+> conditions this section asks for. It is a useful lower bound and a starting point for trend watching, but do
+> **not** set alerts from it (1.5 × an idle p95 would fire constantly under real use). Re-measure with the House
+> view open and a live SSE client, and replace the row.
+
 | Date | Commit | web p50/p95/max (MB) | worker p50/p95/max (MB) |
 |---|---|---|---|
 | 2026-09-08 (MacBook Pro M5 Pro, dev machine, 8 samples under light load) | b073000+ | 221 / 225 / 225 | 108 / 108 / 108 (start-up spike 321) |
-| Mac mini | | to be measured after deployment | |
+| 2026-09-08 (Mac mini M4, **idle**: no browser tab, no SSE client, 0 sessions, HA disabled; 30 samples @60 s after 600 s warm-up) | 828cad6 +local | 72.1 / 74.2 / 74.3 | 66.9 / 69.0 / 70.3 |
 
 ## HTTP-only fallback
 If TLS is temporarily unavailable, set `VH_BASE_URL=http://<lan-ip>:3010` and `HOST=0.0.0.0`; cookies
