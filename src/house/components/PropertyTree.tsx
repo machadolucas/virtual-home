@@ -248,16 +248,16 @@ export function PropertyTree() {
               activate(node);
             }}
             style={{ paddingLeft: `${node.depth * 12 + 8}px` }}
-            className={`flex min-h-8 cursor-default items-center gap-1.5 rounded pr-2 outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${
-              isSelected ? "bg-sky-50 text-sky-900" : "hover:bg-neutral-100"
+            className={`flex min-h-8 cursor-default items-center gap-1.5 rounded pr-2 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${
+              isSelected ? "bg-accent-soft text-accent-text" : "hover:bg-surface-3"
             }`}
           >
-            <span aria-hidden="true" className="w-3 shrink-0 text-neutral-400">
+            <span aria-hidden="true" className="w-3 shrink-0 text-ink-3">
               {isExpandable ? (isExpanded ? "−" : "+") : ""}
             </span>
             <span className="truncate">{node.label}</span>
             {node.secondary ? (
-              <span className="truncate text-xs text-neutral-500">{node.secondary}</span>
+              <span className="truncate text-xs text-ink-3">{node.secondary}</span>
             ) : null}
           </div>
         );

@@ -1,4 +1,5 @@
 import type { StateCreator } from "zustand";
+import { DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from "@/house/model/background";
 import { DEFAULT_EXPLODE_GAP } from "@/house/model/explodeGroups";
 import { DOLLHOUSE_PRESET, OVERVIEW_PRESET } from "@/house/model/visibilityPlan";
 import type { FloorId, Projection, VerticalCut, ViewMode } from "@/house/model/types";
@@ -14,6 +15,11 @@ export interface ViewSlice {
   ceilingsVisible: boolean;
   edgesVisible: boolean;
   performanceMode: boolean;
+  /**
+   * The 3D background. Household-level and persisted, but held here so the control can be
+   * optimistic: the canvas host repaints on the keystroke and the write reverts it on failure.
+   */
+  background: HouseBackground;
 
   setViewMode(mode: ViewMode): void;
   isolateFloor(floorId: FloorId | null): void;
@@ -25,6 +31,7 @@ export interface ViewSlice {
   setCeilingsVisible(v: boolean): void;
   setEdgesVisible(v: boolean): void;
   setPerformanceMode(v: boolean): void;
+  setBackground(background: HouseBackground): void;
   /** Presets are *store writes*, so the toolbar checkboxes stay in sync by construction. */
   applyDollhouse(): void;
   applyOverview(): void;
@@ -40,6 +47,7 @@ export const initialView = {
   ceilingsVisible: true,
   edgesVisible: true,
   performanceMode: false,
+  background: DEFAULT_HOUSE_BACKGROUND as HouseBackground,
 };
 
 export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> = (set) => ({
@@ -70,6 +78,7 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
   setCeilingsVisible: (ceilingsVisible) => set({ ceilingsVisible }),
   setEdgesVisible: (edgesVisible) => set({ edgesVisible }),
   setPerformanceMode: (performanceMode) => set({ performanceMode }),
+  setBackground: (background) => set({ background }),
 
   applyDollhouse: () => set({ ...DOLLHOUSE_PRESET, activeFloorId: null }),
 

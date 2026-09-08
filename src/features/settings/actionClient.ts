@@ -30,6 +30,14 @@ export interface UseActionOptions<O> {
   successTitle?: string;
   successDescription?: (data: O) => string | undefined;
   onSuccess?: (data: O) => void;
+  /**
+   * Called with the mapped message when the action refuses.
+   *
+   * The reason this exists: an optimistic control has to put the picture back, and doing that in an
+   * effect keyed on `error` is a setState-in-effect cascade. Here it happens in the same transition
+   * as the failure.
+   */
+  onError?: (message: string) => void;
   /** Extra codes this call can produce, mapped to sentences. */
   messages?: Record<string, string>;
 }
@@ -136,6 +144,7 @@ export function useAction<I, O>(
           options.messages?.[result.error] ?? BASE_MESSAGES[result.error] ?? result.error;
         setError(message);
         setFieldErrors(extractFieldErrors(result.details));
+        options.onError?.(message);
         toast({ title: "Not saved", description: message, tone: "error", duration: 0 });
       });
     },

@@ -1,0 +1,1 @@
+ALTER TABLE `household_setting` ADD `house_background_json` text;

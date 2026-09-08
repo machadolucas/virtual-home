@@ -4,6 +4,7 @@
  * the checkboxes can never desynchronise from the scene: the resolver derives the scene from these
  * fields, in full, on every change.
  */
+import { HouseBackgroundControl } from "@/features/settings/HouseBackgroundControl";
 import { ALL_LAYERS, type LayerId } from "@/house/model/types";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 
@@ -31,6 +32,7 @@ export function ViewToolbar() {
       ceilingsVisible: s.ceilingsVisible,
       edgesVisible: s.edgesVisible,
       performanceMode: s.performanceMode,
+      background: s.background,
       layers: s.layers,
       explodeGap: s.explode.gap,
     })),
@@ -39,6 +41,7 @@ export function ViewToolbar() {
   const setCeilingsVisible = useHouseStore((s) => s.setCeilingsVisible);
   const setEdgesVisible = useHouseStore((s) => s.setEdgesVisible);
   const setPerformanceMode = useHouseStore((s) => s.setPerformanceMode);
+  const setBackground = useHouseStore((s) => s.setBackground);
   const setLayer = useHouseStore((s) => s.setLayer);
   const applyDollhouse = useHouseStore((s) => s.applyDollhouse);
   const applyOverview = useHouseStore((s) => s.applyOverview);
@@ -58,7 +61,7 @@ export function ViewToolbar() {
   return (
     <div className="flex flex-col gap-4">
       <fieldset className="flex flex-col gap-2">
-        <legend className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+        <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Floors
         </legend>
         <div className="flex flex-wrap gap-1">
@@ -92,7 +95,7 @@ export function ViewToolbar() {
       </fieldset>
 
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+        <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Presets
         </legend>
         <div className="flex flex-wrap gap-1">
@@ -115,14 +118,14 @@ export function ViewToolbar() {
       </fieldset>
 
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+        <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Show
         </legend>
         <Toggle checked={state.roofVisible} onChange={setRoofVisible} label="Roof (H)" />
         <Toggle checked={state.ceilingsVisible} onChange={setCeilingsVisible} label="Ceilings (G)" />
         <Toggle checked={state.edgesVisible} onChange={setEdgesVisible} label="Architectural edges (B)" />
         {state.explodeGap > 0 ? (
-          <p className="pl-6 text-[11px] text-neutral-500">
+          <p className="pl-6 text-[11px] text-ink-3">
             Edges are hidden on the structure assets while exploded — their overlay is one object
             per asset and cannot be split by floor.
           </p>
@@ -130,7 +133,7 @@ export function ViewToolbar() {
       </fieldset>
 
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+        <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Layers
         </legend>
         {ALL_LAYERS.map((layer) => (
@@ -144,7 +147,7 @@ export function ViewToolbar() {
       </fieldset>
 
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+        <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Rendering
         </legend>
         <Toggle
@@ -152,6 +155,8 @@ export function ViewToolbar() {
           onChange={setPerformanceMode}
           label="Performance mode (pixel ratio 1)"
         />
+        <p className="mt-2 text-xs font-medium text-ink-2">Background</p>
+        <HouseBackgroundControl value={state.background} onPreview={setBackground} />
       </fieldset>
     </div>
   );
@@ -179,8 +184,8 @@ export function ToolbarButton({
       aria-pressed={pressed}
       className={`min-h-8 rounded-md border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
         pressed
-          ? "border-sky-600 bg-sky-50 text-sky-900"
-          : "border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100"
+          ? "border-accent bg-accent-soft text-accent-text"
+          : "border-line bg-surface text-ink hover:bg-surface-3"
       }`}
     >
       {children}
@@ -198,7 +203,7 @@ function Toggle({
   label: string;
 }) {
   return (
-    <label className="flex min-h-8 items-center gap-2 text-xs text-neutral-800">
+    <label className="flex min-h-8 items-center gap-2 text-xs text-ink">
       <input
         type="checkbox"
         checked={checked}

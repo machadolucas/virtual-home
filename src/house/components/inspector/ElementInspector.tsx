@@ -16,8 +16,8 @@ export function ElementInspector({ elementId }: { elementId: ElementId }) {
   return (
     <div className="flex flex-col gap-4">
       <header>
-        <h2 className="text-base font-semibold text-neutral-900">{element.kind}</h2>
-        <p className="font-mono text-[11px] text-neutral-500">{element.id}</p>
+        <h2 className="text-base font-semibold text-ink">{element.kind}</h2>
+        <p className="font-mono text-[11px] text-ink-3">{element.id}</p>
       </header>
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
@@ -35,7 +35,7 @@ export function ElementInspector({ elementId }: { elementId: ElementId }) {
         </dl>
       ) : null}
 
-      {element.note ? <p className="text-xs text-neutral-600">{element.note}</p> : null}
+      {element.note ? <p className="text-xs text-ink-2">{element.note}</p> : null}
 
       <ul className="flex flex-col gap-0.5">
         {element.surfaceIds.map((surfaceId) => (
@@ -43,7 +43,7 @@ export function ElementInspector({ elementId }: { elementId: ElementId }) {
             <button
               type="button"
               onClick={() => runtime.select({ kind: "surface", id: surfaceId })}
-              className="w-full truncate text-left font-mono text-[11px] text-sky-700 hover:underline"
+              className="w-full truncate text-left font-mono text-[11px] text-accent-text hover:underline"
             >
               {surfaceId}
             </button>

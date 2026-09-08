@@ -41,8 +41,8 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
   return (
     <div className="flex flex-col gap-4">
       <header>
-        <h2 className="text-base font-semibold text-neutral-900">{placement.name}</h2>
-        <p className="text-xs text-neutral-500">
+        <h2 className="text-base font-semibold text-ink">{placement.name}</h2>
+        <p className="text-xs text-ink-3">
           {[room?.name, index.floors.get(placement.floorId)?.name].filter(Boolean).join(" · ")}
         </p>
       </header>
@@ -63,10 +63,10 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
 
       {placement.locationNote ? (
         <section>
-          <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-ink-3">
             Where it is
           </h3>
-          <p className="mt-1 text-sm text-neutral-800">{placement.locationNote}</p>
+          <p className="mt-1 text-sm text-ink">{placement.locationNote}</p>
         </section>
       ) : null}
 
@@ -74,7 +74,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
         <button
           type="button"
           onClick={() => void runtime.camera?.frameEquipment(placement.id)}
-          className="min-h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+          className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
           Show me
         </button>
@@ -97,13 +97,13 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
               dirty: false,
             })
           }
-          className="min-h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+          className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
           Adjust placement (E)
         </button>
       </div>
 
-      <section className="rounded-md border border-dashed border-neutral-300 p-3 text-xs text-neutral-500">
+      <section className="rounded-md border border-dashed border-line p-3 text-xs text-ink-3">
         Camera streams are not part of this view. An &ldquo;Open stream&rdquo; action would mount
         nothing until tapped.
       </section>
@@ -128,13 +128,13 @@ function HaState({
 
   if (cls === "unlinked")
     return (
-      <p className="rounded-md border border-neutral-200 bg-neutral-50 p-2 text-xs text-neutral-600">
+      <p className="rounded-md border border-line bg-surface-2 p-2 text-xs text-ink-2">
         Not linked to a Home Assistant entity.
       </p>
     );
 
   return (
-    <section className="rounded-md border border-neutral-200 bg-neutral-50 p-3">
+    <section className="rounded-md border border-line bg-surface-2 p-3">
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
         <Row
           label="State"
@@ -163,7 +163,7 @@ function HaState({
         <Row label="Freshness" value={cls} />
       </dl>
       {battery === "low" || battery === "critical" ? (
-        <p className="mt-2 text-xs text-amber-800">
+        <p className="mt-2 text-xs text-due">
           Battery {battery}. Replacing it is a recorded completion — telemetry coming back is not
           proof on its own.
         </p>

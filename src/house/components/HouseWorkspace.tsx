@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { boxForSelection, floorBox3 } from "@/house/scene/framing";
 import { MAX_EXPLODE_GAP } from "@/house/model/explodeGroups";
 import { cutRange } from "@/house/model/framingBoxes";
+import { DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from "@/house/model/background";
 import type { FloorId, Selection } from "@/house/model/types";
 import { createRuntime, type HouseRuntime } from "@/house/runtime";
 import { createHouseStore } from "@/house/store/createHouseStore";
@@ -49,20 +50,30 @@ import { ViewToolbar } from "./ViewToolbar";
 import { PlacementEditor } from "./edit/PlacementEditor";
 import { Inspector } from "./inspector/Inspector";
 import { PhoneHouse } from "./phone/PhoneHouse";
+import { Input } from "@/ui";
 import { PlanEditor2D } from "./routeEditor/PlanEditor2D";
 import { WallElevationEditor2D } from "./routeEditor/WallElevationEditor2D";
 
 export interface HouseWorkspaceProps {
   /** From the server: the installed package's model id, or `null` when nothing is installed. */
   modelId: string | null;
+  /**
+   * From the server: the household's 3D background. Passed in rather than fetched so the very
+   * first paint of the canvas host is already the chosen background — a default painted for one
+   * frame and then replaced is a visible flash.
+   */
+  background?: HouseBackground;
 }
 
 /** Colour edits are batched: one PATCH after the picker settles, not one per pointer move. */
 const COLOR_SAVE_DEBOUNCE_MS = 600;
 
-export function HouseWorkspace({ modelId }: HouseWorkspaceProps) {
+export function HouseWorkspace({
+  modelId,
+  background = DEFAULT_HOUSE_BACKGROUND,
+}: HouseWorkspaceProps) {
   const runtime = useMemo<HouseRuntime>(() => {
-    const store = createHouseStore();
+    const store = createHouseStore({ background });
     const local = createMemoryDataApi();
     const dataApi = createResilientDataApi(createRestDataApi(), local, (reason) =>
       store.getState().setSaveState("local", reason),
@@ -72,6 +83,8 @@ export function HouseWorkspace({ modelId }: HouseWorkspaceProps) {
       dataApi,
       base: modelId ? `/api/house-model/${encodeURIComponent(modelId)}` : "",
     });
+    // `background` seeds the store once; later changes come from the control, not from a remount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelId]);
 
   if (!modelId)
@@ -158,17 +171,18 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
   return (
     <div
       ref={rootRef}
-      className="flex h-full min-h-0 gap-3 p-3"
+      data-testid="vh-workspace"
+      className="flex h-full min-h-0 gap-3 bg-paper p-3"
       // The shortcut listener lives here; the element is focusable so F6 has somewhere to land.
       tabIndex={-1}
     >
       <aside
         ref={treeRef}
         aria-label="Property tree"
-        className="flex w-64 shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-3"
+        className="flex w-64 shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border border-line bg-surface p-3"
       >
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-neutral-500">Search rooms and equipment (/)</span>
+          <span className="text-ink-2">Search rooms and equipment (/)</span>
           <SearchBox runtime={runtime} inputRef={searchRef} />
         </label>
         <PropertyTree />
@@ -180,7 +194,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
         tabIndex={0}
         aria-label="House 3D view"
         aria-describedby="vh-canvas-help"
-        className="flex min-w-0 flex-1 flex-col gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-600"
+        className="flex min-w-0 flex-1 flex-col gap-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
       >
         <p id="vh-canvas-help" className="sr-only">
           Arrow keys orbit the camera, Shift and the arrow keys pan, plus and minus zoom. Press 1,
@@ -189,11 +203,11 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
         </p>
         <div className="relative min-h-0 flex-1">
           <HouseErrorBoundary>
-            <HouseCanvasLazy />
+            <CanvasWithBackground />
           </HouseErrorBoundary>
           <LoadProgress />
         </div>
-        <div className="flex flex-wrap items-start gap-4 rounded-lg border border-neutral-200 bg-white p-3">
+        <div className="flex flex-wrap items-start gap-4 rounded-lg border border-line bg-surface p-3">
           <CutawayControl />
           <ExplodeControl />
           <RouteLegend />
@@ -203,10 +217,10 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
       <aside
         ref={inspectorRef}
         aria-label="Inspector"
-        className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-3"
+        className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-line bg-surface p-3"
       >
         <ViewToolbar />
-        <hr className="border-neutral-200" />
+        <hr className="border-line" />
         {state.editing ? <PlacementEditor /> : <Inspector />}
         {state.routeDraft ? <RouteEditors /> : null}
       </aside>
@@ -672,11 +686,22 @@ function LoadProgress() {
       role="status"
       aria-live="polite"
     >
-      <div className="rounded-md bg-neutral-900/85 px-3 py-2 text-xs text-white">
+      <div className="rounded-md border border-line bg-surface/85 text-ink shadow-pop backdrop-blur-sm px-3 py-2 text-xs">
         {phase === "validating" ? "Checking the model package…" : `Loading the house… ${pct}%`}
       </div>
     </div>
   );
+}
+
+/**
+ * The canvas, subscribed to the one piece of store state it needs.
+ *
+ * A separate component so a background change re-renders *this* and not the whole workspace — the
+ * tree, the toolbar and the inspector have nothing to do with it.
+ */
+function CanvasWithBackground() {
+  const background = useHouseStore((s) => s.background);
+  return <HouseCanvasLazy background={background} />;
 }
 
 /**
@@ -704,27 +729,27 @@ function RouteEditors() {
       : null;
 
   return (
-    <section className="flex flex-col gap-2 border-t border-neutral-200 pt-3">
+    <section className="flex flex-col gap-2 border-t border-line pt-3">
       <header className="flex items-baseline justify-between">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Route path — {routeDraft.name}
         </h3>
         <button
           type="button"
           onClick={endRouteDraft}
-          className="min-h-8 rounded-md border border-neutral-300 bg-white px-2 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+          className="min-h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3"
         >
           Done
         </button>
       </header>
       {phone ? (
-        <p className="rounded-md border border-neutral-200 bg-neutral-50 p-2 text-xs text-neutral-600">
+        <p className="rounded-md border border-line bg-surface-2 p-2 text-xs text-ink-2">
           The 2D route editors are read-only on a phone. Edit on a desktop.
         </p>
       ) : null}
       {floorId ? <PlanEditor2D floorId={floorId} /> : null}
       {wallSurfaceId ? <WallElevationEditor2D surfaceId={wallSurfaceId} /> : (
-        <p className="text-[11px] text-neutral-500">
+        <p className="text-[11px] text-ink-3">
           Select a wall surface to edit this route in that wall&rsquo;s elevation.
         </p>
       )}
@@ -803,9 +828,12 @@ function SearchBox({
 
   return (
     <div className="relative">
-      <input
+      {/* The design system's field, not a bespoke input: `fieldSurface` is what carries the
+          readable ink, the token surface and a `placeholder:text-ink-3` that survives dark mode. */}
+      <Input
         ref={inputRef}
         type="search"
+        inputSize="sm"
         value={query}
         onChange={(event) => setQuery(event.currentTarget.value)}
         onKeyDown={(event) => {
@@ -814,7 +842,7 @@ function SearchBox({
           if (first) void focus(first.selection);
         }}
         placeholder="Kitchen, door sensor…"
-        className="min-h-9 w-full rounded-md border border-neutral-300 px-2 text-xs"
+        aria-label="Search rooms and equipment"
       />
       {results.length ? (
         <ul className="mt-1 flex flex-col gap-0.5">
@@ -823,10 +851,10 @@ function SearchBox({
               <button
                 type="button"
                 onClick={() => void focus(r.selection)}
-                className="min-h-8 w-full truncate rounded px-1 text-left text-xs text-neutral-800 hover:bg-neutral-100"
+                className="min-h-8 w-full truncate rounded px-1 text-left text-xs text-ink hover:bg-surface-3"
               >
                 {r.label}
-                <span className="ml-1 text-[10px] text-neutral-500">{r.secondary}</span>
+                <span className="ml-1 text-[10px] text-ink-3">{r.secondary}</span>
               </button>
             </li>
           ))}
@@ -865,19 +893,19 @@ function ShortcutHelp({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-modal="true"
       aria-label="Keyboard shortcuts"
-      className="absolute inset-0 z-20 flex items-center justify-center bg-neutral-900/40 p-6"
+      className="absolute inset-0 z-20 flex items-center justify-center bg-scrim p-6"
       onClick={onClose}
     >
       <div
-        className="max-h-full w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 shadow-lg"
+        className="max-h-full w-full max-w-md overflow-y-auto rounded-lg bg-surface p-4 shadow-overlay"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-baseline justify-between">
-          <h2 className="text-sm font-semibold text-neutral-900">Keyboard shortcuts</h2>
+          <h2 className="text-sm font-semibold text-ink">Keyboard shortcuts</h2>
           <button
             type="button"
             onClick={onClose}
-            className="min-h-8 rounded-md border border-neutral-300 px-2 text-xs font-medium"
+            className="min-h-8 rounded-md border border-line px-2 text-xs font-medium"
           >
             Close
           </button>
@@ -885,8 +913,8 @@ function ShortcutHelp({ onClose }: { onClose: () => void }) {
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
           {SHORTCUTS.map((s) => (
             <div key={s.keys} className="col-span-2 grid grid-cols-subgrid">
-              <dt className="font-mono text-neutral-500">{s.keys}</dt>
-              <dd className="text-neutral-800">{s.action}</dd>
+              <dt className="font-mono text-ink-3">{s.keys}</dt>
+              <dd className="text-ink">{s.action}</dd>
             </div>
           ))}
         </dl>

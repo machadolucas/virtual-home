@@ -27,17 +27,17 @@ export function CutawayControl() {
   return (
     <section className="flex flex-col gap-2" aria-label="Cutaway">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Section</span>
+        <span className="text-xs font-medium uppercase tracking-wide text-ink-3">Section</span>
         <ToolbarButton pressed={cut.enabled} onClick={() => setCut({ enabled: !cut.enabled })}>
           {cut.enabled ? "On (S)" : "Off (S)"}
         </ToolbarButton>
       </div>
 
-      <label className="flex flex-col gap-1 text-xs text-neutral-700">
+      <label className="flex flex-col gap-1 text-xs text-ink-2">
         <span>
           Horizontal cut at <span className="font-mono">{cut.y.toFixed(2)} m</span>
           {activeFloorId ? (
-            <span className="text-neutral-500">
+            <span className="text-ink-3">
               {" "}
               ({(cut.y - (index.floors.get(activeFloorId)?.elevation ?? 0)).toFixed(2)} m above the
               floor)
@@ -56,7 +56,7 @@ export function CutawayControl() {
         />
       </label>
 
-      <fieldset className="flex flex-col gap-1 text-xs text-neutral-700">
+      <fieldset className="flex flex-col gap-1 text-xs text-ink-2">
         <legend className="sr-only">Vertical cut</legend>
         <div className="flex flex-wrap gap-1">
           <ToolbarButton

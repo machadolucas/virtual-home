@@ -16,7 +16,7 @@ export function Inspector() {
 
   if (!selection)
     return (
-      <p className="text-sm text-neutral-500">
+      <p className="text-sm text-ink-3">
         Select a room, a surface or a piece of equipment — in the tree or in the 3D view.
       </p>
     );
@@ -50,10 +50,10 @@ function StructureSummary({ kind, id }: { kind: "floor" | "building"; id: string
     if (!building) return null;
     return (
       <div className="flex flex-col gap-2">
-        <h2 className="text-base font-semibold text-neutral-900">{building.name}</h2>
-        <p className="text-xs text-neutral-500">Placement: {building.placementStatus}</p>
+        <h2 className="text-base font-semibold text-ink">{building.name}</h2>
+        <p className="text-xs text-ink-3">Placement: {building.placementStatus}</p>
         {building.placementNotes ? (
-          <p className="text-xs text-neutral-600">{building.placementNotes}</p>
+          <p className="text-xs text-ink-2">{building.placementNotes}</p>
         ) : null}
       </div>
     );
@@ -63,8 +63,8 @@ function StructureSummary({ kind, id }: { kind: "floor" | "building"; id: string
   const rooms = index.roomsByFloor.get(id) ?? [];
   return (
     <div className="flex flex-col gap-2">
-      <h2 className="text-base font-semibold text-neutral-900">{floor.name}</h2>
-      <p className="text-xs text-neutral-500">
+      <h2 className="text-base font-semibold text-ink">{floor.name}</h2>
+      <p className="text-xs text-ink-3">
         {floor.nameFi ? `${floor.nameFi} · ` : ""}datum {floor.elevation.toFixed(2)} m ·{" "}
         {rooms.length} rooms
       </p>

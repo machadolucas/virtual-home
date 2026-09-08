@@ -34,18 +34,18 @@ export function SetupState(props: SetupStateProps) {
   const notInstalled = props.modelId === null && errors.length === 0 && !props.fatal;
 
   return (
-    <div className="flex h-full flex-col gap-6 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-6">
+    <div className="flex h-full flex-col gap-6 overflow-y-auto rounded-lg border border-line bg-surface p-6">
       <header className="flex flex-col gap-1">
-        <h2 className="text-base font-semibold text-neutral-900">
+        <h2 className="text-base font-semibold text-ink">
           {notInstalled ? "No house model installed" : "The house model needs attention"}
         </h2>
-        <p className="text-sm text-neutral-600">
+        <p className="text-sm text-ink-2">
           {notInstalled
             ? "Import a model package with pnpm vh-admin model-import <dir>, then reload this page."
             : "The 3D view stays off until the package validates. Nothing else on this page is affected."}
         </p>
         {props.modelId ? (
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-ink-3">
             {props.modelId}
             {props.fingerprint ? ` · package ${props.fingerprint}` : ""} · {props.phase}
           </p>
@@ -53,11 +53,11 @@ export function SetupState(props: SetupStateProps) {
       </header>
 
       {props.fatal ? (
-        <section className="rounded-md border border-red-200 bg-red-50 p-4">
-          <h3 className="text-sm font-semibold text-red-900">{props.fatal.code}</h3>
-          <p className="mt-1 text-sm text-red-800">{props.fatal.message}</p>
+        <section className="rounded-md border border-overdue/45 bg-overdue-soft p-4">
+          <h3 className="text-sm font-semibold text-overdue">{props.fatal.code}</h3>
+          <p className="mt-1 text-sm text-overdue">{props.fatal.message}</p>
           {props.fatal.details?.length ? (
-            <ul className="mt-2 list-inside list-disc space-y-0.5 font-mono text-xs text-red-800">
+            <ul className="mt-2 list-inside list-disc space-y-0.5 font-mono text-xs text-overdue">
               {props.fatal.details.slice(0, 40).map((line) => (
                 <li key={line}>{line}</li>
               ))}
@@ -67,9 +67,9 @@ export function SetupState(props: SetupStateProps) {
       ) : null}
 
       {props.missingAssetIds.length || props.failedAssetIds.length ? (
-        <section className="rounded-md border border-amber-200 bg-amber-50 p-4">
-          <h3 className="text-sm font-semibold text-amber-900">Assets</h3>
-          <ul className="mt-1 space-y-0.5 text-sm text-amber-900">
+        <section className="rounded-md border border-due/45 bg-due-soft p-4">
+          <h3 className="text-sm font-semibold text-due">Assets</h3>
+          <ul className="mt-1 space-y-0.5 text-sm text-due">
             {props.missingAssetIds.map((id) => (
               <li key={`missing-${id}`}>
                 <span className="font-mono">{id}</span> — file missing on the server
@@ -90,22 +90,22 @@ export function SetupState(props: SetupStateProps) {
 
       {grouped.length ? (
         <section>
-          <h3 className="text-sm font-semibold text-neutral-900">
+          <h3 className="text-sm font-semibold text-ink">
             Known issues recorded by the model producer
           </h3>
           <div className="mt-2 space-y-3">
             {grouped.map((group) => (
               <div key={group.severity}>
-                <h4 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                <h4 className="text-xs font-medium uppercase tracking-wide text-ink-3">
                   {group.severity} ({group.items.length})
                 </h4>
-                <ul className="mt-1 space-y-1 text-sm text-neutral-700">
+                <ul className="mt-1 space-y-1 text-sm text-ink-2">
                   {group.items.map((issue) => (
                     <li key={issue.id}>
-                      <span className="font-mono text-xs text-neutral-500">{issue.id}</span>{" "}
+                      <span className="font-mono text-xs text-ink-3">{issue.id}</span>{" "}
                       {issue.description}
                       {issue.affects.length ? (
-                        <span className="text-neutral-500"> — affects {issue.affects.join(", ")}</span>
+                        <span className="text-ink-3"> — affects {issue.affects.join(", ")}</span>
                       ) : null}
                     </li>
                   ))}
@@ -120,7 +120,7 @@ export function SetupState(props: SetupStateProps) {
         <button
           type="button"
           onClick={props.onRetry}
-          className="self-start min-h-9 rounded-md border border-neutral-300 bg-white px-3 text-sm font-medium text-neutral-800 hover:bg-neutral-100"
+          className="self-start min-h-9 rounded-md border border-line bg-surface px-3 text-sm font-medium text-ink hover:bg-surface-3"
         >
           Check again
         </button>
@@ -141,10 +141,10 @@ function DiagnosticList({
   if (items.length === 0) return null;
   const toneClass =
     tone === "error"
-      ? "border-red-200 bg-red-50 text-red-900"
+      ? "border-overdue/45 bg-overdue-soft text-overdue"
       : tone === "warning"
-        ? "border-amber-200 bg-amber-50 text-amber-900"
-        : "border-neutral-200 bg-neutral-50 text-neutral-700";
+        ? "border-due/45 bg-due-soft text-due"
+        : "border-line bg-surface-2 text-ink-2";
   return (
     <section className={`rounded-md border p-4 ${toneClass}`}>
       <h3 className="text-sm font-semibold">

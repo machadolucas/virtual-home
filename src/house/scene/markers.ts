@@ -13,23 +13,22 @@
 import * as THREE from "three";
 import type { ExplodeGroup, Placement, PlacementId } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
+import { getViewerPalette, type MarkerStateClass } from "./palette";
 import { overlayGroup, type SceneIndex } from "./SceneIndex";
 
 export const MARKER_CAPACITY = 256;
 export const MARKER_RADIUS = 0.06;
 
-/** Instance colours by HA state class. Style, not the only channel — the DOM badge carries shape. */
-export const MARKER_COLORS: Record<string, number> = {
-  live: 0x2f7d4f,
-  unavailable: 0x9a9a95,
-  unknown: 0x9a9a95,
-  stale: 0xb08420,
-  low: 0xc0562a,
-  critical: 0xb02a2a,
-  unlinked: 0x6a6a66,
-  disconnected: 0x8b8b87,
-  selected: 0x2f6fd0,
-};
+/**
+ * Instance colour for one HA state class, from the live tokens (`scene/palette.ts`).
+ *
+ * Style, not the only channel — the DOM marker carries the state as a shape too (filled / hollow /
+ * dotted ring), so a viewer who cannot separate the hues loses nothing.
+ */
+export function markerColor(stateClass: string): number {
+  const palette = getViewerPalette();
+  return palette.marker[stateClass as MarkerStateClass] ?? palette.marker.unlinked;
+}
 
 export interface MarkerGroupState {
   mesh: THREE.InstancedMesh;
@@ -87,7 +86,7 @@ export class MarkerLayer {
       const i = state.mesh.count;
       this.matrix.makeTranslation(p.position[0], p.position[1], p.position[2]);
       state.mesh.setMatrixAt(i, this.matrix);
-      this.color.setHex(MARKER_COLORS[stateOf(p)] ?? MARKER_COLORS.unlinked ?? 0x808080);
+      this.color.setHex(markerColor(stateOf(p)));
       state.mesh.setColorAt(i, this.color);
       state.ids.push(p.id);
       state.mesh.count = i + 1;
@@ -100,7 +99,7 @@ export class MarkerLayer {
 
   /** Recolour one marker in place. Returns true when a colour actually changed (→ invalidate). */
   setStateColor(placementId: PlacementId, stateClass: string): boolean {
-    const hex = MARKER_COLORS[stateClass] ?? MARKER_COLORS.unlinked ?? 0x808080;
+    const hex = markerColor(stateClass);
     for (const state of this.groups.values()) {
       const i = state.ids.indexOf(placementId);
       if (i < 0 || !state.mesh.instanceColor) continue;

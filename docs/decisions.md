@@ -100,3 +100,44 @@ Restricted to linked entities, server-side only, kill switch `VH_HA_HISTORY_ENAB
 ## D-023 Public repository; all household data outside git
 Real model package, DB, attachments, manuals and secrets live in `VH_DATA_DIR`. Tests use a
 synthetic fixture model.
+
+## D-024 The 3D view's background is CSS on the canvas host, and the WebGL context is `alpha: true`
+The viewer used to clear to a hardcoded `0xf4f4f2` and set `scene.background` to the same colour,
+which made the workspace the one place in the app that ignored `globals.css` — light while the rest
+of the interface was dark. The background is now painted by the host `<div>`: `bg-viewport` (a new
+`--vh-viewport` token) when it follows the theme, an inline `backgroundColor` or `linear-gradient()`
+when the household has chosen one.
+
+Rejected: a background *texture* or a full-screen gradient mesh. Either means generating or shipping
+an image, a second draw call, a resize path, and colour management on a value that is pure chrome —
+and `NoToneMapping` exists precisely so that nothing shifts the model's own colours. CSS gradients
+need no shader, no geometry and no invalidate loop; the compositor already knows how to draw them.
+
+The trade is a transparent drawing buffer: `alpha: true`, `scene.background = null`,
+`setClearAlpha(0)`. That costs one blend of the canvas against the page instead of an opaque
+composite, and it means the render can never be captured without whatever is behind it. Everything
+else is unchanged and deliberately so — `antialias: true`, `stencil: false`,
+`localClippingEnabled`, `NoToneMapping`, the dpr policy and `frameloop="demand"`. A background
+change triggers exactly one `invalidate()`, because the transparent buffer has to be re-blended over
+the new paint and under `frameloop="demand"` nothing else would ask.
+
+Consequence: anything floating over the render must bring its own surface. Room and equipment
+labels, the "+N" cluster badge, the marker buttons, the snap read-out and the loading bar all use
+`bg-surface/85 … border border-line backdrop-blur-sm shadow-pop`, never a raw white or black wash —
+one of the two would vanish against a user gradient. Revisit if the viewer ever needs a
+depth-correct sky or an HDRI, which would put the background back in the scene.
+
+## D-025 The 3D background is a household setting; the light/dark theme is per browser
+`household_setting.house_background_json` (nullable, NULL = follow the theme, no CHECK — validated
+with zod on write, because adding a CHECK to that table would make drizzle-kit rebuild it and the
+rebuild cascades into children, see `drizzle/0002_sad_raza.sql`). The model is the household's,
+there are two people looking at it, and a per-person viewer background would have them describing
+different pictures to each other over the phone. The control says so in words, and appears in two
+places for the same setting: Settings → Household → Appearance, and the House workspace's Rendering
+section, where you can actually see what you are choosing.
+
+The **theme** goes the other way: System / Light / Dark in the account menu, `vh-theme` in
+`localStorage`, applied by a blocking inline script in `<head>` before the first paint. It is a
+property of the screen you are looking at, not of the house, and it grants nothing — so it never
+touches the database and never needs a session. Revisit if the household ever wants a shared
+"kitchen tablet" theme, which would make it a device setting rather than a browser one.

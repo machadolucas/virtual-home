@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import type { SnapIndicatorState } from "@/house/scene/snap";
 import { useHouseRuntime } from "../../hooks/useHouseStore";
+import { useViewerPalette } from "../../hooks/useViewerPalette";
 
 /**
  * The in-canvas half of the indicator. The editor panel lives outside `<Canvas>`, so the state
@@ -26,6 +27,9 @@ export function SnapIndicatorLayer() {
 export function SnapIndicator({ state }: { state: SnapIndicatorState | null }) {
   const gridGeometry = useMemo(() => new THREE.PlaneGeometry(1, 1, 10, 10), []);
   const ringGeometry = useMemo(() => new THREE.RingGeometry(0.06, 0.08, 24), []);
+  // Hooks before the early return: the indicator only exists during a drag, but a theme change
+  // while dragging still has to re-tint it.
+  const snapColor = useViewerPalette().snap;
   if (!state) return null;
 
   const offset = 0;
@@ -36,7 +40,7 @@ export function SnapIndicator({ state }: { state: SnapIndicatorState | null }) {
       {state.kind !== "wall" ? (
         <lineSegments position={[x, (state.floorY ?? y) + 0.002, z]} rotation={[-Math.PI / 2, 0, 0]}>
           <wireframeGeometry args={[gridGeometry]} />
-          <lineBasicMaterial color={0x2f6fd0} transparent opacity={0.5} depthTest={false} />
+          <lineBasicMaterial color={snapColor} transparent opacity={0.5} depthTest={false} />
         </lineSegments>
       ) : null}
 
@@ -48,12 +52,12 @@ export function SnapIndicator({ state }: { state: SnapIndicatorState | null }) {
               args={[wallOutline(state), 3]}
             />
           </bufferGeometry>
-          <lineBasicMaterial color={0x2f6fd0} transparent opacity={0.6} depthTest={false} />
+          <lineBasicMaterial color={snapColor} transparent opacity={0.6} depthTest={false} />
         </lineSegments>
       ) : null}
 
       <mesh geometry={ringGeometry} position={[x, y + 0.003, z]} rotation={[-Math.PI / 2, 0, 0]}>
-        <meshBasicMaterial color={0x2f6fd0} transparent opacity={0.9} depthTest={false} side={THREE.DoubleSide} />
+        <meshBasicMaterial color={snapColor} transparent opacity={0.9} depthTest={false} side={THREE.DoubleSide} />
       </mesh>
     </group>
   );
@@ -82,7 +86,7 @@ export function SnapReadout({ state }: { state: SnapIndicatorState | null }) {
   if (!state) return null;
   const [x, y, z] = state.point;
   return (
-    <p className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-neutral-900/85 px-2 py-1 font-mono text-[11px] text-white">
+    <p className="pointer-events-none absolute bottom-3 left-3 rounded-md border border-line bg-surface/85 text-ink shadow-pop backdrop-blur-sm px-2 py-1 font-mono text-[11px]">
       {state.kind === "wall" && state.u !== undefined && state.v !== undefined
         ? `along wall ${state.u.toFixed(3)} m · height ${state.v.toFixed(3)} m`
         : `x ${x.toFixed(3)} · y ${y.toFixed(3)} · z ${z.toFixed(3)}`}

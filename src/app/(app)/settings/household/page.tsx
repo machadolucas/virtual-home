@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { requireSessionPage } from "@/server/auth/session";
 import { PageHeader } from "@/ui/shell";
-import { pageContext } from "@/server/queries/settings/household";
+import { pageContext, readHouseBackground } from "@/server/queries/settings/household";
 import { HouseholdForm, type HouseholdDraft } from "./HouseholdForm";
+import { AppearancePanel } from "./AppearancePanel";
 
 export const metadata: Metadata = { title: "Household" };
 
@@ -17,7 +18,8 @@ export const metadata: Metadata = { title: "Household" };
  */
 export default async function HouseholdSettingsPage() {
   await requireSessionPage("/settings/household");
-  const { household } = pageContext();
+  const { db, household } = pageContext();
+  const background = readHouseBackground(db);
 
   const initial: HouseholdDraft = {
     displayName: household.displayName,
@@ -52,6 +54,7 @@ export default async function HouseholdSettingsPage() {
         description="What decides when things happen: the time zone every date is measured in, when reminders arrive, when a battery reading becomes a task, and how far ahead the shopping list looks. All of it takes effect on the worker's next tick, with no restart."
       />
       <HouseholdForm initial={initial} timezones={timezones} />
+      <AppearancePanel background={background} />
     </>
   );
 }

@@ -21,11 +21,13 @@ import { LocateSheet } from "./LocateSheet";
 
 export function PhoneHouse() {
   const runtime = useHouseRuntime();
-  const { index, activeFloorId, selection, placements, editing, announcement } = useHouseStore(
+  const { index, activeFloorId, selection, background, placements, editing, announcement } =
+    useHouseStore(
     useShallow((s) => ({
       index: s.index,
       activeFloorId: s.activeFloorId,
       selection: s.selection,
+      background: s.background,
       placements: s.placements,
       editing: s.editing !== null,
       announcement: s.announcement,
@@ -40,12 +42,12 @@ export function PhoneHouse() {
   );
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-y-auto p-3">
+    <div className="flex h-full flex-col gap-3 overflow-y-auto bg-paper p-3">
       <header className="flex flex-col gap-1">
-        <h1 className="text-base font-semibold text-neutral-900">
+        <h1 className="text-base font-semibold text-ink">
           {index?.manifest.name ?? "House"}
         </h1>
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-ink-3">
           The plan is context. The written note and the photo are what find the thing.
         </p>
       </header>
@@ -67,22 +69,22 @@ export function PhoneHouse() {
 
       <div className="relative h-64 shrink-0">
         <HouseErrorBoundary>
-          <HouseCanvasLazy />
+          <HouseCanvasLazy background={background} />
         </HouseErrorBoundary>
       </div>
 
       {equipmentId ? <LocateSheet placementId={equipmentId} /> : null}
 
-      <section className="rounded-lg border border-neutral-200 bg-white p-3">
+      <section className="rounded-lg border border-line bg-surface p-3">
         {editing ? <PlacementEditor /> : <Inspector />}
       </section>
 
-      <section className="rounded-lg border border-neutral-200 bg-white p-3">
-        <h2 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+      <section className="rounded-lg border border-line bg-surface p-3">
+        <h2 className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Equipment on this floor
         </h2>
         {floorEquipment.length === 0 ? (
-          <p className="mt-1 text-sm text-neutral-500">Nothing placed here yet.</p>
+          <p className="mt-1 text-sm text-ink-3">Nothing placed here yet.</p>
         ) : (
           <ul className="mt-1 flex flex-col">
             {floorEquipment.map((p) => (
@@ -90,10 +92,10 @@ export function PhoneHouse() {
                 <button
                   type="button"
                   onClick={() => runtime.select({ kind: "equipment", id: p.id })}
-                  className="min-h-11 w-full truncate text-left text-sm text-neutral-800"
+                  className="min-h-11 w-full truncate text-left text-sm text-ink"
                 >
                   {p.name}
-                  <span className="ml-1 text-xs text-neutral-500">
+                  <span className="ml-1 text-xs text-ink-3">
                     {p.roomId ? (index?.rooms.get(p.roomId)?.name ?? p.roomId) : ""}
                   </span>
                 </button>
@@ -126,8 +128,8 @@ function FloorChip({
       aria-pressed={active}
       className={`min-h-11 rounded-full border px-3 text-sm font-medium ${
         active
-          ? "border-sky-700 bg-sky-700 text-white"
-          : "border-neutral-300 bg-white text-neutral-800"
+          ? "border-accent bg-accent text-on-accent"
+          : "border-line bg-surface text-ink"
       }`}
     >
       {label}

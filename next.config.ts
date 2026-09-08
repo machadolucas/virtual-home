@@ -24,6 +24,11 @@ const csp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  // Next 16 blocks dev-only resources (`_next/hmr`, devtools) from any host but the one the dev
+  // server was opened on, and a blocked HMR socket leaves the page un-hydrated with no visible
+  // error. Development is reached over the loopback names and over the LAN while testing on a
+  // phone, so all three are allowed. Production is unaffected: this key only applies to `next dev`.
+  allowedDevOrigins: ["localhost", "127.0.0.1", "[::1]", "*.local"],
   serverExternalPackages: ["better-sqlite3", "sharp", "pino", "pino-roll", "pino-pretty"],
   poweredByHeader: false,
   typedRoutes: true,
@@ -36,7 +41,11 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/:path*",
+        // Everything except `_next/*`: these headers belong on documents and API responses, and
+        // appending them to the dev HMR WebSocket's 101 upgrade corrupts the handshake in Chrome
+        // (`ERR_INVALID_HTTP_RESPONSE`), which leaves the dev client retrying and the page
+        // un-hydrated. Static chunks gain nothing from a CSP.
+        source: "/((?!_next/).*)",
         headers: [
           { key: "Content-Security-Policy", value: csp },
           { key: "X-Content-Type-Options", value: "nosniff" },

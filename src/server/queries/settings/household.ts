@@ -5,6 +5,8 @@ import { HOUSEHOLD_SETTING_ID, householdSetting } from "@/db/schema";
 import { NotFoundError } from "@/domain/errors";
 import type { DomainContext } from "@/domain/inventory";
 import { localDateOf, systemClock, type LocalDate } from "@/domain/time";
+import { parseHouseBackground, type HouseBackground } from "@/house/model/background";
+import { log } from "@/server/log";
 import type { Session } from "@/server/auth/session";
 
 export type HouseholdRow = typeof householdSetting.$inferSelect;
@@ -23,6 +25,29 @@ export function readHouseholdRow(tx: Db): HouseholdRow {
   if (!row) throw new NotFoundError("household_setting", HOUSEHOLD_SETTING_ID);
   return row;
 }
+
+/**
+ * The 3D view's background.
+ *
+ * NULL means "follow the theme". So does a value the schema no longer accepts — a hand-edited or
+ * half-written row must not break the House page, and the theme is always a correct answer. It is
+ * logged once per process so it is still visible in the log rather than silently swallowed.
+ */
+export function readHouseBackground(tx: Db): HouseBackground {
+  const row = readHouseholdRow(tx);
+  const { background, malformed } = parseHouseBackground(row.houseBackgroundJson);
+  if (malformed && !warnedAboutBackground) {
+    warnedAboutBackground = true;
+    log.warn(
+      { value: row.houseBackgroundJson },
+      "household_setting.house_background_json is not a valid background; following the theme",
+    );
+  }
+  return background;
+}
+
+/** One warning per process, not per render: this is a stuck value, not an event. */
+let warnedAboutBackground = false;
 
 /** The household time zone, without pulling in the rest of the row. */
 export function householdTimezone(tx: Db): string {

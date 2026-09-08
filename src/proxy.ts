@@ -26,6 +26,9 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/health|login|_next/static|_next/image|favicon.ico|icons/|manifest.webmanifest|fonts/).*)",
+    // `_next` is excluded wholesale, not just `static`/`image`: the dev client also talks to
+    // `_next/hmr` and `_next/devtools`, and answering those with a 401 breaks dev tooling.
+    // Real navigations and RSC requests use the page's own URL, so they stay behind this gate.
+    "/((?!api/auth|api/health|login|_next/|favicon.ico|icons/|manifest.webmanifest|fonts/).*)",
   ],
 };

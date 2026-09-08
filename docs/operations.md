@@ -18,6 +18,9 @@ public hostname are provided by the owner's **Caddy** (later a cloudflared tunne
 | `secrets/vh.env` (mode 600) | configuration incl. `BETTER_AUTH_SECRET`, `HA_TOKEN` |
 
 ## First install
+
+> Doing it for the first time on the Mac mini? Follow [deploy-mac-mini.md](deploy-mac-mini.md),
+> which walks the same steps with the machine-specific caveats. The condensed version:
 ```bash
 git clone https://github.com/machadolucas/virtual-home.git ~/git/virtual-home
 cd ~/git/virtual-home && ./scripts/install-macmini.sh      # creates data dir + secrets template, then exits

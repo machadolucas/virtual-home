@@ -101,9 +101,12 @@ export function MarkerButtons({ hostRef }: { hostRef: React.RefObject<HTMLDivEle
             aria-label={markerLabel(p)}
             onClick={() => runtime.select({ kind: "equipment", id: p.id }, { frame: false })}
             onDoubleClick={() => void runtime.camera?.frameEquipment(p.id)}
-            className={`pointer-events-auto absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 ${size} rounded-full border-2 ${
-              selected ? "border-sky-600 bg-sky-100" : "border-neutral-500 bg-white/90"
-            } shadow-sm`}
+            // A chip floating over the render: the background behind it is a household
+            // choice (a token, a solid colour or a gradient), so it carries its own token
+            // surface and blur rather than borrowing whatever is behind it.
+            className={`pointer-events-auto absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 ${size} rounded-full border-2 backdrop-blur-sm ${
+              selected ? "border-accent bg-accent-soft" : "border-line-strong bg-surface/85"
+            } shadow-pop`}
           >
             <span className="sr-only">{markerLabel(p)}</span>
             <MarkerDot placement={p} />
@@ -126,13 +129,13 @@ function MarkerDot({ placement }: { placement: Placement }) {
   const shape =
     cls === "live"
       ? battery === "critical"
-        ? "bg-red-600"
+        ? "bg-overdue"
         : battery === "low"
-          ? "bg-orange-500"
-          : "bg-emerald-600"
+          ? "bg-due"
+          : "bg-ok"
       : cls === "stale"
-        ? "border-2 border-dotted border-amber-600 bg-transparent"
-        : "border border-neutral-400 bg-transparent";
+        ? "border-2 border-dotted border-stale bg-transparent"
+        : "border border-line-strong bg-transparent";
   return <span className={`mx-auto block h-2 w-2 rounded-full ${shape}`} aria-hidden="true" />;
 }
 

@@ -40,8 +40,16 @@ ENV
   say "edit $ENV_FILE (VH_BASE_URL, HA_TOKEN), then re-run this script"; exit 0
 fi
 chmod 600 "$ENV_FILE"
-grep -q '^HA_TOKEN=REPLACE_ME$' "$ENV_FILE" && die "HA_TOKEN still REPLACE_ME in $ENV_FILE"
+# An empty HA_TOKEN is allowed: the app installs and runs without Home Assistant, and the worker
+# says so at start-up. Only the untouched placeholder is refused, because that is an unread file.
+if grep -q '^HA_TOKEN=REPLACE_ME$' "$ENV_FILE"; then
+  say "HA_TOKEN is still the placeholder in $ENV_FILE"
+  say "Either paste a Home Assistant long-lived token, or set 'HA_TOKEN=' (empty) to install without"
+  say "Home Assistant for now — everything except live state and push notifications works."
+  die "edit $ENV_FILE and re-run"
+fi
 set -a; . "$ENV_FILE"; set +a
+[ -n "${HA_TOKEN:-}" ] || say "note: HA_TOKEN is empty — installing without Home Assistant (add it later and restart the worker)"
 
 if lsof -nP -iTCP:"${PORT:-3010}" -sTCP:LISTEN >/dev/null 2>&1; then
   OWNER="$(lsof -nP -iTCP:"${PORT:-3010}" -sTCP:LISTEN -F c | sed -n 's/^c//p' | head -1)"

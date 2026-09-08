@@ -11,6 +11,7 @@
  * pooled buttons are recycled (and therefore `tabIndex={-1}`).
  */
 import { useEffect, useMemo, useRef } from "react";
+import { cn } from "@/ui/cn";
 import { roomBox } from "@/house/model/framingBoxes";
 import { clipGroupOf } from "@/house/model/explodeGroups";
 import type { LabelAnchor } from "../hooks/useLabelProjection";
@@ -18,6 +19,35 @@ import { DESKTOP_POOL, PHONE_POOL, useLabelProjection } from "../hooks/useLabelP
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { useIsPhone } from "../hooks/useReducedMotion";
 import { classifyBattery, classifyState, haStore } from "@/house/store/haStore";
+
+/**
+ * The pooled label chip, as arbitrary variants on the host (the buttons are created
+ * imperatively by `LabelPool`, so they cannot carry their own React className).
+ *
+ * It floats over the render, whose background is a household choice — a theme token,
+ * a solid colour or a gradient — so the chip brings its own token surface, hairline
+ * and blur. Never a raw white or black wash: one of the two would vanish.
+ */
+const LABEL_CHIP = [
+  "[&>.vh-label]:-translate-x-1/2 [&>.vh-label]:-translate-y-1/2",
+  "[&>.vh-label]:whitespace-nowrap [&>.vh-label]:rounded-full",
+  "[&>.vh-label]:border [&>.vh-label]:border-line",
+  "[&>.vh-label]:bg-surface/90 [&>.vh-label]:backdrop-blur-sm",
+  "[&>.vh-label]:px-2 [&>.vh-label]:py-1",
+  "[&>.vh-label]:text-xs [&>.vh-label]:font-medium [&>.vh-label]:text-ink",
+  "[&>.vh-label]:shadow-pop",
+].join(" ");
+
+/** The "+N" badge that stands in for a cluster of labels too dense to draw. */
+const CLUSTER_CHIP = [
+  "[&>.vh-label-cluster]:-translate-x-1/2 [&>.vh-label-cluster]:-translate-y-1/2",
+  "[&>.vh-label-cluster]:rounded-full",
+  "[&>.vh-label-cluster]:border [&>.vh-label-cluster]:border-line",
+  "[&>.vh-label-cluster]:bg-surface-2/85 [&>.vh-label-cluster]:backdrop-blur-sm",
+  "[&>.vh-label-cluster]:px-1.5 [&>.vh-label-cluster]:py-0.5",
+  "[&>.vh-label-cluster]:text-[10px] [&>.vh-label-cluster]:font-semibold",
+  "[&>.vh-label-cluster]:text-ink [&>.vh-label-cluster]:shadow-pop",
+].join(" ");
 
 export function useLabelAnchors(): LabelAnchor[] {
   const runtime = useHouseRuntime();
@@ -117,7 +147,13 @@ export function LabelHost({ hostRef, anchors }: LabelHostProps) {
       <div
         ref={hostRef}
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 overflow-hidden [&>*]:pointer-events-auto [&>*]:absolute [&>*]:left-0 [&>*]:top-0 [&>.vh-label]:-translate-x-1/2 [&>.vh-label]:-translate-y-1/2 [&>.vh-label]:whitespace-nowrap [&>.vh-label]:rounded-full [&>.vh-label]:border [&>.vh-label]:border-neutral-300/80 [&>.vh-label]:bg-white/95 [&>.vh-label]:px-2 [&>.vh-label]:py-1 [&>.vh-label]:text-xs [&>.vh-label]:font-medium [&>.vh-label]:text-neutral-800 [&>.vh-label]:shadow-sm [&>.vh-label-compact]:px-1.5 [&>.vh-label-compact]:py-0.5 [&>.vh-label-cluster]:-translate-x-1/2 [&>.vh-label-cluster]:-translate-y-1/2 [&>.vh-label-cluster]:rounded-full [&>.vh-label-cluster]:bg-neutral-800/90 [&>.vh-label-cluster]:px-1.5 [&>.vh-label-cluster]:py-0.5 [&>.vh-label-cluster]:text-[10px] [&>.vh-label-cluster]:font-semibold [&>.vh-label-cluster]:text-white"
+        className={cn(
+          "pointer-events-none absolute inset-0 overflow-hidden",
+          "[&>*]:pointer-events-auto [&>*]:absolute [&>*]:left-0 [&>*]:top-0",
+          LABEL_CHIP,
+          "[&>.vh-label-compact]:px-1.5 [&>.vh-label-compact]:py-0.5",
+          CLUSTER_CHIP,
+        )}
       />
       <ul className="sr-only">
         {anchors.map((anchor) => (

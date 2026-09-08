@@ -11,6 +11,7 @@ import { Popover, PopoverClose } from "../Popover";
 import { Spinner } from "../Spinner";
 import { toasts } from "../Toast";
 import { SETTINGS_NAV } from "./nav";
+import { ThemeMenu } from "./ThemeMenu";
 
 export interface UserMenuProps {
   name: string;
@@ -54,6 +55,7 @@ export function UserMenu({ name, username, displayColor }: UserMenuProps) {
       trigger={
         <button
           type="button"
+          aria-label={`Account: ${name}`}
           className={cn(
             "flex min-h-11 shrink-0 items-center gap-1.5 rounded-full pl-0.5 pr-1.5 md:min-h-9",
             "transition-colors duration-100 hover:bg-surface-3",
@@ -77,6 +79,10 @@ export function UserMenu({ name, username, displayColor }: UserMenuProps) {
           ) : null}
         </span>
       </div>
+
+      <div className="my-1 h-px bg-line" />
+
+      <ThemeMenu />
 
       <div className="my-1 h-px bg-line" />
 

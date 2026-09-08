@@ -31,7 +31,7 @@ export function UndoBar() {
         type="button"
         onClick={applyUndo}
         disabled={undo.length === 0}
-        className="min-h-8 rounded-md border border-neutral-300 bg-white px-2 font-medium text-neutral-800 hover:bg-neutral-100 disabled:opacity-50"
+        className="min-h-8 rounded-md border border-line bg-surface px-2 font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
       >
         Undo
       </button>
@@ -39,11 +39,11 @@ export function UndoBar() {
         type="button"
         onClick={applyRedo}
         disabled={redo.length === 0}
-        className="min-h-8 rounded-md border border-neutral-300 bg-white px-2 font-medium text-neutral-800 hover:bg-neutral-100 disabled:opacity-50"
+        className="min-h-8 rounded-md border border-line bg-surface px-2 font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
       >
         Redo
       </button>
-      <span className="text-neutral-500">{undo.length} step(s)</span>
+      <span className="text-ink-3">{undo.length} step(s)</span>
     </div>
   );
 }

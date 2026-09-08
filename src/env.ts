@@ -90,9 +90,14 @@ export function parseEnv(source: NodeJS.ProcessEnv, role: ProcessRole): Env {
     throw new EnvError(parsed.error.flatten().fieldErrors as Record<string, string[] | undefined>);
   }
   const e = parsed.data;
-  // The worker may run without HA (scheduling still works), but a configured HA_URL needs a token.
-  if (role === "worker" && e.HA_URL && (!e.HA_TOKEN || e.HA_TOKEN.length < 20)) {
-    throw new EnvError({ HA_TOKEN: ["HA_TOKEN (a long-lived access token) is required for the worker when HA_URL is set"] });
+  // The worker runs fine without Home Assistant (scheduling, supplies and the house view do not
+  // need it), so a missing token only disables the integration — the worker says so at start-up and
+  // `vh-admin doctor` flags it. A token that is present but implausibly short is a typo, and that
+  // still fails loudly rather than producing an endless auth-failure loop.
+  if (role === "worker" && e.HA_TOKEN && e.HA_TOKEN.length < 20) {
+    throw new EnvError({
+      HA_TOKEN: ["HA_TOKEN looks truncated (a Home Assistant long-lived token is much longer)"],
+    });
   }
   let haWsUrl: string | null = null;
   if (e.HA_WS_URL) haWsUrl = e.HA_WS_URL;

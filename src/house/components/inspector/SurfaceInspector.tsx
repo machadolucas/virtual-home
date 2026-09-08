@@ -23,11 +23,11 @@ export function SurfaceInspector({ surfaceId }: { surfaceId: SurfaceId }) {
   return (
     <div className="flex flex-col gap-4">
       <header>
-        <h2 className="text-base font-semibold text-neutral-900">
+        <h2 className="text-base font-semibold text-ink">
           {surface.kind}
           {surface.role ? ` · ${surface.role}` : ""}
         </h2>
-        <p className="font-mono text-[11px] text-neutral-500">{surface.id}</p>
+        <p className="font-mono text-[11px] text-ink-3">{surface.id}</p>
       </header>
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
@@ -38,7 +38,7 @@ export function SurfaceInspector({ surfaceId }: { surfaceId: SurfaceId }) {
       </dl>
 
       {!hasMesh ? (
-        <p className="rounded-md border border-neutral-200 bg-neutral-50 p-2 text-xs text-neutral-600">
+        <p className="rounded-md border border-line bg-surface-2 p-2 text-xs text-ink-2">
           This surface exists in the manifest but its node carries no geometry (a degenerate band).
           It cannot be coloured or highlighted; that is the package&rsquo;s intent, not a fault.
         </p>
@@ -49,12 +49,12 @@ export function SurfaceInspector({ surfaceId }: { surfaceId: SurfaceId }) {
             value={hex}
             onChange={(event) => setOverride(surfaceId, event.currentTarget.value)}
             aria-label={`Colour for ${surfaceId}`}
-            className="h-8 w-10 rounded border border-neutral-300"
+            className="h-8 w-10 rounded border border-line"
           />
           <button
             type="button"
             onClick={() => clearOverride(surfaceId)}
-            className="min-h-8 rounded-md border border-neutral-300 bg-white px-2 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+            className="min-h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3"
           >
             Reset to default
           </button>
@@ -65,7 +65,7 @@ export function SurfaceInspector({ surfaceId }: { surfaceId: SurfaceId }) {
         <button
           type="button"
           onClick={() => runtime.select({ kind: "room", id: room.id }, { frame: true })}
-          className="self-start text-xs text-sky-700 hover:underline"
+          className="self-start text-xs text-accent-text hover:underline"
         >
           Show the whole room
         </button>

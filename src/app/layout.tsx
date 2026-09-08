@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { inter } from "./fonts";
 import { ToastViewport } from "@/ui/Toast";
+import { themeScript } from "@/ui/shell/theme";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -42,7 +43,20 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${inter.variable} h-full antialiased`}>
+    // `suppressHydrationWarning`: the blocking script below writes `data-theme` and `style` on this
+    // element before React sees it, so the server's markup and the client's DOM legitimately differ
+    // by exactly those two attributes. Nothing else on the element is generated.
+    <html lang="en" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        {/*
+          The stored theme, applied before the first paint.
+          It cannot be a component or an effect: a pinned dark theme applied after hydration is a
+          white flash on every navigation. `script-src` already allows `'unsafe-inline'`
+          (`next.config.ts`), and the whole body is inside a `try` — `localStorage` throws outright
+          in some privacy modes, and a colour preference is not worth a blank page.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: themeScript() }} />
+      </head>
       <body className="min-h-dvh bg-paper font-sans text-ink">
         {children}
         <ToastViewport />

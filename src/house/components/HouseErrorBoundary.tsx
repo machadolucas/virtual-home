@@ -38,16 +38,16 @@ export class HouseErrorBoundary extends Component<Props, State> {
     return (
       <div
         role="alert"
-        className="flex h-full flex-col items-start justify-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-6 text-sm text-neutral-700"
+        className="flex h-full flex-col items-start justify-center gap-3 rounded-lg border border-line bg-surface-2 p-6 text-sm text-ink-2"
       >
-        <p className="font-medium text-neutral-900">The 3D view could not start.</p>
-        <p className="max-w-prose text-neutral-600">
+        <p className="font-medium text-ink">The 3D view could not start.</p>
+        <p className="max-w-prose text-ink-2">
           Everything else on this page still works. {error.message}
         </p>
         <button
           type="button"
           onClick={this.reset}
-          className="min-h-8 rounded-md border border-neutral-300 bg-white px-3 text-sm font-medium text-neutral-800 hover:bg-neutral-100"
+          className="min-h-8 rounded-md border border-line bg-surface px-3 text-sm font-medium text-ink hover:bg-surface-3"
         >
           Try again
         </button>

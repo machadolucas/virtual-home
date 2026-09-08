@@ -65,7 +65,7 @@ export function WallElevationEditor2D({ surfaceId }: { surfaceId: SurfaceId }) {
 
   if (!index || !surface || !frame || !room) {
     return (
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-ink-3">
         Pick a wall surface to edit a route in its own plane.
       </p>
     );
@@ -83,9 +83,9 @@ export function WallElevationEditor2D({ surfaceId }: { surfaceId: SurfaceId }) {
         viewBox={viewBox}
         role="img"
         aria-label={`Elevation of ${surfaceId}`}
-        className="h-auto w-full touch-none rounded-md border border-neutral-200 bg-white"
+        className="h-auto w-full touch-none rounded-md border border-line bg-surface"
       >
-        <rect x={0} y={0} width={length * M} height={(top - bottom) * M} fill="#f6f4ef" stroke="#9a958c" strokeWidth={2} />
+        <rect x={0} y={0} width={length * M} height={(top - bottom) * M} fill="var(--vh-paper-2)" stroke="var(--vh-line-strong)" strokeWidth={2} />
 
         {openings.map((opening, i) => (
           <g key={opening.id}>
@@ -94,15 +94,15 @@ export function WallElevationEditor2D({ surfaceId }: { surfaceId: SurfaceId }) {
               y={(top - opening.head) * M}
               width={opening.width * M}
               height={(opening.head - opening.sill) * M}
-              fill="#e7eef5"
-              stroke="#3d7ea6"
+              fill="var(--vh-accent-soft)"
+              stroke="var(--vh-accent)"
               strokeWidth={2}
             />
             <text
               x={(i * (opening.width + 0.4) + 0.2 + opening.width / 2) * M}
               y={(top - opening.head) * M - 8}
               textAnchor="middle"
-              className="fill-sky-800"
+              className="fill-accent"
               style={{ fontSize: 18 }}
             >
               {opening.kind} · sill {opening.sill.toFixed(2)} · head {opening.head.toFixed(2)}
@@ -119,8 +119,8 @@ export function WallElevationEditor2D({ surfaceId }: { surfaceId: SurfaceId }) {
               cx={local.u * M}
               cy={(top - height) * M}
               r={selectedPointIndex === i ? 12 : 9}
-              fill={selectedPointIndex === i ? "#2f6fd0" : "#ffffff"}
-              stroke="#2f6fd0"
+              fill={selectedPointIndex === i ? "var(--vh-accent)" : "var(--vh-paper-0)"}
+              stroke="var(--vh-accent)"
               strokeWidth={3}
               tabIndex={0}
               role="button"
@@ -146,7 +146,7 @@ export function WallElevationEditor2D({ surfaceId }: { surfaceId: SurfaceId }) {
           );
         })}
       </svg>
-      <p className="text-[11px] text-neutral-500">
+      <p className="text-[11px] text-ink-3">
         Heights are measured from {room.name}&apos;s own floor at{" "}
         {room.floorElevation.toFixed(2)} m, not from the floor datum.
       </p>

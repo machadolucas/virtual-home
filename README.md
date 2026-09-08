@@ -8,6 +8,8 @@ Home Assistant integration (live state, mobile notifications).
   a small Node worker · launchd.
 - Docs: start with [`CLAUDE.md`](CLAUDE.md), then [`docs/architecture.md`](docs/architecture.md),
   [`docs/operations.md`](docs/operations.md), [`docs/decisions.md`](docs/decisions.md).
+- Deploying it on the household server: [`docs/deploy-mac-mini.md`](docs/deploy-mac-mini.md)
+  (and a ready-to-paste agent prompt in [`docs/deploy-mac-mini-prompt.md`](docs/deploy-mac-mini-prompt.md)).
 - This repository is public and contains **no household data**: the house model, database, photos,
   manuals and secrets live in a private data directory (`VH_DATA_DIR`).
 

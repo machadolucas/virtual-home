@@ -219,20 +219,20 @@ export function PlacementEditor() {
   return (
     <div className="flex flex-col gap-4">
       <header className="flex items-baseline justify-between">
-        <h2 className="text-base font-semibold text-neutral-900">
+        <h2 className="text-base font-semibold text-ink">
           {editing.placementId ? "Adjust placement" : "Place equipment"}
         </h2>
         <UndoBar />
       </header>
 
       {phone ? (
-        <p className="rounded-md border border-neutral-200 bg-neutral-50 p-2 text-xs text-neutral-600">
+        <p className="rounded-md border border-line bg-surface-2 p-2 text-xs text-ink-2">
           Drag placement is a desktop feature. Use the numbers and the nudge buttons here.
         </p>
       ) : (
-        <p className="text-xs text-neutral-600">
-          Drag on the 3D view to place. Hold <kbd className="rounded bg-neutral-100 px-1">Alt</kbd>{" "}
-          to ignore the grid, <kbd className="rounded bg-neutral-100 px-1">Shift</kbd> to constrain
+        <p className="text-xs text-ink-2">
+          Drag on the 3D view to place. Hold <kbd className="rounded bg-surface-2 px-1">Alt</kbd>{" "}
+          to ignore the grid, <kbd className="rounded bg-surface-2 px-1">Shift</kbd> to constrain
           to one axis.
         </p>
       )}
@@ -240,7 +240,7 @@ export function PlacementEditor() {
       <NumericPlacementFields />
 
       <fieldset className="flex flex-col gap-1 text-xs">
-        <legend className="text-neutral-500">Nudge</legend>
+        <legend className="text-ink-3">Nudge</legend>
         <div className="flex flex-wrap gap-1">
           <NudgeButton onClick={() => nudge(-snap.grid, 0, 0)} label="X −5 cm" />
           <NudgeButton onClick={() => nudge(snap.grid, 0, 0)} label="X +5 cm" />
@@ -252,7 +252,7 @@ export function PlacementEditor() {
       </fieldset>
 
       <fieldset className="flex flex-col gap-1 text-xs">
-        <legend className="text-neutral-500">Snapping</legend>
+        <legend className="text-ink-3">Snapping</legend>
         <label className="flex min-h-8 items-center gap-2">
           <input
             type="checkbox"
@@ -273,14 +273,14 @@ export function PlacementEditor() {
         </label>
       </fieldset>
 
-      {editError ? <p className="text-xs text-red-700">{editError}</p> : null}
+      {editError ? <p className="text-xs text-overdue">{editError}</p> : null}
 
       <div className="flex gap-2">
         <button
           type="button"
           onClick={() => void save()}
           disabled={saving}
-          className="min-h-9 rounded-md bg-sky-700 px-3 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-50"
+          className="min-h-9 rounded-md bg-accent px-3 text-xs font-semibold text-on-accent hover:bg-accent-hover disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save placement"}
         </button>
@@ -290,7 +290,7 @@ export function PlacementEditor() {
             setIndicator(null);
             cancelEdit();
           }}
-          className="min-h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+          className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
           Cancel (Esc)
         </button>
@@ -306,7 +306,7 @@ function NudgeButton({ onClick, label }: { onClick: () => void; label: string })
     <button
       type="button"
       onClick={onClick}
-      className="min-h-11 min-w-11 rounded-md border border-neutral-300 bg-white px-2 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+      className="min-h-11 min-w-11 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3"
     >
       {label}
     </button>

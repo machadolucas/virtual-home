@@ -71,7 +71,7 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
         viewBox={viewBox}
         role="img"
         aria-label={`Plan of ${index.floors.get(floorId)?.name ?? floorId}`}
-        className="h-auto w-full touch-none rounded-md border border-neutral-200 bg-white"
+        className="h-auto w-full touch-none rounded-md border border-line bg-surface"
         onPointerMove={onPointerMove}
         onPointerUp={() => {
           dragging.current = null;
@@ -84,16 +84,16 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
           <g key={room.id}>
             <polygon
               points={room.footprint.outer.map((p) => `${p[0] * M},${p[1] * M}`).join(" ")}
-              fill="#f6f4ef"
-              stroke="#9a958c"
+              fill="var(--vh-paper-2)"
+              stroke="var(--vh-line-strong)"
               strokeWidth={2}
             />
             {room.footprint.holes.map((hole, i) => (
               <polygon
                 key={i}
                 points={hole.map((p) => `${p[0] * M},${p[1] * M}`).join(" ")}
-                fill="#ffffff"
-                stroke="#9a958c"
+                fill="var(--vh-paper-0)"
+                stroke="var(--vh-line-strong)"
                 strokeWidth={2}
               />
             ))}
@@ -101,7 +101,7 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
               x={(index.roomAnchors.get(room.id)?.point[0] ?? 0) * M}
               y={(index.roomAnchors.get(room.id)?.point[2] ?? 0) * M}
               textAnchor="middle"
-              className="fill-neutral-500"
+              className="fill-ink-3"
               style={{ fontSize: 22 }}
             >
               {room.name}
@@ -114,7 +114,7 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
             <polyline
               points={routeDraft.points.map((p) => `${p[0] * M},${p[2] * M}`).join(" ")}
               fill="none"
-              stroke="#2f6fd0"
+              stroke="var(--vh-accent)"
               strokeWidth={4}
               strokeDasharray={
                 routeDraft.certainty === "inferred" || routeDraft.certainty === "unknown"
@@ -132,7 +132,7 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
                   x={((previous[0] + point[0]) / 2) * M}
                   y={((previous[2] + point[2]) / 2) * M - 8}
                   textAnchor="middle"
-                  className="fill-sky-800"
+                  className="fill-accent"
                   style={{ fontSize: 20 }}
                   onDoubleClick={() =>
                     insertRoutePoint(i + 1, [
@@ -154,8 +154,8 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
                     cx={point[0] * M}
                     cy={point[2] * M}
                     r={selectedPointIndex === i ? 12 : 9}
-                    fill={selectedPointIndex === i ? "#2f6fd0" : "#ffffff"}
-                    stroke="#2f6fd0"
+                    fill={selectedPointIndex === i ? "var(--vh-accent)" : "var(--vh-paper-0)"}
+                    stroke="var(--vh-accent)"
                     strokeWidth={3}
                     className="cursor-move"
                     onPointerDown={(event) => {
@@ -174,7 +174,7 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
                     <text
                       x={point[0] * M + 14}
                       y={point[2] * M - 6}
-                      className="fill-neutral-500"
+                      className="fill-ink-3"
                       style={{ fontSize: 18 }}
                     >
                       {clearance.toFixed(2)} m to wall
@@ -186,7 +186,7 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
           </>
         ) : null}
       </svg>
-      <p className="text-[11px] text-neutral-500">
+      <p className="text-[11px] text-ink-3">
         North is up in model orientation. True north is {index.manifest.coordinateSystem.north?.bearingDeg ?? "?"}
         ° ({index.manifest.coordinateSystem.north?.certainty ?? "unknown"}) — the plan is never
         silently rotated.

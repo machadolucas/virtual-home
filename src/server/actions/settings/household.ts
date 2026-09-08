@@ -16,6 +16,7 @@ import { writeAudit } from "@/domain/inventory";
 import { action } from "@/server/api/action";
 import { readHouseholdRow, userContext } from "@/server/queries/settings/household";
 import { mapDomainErrors } from "@/server/actions/inventory/errors";
+import { DEFAULT_HOUSE_BACKGROUND, sameBackground } from "@/house/model/background";
 import {
   acknowledgeAlertInput,
   addNotifyDeviceInput,
@@ -23,6 +24,7 @@ import {
   removeNotifyDeviceInput,
   setNotifyDeviceActiveInput,
   updateDisplayColorInput,
+  updateHouseBackgroundInput,
 } from "./schemas";
 
 /**
@@ -86,6 +88,44 @@ export const updateHouseholdSettings = action(householdSettingsInput, async (inp
   );
   // The time zone and the reorder horizon change what nearly every page computes.
   revalidatePath("/", "layout");
+  return { ok: true as const };
+});
+
+/**
+ * The 3D view's background.
+ *
+ * Household-level, like the time zone and the notification window: the model is the household's,
+ * there are two people looking at it, and a per-person viewer theme would mean the two of them
+ * describing different pictures to each other over the phone. The UI says so in words.
+ *
+ * `{ mode: "theme" }` is stored as NULL rather than as JSON, so "we have never chosen" and "we
+ * chose to follow the theme" are the same row — there is no difference worth keeping.
+ */
+export const updateHouseBackground = action(updateHouseBackgroundInput, async (input, session) => {
+  const { db } = getDb();
+  mapDomainErrors(() =>
+    writeTx(db, (tx) => {
+      const ctx = userContext(session, tx);
+      const before = readHouseholdRow(tx);
+      const value = sameBackground(input.background, DEFAULT_HOUSE_BACKGROUND)
+        ? null
+        : JSON.stringify(input.background);
+      if (value === before.houseBackgroundJson) return;
+      tx.update(householdSetting)
+        .set({ houseBackgroundJson: value, updatedAtMs: nowMs(), updatedBy: ctx.actorUserId })
+        .where(eq(householdSetting.id, HOUSEHOLD_SETTING_ID))
+        .run();
+      writeAudit(tx, ctx, {
+        entityTable: "household_setting",
+        entityId: HOUSEHOLD_SETTING_ID,
+        action: "updated",
+        summary: `3D background set to ${input.background.mode}`,
+        changes: { house_background_json: [before.houseBackgroundJson, value] },
+      });
+    }),
+  );
+  revalidatePath("/house");
+  revalidatePath("/settings/household");
   return { ok: true as const };
 });
 

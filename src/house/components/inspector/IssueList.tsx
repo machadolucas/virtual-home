@@ -10,11 +10,11 @@ import type { Issue } from "@/house/model/types";
 export function IssueList({ issues }: { issues: readonly Issue[] }) {
   if (issues.length === 0) return null;
   return (
-    <section className="rounded-md border border-amber-200 bg-amber-50 p-3">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-900">
+    <section className="rounded-md border border-due/45 bg-due-soft p-3">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-due">
         Recorded uncertainty
       </h3>
-      <ul className="mt-1 space-y-1 text-xs text-amber-900">
+      <ul className="mt-1 space-y-1 text-xs text-due">
         {issues.map((issue) => (
           <li key={issue.id}>
             <span className="font-mono text-[10px] opacity-70">

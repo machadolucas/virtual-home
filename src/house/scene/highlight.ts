@@ -14,10 +14,14 @@
 import * as THREE from "three";
 import type { ExplodeGroup, SurfaceId } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
+import { getViewerPalette } from "./palette";
 import type { SceneIndex } from "./SceneIndex";
 
-export const SELECT_EMISSIVE = 0x2f6fd0;
-export const HOVER_EMISSIVE = 0x2f6fd0;
+/**
+ * The tint hues come from the live tokens (`scene/palette.ts`), not from a literal: an emissive
+ * chosen against a pale ground washes out on a dark one. The *intensities* stay fixed — they are
+ * how strongly a highlight reads, which is not a theme question.
+ */
 export const SELECT_INTENSITY = 0.55;
 export const HOVER_INTENSITY = 0.22;
 export const ROOM_INTENSITY = 0.3;
@@ -31,7 +35,7 @@ export class Highlighter {
 
   constructor(private readonly parent: THREE.Object3D) {
     this.outlineMaterial = new THREE.LineBasicMaterial({
-      color: 0x14304f,
+      color: getViewerPalette().selectOutline,
       depthTest: false,
       transparent: true,
       opacity: 0.9,
@@ -52,9 +56,11 @@ export class Highlighter {
     for (const id of this.selected) this.tint(index, id, 0x000000, 0);
     if (this.hovered) this.tint(index, this.hovered, 0x000000, 0);
 
+    const palette = getViewerPalette();
     const intensity = opts.intensity ?? SELECT_INTENSITY;
-    for (const id of selection) this.tint(index, id, SELECT_EMISSIVE, intensity);
-    if (hover && !selection.includes(hover)) this.tint(index, hover, HOVER_EMISSIVE, HOVER_INTENSITY);
+    for (const id of selection) this.tint(index, id, palette.selectEmissive, intensity);
+    if (hover && !selection.includes(hover))
+      this.tint(index, hover, palette.hoverEmissive, HOVER_INTENSITY);
 
     this.selected = [...selection];
     this.hovered = hover;
@@ -99,6 +105,14 @@ export class Highlighter {
     this.outline.matrixAutoUpdate = false;
     this.outline.matrix.copy(mesh.matrixWorld);
     this.outline.matrixWorldNeedsUpdate = true;
+  }
+
+  /**
+   * Re-read the palette into the long-lived outline material. The emissive tints need no equivalent
+   * — `set()` reads the palette on every call, and the caller re-runs it after a theme change.
+   */
+  refreshPalette(): void {
+    this.outlineMaterial.color.setHex(getViewerPalette().selectOutline);
   }
 
   get outlineNode(): THREE.LineSegments | null {

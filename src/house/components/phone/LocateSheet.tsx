@@ -54,10 +54,10 @@ export function LocateSheet({ placementId }: { placementId: PlacementId }) {
   const room = placement.roomId ? index.rooms.get(placement.roomId) : undefined;
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-neutral-200 bg-white p-3">
+    <section className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-3">
       <header>
-        <h2 className="text-sm font-semibold text-neutral-900">Locate {placement.name}</h2>
-        <p className="text-xs text-neutral-500">
+        <h2 className="text-sm font-semibold text-ink">Locate {placement.name}</h2>
+        <p className="text-xs text-ink-3">
           {[room?.name, room?.nameFi, index.floors.get(placement.floorId)?.name]
             .filter(Boolean)
             .join(" · ")}
@@ -68,7 +68,7 @@ export function LocateSheet({ placementId }: { placementId: PlacementId }) {
         <button
           type="button"
           onClick={() => void locate()}
-          className="min-h-11 rounded-md bg-sky-700 px-3 text-sm font-semibold text-white"
+          className="min-h-11 rounded-md bg-accent px-3 text-sm font-semibold text-on-accent"
         >
           {located ? "Show me again" : "Show me where it is"}
         </button>
@@ -81,26 +81,26 @@ export function LocateSheet({ placementId }: { placementId: PlacementId }) {
               s.setViewMode("floor");
               setUnlocked(true);
             }}
-            className="min-h-11 rounded-md border border-neutral-300 bg-white px-3 text-sm font-medium text-neutral-800"
+            className="min-h-11 rounded-md border border-line bg-surface px-3 text-sm font-medium text-ink"
           >
             Show in 3D
           </button>
         ) : null}
       </div>
       {unlocked ? (
-        <p className="text-[11px] text-neutral-500">
+        <p className="text-[11px] text-ink-3">
           The orbit is unlocked. Tap &ldquo;Show me where it is&rdquo; to go back to the plan.
         </p>
       ) : null}
 
       <section>
-        <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Where it is
         </h3>
         {placement.locationNote ? (
-          <p className="mt-1 text-sm text-neutral-900">{placement.locationNote}</p>
+          <p className="mt-1 text-sm text-ink">{placement.locationNote}</p>
         ) : (
-          <p className="mt-1 text-sm text-neutral-500">
+          <p className="mt-1 text-sm text-ink-3">
             No written note yet. Add one from a desktop — the words are what actually find the
             thing.
           </p>
@@ -108,7 +108,7 @@ export function LocateSheet({ placementId }: { placementId: PlacementId }) {
       </section>
 
       <section>
-        <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">Close-up</h3>
+        <h3 className="text-xs font-medium uppercase tracking-wide text-ink-3">Close-up</h3>
         {placement.photoId ? (
           // A private attachment served by an authenticated route handler: `next/image` would
           // proxy household photos through the optimizer and cache them outside that boundary.
@@ -116,10 +116,10 @@ export function LocateSheet({ placementId }: { placementId: PlacementId }) {
           <img
             src={`/api/attachments/${encodeURIComponent(placement.photoId)}`}
             alt={`Close-up photo of ${placement.name}`}
-            className="mt-1 w-full rounded-md border border-neutral-200"
+            className="mt-1 w-full rounded-md border border-line"
           />
         ) : (
-          <p className="mt-1 text-sm text-neutral-500">No close-up photo yet.</p>
+          <p className="mt-1 text-sm text-ink-3">No close-up photo yet.</p>
         )}
       </section>
     </section>

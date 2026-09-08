@@ -30,6 +30,7 @@ import type { Selection } from "@/house/model/types";
 import { baseSelect } from "@/house/runtime";
 import { useHouseRuntime, useHouseStore } from "../hooks/useHouseStore";
 import { useIsPhone, useIsTouch } from "../hooks/useReducedMotion";
+import { usePaletteSync } from "../hooks/usePaletteSync";
 import { useSceneSync } from "../hooks/useSceneSync";
 import { installTestHook } from "../test/testHook";
 
@@ -339,6 +340,8 @@ export function SceneRoot() {
   }, [runtime, gl, camera, touch]);
 
   useSceneSync();
+  // The scene's own chrome colours (selection, markers, routes) follow the theme.
+  usePaletteSync();
 
   // ---- the test hook, gated at build time -----------------------------
   useEffect(() => installTestHook(runtime, camera), [runtime, camera]);

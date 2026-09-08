@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { houseBackgroundSchema } from "@/house/model/background";
 
 /** Input shapes for the settings actions. Separate module: `"use server"` files export only functions. */
 
@@ -101,5 +102,17 @@ export const installPackageInput = z.object({
 
 export const acknowledgeAlertInput = z.object({ alertId: z.string().min(1) });
 
+/**
+ * The 3D view's background.
+ *
+ * The shape lives in `src/house/model/background.ts` because the viewer and the settings page both
+ * need it; the column carries no CHECK, so this zod schema *is* the constraint (see the comment on
+ * `household_setting.house_background_json`).
+ */
+export const updateHouseBackgroundInput = z.object({
+  background: houseBackgroundSchema,
+});
+
 export type HouseholdSettingsInput = z.infer<typeof householdSettingsInput>;
+export type UpdateHouseBackgroundInput = z.infer<typeof updateHouseBackgroundInput>;
 export type AddNotifyDeviceInput = z.infer<typeof addNotifyDeviceInput>;

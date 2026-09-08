@@ -21,6 +21,17 @@ export { reconcile, coordinateStamp } from "./model/reconcile";
 export type { ReconcileReport, PersistedRefs, PersistedModelStamp } from "./model/reconcile";
 export { planRoomColors, planAllSurfaces, planResetRoom, normalizeHex } from "./model/colorPlan";
 export type { ColorDecision, NodeColorPlan } from "./model/colorPlan";
+export {
+  backgroundStyle,
+  houseBackgroundSchema,
+  parseHouseBackground,
+  presetIdOf,
+  sameBackground,
+  DEFAULT_HOUSE_BACKGROUND,
+  DEFAULT_GRADIENT_ANGLE_DEG,
+  HOUSE_BACKGROUND_PRESETS,
+} from "./model/background";
+export type { HouseBackground } from "./model/background";
 export { computeVisibility, DOLLHOUSE_PRESET, OVERVIEW_PRESET } from "./model/visibilityPlan";
 export type { VisibilityInput, VisibilityPlan } from "./model/visibilityPlan";
 export { explodeGroupOf, clipGroupOf, explodeOffset, DEFAULT_EXPLODE_GAP } from "./model/explodeGroups";

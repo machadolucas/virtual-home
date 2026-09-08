@@ -72,8 +72,8 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
   return (
     <div className="flex flex-col gap-4">
       <header>
-        <h2 className="text-base font-semibold text-neutral-900">{route.name}</h2>
-        <p className="text-xs text-neutral-500">
+        <h2 className="text-base font-semibold text-ink">{route.name}</h2>
+        <p className="text-xs text-ink-3">
           {route.system} · {route.kind}
           {route.medium ? ` · ${MEDIUM_LABELS[route.medium]}` : ""}
         </p>
@@ -103,9 +103,9 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
         <Row label="Drawn now" value={drawn ? "yes" : "no — filtered by date"} />
       </dl>
 
-      {route.note ? <p className="text-xs text-neutral-600">{route.note}</p> : null}
+      {route.note ? <p className="text-xs text-ink-2">{route.note}</p> : null}
 
-      <p className="rounded-md border border-neutral-200 bg-neutral-50 p-2 text-xs text-neutral-600">
+      <p className="rounded-md border border-line bg-surface-2 p-2 text-xs text-ink-2">
         {CERTAINTY_LEGEND} Confidence here is <strong>{route.certainty}</strong>
         {route.certainty === "inferred" || route.certainty === "unknown"
           ? " — the line is a best guess, not a verified survey."
@@ -113,7 +113,7 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
       </p>
 
       {route.needsReconciliation ? (
-        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+        <p className="rounded-md border border-due/45 bg-due-soft p-2 text-xs text-due">
           This route references a floor, room or surface the current model package no longer knows.
           Its polyline is intact; the ids need a human decision.
         </p>
@@ -123,7 +123,7 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
         <button
           type="button"
           onClick={() => beginRouteDraft(route)}
-          className="min-h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+          className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
           Edit path
         </button>
@@ -131,7 +131,7 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
           type="button"
           aria-expanded={editing}
           onClick={() => setEditing((v) => !v)}
-          className="min-h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+          className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
           {editing ? "Hide details" : "Edit details"}
         </button>
@@ -139,28 +139,28 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
 
       {editing ? <RouteFields routeId={routeId} /> : null}
 
-      <div className="flex flex-col gap-2 border-t border-neutral-200 pt-3">
+      <div className="flex flex-col gap-2 border-t border-line pt-3">
         {armed === null ? (
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setArmed("soft")}
               disabled={route.lifecycle === "removed"}
-              className="min-h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-medium text-neutral-800 hover:bg-neutral-100 disabled:opacity-50"
+              className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
             >
               Mark removed
             </button>
             <button
               type="button"
               onClick={() => setArmed("hard")}
-              className="min-h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+              className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
             >
               Delete — it was drawn wrongly
             </button>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            <p className="text-xs text-neutral-600">
+            <p className="text-xs text-ink-2">
               {armed === "soft"
                 ? "Mark this run as removed? It keeps its path, photos and dates, and reappears whenever the renovation date reaches back past its removal."
                 : "Delete this run completely? Its points and photo links go with it. Use this only for a line that was never there — a run that was taken out should be marked removed instead."}
@@ -170,14 +170,14 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
                 type="button"
                 disabled={busy}
                 onClick={() => void remove(armed === "hard")}
-                className="min-h-9 rounded-md border border-red-300 bg-white px-3 text-xs font-medium text-red-800 hover:bg-red-50 disabled:opacity-50"
+                className="min-h-9 rounded-md border border-overdue/45 bg-surface px-3 text-xs font-medium text-overdue hover:bg-overdue-soft disabled:opacity-50"
               >
                 {armed === "soft" ? "Mark removed" : "Delete"}
               </button>
               <button
                 type="button"
                 onClick={() => setArmed(null)}
-                className="min-h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+                className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
               >
                 Keep
               </button>

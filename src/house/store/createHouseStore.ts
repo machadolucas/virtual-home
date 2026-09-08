@@ -10,6 +10,7 @@
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { subscribeWithSelector } from "zustand/middleware";
+import type { HouseBackground } from "@/house/model/background";
 import { createColorSlice, type ColorSlice } from "./slices/color";
 import { createEditSlice, type EditSlice } from "./slices/edit";
 import { createLayerSlice, type LayerSlice } from "./slices/layer";
@@ -39,8 +40,19 @@ export type HouseStoreApi = StoreApi<HouseStore> & {
   };
 };
 
-export function createHouseStore(): HouseStoreApi {
-  return createStore<HouseStore>()(
+export interface CreateHouseStoreOptions {
+  /**
+   * The household's 3D background, from the server.
+   *
+   * Seeded at construction rather than written in an effect: it decides the very first pixel the
+   * canvas host paints, and a default painted for one frame before the stored value arrives is a
+   * visible flash on every navigation to `/house`.
+   */
+  background?: HouseBackground;
+}
+
+export function createHouseStore(options: CreateHouseStoreOptions = {}): HouseStoreApi {
+  const store = createStore<HouseStore>()(
     subscribeWithSelector((...a) => ({
       ...createModelSlice(...a),
       ...createSelectionSlice(...a),
@@ -51,4 +63,6 @@ export function createHouseStore(): HouseStoreApi {
       ...createRouteSlice(...a),
     })),
   ) as HouseStoreApi;
+  if (options.background) store.setState({ background: options.background });
+  return store;
 }

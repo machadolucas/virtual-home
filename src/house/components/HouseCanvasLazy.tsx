@@ -5,20 +5,21 @@
  * only this chunk pulls in three / R3F / drei.
  */
 import dynamic from "next/dynamic";
+import type { HouseCanvasProps } from "./HouseCanvas";
 
-export const HouseCanvasLazy = dynamic(() => import("./HouseCanvas").then((m) => m.HouseCanvas), {
-  ssr: false,
-  loading: () => <CanvasSkeleton />,
-});
+export const HouseCanvasLazy = dynamic<HouseCanvasProps>(
+  () => import("./HouseCanvas").then((m) => m.HouseCanvas),
+  { ssr: false, loading: () => <CanvasSkeleton /> },
+);
 
 export function CanvasSkeleton() {
   return (
     <div
-      className="flex h-full w-full items-center justify-center rounded-lg bg-neutral-100"
+      className="flex h-full w-full items-center justify-center rounded-lg bg-surface-2"
       role="status"
       aria-live="polite"
     >
-      <span className="text-sm text-neutral-500">Preparing the 3D view…</span>
+      <span className="text-sm text-ink-3">Preparing the 3D view…</span>
     </div>
   );
 }

@@ -13,6 +13,7 @@ import * as THREE from "three";
 import { colorFor, isDashed, SYSTEM_COLORS } from "@/house/scene/routes";
 import type { Route, RouteSystem } from "@/house/model/types";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
+import { useViewerPalette } from "../hooks/useViewerPalette";
 
 const SYSTEM_LABELS: Record<RouteSystem, string> = {
   ventilation: "Ventilation",
@@ -41,7 +42,7 @@ export function RouteLegend() {
   if (present.length === 0) return null;
 
   return (
-    <section aria-label="Route legend" className="space-y-2 text-xs text-neutral-700">
+    <section aria-label="Route legend" className="space-y-2 text-xs text-ink-2">
       <ul className="space-y-1">
         {present.map((system) => (
           <li key={system}>
@@ -62,7 +63,7 @@ export function RouteLegend() {
           </li>
         ))}
       </ul>
-      <p className="max-w-prose text-neutral-500">
+      <p className="max-w-prose text-ink-3">
         Line position is drawn; confidence is shown by style — solid for measured, dashed for
         inferred. A solid line is not proof of a verified concealed installation.
       </p>
@@ -76,6 +77,7 @@ export function RoutePointHandles() {
   const draft = useHouseStore((s) => s.routeDraft);
   const selectedPointIndex = useHouseStore((s) => s.selectedPointIndex);
   const geometry = useMemo(() => new THREE.SphereGeometry(0.05, 10, 8), []);
+  const palette = useViewerPalette();
 
   if (!draft) return null;
 
@@ -92,7 +94,7 @@ export function RoutePointHandles() {
           }}
         >
           <meshStandardMaterial
-            color={selectedPointIndex === i ? 0x2f6fd0 : colorFor({
+            color={selectedPointIndex === i ? palette.routeSelectedPoint : colorFor({
               system: draft.system,
               lifecycle: draft.lifecycle,
               certainty: draft.certainty,

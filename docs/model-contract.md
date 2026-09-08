@@ -371,6 +371,23 @@ clipping planes allocated per explode group for the life of the scene, "off" bei
 beyond the model bounds, so the shader never recompiles; `NoToneMapping`, so a persisted hex
 matches what the user picked; no shadows; no `three-mesh-bvh`; scan references are non-pickable.
 
+The context is **`alpha: true`** with `scene.background = null` and `setClearAlpha(0)` — it was
+`alpha: false` with an opaque `0xf4f4f2` clear colour until D-024. The background is now CSS on the
+host `<div>`: the `--vh-viewport` token when it follows the theme, or the household's chosen solid
+colour or `linear-gradient()`. A gradient therefore needs no texture, no extra geometry and no
+shader, at the cost of a transparent drawing buffer (one blend against the page instead of an opaque
+composite). A background change is one more legitimate `invalidate()` trigger, and exactly one per
+change: the transparent buffer has to be re-blended over the new paint.
+
+Two consequences worth stating. First, anything drawn *over* the render carries its own token
+surface (`bg-surface/85` + `border-line` + `backdrop-blur-sm`), because a raw white or black chip
+disappears against one background or the other. Second, the scene's own chrome colours — the
+selection emissive and its outline, marker `instanceColor`s, the snap indicator, route point
+handles, the hue-neutral "planned" route — are read from the live `--vh-*` properties by
+`src/house/scene/palette.ts` and re-pushed on a theme change. What is **not** read from there, on
+purpose: `surface.defaultColor` and the architectural edges. Those are the house, not the chrome,
+and a theme must never move them.
+
 ## 6. Recorded deviations from the design note
 
 1. **Ids are plain string aliases, not branded types** (`model/types.ts`). Manifest data arrives

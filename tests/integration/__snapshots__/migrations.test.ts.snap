@@ -1548,7 +1548,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`inventory_push_enabled\` integer DEFAULT false NOT NULL,
 	\`created_at_ms\` integer NOT NULL,
 	\`updated_at_ms\` integer NOT NULL,
-	\`updated_by\` text,
+	\`updated_by\` text, \`house_background_json\` text,
 	FOREIGN KEY (\`current_model_revision_id\`) REFERENCES \`model_revision\`(\`id\`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (\`updated_by\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "ck_household_setting_singleton" CHECK("household_setting"."id" = 'household'),

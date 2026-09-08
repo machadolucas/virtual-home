@@ -45,8 +45,8 @@ export function RoomInspector({ roomId }: { roomId: RoomId }) {
   return (
     <div className="flex flex-col gap-4">
       <header>
-        <h2 className="text-base font-semibold text-neutral-900">{room.name}</h2>
-        <p className="text-xs text-neutral-500">
+        <h2 className="text-base font-semibold text-ink">{room.name}</h2>
+        <p className="text-xs text-ink-3">
           {[room.nameFi, floor?.name, room.kind && room.kind !== "room" ? room.kind : null]
             .filter(Boolean)
             .join(" · ")}
@@ -63,29 +63,29 @@ export function RoomInspector({ roomId }: { roomId: RoomId }) {
         <Row label="Certainty" value={room.certainty ?? "unknown"} />
       </dl>
 
-      {room.note ? <p className="text-xs text-neutral-600">{room.note}</p> : null}
+      {room.note ? <p className="text-xs text-ink-2">{room.note}</p> : null}
       {room.aliases.length ? (
-        <p className="text-xs text-neutral-500">Also called: {room.aliases.join(", ")}</p>
+        <p className="text-xs text-ink-3">Also called: {room.aliases.join(", ")}</p>
       ) : null}
 
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">Colours</h3>
+          <h3 className="text-xs font-medium uppercase tracking-wide text-ink-3">Colours</h3>
           <button
             type="button"
             onClick={() => clearOverrides(plan.map((d) => d.surfaceId))}
-            className="min-h-8 rounded-md border border-neutral-300 bg-white px-2 text-xs font-medium text-neutral-800 hover:bg-neutral-100"
+            className="min-h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3"
           >
             Reset room
           </button>
         </div>
         {saveState === "local" ? (
-          <p className="text-[11px] text-amber-700">
+          <p className="text-[11px] text-due">
             Colours are kept for this session only — the model package has not been imported into
             the database yet, so there is nowhere to save them.
           </p>
         ) : null}
-        {saveError ? <p className="text-[11px] text-red-700">{saveError}</p> : null}
+        {saveError ? <p className="text-[11px] text-overdue">{saveError}</p> : null}
         <ul className="flex flex-col gap-1">
           {plan.map((decision) => {
             const surface = index.surfaces.get(decision.surfaceId);
@@ -97,21 +97,21 @@ export function RoomInspector({ roomId }: { roomId: RoomId }) {
                   value={decision.hex}
                   onChange={(event) => setOverride(decision.surfaceId, event.currentTarget.value)}
                   aria-label={`${KIND_LABELS[surface.kind]} colour — ${decision.surfaceId}`}
-                  className="h-7 w-9 shrink-0 rounded border border-neutral-300"
+                  className="h-7 w-9 shrink-0 rounded border border-line"
                 />
                 <button
                   type="button"
                   onClick={() => runtime.select({ kind: "surface", id: decision.surfaceId })}
-                  className="min-w-0 flex-1 truncate text-left text-xs text-neutral-800 hover:underline"
+                  className="min-w-0 flex-1 truncate text-left text-xs text-ink hover:underline"
                 >
                   {KIND_LABELS[surface.kind]}
                   {surface.role ? ` · ${surface.role}` : ""}
-                  <span className="ml-1 font-mono text-[10px] text-neutral-400">
+                  <span className="ml-1 font-mono text-[10px] text-ink-3">
                     {decision.surfaceId}
                   </span>
                 </button>
                 {decision.source === "override" ? (
-                  <span className="shrink-0 rounded bg-sky-100 px-1 text-[10px] text-sky-800">
+                  <span className="shrink-0 rounded bg-accent-soft px-1 text-[10px] text-accent-text">
                     changed
                   </span>
                 ) : null}
@@ -129,8 +129,8 @@ export function RoomInspector({ roomId }: { roomId: RoomId }) {
 export function Row({ label, value }: { label: string; value: string }) {
   return (
     <>
-      <dt className="text-neutral-500">{label}</dt>
-      <dd className="font-mono text-neutral-900">{value}</dd>
+      <dt className="text-ink-3">{label}</dt>
+      <dd className="font-mono text-ink">{value}</dd>
     </>
   );
 }

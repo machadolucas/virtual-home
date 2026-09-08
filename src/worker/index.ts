@@ -197,10 +197,18 @@ export function startWorker(options: StartWorkerOptions): WorkerRuntime {
     log.info({ url: env.haWsUrl }, "ha integration enabled");
   } else {
     // Once, at info: scheduling is unaffected, and a household without HA should not be nagged.
-    log.info(
-      {},
-      "ha integration disabled (HA_URL/HA_TOKEN not set) — scheduling runs, notifications stay queued",
-    );
+    // A configured URL with no token is a half-finished setup, so that case says so at `warn`.
+    if (env.HA_URL && !env.HA_TOKEN) {
+      log.warn(
+        { url: env.HA_URL },
+        "ha integration disabled: HA_URL is set but HA_TOKEN is empty — add the long-lived token to secrets/vh.env and restart this service. Scheduling runs; notifications stay queued.",
+      );
+    } else {
+      log.info(
+        {},
+        "ha integration disabled (HA_URL/HA_TOKEN not set) — scheduling runs, notifications stay queued",
+      );
+    }
     try {
       writeIntegrationStatus(
         handle,

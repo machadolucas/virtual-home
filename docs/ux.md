@@ -79,7 +79,16 @@ anywhere in the codebase.
 | Ink | `ink`, `ink-2`, `ink-3`, `on-accent` | primary, secondary, muted, text on accent |
 | Accent | `accent`, `accent-hover`, `accent-active`, `accent-soft`, `accent-text` | one deep blue (`#2f5fd0`) for selection and primary actions |
 | Status | `ok`, `due`, `overdue`, `blocked`, `unknown`, `stale` (+ `*-soft`) | see §5 |
+| Viewport | `viewport` | the ground behind the 3D house — `#f4f4f2` light, `#100f0e` dark |
 | Effects | `ring`, `scrim` | focus ring, overlay backdrop |
+
+**There is one control for the mode**: System / Light / Dark in the account menu
+(`src/ui/shell/ThemeMenu.tsx`), stored as `vh-theme` in `localStorage` and applied by a blocking
+inline script in `<head>` (`themeScript()` in `src/ui/shell/theme.ts`) before the first paint —
+which is why a pinned dark theme never flashes white on navigation. `system` **removes**
+`data-theme` rather than setting a third value, because that is exactly what the token blocks are
+written against. The choice is per browser and grants nothing, so it never reaches the database;
+the one appearance setting that *is* shared is the 3D background (§11.4).
 
 Every ink and status foreground clears 4.5:1 on its intended background in both modes. Avatar
 display colours are used at ~20 % over the panel surface with ink-coloured text, so an arbitrary
@@ -503,3 +512,87 @@ key/value block — one HTTP response is one file, so the context leads the CSV 
 beside it as `_context.json`. Conventions: a UTF-8 BOM and CRLF for Excel, ISO-8601 UTC instants
 with a `*_local_date` companion, a decimal quantity beside every `*_milli`, empty fields for NULL,
 and a leading `'` on anything Excel would treat as a formula.
+
+---
+
+## 11. The 3D workspace (`/house`)
+
+The workspace is three landmark regions — tree · canvas · inspector — around one store and one
+imperative scene. It is the only part of the app that draws pixels we do not own, and it once had
+its own colour vocabulary. It does not any more.
+
+### 11.1 The viewer uses the tokens, like everything else
+
+`src/house/**` carries **no** hardcoded palette utility. Not `bg-white`, not `border-neutral-300`,
+not `text-neutral-500`, not `bg-sky-50`. The whole tree is walked by
+`tests/unit/house/tokens.test.ts`, which fails with the offending file and line, and whose
+allow-list is empty. The mapping, when you are converting something:
+
+| Was | Is | Why |
+|---|---|---|
+| `bg-white` on a panel | `bg-surface` | the tree panel, the inspector, the control bar |
+| the workspace gutter, the canvas skeleton | `bg-paper`, `bg-surface-2` | page ground vs. a sunken fill |
+| `bg-neutral-50/100` fills, table stripes, key caps | `bg-surface-2` | |
+| `hover:bg-neutral-100/200` | `hover:bg-surface-3` (pressed: `surface-4`) | |
+| `border-neutral-200/300` | `border-line`; inputs and emphasis `border-line-strong` | |
+| `text-neutral-800/900` | `text-ink` | |
+| `text-neutral-600/700` | `text-ink-2` | |
+| `text-neutral-400/500` | `text-ink-3` | labels, metadata, legends, hints — never below 4.5:1 |
+| `sky-*` | the `accent` family, and `outline-ring` for focus | selection and primary action |
+| `amber-*` | `due` / `due-soft` | warnings, "inferred", uncertainty |
+| `red-*` | `overdue` / `overdue-soft` | |
+| grey informational badges | `unknown` / `unknown-soft`; stale telemetry `stale` / `stale-soft` | |
+
+Reuse a primitive wherever it is a drop-in. The tree's search field is `Input` — which is the fix
+for the reported bug, because `fieldSurface` is what carries the readable ink, the token surface and
+a `placeholder:text-ink-3` that survives dark mode. Remember `cn()`'s caveat (§4): conflicting
+utilities are resolved by stylesheet order, not class-list order.
+
+The 2D plan and wall-elevation route editors are chrome too, so their SVG paint references the ramp
+directly (`fill="var(--vh-paper-2)"`, `stroke="var(--vh-accent)"`) — a `fill` that flips with
+selection cannot be a Tailwind utility.
+
+### 11.2 Chips over the canvas
+
+Anything floating over the render sits on a background that is a **household choice** — a token, a
+solid colour, or a gradient. So it brings its own surface:
+
+```
+bg-surface/85 text-ink border border-line backdrop-blur-sm shadow-pop
+```
+
+(or the same with `surface-2`). Never a raw `bg-white/90` or `bg-neutral-900/85`: one of the two
+disappears against a user gradient. This covers the room and equipment labels, the "+N" cluster
+badge, the DOM marker buttons, the snap read-out and the loading bar.
+
+### 11.3 Scene-side colours
+
+three holds colours as numbers inside long-lived materials and instance attributes, so the scene
+cannot follow a CSS variable on its own. `src/house/scene/palette.ts` resolves the values it needs
+from the live `--vh-*` properties (with the shipped literals as the SSR/test fallback) and
+`src/house/hooks/usePaletteSync.ts` re-pushes them on a theme change — one change, one re-apply, one
+`invalidate()`.
+
+In the palette: the selection emissive and its outline, the marker `instanceColor` per HA state, the
+snap indicator, the route point handle, and the hue-neutral "planned" route. **Not** in the palette,
+deliberately: `surface.defaultColor` and the architectural edges (that is the house, not the chrome,
+and `NoToneMapping` exists so a saved hex renders literally), and `SYSTEM_COLORS` — the seven route
+hues are colour-blind-safe identity, drawn against the model rather than the background, and the
+ramp has no per-system hue to map them onto.
+
+### 11.4 The background control
+
+Modes are `theme` (the `--vh-viewport` token, and the default), `solid` and `gradient`
+(`src/house/model/background.ts` — pure, so the viewer, the settings page and the server action can
+all import it). Rendering is CSS on the canvas host; the WebGL context is transparent (D-024).
+
+The control (`src/features/settings/HouseBackgroundControl.tsx`) is one component in two places: the
+workspace's **Rendering** section, and Settings → Household → **Appearance**. Mode segmented
+control, labelled colour inputs, a preset row, Reset. It is optimistic with revert-on-error, and the
+write is debounced 600 ms — the same debounce the surface-colour picker uses, because a native
+colour input fires on every pointer move.
+
+It is **household-level**, and the copy says so: the model is the household's, and a per-person
+background would have the two of them describing different pictures over the phone. NULL in the
+column means "follow the theme", which is also what a malformed stored value falls back to — the
+House page must not break on a hand-edited row.

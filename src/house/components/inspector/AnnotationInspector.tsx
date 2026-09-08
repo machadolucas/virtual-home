@@ -94,10 +94,10 @@ export function AnnotationInspector({ annotationId }: { annotationId: string }) 
   }, [runtime, modelId, annotationId]);
 
   if (deleted)
-    return <p className="text-xs text-neutral-500">This pin has been deleted.</p>;
-  if (error) return <p className="text-xs text-red-700">{error}</p>;
+    return <p className="text-xs text-ink-3">This pin has been deleted.</p>;
+  if (error) return <p className="text-xs text-overdue">{error}</p>;
   if (!annotation || !draft || !index)
-    return <p className="text-xs text-neutral-500">Loading the pin…</p>;
+    return <p className="text-xs text-ink-3">Loading the pin…</p>;
 
   const nodeName =
     annotation.modelNodeId === null
@@ -155,8 +155,8 @@ export function AnnotationInspector({ annotationId }: { annotationId: string }) 
   return (
     <div className="flex flex-col gap-4">
       <header>
-        <h2 className="text-base font-semibold text-neutral-900">{annotation.title}</h2>
-        <p className="text-xs text-neutral-500">
+        <h2 className="text-base font-semibold text-ink">{annotation.title}</h2>
+        <p className="text-xs text-ink-3">
           {KIND_LABEL[annotation.kind]}
           {nodeName ? ` · ${nodeName}` : ""}
         </p>
@@ -182,19 +182,19 @@ export function AnnotationInspector({ annotationId }: { annotationId: string }) 
       </dl>
 
       {annotation.needsReconciliation ? (
-        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+        <p className="rounded-md border border-due/45 bg-due-soft p-2 text-xs text-due">
           The model node this pin was placed on is not in the current package. The words are intact;
           where it points needs a human decision.
         </p>
       ) : null}
 
-      <div className="flex flex-col gap-2 border-t border-neutral-200 pt-3">
+      <div className="flex flex-col gap-2 border-t border-line pt-3">
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-neutral-600">Kind</span>
+          <span className="text-ink-2">Kind</span>
           <select
             value={draft.kind}
             onChange={(e) => setDraft({ ...draft, kind: e.target.value as Kind })}
-            className="min-h-8 rounded-md border border-neutral-300 px-1 text-xs"
+            className="min-h-8 rounded-md border border-line px-1 text-xs"
           >
             {ANNOTATION_KINDS.map((k) => (
               <option key={k} value={k}>
@@ -202,49 +202,49 @@ export function AnnotationInspector({ annotationId }: { annotationId: string }) 
               </option>
             ))}
           </select>
-          <span className="text-[11px] text-neutral-500">{KIND_HELP[draft.kind]}</span>
+          <span className="text-[11px] text-ink-3">{KIND_HELP[draft.kind]}</span>
         </label>
 
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-neutral-600">Title</span>
+          <span className="text-ink-2">Title</span>
           <input
             value={draft.title}
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}
             maxLength={200}
-            className="min-h-8 rounded-md border border-neutral-300 px-2 text-xs"
+            className="min-h-8 rounded-md border border-line px-2 text-xs"
           />
         </label>
 
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-neutral-600">Body</span>
+          <span className="text-ink-2">Body</span>
           <textarea
             value={draft.body}
             onChange={(e) => setDraft({ ...draft, body: e.target.value })}
             rows={4}
             maxLength={4000}
-            className="rounded-md border border-neutral-300 p-2 text-xs"
+            className="rounded-md border border-line p-2 text-xs"
           />
         </label>
 
         {draft.kind === "measurement" ? (
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-xs">
-              <span className="text-neutral-600">Value</span>
+              <span className="text-ink-2">Value</span>
               <input
                 value={draft.measurementValue}
                 onChange={(e) => setDraft({ ...draft, measurementValue: e.target.value })}
                 inputMode="decimal"
-                className="min-h-8 rounded-md border border-neutral-300 px-2 text-xs"
+                className="min-h-8 rounded-md border border-line px-2 text-xs"
               />
             </label>
             <label className="flex flex-col gap-1 text-xs">
-              <span className="text-neutral-600">Unit</span>
+              <span className="text-ink-2">Unit</span>
               <input
                 value={draft.measurementUnit}
                 onChange={(e) => setDraft({ ...draft, measurementUnit: e.target.value })}
                 maxLength={20}
                 placeholder="m, mm, °C"
-                className="min-h-8 rounded-md border border-neutral-300 px-2 text-xs"
+                className="min-h-8 rounded-md border border-line px-2 text-xs"
               />
             </label>
           </div>
@@ -255,7 +255,7 @@ export function AnnotationInspector({ annotationId }: { annotationId: string }) 
             type="button"
             disabled={busy}
             onClick={() => void save()}
-            className="min-h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-medium text-neutral-800 hover:bg-neutral-100 disabled:opacity-50"
+            className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
           >
             Save
           </button>
@@ -263,7 +263,7 @@ export function AnnotationInspector({ annotationId }: { annotationId: string }) 
             type="button"
             disabled={busy}
             onClick={() => void remove()}
-            className="min-h-9 rounded-md border border-red-300 bg-white px-3 text-xs font-medium text-red-800 hover:bg-red-50 disabled:opacity-50"
+            className="min-h-9 rounded-md border border-overdue/45 bg-surface px-3 text-xs font-medium text-overdue hover:bg-overdue-soft disabled:opacity-50"
           >
             Delete pin
           </button>

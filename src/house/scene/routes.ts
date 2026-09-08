@@ -20,9 +20,16 @@ import type {
   Vec3,
 } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
+import { getViewerPalette } from "./palette";
 import { overlayGroup, type SceneIndex } from "./SceneIndex";
 
-/** Colour-blind-safe hues. Hue is never the only channel — endpoint glyphs differ per system. */
+/**
+ * Colour-blind-safe hues. Hue is never the only channel — endpoint glyphs differ per system.
+ *
+ * These stay literal rather than following the theme: they are *identity* ("the blue line is
+ * water"), they are drawn against the model rather than against the background, and the token ramp
+ * has no per-system hue to map them onto. `scene/palette.ts` records the exception.
+ */
 export const SYSTEM_COLORS: Record<RouteSystem, number> = {
   ventilation: 0x3d7ea6,
   water: 0x2f6fd0,
@@ -33,8 +40,13 @@ export const SYSTEM_COLORS: Record<RouteSystem, number> = {
   other: 0x6a6a66,
 };
 
-/** `planned` is deliberately hue-neutral: a plan must not read as an installation. */
-export const PLANNED_COLOR = 0x8a8f96;
+/**
+ * `planned` is deliberately hue-neutral: a plan must not read as an installation. Being neutral is
+ * exactly what makes it theme-dependent, so it comes from the `unknown` token.
+ */
+export function plannedColor(): number {
+  return getViewerPalette().routePlanned;
+}
 
 export interface RouteStyle {
   system: RouteSystem;
@@ -57,7 +69,7 @@ export const isDashed = (style: RouteStyle): boolean =>
   style.certainty === "inferred" || style.certainty === "unknown";
 
 export function colorFor(style: RouteStyle): number {
-  return style.lifecycle === "planned" ? PLANNED_COLOR : SYSTEM_COLORS[style.system];
+  return style.lifecycle === "planned" ? plannedColor() : SYSTEM_COLORS[style.system];
 }
 
 interface Bucket {

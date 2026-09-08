@@ -25,7 +25,7 @@ export function ExplodeControl() {
   return (
     <section className="flex flex-col gap-2" aria-label="Exploded floors">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+        <span className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Exploded floors
         </span>
         <ToolbarButton
@@ -37,7 +37,7 @@ export function ExplodeControl() {
           {explode.enabled ? "On (X)" : "Off (X)"}
         </ToolbarButton>
       </div>
-      <label className="flex flex-col gap-1 text-xs text-neutral-700">
+      <label className="flex flex-col gap-1 text-xs text-ink-2">
         <span>
           Gap <span className="font-mono">{explode.gap.toFixed(2)} m</span>
         </span>
@@ -56,7 +56,7 @@ export function ExplodeControl() {
         />
       </label>
       {disabled ? (
-        <p className="text-[11px] text-neutral-500">
+        <p className="text-[11px] text-ink-3">
           Exploded view is off while placing equipment, so a saved position is always the physical
           one.
         </p>

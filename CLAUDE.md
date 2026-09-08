@@ -18,6 +18,11 @@ only; `docs/*.md` and code win where they differ).
 - `pnpm vh-admin <cmd>` — server-side admin CLI (users, passwords, sessions, model import, doctor).
 - `pnpm build` — `next build` + esbuild worker bundle to `dist/worker`.
 
+If `pnpm dev` renders but nothing is clickable, the page did not hydrate: check the terminal for
+"Blocked cross-origin request to Next.js dev resource" and add the host to `allowedDevOrigins` in
+`next.config.ts`. A blocked HMR socket fails silently in the browser. The security headers and
+`proxy.ts` both exclude `/_next/` for the same reason — never let either touch dev resources.
+
 Configuration: see `.env.example`. Dev uses `.env.local` (gitignored); production uses
 `$VH_DATA_DIR/secrets/vh.env` (mode 0600). `src/env.ts` validates everything at startup.
 

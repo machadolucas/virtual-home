@@ -51,6 +51,16 @@ export const householdSetting = sqliteTable(
     inventoryPushEnabled: integer("inventory_push_enabled", { mode: "boolean" })
       .notNull()
       .default(false),
+    /**
+     * The 3D view's background, as JSON (`src/house/model/background.ts`).
+     *
+     * NULL means "follow the theme", which is also what a malformed value resolves to — so the
+     * column needs no CHECK, and must not have one: adding a CHECK to this table would make
+     * drizzle-kit rebuild it, and the rebuild's `DROP TABLE` cascades into children
+     * (`drizzle/0002_sad_raza.sql` records the case that would have deleted every route point).
+     * The shape is enforced by zod on write instead.
+     */
+    houseBackgroundJson: text("house_background_json"),
     createdAtMs: integer("created_at_ms").notNull(),
     updatedAtMs: integer("updated_at_ms").notNull(),
     updatedBy: actor("updated_by"),

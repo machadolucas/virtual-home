@@ -31,6 +31,12 @@
   --vh-line: #dad7cd; /* hairline borders */
   --vh-line-strong: #bdb8a9; /* emphasised borders, input borders */
 
+  /* --- the 3D viewport behind the house model ---------------------------- */
+  /* The value the viewer has always cleared to: a hair cooler and darker than
+     paper-2, so the pale model surfaces read as objects standing on a ground
+     rather than as paper on paper. */
+  --vh-viewport: #f4f4f2;
+
   /* --- text: ink --------------------------------------------------------- */
   --vh-ink-1: #1c1b18; /* primary */
   --vh-ink-2: #4b4841; /* secondary */
@@ -97,6 +103,12 @@
     --vh-line: #35332d;
     --vh-line-strong: #544f45;
 
+    /* Deep warm neutral, one step below paper-0 (#161513) rather than black:
+       the model's pale surfaces (defaultColor is near-white in this package)
+       keep enough separation from the ground to read as lit objects, and the
+       neutral is warm so it sits in the same family as the paper ramp. */
+    --vh-viewport: #100f0e;
+
     --vh-ink-1: #f2f0ea;
     --vh-ink-2: #c6c2b8;
     --vh-ink-3: #98938a;
@@ -141,6 +153,9 @@
   --vh-line: #35332d;
   --vh-line-strong: #544f45;
 
+  /* Same deep warm neutral as the media-query block above. */
+  --vh-viewport: #100f0e;
+
   --vh-ink-1: #f2f0ea;
   --vh-ink-2: #c6c2b8;
   --vh-ink-3: #98938a;
@@ -184,6 +199,7 @@
   --color-surface-4: var(--vh-paper-4);
   --color-line: var(--vh-line);
   --color-line-strong: var(--vh-line-strong);
+  --color-viewport: var(--vh-viewport);
 
   --color-ink: var(--vh-ink-1);
   --color-ink-2: var(--vh-ink-2);

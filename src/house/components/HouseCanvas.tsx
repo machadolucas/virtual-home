@@ -9,10 +9,17 @@
  * `localClippingEnabled` is required for per-material `clippingPlanes`; `NoToneMapping` keeps
  * persisted hex colours literal (ACES would shift the pale surfaces so the saved colour would not
  * match what the user picked).
+ *
+ * The **background is CSS on the host div**, not a scene colour or texture: `alpha: true`,
+ * `scene.background = null` and a zero clear alpha let whatever the host paints — a token, a solid
+ * colour or a gradient — show through the render. That is why a user gradient needs no shader and no
+ * extra draw call; `docs/decisions.md` records the trade (a transparent drawing buffer, which costs
+ * one blend against the page).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import * as THREE from "three";
+import { backgroundStyle, DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from "@/house/model/background";
 import { useHouseStore } from "../hooks/useHouseStore";
 import { useIsPhone } from "../hooks/useReducedMotion";
 import { LabelHost, LabelProjector, useLabelAnchors } from "./LabelOverlay";
@@ -23,9 +30,15 @@ import { RoutePointHandles } from "./RouteLayer";
 import { SceneRoot } from "./SceneRoot";
 import { SnapIndicatorLayer } from "./edit/SnapIndicator";
 
-const BACKGROUND = 0xf4f4f2;
+export interface HouseCanvasProps {
+  /**
+   * The household's background choice. Passed from the server through the workspace so the first
+   * paint is already right — a default painted for one frame and then replaced is a flash.
+   */
+  background?: HouseBackground;
+}
 
-export function HouseCanvas() {
+export function HouseCanvas({ background = DEFAULT_HOUSE_BACKGROUND }: HouseCanvasProps = {}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const markerHostRef = useRef<HTMLDivElement>(null);
   const canvasHostRef = useRef<HTMLDivElement>(null);
@@ -34,25 +47,40 @@ export function HouseCanvas() {
   const performanceMode = useHouseStore((s) => s.performanceMode);
   const dpr = usePixelRatioCap(canvasHostRef, { phone, performanceMode });
 
+  // One `invalidate()` per background change. Nothing in the scene depends on the background, so
+  // this is only about the compositor: the transparent buffer has to be re-blended over the new
+  // CSS paint, and under `frameloop="demand"` nobody else would ask.
+  const invalidateRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    invalidateRef.current?.();
+  }, [background]);
+
   return (
-    <div ref={canvasHostRef} className="relative h-full w-full overflow-hidden rounded-lg bg-[#f4f4f2]">
+    <div
+      ref={canvasHostRef}
+      data-testid="vh-canvas-host"
+      className="relative h-full w-full overflow-hidden rounded-lg bg-viewport"
+      style={backgroundStyle(background)}
+    >
       <Canvas
         frameloop="demand"
         dpr={dpr}
         gl={{
           antialias: true,
-          alpha: false,
+          // Transparent so the host div's CSS background (token, solid or gradient) shows through.
+          alpha: true,
           powerPreference: "high-performance",
           stencil: false,
           depth: true,
           preserveDrawingBuffer: false,
           failIfMajorPerformanceCaveat: false,
         }}
-        onCreated={({ gl, scene }) => {
+        onCreated={({ gl, scene, invalidate }) => {
           gl.localClippingEnabled = true;
           gl.toneMapping = THREE.NoToneMapping;
-          gl.setClearColor(BACKGROUND, 1);
-          scene.background = new THREE.Color(BACKGROUND);
+          gl.setClearAlpha(0);
+          scene.background = null;
+          invalidateRef.current = invalidate;
         }}
         // Cameras are mounted explicitly in <Rig/> so the projection switch is under our control.
         camera={undefined}

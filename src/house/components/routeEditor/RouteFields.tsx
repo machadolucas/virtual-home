@@ -221,25 +221,25 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
   const visible = isRunVisibleOn(route, renovationDate);
 
   return (
-    <section className="flex flex-col gap-3 border-t border-neutral-200 pt-3">
-      <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+    <section className="flex flex-col gap-3 border-t border-line pt-3">
+      <h3 className="text-xs font-medium uppercase tracking-wide text-ink-3">
         Route details
       </h3>
 
       <label className="flex flex-col gap-1 text-xs">
-        <span className="text-neutral-600">Name</span>
+        <span className="text-ink-2">Name</span>
         <input
           value={draft.name}
           onChange={(e) => set("name", e.target.value)}
           onBlur={() => void save()}
           maxLength={200}
-          className="min-h-8 rounded-md border border-neutral-300 px-2 text-xs"
+          className="min-h-8 rounded-md border border-line px-2 text-xs"
         />
       </label>
 
       <div className="grid grid-cols-2 gap-2">
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-neutral-600">Carries</span>
+          <span className="text-ink-2">Carries</span>
           <select
             value={draft.medium}
             onChange={(e) => {
@@ -247,7 +247,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
               set("medium", medium);
               void save({ medium });
             }}
-            className="min-h-8 rounded-md border border-neutral-300 px-1 text-xs"
+            className="min-h-8 rounded-md border border-line px-1 text-xs"
           >
             {MEDIA.map((m) => (
               <option key={m} value={m}>
@@ -255,20 +255,20 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
               </option>
             ))}
           </select>
-          <span className="text-[11px] text-neutral-500">
+          <span className="text-[11px] text-ink-3">
             Drawn as a {kindOfMedium(draft.medium)} in the {systemOfMedium(draft.medium)} system.
           </span>
         </label>
 
         <label className="flex flex-col gap-1 text-xs">
-          <span className="text-neutral-600">Size</span>
+          <span className="text-ink-2">Size</span>
           <input
             value={draft.nominalSize}
             onChange={(e) => set("nominalSize", e.target.value)}
             onBlur={() => void save()}
             placeholder="DN20, Cat6a"
             maxLength={60}
-            className="min-h-8 rounded-md border border-neutral-300 px-2 text-xs"
+            className="min-h-8 rounded-md border border-line px-2 text-xs"
           />
           <input
             value={draft.diameterMm}
@@ -276,13 +276,13 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
             onBlur={() => void save()}
             inputMode="numeric"
             placeholder="Diameter in mm"
-            className="min-h-8 rounded-md border border-neutral-300 px-2 text-xs"
+            className="min-h-8 rounded-md border border-line px-2 text-xs"
           />
         </label>
       </div>
 
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-xs text-neutral-600">Confidence</legend>
+        <legend className="text-xs text-ink-2">Confidence</legend>
         <select
           value={draft.certainty}
           onChange={(e) => {
@@ -290,7 +290,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
             set("certainty", certainty);
             void save({ certainty });
           }}
-          className="min-h-8 rounded-md border border-neutral-300 px-1 text-xs"
+          className="min-h-8 rounded-md border border-line px-1 text-xs"
         >
           {CERTAINTIES.map((c) => (
             <option key={c} value={c}>
@@ -298,14 +298,14 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
             </option>
           ))}
         </select>
-        <p className="text-[11px] text-neutral-600">{CERTAINTY_HELP[draft.certainty]}</p>
-        <p className="rounded-md border border-neutral-200 bg-neutral-50 p-2 text-[11px] text-neutral-600">
+        <p className="text-[11px] text-ink-2">{CERTAINTY_HELP[draft.certainty]}</p>
+        <p className="rounded-md border border-line bg-surface-2 p-2 text-[11px] text-ink-2">
           {CERTAINTY_LEGEND}
         </p>
       </fieldset>
 
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-xs text-neutral-600">Lifecycle</legend>
+        <legend className="text-xs text-ink-2">Lifecycle</legend>
         <select
           value={draft.lifecycle}
           onChange={(e) => {
@@ -313,7 +313,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
             set("lifecycle", lifecycle);
             void save({ lifecycle });
           }}
-          className="min-h-8 rounded-md border border-neutral-300 px-1 text-xs"
+          className="min-h-8 rounded-md border border-line px-1 text-xs"
         >
           {LIFECYCLES.map((l) => (
             <option key={l} value={l}>
@@ -321,66 +321,66 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
             </option>
           ))}
         </select>
-        <p className="text-[11px] text-neutral-600">{LIFECYCLE_HELP[draft.lifecycle]}</p>
+        <p className="text-[11px] text-ink-2">{LIFECYCLE_HELP[draft.lifecycle]}</p>
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-neutral-600">Installed on</span>
+            <span className="text-ink-2">Installed on</span>
             <input
               type="date"
               value={draft.installedAt}
               onChange={(e) => set("installedAt", e.target.value)}
               onBlur={() => void save()}
-              className="min-h-8 rounded-md border border-neutral-300 px-2 text-xs"
+              className="min-h-8 rounded-md border border-line px-2 text-xs"
             />
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-neutral-600">Removed on</span>
+            <span className="text-ink-2">Removed on</span>
             <input
               type="date"
               value={draft.removedAt}
               onChange={(e) => set("removedAt", e.target.value)}
               onBlur={() => void save()}
               disabled={draft.lifecycle === "planned"}
-              className="min-h-8 rounded-md border border-neutral-300 px-2 text-xs disabled:bg-neutral-100"
+              className="min-h-8 rounded-md border border-line px-2 text-xs disabled:bg-surface-2"
             />
           </label>
         </div>
-        <p className="text-[11px] text-neutral-500">
+        <p className="text-[11px] text-ink-3">
           {runVisibilityReason(route, renovationDate)}
           {visible ? "" : " Not drawn under the current renovation date filter."}
         </p>
       </fieldset>
 
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-xs text-neutral-600">Depth and offset</legend>
+        <legend className="text-xs text-ink-2">Depth and offset</legend>
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-neutral-600">Depth into structure (m)</span>
+            <span className="text-ink-2">Depth into structure (m)</span>
             <input
               value={draft.depthM}
               onChange={(e) => set("depthM", e.target.value)}
               onBlur={() => void save()}
               inputMode="decimal"
               placeholder="-0.04"
-              className="min-h-8 rounded-md border border-neutral-300 px-2 text-xs"
+              className="min-h-8 rounded-md border border-line px-2 text-xs"
             />
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            <span className="text-neutral-600">Offset from surface (m)</span>
+            <span className="text-ink-2">Offset from surface (m)</span>
             <input
               value={draft.offsetM}
               onChange={(e) => set("offsetM", e.target.value)}
               onBlur={() => void save()}
               inputMode="decimal"
-              className="min-h-8 rounded-md border border-neutral-300 px-2 text-xs"
+              className="min-h-8 rounded-md border border-line px-2 text-xs"
             />
           </label>
         </div>
-        <p className="text-[11px] text-neutral-500">
+        <p className="text-[11px] text-ink-3">
           Negative depth means behind the visible face.
         </p>
         {draft.offsetSurfaceId ? (
-          <p className="text-[11px] text-neutral-600">
+          <p className="text-[11px] text-ink-2">
             Measured from <code>{draft.offsetSurfaceId}</code>{" "}
             <button
               type="button"
@@ -394,7 +394,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
             </button>
           </p>
         ) : (
-          <p className="text-[11px] text-neutral-500">No reference surface.</p>
+          <p className="text-[11px] text-ink-3">No reference surface.</p>
         )}
         <button
           type="button"
@@ -404,14 +404,14 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
             set("offsetSurfaceId", selectedWall);
             void save({ offsetSurfaceId: selectedWall });
           }}
-          className="self-start min-h-8 rounded-md border border-neutral-300 bg-white px-2 text-xs font-medium text-neutral-800 hover:bg-neutral-100 disabled:opacity-50"
+          className="self-start min-h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
         >
           {selectedWall ? `Use selected wall (${selectedWall})` : "Select a wall surface first"}
         </button>
       </fieldset>
 
       <label className="flex flex-col gap-1 text-xs">
-        <span className="text-neutral-600">Renovation project</span>
+        <span className="text-ink-2">Renovation project</span>
         <select
           value={draft.projectId}
           onChange={(e) => {
@@ -419,7 +419,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
             set("projectId", projectId);
             void save({ projectId });
           }}
-          className="min-h-8 rounded-md border border-neutral-300 px-1 text-xs"
+          className="min-h-8 rounded-md border border-line px-1 text-xs"
         >
           <option value="">Not attributed</option>
           {projects.map((p) => (
@@ -431,9 +431,9 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
       </label>
 
       <fieldset className="flex flex-col gap-2">
-        <legend className="text-xs text-neutral-600">Photos</legend>
+        <legend className="text-xs text-ink-2">Photos</legend>
         {route.photoIds.length === 0 ? (
-          <p className="text-[11px] text-neutral-500">
+          <p className="text-[11px] text-ink-3">
             None. A photo of the open wall is the most durable record there is.
           </p>
         ) : (
@@ -444,7 +444,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
                   href={`/api/attachments/${photoId}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="block overflow-hidden rounded-md border border-neutral-200"
+                  className="block overflow-hidden rounded-md border border-line"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element -- private authed route */}
                   <img
@@ -458,7 +458,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
                   onClick={() =>
                     void save({}, route.photoIds.filter((id) => id !== photoId))
                   }
-                  className="text-[11px] text-neutral-600 underline"
+                  className="text-[11px] text-ink-2 underline"
                 >
                   Remove
                 </button>
@@ -480,22 +480,22 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
       </fieldset>
 
       <label className="flex flex-col gap-1 text-xs">
-        <span className="text-neutral-600">Note</span>
+        <span className="text-ink-2">Note</span>
         <textarea
           value={draft.note}
           onChange={(e) => set("note", e.target.value)}
           onBlur={() => void save()}
           rows={3}
           maxLength={4000}
-          className="rounded-md border border-neutral-300 p-2 text-xs"
+          className="rounded-md border border-line p-2 text-xs"
         />
       </label>
 
-      <p className="text-[11px] text-neutral-500" role="status">
+      <p className="text-[11px] text-ink-3" role="status">
         {saving ? "Saving…" : uploading ? "Uploading…" : "Changes save when a field loses focus."}
       </p>
       {error ? (
-        <p role="alert" className="text-[11px] text-red-700">
+        <p role="alert" className="text-[11px] text-overdue">
           {error}
         </p>
       ) : null}
