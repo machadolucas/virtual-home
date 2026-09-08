@@ -31,6 +31,8 @@ export interface ShortcutHandlers {
   dolly(delta: number): void;
   focusSearch(): void;
   showHelp(): void;
+  /** Pointer tool: which gesture the left button performs. */
+  setTool(tool: "orbit" | "select" | "place"): void;
 }
 
 export function isTypingTarget(target: EventTarget | null): boolean {
@@ -86,6 +88,20 @@ export function useKeyboardShortcuts(
         case "p":
         case "P":
           handlers.planView();
+          break;
+        // Tool keys. `H` and `P` were already taken (roof, plan), so the palette advertises these
+        // three in its tooltips rather than guessing at Photoshop's letters.
+        case "c":
+        case "C":
+          handlers.setTool("orbit");
+          break;
+        case "v":
+        case "V":
+          handlers.setTool("select");
+          break;
+        case "m":
+        case "M":
+          handlers.setTool("place");
           break;
         case "s":
         case "S":
@@ -175,6 +191,8 @@ export const SHORTCUTS: ReadonlyArray<{ keys: string; action: string }> = [
   { keys: "F", action: "Frame the current selection" },
   { keys: "Esc", action: "Clear selection; cancel edit; close a sheet" },
   { keys: "E", action: "Toggle placement edit mode" },
+  { keys: "C / V / M", action: "Tool: orbit the camera / select / place" },
+  { keys: "Space (hold)", action: "Camera on loan, whatever the tool" },
   { keys: "P", action: "Top-down plan of the active floor" },
   { keys: "S", action: "Toggle the section cut" },
   { keys: "X", action: "Toggle exploded floors (off during edit)" },

@@ -82,6 +82,21 @@ function wallOutline(state: SnapIndicatorState): Float32Array {
   return new Float32Array(out);
 }
 
+/**
+ * The readout, over the canvas rather than in the inspector panel.
+ *
+ * It used to render inside the editor panel, whose `absolute` positioning put it in the corner of
+ * the right sidebar — metres away from the cursor it describes, and easy to miss entirely. Like
+ * the 3D indicator it reads the runtime channel, so a hover updates it without re-rendering the
+ * workspace.
+ */
+export function SnapReadoutOverlay() {
+  const runtime = useHouseRuntime();
+  const [state, setState] = useState<SnapIndicatorState | null>(runtime.snapIndicator);
+  useEffect(() => runtime.onSnapIndicator(setState), [runtime]);
+  return <SnapReadout state={state} />;
+}
+
 export function SnapReadout({ state }: { state: SnapIndicatorState | null }) {
   if (!state) return null;
   const [x, y, z] = state.point;

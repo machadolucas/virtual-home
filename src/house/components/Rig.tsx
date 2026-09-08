@@ -31,6 +31,16 @@ export function Rig() {
   const reduced = useReducedMotion();
   const projection = useHouseStore((s) => s.projection);
   const viewMode = useHouseStore((s) => s.viewMode);
+  const tool = useHouseStore((s) => s.tool);
+  const cameraOverride = useHouseStore((s) => s.cameraOverride);
+  /**
+   * Who owns the left button. Passed as a **prop** rather than written onto the instance, because
+   * drei builds a fresh `CameraControlsImpl` whenever the default camera changes (`useMemo` on
+   * `explCamera`) — so an instance captured earlier can be a corpse. Disabling the corpse is
+   * exactly the bug this replaces: the flag read back as `false` while the live controls kept
+   * orbiting. As a prop, React applies it to whichever instance is current.
+   */
+  const cameraOwnsPointer = cameraOverride || tool === "orbit";
   const controlsRef = useRef<CameraControlsImpl | null>(null);
   const invalidate = useThree((s) => s.invalidate);
   const poseRef = useRef<{ position: THREE.Vector3; target: THREE.Vector3 } | null>(null);
@@ -47,6 +57,13 @@ export function Rig() {
       runtime.controls = null;
     };
   }, [runtime, reduced, projection]);
+
+  // Deliberately without a dependency array: it runs after every commit, so `runtime.controls`
+  // cannot go stale when drei swaps the instance under us. The effect above only fires on a
+  // projection change, which is how the stale handle survived unnoticed.
+  useEffect(() => {
+    runtime.controls = controlsRef.current;
+  });
 
   // Remember the outgoing pose so the projection switch is seamless. The controls instance is
   // captured on mount rather than read in the cleanup, because by cleanup time `<CameraControls>`
@@ -128,6 +145,7 @@ export function Rig() {
       <CameraControls
         key={projection}
         ref={controlsRef}
+        enabled={cameraOwnsPointer}
         makeDefault
         smoothTime={reduced ? 0 : 0.25}
         draggingSmoothTime={reduced ? 0 : 0.125}

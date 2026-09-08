@@ -316,7 +316,14 @@ export function SceneRoot() {
         { touch },
       );
       runtime.lastPick = hit;
-      runtime.select(selectionOf(hit, runtime.store.getState().selection));
+
+      // While the place tool owns the button, a click is aiming, not picking. Without this the
+      // same click both positioned the thing and re-selected whatever surface was under it, so
+      // saving left the wall selected instead of the equipment just placed.
+      const state = runtime.store.getState();
+      if (state.tool === "place" && !state.cameraOverride && state.editing !== null) return;
+
+      runtime.select(selectionOf(hit, state.selection));
     };
 
     const onDoubleClick = () => {

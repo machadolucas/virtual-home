@@ -49,8 +49,16 @@ export interface HouseRuntime {
   camera: CameraApi | null;
   /** The active three camera, published by `SceneRoot` for the picker and the editors. */
   camera3d: THREE.Camera | null;
-  /** The default camera controls, so a placement drag can stop the camera orbiting. */
+  /** The default camera controls, so the tool can decide who owns the left button. */
   controls: { enabled: boolean } | null;
+  /**
+   * Hand the camera to the pointer, or take it away.
+   *
+   * A method rather than a bare mutation at the call site: the controls object comes out of a hook
+   * result, and mutating one of those from component code is exactly what the compiler's
+   * immutability rule (rightly) refuses. The runtime owns the object, so the runtime changes it.
+   */
+  setControlsEnabled(enabled: boolean): void;
   canvasEl: HTMLCanvasElement | null;
   /** The R3F renderer, published by `SceneRoot` for the test hook's render-info assertions. */
   gl: THREE.WebGLRenderer | null;
@@ -98,6 +106,9 @@ export function createRuntime(init: {
     camera: null,
     camera3d: null,
     controls: null,
+    setControlsEnabled(enabled) {
+      if (this.controls) this.controls.enabled = enabled;
+    },
     canvasEl: null,
     gl: null,
     invalidate() {},

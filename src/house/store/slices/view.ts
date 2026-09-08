@@ -5,8 +5,29 @@ import { DOLLHOUSE_PRESET, OVERVIEW_PRESET } from "@/house/model/visibilityPlan"
 import type { FloorId, Projection, VerticalCut, ViewMode } from "@/house/model/types";
 import type { HouseStore, Mutators } from "../createHouseStore";
 
+/**
+ * Which pointer gesture the canvas is in — the "tool" in the Photoshop sense.
+ *
+ * It exists because one left-drag cannot mean two things. With the camera always on the left
+ * button, dragging a marker orbited the house at the same time: `camera-controls` captures the
+ * gesture on `pointerdown`, so flipping `controls.enabled` inside the app's own handler was always
+ * too late. The mode decides *before* the gesture starts.
+ *
+ *  - `orbit`  — left-drag moves the camera. The default, and what a first-time visitor expects.
+ *  - `select` — left-drag does nothing; clicks pick. For trackpads, where an accidental 3 px drag
+ *               used to spin the house instead of selecting the thing under the cursor.
+ *  - `place`  — the camera is locked and the pointer positions the thing being placed.
+ *
+ * Holding **Space** temporarily gives the camera back in every mode, so no tool is a dead end.
+ */
+export const CANVAS_TOOLS = ["orbit", "select", "place"] as const;
+export type CanvasTool = (typeof CANVAS_TOOLS)[number];
+
 export interface ViewSlice {
   viewMode: ViewMode;
+  tool: CanvasTool;
+  /** True while Space is held: the camera is on loan, whatever the tool says. */
+  cameraOverride: boolean;
   activeFloorId: FloorId | null;
   projection: Projection;
   cut: { enabled: boolean; y: number; vertical: VerticalCut | null };
@@ -22,6 +43,8 @@ export interface ViewSlice {
   background: HouseBackground;
 
   setViewMode(mode: ViewMode): void;
+  setTool(tool: CanvasTool): void;
+  setCameraOverride(held: boolean): void;
   isolateFloor(floorId: FloorId | null): void;
   setProjection(projection: Projection): void;
   setCut(cut: Partial<ViewSlice["cut"]>): void;
@@ -39,6 +62,8 @@ export interface ViewSlice {
 
 export const initialView = {
   viewMode: "overview" as ViewMode,
+  tool: "orbit" as CanvasTool,
+  cameraOverride: false,
   activeFloorId: null,
   projection: "perspective" as Projection,
   cut: { enabled: false, y: 1.5, vertical: null as VerticalCut | null },
@@ -54,6 +79,10 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
   ...initialView,
 
   setViewMode: (viewMode) => set({ viewMode }),
+
+  setTool: (tool) => set({ tool }),
+
+  setCameraOverride: (cameraOverride) => set({ cameraOverride }),
 
   isolateFloor: (activeFloorId) =>
     set(() =>
