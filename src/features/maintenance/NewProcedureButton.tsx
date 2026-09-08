@@ -8,15 +8,14 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { Button, Dialog, Field, Input } from "@/ui";
 import { createProcedure } from "@/server/actions/maintenance/procedures";
-import { messageFor, newRequestKey, useAction } from "./useAction";
+import { messageFor, useAction } from "./useAction";
 
 export function NewProcedureButton() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
-  const [key] = useState(newRequestKey);
-  const { run, pending, failure } = useAction(createProcedure, { refresh: false });
+  const { run, pending, failure, requestKey } = useAction(createProcedure, { refresh: false });
 
   return (
     <>
@@ -47,7 +46,7 @@ export function NewProcedureButton() {
                 void run({
                   title: title.trim(),
                   summary: summary.trim() === "" ? null : summary.trim(),
-                  idempotencyKey: key,
+                  idempotencyKey: requestKey,
                 }).then((result) => {
                   if (result !== null) router.push(`/procedures/${result.procedureId}`);
                 })

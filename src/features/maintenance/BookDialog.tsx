@@ -11,7 +11,7 @@ import { useState } from "react";
 import { CalendarPlus, Phone } from "lucide-react";
 import { Button, Checkbox, Dialog, Field, Input, Select, Textarea } from "@/ui";
 import { bookProfessional, createProvider } from "@/server/actions/maintenance/bookings";
-import { messageFor, newRequestKey, useAction } from "./useAction";
+import { messageFor, useAction } from "./useAction";
 import { formatDate } from "./dueDate";
 
 export interface BookDialogProvider {
@@ -56,7 +56,6 @@ export function BookDialog({
   const [reference, setReference] = useState("");
   const [contactNote, setContactNote] = useState("");
   const [alsoPostpone, setAlsoPostpone] = useState(false);
-  const [key] = useState(newRequestKey);
 
   const provider = useAction(createProvider, { refresh: false });
   const booking = useAction(bookProfessional, {
@@ -71,7 +70,7 @@ export function BookDialog({
         name: newName.trim(),
         trade: newTrade.trim() === "" ? null : newTrade.trim(),
         phone: newPhone.trim() === "" ? null : newPhone.trim(),
-        idempotencyKey: `${key}-provider`,
+        idempotencyKey: provider.requestKey,
       });
       if (created === null) return;
       chosen = created.providerId;
@@ -86,7 +85,7 @@ export function BookDialog({
       reference: reference.trim() === "" ? null : reference.trim(),
       contactNote: contactNote.trim() === "" ? null : contactNote.trim(),
       alsoPostponeToAppointment: alsoPostpone && date !== "",
-      idempotencyKey: key,
+      idempotencyKey: booking.requestKey,
     });
   }
 

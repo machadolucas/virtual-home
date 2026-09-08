@@ -11,7 +11,7 @@ import { useState } from "react";
 import { BatteryCharging, CircleSlash } from "lucide-react";
 import { Button, Dialog, Panel } from "@/ui";
 import { closeConditionWithoutMaintenance } from "@/server/actions/maintenance/condition";
-import { messageFor, newRequestKey, useAction } from "./useAction";
+import { messageFor, useAction } from "./useAction";
 import {
   CompleteDialog,
   type CompleteDialogMember,
@@ -53,8 +53,7 @@ export function ConditionChoices({
 }: ConditionChoicesProps) {
   const [confirming, setConfirming] = useState(false);
   const [completing, setCompleting] = useState(false);
-  const [key] = useState(newRequestKey);
-  const { run, pending, failure } = useAction(closeConditionWithoutMaintenance, {
+  const { run, pending, failure, requestKey } = useAction(closeConditionWithoutMaintenance, {
     success: "Closed without maintenance. No completion was recorded.",
     onDone: () => setConfirming(false),
   });
@@ -138,7 +137,7 @@ export function ConditionChoices({
               <Button
                 variant="danger"
                 loading={pending}
-                onClick={() => void run({ occurrenceId, idempotencyKey: key })}
+                onClick={() => void run({ occurrenceId, idempotencyKey: requestKey })}
               >
                 Close it
               </Button>

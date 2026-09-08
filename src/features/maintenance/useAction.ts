@@ -39,6 +39,12 @@ export interface UseActionState<I, O> {
   pending: boolean;
   failure: ActionFailure | null;
   clearFailure: () => void;
+  /**
+   * The idempotency / request key for the submit being prepared right now. Pass it into the
+   * action's `idempotencyKey` (or `requestId`) and read it at submit time, never earlier: it
+   * covers one submit and the retries of that submit, and is replaced after a success.
+   */
+  requestKey: string;
 }
 
 /** Human wording for the error codes these screens can actually produce. */
@@ -78,6 +84,7 @@ export function useAction<I, O>(
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<ActionFailure | null>(null);
+  const [requestKey, setRequestKey] = useState(newRequestKey);
 
   const run = useCallback(
     async (input: I): Promise<O | null> => {
@@ -93,6 +100,11 @@ export function useAction<I, O>(
           }
           return null;
         }
+        // A refusal deliberately keeps the key — the mutation may have committed with the response
+        // lost, and the resubmit must replay rather than write again (§5.1). A success is the one
+        // point where the key has finished its job, so the *next* submit from a form that is still
+        // mounted is a real second write instead of a replay of this one.
+        setRequestKey(newRequestKey());
         if (options.success !== undefined) {
           toast({ title: options.success, tone: "success" });
         }
@@ -111,10 +123,11 @@ export function useAction<I, O>(
     pending: busy || pending,
     failure,
     clearFailure: useCallback(() => setFailure(null), []),
+    requestKey,
   };
 }
 
-/** A stable idempotency / request key for the lifetime of one form instance. */
+/** One idempotency / request key. `useAction` owns one and rotates it; see `requestKey`. */
 export function newRequestKey(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);

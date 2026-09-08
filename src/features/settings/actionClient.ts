@@ -12,10 +12,15 @@ import { toast } from "@/ui";
  * settings-specific.
  *
  * Two behaviours worth knowing:
- *  - The idempotency key is created **once per hook instance**, not per submit, which is exactly
- *    what `action()`'s replay store expects: a double-clicked button replays the first result
- *    instead of writing twice. `reset()` starts a new key, for a form that is deliberately
- *    submitted again with different values.
+ *  - The idempotency key covers **one submit and the retries of that submit**, not the component's
+ *    lifetime. A double-clicked button replays the first result instead of writing twice, and a
+ *    retry after a refusal reuses the key (the mutation may have committed with the response
+ *    lost); a *success* mints a new one. Minting it once per hook instance instead would swallow
+ *    the second real submit from anything that stays mounted — a dialog that records a purchase,
+ *    reopens and records another — because `action()` replays a stored response by key alone and
+ *    would answer the second submit with the first one's data.
+ *  - `reset()` starts a new key *and* clears the error and the last result, for a form starting
+ *    over. Nothing has to call it just to submit twice.
  *  - `error` holds the domain's own `code` mapped to a sentence. A code with no mapping is shown
  *    verbatim rather than replaced by "something went wrong": an unfamiliar code is still a
  *    better clue than no clue.
@@ -65,6 +70,10 @@ const BASE_MESSAGES: Record<string, string> = {
   lot_part_mismatch: "That lot belongs to a different item.",
   is_kit_immutable:
     "Whether an item is a kit cannot be changed later — its existing movements mean different things on each side of that line.",
+  unit_immutable_with_history:
+    "The unit cannot be changed once this item has movements: every recorded amount is counted in it, so changing it would quietly rewrite the whole ledger. Archive this item and add it again with the right unit.",
+  tracking_mode_immutable_with_history:
+    "This item cannot switch to whole units only once it has movements — an amount already recorded as a fraction could not be stated any more.",
   nested_kit: "A kit inside a kit is not supported. List the individual parts instead.",
   reorder_target_below_threshold:
     "The reorder target must be at least the threshold, or every order would leave the item still low.",
@@ -99,7 +108,10 @@ export interface UseActionReturn<I, O> {
   fieldErrors: Record<string, string[]>;
   data: O | null;
   reset: () => void;
-  /** Pass into the action input so a double submit replays instead of repeating. */
+  /**
+   * Pass into the action input so a double submit replays instead of repeating. Read it at submit
+   * time — it changes after every success, which is what lets the same form submit twice.
+   */
   idempotencyKey: string;
 }
 
@@ -130,6 +142,10 @@ export function useAction<I, O>(
         const result = await fn(input);
         if (result.ok) {
           setData(result.data);
+          // The key has done its job. Rotating it here — and only here — is what makes the next
+          // submit a real second write instead of a replay of this one, while a retry after a
+          // failure still carries the key that may already have committed.
+          setIdempotencyKey(freshKey());
           if (options.successTitle !== undefined) {
             toast({
               title: options.successTitle,

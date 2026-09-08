@@ -13,7 +13,7 @@ import { useState } from "react";
 import { Undo2 } from "lucide-react";
 import { Button, Dialog, Field, Textarea } from "@/ui";
 import { voidTaskCompletion } from "@/server/actions/maintenance/complete";
-import { messageFor, newRequestKey, useAction } from "./useAction";
+import { messageFor, useAction } from "./useAction";
 import { formatDate } from "./dueDate";
 
 export interface VoidDialogProps {
@@ -35,8 +35,7 @@ export function VoidDialog({
   successorDueDate,
 }: VoidDialogProps) {
   const [reason, setReason] = useState("");
-  const [requestId] = useState(newRequestKey);
-  const { run, pending, failure } = useAction(voidTaskCompletion, {
+  const { run, pending, failure, requestKey } = useAction(voidTaskCompletion, {
     success: "Completion voided. The task is open again.",
     onDone: () => onOpenChange(false),
   });
@@ -63,7 +62,7 @@ export function VoidDialog({
                 completionId,
                 occurrenceId,
                 reason: reason.trim(),
-                requestId,
+                requestId: requestKey,
               })
             }
           >

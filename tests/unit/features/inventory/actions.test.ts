@@ -38,6 +38,7 @@ import {
   createPart,
   setKitComponents,
   setPartArchived,
+  updatePart,
   upsertLot,
   upsertSupplier,
 } from "@/server/actions/inventory/parts";
@@ -161,6 +162,88 @@ describe("createPart", () => {
     );
     expect(second.partId).toBe(first.partId);
     expect(world.handle.db.select().from(part).all()).toHaveLength(1);
+  });
+});
+
+describe("the idempotency key across two real submits", () => {
+  /**
+   * The client contract this protects, from `useAction` in `features/settings/actionClient.ts` and
+   * `features/maintenance/useAction.ts`: a key covers one submit **and its retries**, and is
+   * replaced after a success.
+   *
+   * Both halves matter, and only together. Reusing the key is what makes a double-click harmless;
+   * rotating it is what makes the *second* purchase from a dialog that is still mounted a real
+   * second ledger row instead of a replay that writes nothing and toasts the first movement's
+   * quantity back at the user.
+   */
+  it("replays the retry of one submit and writes the next one", async () => {
+    const partId = seedPart(world);
+    const firstSubmit = "form-submit-0000001";
+
+    const first = unwrap(await addPurchase({ partId, qtyMilli: 2000, idempotencyKey: firstSubmit }));
+    // The retry: same key, because the first attempt may have committed with the response lost.
+    const retry = unwrap(await addPurchase({ partId, qtyMilli: 2000, idempotencyKey: firstSubmit }));
+    expect(retry.transactionId).toBe(first.transactionId);
+    expect(getStock(world.handle.db, partId).onHandMilli).toBe(2000);
+
+    // A second, deliberate purchase from the same still-mounted dialog: a rotated key, a real row.
+    const secondSubmit = "form-submit-0000002";
+    const second = unwrap(
+      await addPurchase({ partId, qtyMilli: 3000, idempotencyKey: secondSubmit }),
+    );
+    expect(second.transactionId).not.toBe(first.transactionId);
+    expect(getStock(world.handle.db, partId).onHandMilli).toBe(5000);
+    expect(
+      world.handle.db
+        .select()
+        .from(stockTransaction)
+        .where(eq(stockTransaction.partId, partId))
+        .all(),
+    ).toHaveLength(2);
+  });
+});
+
+describe("updatePart", () => {
+  const fields = (over: Record<string, unknown> = {}) => ({
+    name: "HEPA filter F7",
+    trackingMode: "measured" as const,
+    unit: "l" as const,
+    isKit: false,
+    stocked: true,
+    tracksLots: false,
+    ...over,
+  });
+
+  it("lets the unit be corrected while the ledger is still empty", async () => {
+    const partId = seedPart(world, { trackingMode: "measured", unit: "l" });
+    unwrap(await updatePart({ ...fields({ unit: "kg" }), partId }));
+    expect(world.handle.db.select().from(part).where(eq(part.id, partId)).get()?.unit).toBe("kg");
+  });
+
+  it("refuses a unit change once a movement exists", async () => {
+    const partId = seedPart(world, { trackingMode: "measured", unit: "l" });
+    unwrap(await addPurchase({ partId, qtyMilli: 750 }));
+    // 750 means "0.75 l" only because the part says litres. Letting the unit move would turn the
+    // same stored integer into 0.75 kg without touching a single ledger row.
+    const result = await updatePart({ ...fields({ unit: "kg" }), partId });
+    expect(expectRefusal(result)).toBe("unit_immutable_with_history");
+    expect(world.handle.db.select().from(part).where(eq(part.id, partId)).get()?.unit).toBe("l");
+  });
+
+  it("refuses becoming whole-units-only once a movement exists", async () => {
+    const partId = seedPart(world, { trackingMode: "measured", unit: "l" });
+    unwrap(await addPurchase({ partId, qtyMilli: 750 }));
+    const result = await updatePart({ ...fields({ trackingMode: "discrete" }), partId });
+    expect(expectRefusal(result)).toBe("tracking_mode_immutable_with_history");
+  });
+
+  it("still allows the other fields to be edited on a part with history", async () => {
+    const partId = seedPart(world, { trackingMode: "measured", unit: "l" });
+    unwrap(await addPurchase({ partId, qtyMilli: 750 }));
+    unwrap(await updatePart({ ...fields({ name: "HEPA filter F7, 46 mm" }), partId }));
+    expect(world.handle.db.select().from(part).where(eq(part.id, partId)).get()?.name).toBe(
+      "HEPA filter F7, 46 mm",
+    );
   });
 });
 
