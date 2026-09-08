@@ -152,6 +152,16 @@ export const assetPlacement = sqliteTable(
     mountHeightM: real("mount_height_m"),
     /** Metres out of the mounting surface (the standoff). */
     mountOffsetM: real("mount_offset_m"),
+    /**
+     * Which silhouette to draw in the 3D view (`src/house/scene/symbols.ts`): a ceiling lamp, a
+     * lamp post, a ground spike, a vent grille…
+     *
+     * Appearance, not geometry — so it is not a presentation transform of the kind rule 7 forbids
+     * persisting; it is a fact about the thing ("this is a lamp post"), chosen by the household and
+     * therefore worth keeping. `null` means nobody chose, and the view infers one from the
+     * category and the mount without ever writing it back.
+     */
+    symbol: text("symbol"),
     /** "behind the hatch, left of the manifold" — words a photo cannot replace. */
     locationNote: text("location_note"),
     /** The close-up that makes the location findable. */

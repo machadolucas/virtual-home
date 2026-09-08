@@ -1,5 +1,5 @@
 /**
- * Equipment markers: one `InstancedMesh` per explode group.
+ * Equipment markers: one `InstancedMesh` per explode group and symbol.
  *
  * 200 markers as 200 meshes would be 200 draw calls, 200 matrix updates and (with drei
  * `<Instances>`) 200 React components. Per group it is one draw call, ≤ 256 instances, an
@@ -15,6 +15,7 @@ import type { ExplodeGroup, Placement, PlacementId } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
 import { getViewerPalette, type MarkerStateClass } from "./palette";
 import { overlayGroup, type SceneIndex } from "./SceneIndex";
+import { symbolGeometry, type PlacementSymbol } from "./symbols";
 
 export const MARKER_CAPACITY = 256;
 export const MARKER_RADIUS = 0.06;
@@ -35,26 +36,45 @@ export interface MarkerGroupState {
   ids: PlacementId[];
 }
 
+/**
+ * One instanced mesh per (explode group × symbol).
+ *
+ * The split by symbol is what lets a lamp post look like a lamp post: instancing needs one
+ * geometry per mesh, so a second silhouette means a second mesh. The cost is bounded — a
+ * household uses a handful of symbols per floor, and each mesh is still one draw call for up to
+ * 256 markers, which is the property they were instanced for in the first place.
+ */
+type MarkerKey = string;
+
+const keyOf = (group: ExplodeGroup, symbol: PlacementSymbol): MarkerKey => `${group}::${symbol}`;
+
 export class MarkerLayer {
-  private readonly geometry: THREE.SphereGeometry;
   private readonly material: THREE.MeshStandardMaterial;
-  private readonly groups = new Map<ExplodeGroup, MarkerGroupState>();
+  private readonly groups = new Map<MarkerKey, MarkerGroupState & { group: ExplodeGroup }>();
   private readonly matrix = new THREE.Matrix4();
+  private readonly quaternion = new THREE.Quaternion();
+  private readonly euler = new THREE.Euler();
+  private readonly position = new THREE.Vector3();
+  private readonly unitScale = new THREE.Vector3(1, 1, 1);
   private readonly color = new THREE.Color();
 
   constructor(
     private readonly index: SceneIndex,
     private readonly clip: ClipGroups,
   ) {
-    this.geometry = new THREE.SphereGeometry(MARKER_RADIUS, 10, 8);
     this.material = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0 });
   }
 
-  private groupFor(group: ExplodeGroup): MarkerGroupState {
-    let state = this.groups.get(group);
+  private groupFor(group: ExplodeGroup, symbol: PlacementSymbol): MarkerGroupState {
+    const key = keyOf(group, symbol);
+    let state = this.groups.get(key);
     if (!state) {
-      const mesh = new THREE.InstancedMesh(this.geometry, this.material, MARKER_CAPACITY);
-      mesh.name = `vh-markers-${group}`;
+      const mesh = new THREE.InstancedMesh(
+        symbolGeometry(symbol),
+        this.material,
+        MARKER_CAPACITY,
+      );
+      mesh.name = `vh-markers-${group}-${symbol}`;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.instanceColor = new THREE.InstancedBufferAttribute(
         new Float32Array(MARKER_CAPACITY * 3),
@@ -64,8 +84,8 @@ export class MarkerLayer {
       mesh.frustumCulled = false; // instances span a whole floor
       this.clip.attach(mesh, group);
       overlayGroup(this.index, group).add(mesh);
-      state = { mesh, ids: [] };
-      this.groups.set(group, state);
+      state = { mesh, ids: [], group };
+      this.groups.set(key, state);
     }
     return state;
   }
@@ -75,16 +95,22 @@ export class MarkerLayer {
     placements: readonly Placement[],
     stateOf: (p: Placement) => string,
     groupOf: (p: Placement) => ExplodeGroup,
+    symbolOf: (p: Placement) => PlacementSymbol = () => "generic",
   ): void {
     for (const state of this.groups.values()) {
       state.mesh.count = 0;
       state.ids.length = 0;
     }
     for (const p of placements) {
-      const state = this.groupFor(groupOf(p));
+      const state = this.groupFor(groupOf(p), symbolOf(p));
       if (state.mesh.count >= MARKER_CAPACITY) continue;
       const i = state.mesh.count;
-      this.matrix.makeTranslation(p.position[0], p.position[1], p.position[2]);
+      // Yaw matters now that symbols have a front: a wall lamp's shade has to point away from the
+      // wall it is bolted to, which is the rotation the wall snap already solved for.
+      this.position.set(p.position[0], p.position[1], p.position[2]);
+      this.euler.set(0, THREE.MathUtils.degToRad(p.rotationYDeg ?? 0), 0);
+      this.quaternion.setFromEuler(this.euler);
+      this.matrix.compose(this.position, this.quaternion, this.unitScale);
       state.mesh.setMatrixAt(i, this.matrix);
       this.color.setHex(markerColor(stateOf(p)));
       state.mesh.setColorAt(i, this.color);
@@ -135,7 +161,8 @@ export class MarkerLayer {
       state.mesh.dispose();
     }
     this.groups.clear();
-    this.geometry.dispose();
     this.material.dispose();
+    // The symbol geometries are shared and immutable, so they outlive one layer on purpose:
+    // disposing them here would pull the geometry out from under a second workspace mounting.
   }
 }
