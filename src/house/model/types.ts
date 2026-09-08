@@ -108,7 +108,9 @@ export const DEFAULT_LAYERS: Record<LayerId, boolean> = {
   yard: true,
   outdoor: true,
   equipment: true,
-  routes: false,
+  // On, because it now controls something: while nothing read this flag the lines were drawn
+  // anyway, so `false` described the screen incorrectly in the one direction that matters.
+  routes: true,
   annotations: true,
 };
 
@@ -127,11 +129,25 @@ export interface Placement {
   locationNote: string;
   photoId: string | null;
   entityId: string | null;
+  /** Chosen silhouette, or `null` to let the view infer one. See `scene/symbols.ts`. */
+  symbol: string | null;
+  /** The equipment's category, read-only — only used to infer a symbol when none was chosen. */
+  category: string | null;
 }
 
+/**
+ * How a placement is attached. All four kinds the database and the endpoint already accepted —
+ * the workspace used to know only `floor` and `wall`, which is why an eave spot or anything on a
+ * ceiling could not be expressed here even though the row could hold it.
+ *
+ * `height` means metres above the resolved room's own floor for `floor`/`wall`/`free`, and metres
+ * *below* the surface for `ceiling` (the drop of a pendant, or the recess of a downlight).
+ */
 export type PlacementMount =
   | { kind: "floor"; height: number }
-  | { kind: "wall"; surfaceId: SurfaceId; height: number; offset: number };
+  | { kind: "wall"; surfaceId: SurfaceId; height: number; offset: number }
+  | { kind: "ceiling"; surfaceId: SurfaceId; height: number; offset: number }
+  | { kind: "free"; height: number };
 
 export type RouteSystem =
   | "ventilation"

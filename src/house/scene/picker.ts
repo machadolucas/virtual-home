@@ -19,6 +19,7 @@ import type {
 } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
 import type { SceneIndex } from "./SceneIndex";
+import { isSoffitSurface } from "./snap";
 
 export interface PickResult {
   surfaceId: SurfaceId | null;
@@ -131,9 +132,20 @@ export function dragCandidates(index: SceneIndex, floorId: FloorId | null): THRE
   const out: THREE.Object3D[] = [];
   for (const [sid, mesh] of index.surfaceMesh) {
     const s = index.manifest.surfaces.get(sid);
-    if (!s || (s.kind !== "floor" && s.kind !== "wall")) continue;
+    if (!s) continue;
+    if (!mesh.visible) continue;
+
+    // Roof undersides and other soffits belong to no floor — an eave is above the ground floor's
+    // ceiling and below the roof — so they are admitted regardless of the isolated floor. Without
+    // this an eave spot could not be aimed at all, which is the case that motivated it.
+    if (isSoffitSurface(sid, s.kind)) {
+      out.push(mesh);
+      continue;
+    }
+
+    if (s.kind !== "floor" && s.kind !== "wall") continue;
     if (floorId && index.manifest.floorOfSurface.get(sid) !== floorId) continue;
-    if (mesh.visible) out.push(mesh);
+    out.push(mesh);
   }
   return out;
 }

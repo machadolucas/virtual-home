@@ -70,6 +70,19 @@ export interface SnapInput {
   anchorOf?: (roomId: RoomId) => Vec3 | undefined;
 }
 
+/**
+ * Is this surface something you hang a light *under*?
+ *
+ * The package marks roof undersides as kind `other`, so kind alone cannot answer it. The id
+ * convention (`s-e-roof-house-under`, `s-e-roof-garage-under`) can, and it is the same convention
+ * the model contract documents. Matching on the id is narrow on purpose: every other `other`
+ * surface — terrain, paving, cladding — keeps falling through to the free plane.
+ */
+export function isSoffitSurface(surfaceId: string, kind: string | undefined): boolean {
+  if (kind === "ceiling") return true;
+  return /(^|-)(soffit|eave)(-|$)/.test(surfaceId) || /-under$/.test(surfaceId);
+}
+
 export function resolveSnap(input: SnapInput): SnapSolution {
   const { hit, manifest, draft } = input;
   const grid = input.config.enabled && !input.modifiers?.alt ? input.config.grid : 0;
@@ -109,7 +122,39 @@ export function resolveSnap(input: SnapInput): SnapSolution {
     }
   }
 
-  // 2. FLOOR SNAP
+  // 2. CEILING / SOFFIT SNAP
+  //
+  // The case that used to be impossible: an eave spot. The package's roof undersides
+  // (`s-e-roof-*-under`) are surfaces of kind `other`, and ceilings inside are kind `ceiling`;
+  // neither was in the pick set and the mount union could not name them. Now a hit on either
+  // hangs the fixture from the surface, `height` metres below it.
+  if (hit?.surfaceId) {
+    const surface = manifest.surfaces.get(hit.surfaceId);
+    const overhead = surface?.kind === "ceiling" || isSoffitSurface(hit.surfaceId, surface?.kind);
+    if (overhead) {
+      const drop = draft.mount.kind === "ceiling" ? draft.mount.height : 0;
+      const x = snap(hit.point.x);
+      const z = snap(hit.point.z);
+      const y = snapValue(hit.point.y - drop, 0);
+      const room = hit.roomId ? manifest.rooms.get(hit.roomId) : undefined;
+      return {
+        physical: [x, y, z],
+        rotationYDeg: snapValue(draft.rotationYDeg, rotationStep),
+        mount: {
+          kind: "ceiling",
+          surfaceId: hit.surfaceId,
+          height: drop,
+          offset: draft.mount.kind === "ceiling" ? draft.mount.offset : 0,
+        },
+        floorId: room?.floorId ?? draft.floorId,
+        roomId: room?.id ?? null,
+        surfaceId: hit.surfaceId,
+        indicator: { kind: "free", point: [x, y, z], floorY: hit.point.y },
+      };
+    }
+  }
+
+  // 3. FLOOR SNAP
   if (hit?.surfaceId && hit.roomId) {
     const surface = manifest.surfaces.get(hit.surfaceId);
     const room = manifest.rooms.get(hit.roomId);
@@ -129,7 +174,7 @@ export function resolveSnap(input: SnapInput): SnapSolution {
     }
   }
 
-  // 3. FREE — a horizontal plane at the drafted floor's elevation.
+  // 4. FREE — a horizontal plane at the drafted floor's elevation.
   const floor = manifest.floors.get(draft.floorId);
   const planeY = floor?.elevation ?? draft.physical[1];
   const source = input.freePoint ?? new THREE.Vector3(draft.physical[0], planeY, draft.physical[2]);
@@ -165,23 +210,67 @@ export function resolveNumeric(
   manifest: ManifestIndex,
   draft: { physical: Vec3; rotationYDeg: number; mount: PlacementMount; floorId: FloorId },
   config: SnapConfig,
+  opts: {
+    /** The previous mount, so a changed height can move the marker rather than just disagree with it. */
+    previousMount?: PlacementMount;
+    meshOf?: (surfaceId: SurfaceId) => THREE.Mesh | undefined;
+    anchorOf?: (roomId: RoomId) => Vec3 | undefined;
+  } = {},
 ): SnapSolution {
   const grid = config.enabled ? config.grid : 0;
-  const x = snapValue(draft.physical[0], grid);
-  const z = snapValue(draft.physical[2], grid);
+  let x = snapValue(draft.physical[0], grid);
+  let z = snapValue(draft.physical[2], grid);
   const roomId = roomAt(manifest, draft.floorId, x, z);
   const room = roomId ? manifest.rooms.get(roomId) : undefined;
-  const y =
-    draft.mount.kind === "floor" && room
-      ? snapValue(room.floorElevation + draft.mount.height, 0)
-      : snapValue(draft.physical[1], 0);
+
+  /**
+   * The position follows the mount for **every** kind now.
+   *
+   * It used to be derived from the height only for a floor mount with a room, so a typed height or
+   * standoff on a wall, ceiling or free mount changed `mount` and nothing else — and the row was
+   * then saved with the old `pos_y` beside the new `mount_height_m`. The inspector read one number
+   * and the marker sat at another.
+   */
+  let y = snapValue(draft.physical[1], 0);
+  const mount = draft.mount;
+
+  if (mount.kind === "floor" || mount.kind === "free") {
+    const base = room?.floorElevation ?? manifest.floors.get(draft.floorId)?.elevation ?? 0;
+    y = snapValue(base + mount.height, 0);
+  } else if (mount.kind === "wall") {
+    const base = room?.floorElevation ?? manifest.floors.get(draft.floorId)?.elevation ?? 0;
+    const mesh = opts.meshOf?.(mount.surfaceId);
+    if (mesh) {
+      // Project onto the wall's own plane, exactly as the drag path does, so the standoff moves
+      // the marker along the surface normal instead of only changing a number.
+      const anchor = room ? opts.anchorOf?.(room.id) : undefined;
+      const frame = wallFrame(mesh, {
+        towards: anchor ? new THREE.Vector3(anchor[0], anchor[1], anchor[2]) : undefined,
+      });
+      const local = frame.toLocal(new THREE.Vector3(x, y, z));
+      const world = frame.toWorld(snapValue(local.u, grid), base + mount.height, mount.offset);
+      x = snapValue(world.x, 0);
+      y = snapValue(world.y, 0);
+      z = snapValue(world.z, 0);
+    } else {
+      y = snapValue(base + mount.height, 0);
+    }
+  } else {
+    // Ceiling: `height` is the drop *below* the surface, so the surface plane is recovered from
+    // where the marker is now plus the drop it had, and the new drop is applied to that.
+    const previousDrop = opts.previousMount?.kind === "ceiling" ? opts.previousMount.height : 0;
+    const surfaceY = draft.physical[1] + previousDrop;
+    y = snapValue(surfaceY - mount.height, 0);
+  }
+
   return {
     physical: [x, y, z],
     rotationYDeg: snapValue(draft.rotationYDeg, config.enabled ? config.rotationStep : 0),
     mount: draft.mount,
     floorId: draft.floorId,
     roomId,
-    surfaceId: draft.mount.kind === "wall" ? draft.mount.surfaceId : null,
+    surfaceId:
+      mount.kind === "wall" || mount.kind === "ceiling" ? mount.surfaceId : null,
     indicator: { kind: "free", point: [x, y, z] },
   };
 }

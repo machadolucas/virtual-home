@@ -94,6 +94,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
               surfaceId: placement.surfaceId,
               locationNote: placement.locationNote,
               photoId: placement.photoId,
+              symbol: placement.symbol,
               dirty: false,
             })
           }
@@ -173,5 +174,14 @@ function HaState({
 }
 
 function mountLabel(mount: { kind: string; surfaceId?: string }): string {
-  return mount.kind === "wall" ? `wall · ${mount.surfaceId ?? "?"}` : "floor";
+  switch (mount.kind) {
+    case "wall":
+      return `wall · ${mount.surfaceId}`;
+    case "ceiling":
+      return `ceiling or eave · ${mount.surfaceId}`;
+    case "free":
+      return "free-standing";
+    default:
+      return "floor";
+  }
 }
