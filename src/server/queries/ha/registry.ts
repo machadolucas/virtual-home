@@ -440,3 +440,85 @@ export function deviceCountsByArea(tx: Db): Map<string, number> {
       .flatMap((row) => (row.areaId === null ? [] : [[row.areaId, row.n] as const])),
   );
 }
+
+export interface LinkableEntity {
+  registryId: string;
+  entityId: string;
+  domain: string;
+  deviceClass: string | null;
+  unitOfMeasurement: string | null;
+  deviceName: string | null;
+  areaName: string | null;
+  state: string | null;
+  linkedAssetName: string | null;
+}
+
+/**
+ * Live, non-diagnostic entities a person could sensibly link to a piece of equipment.
+ *
+ * Capped, because a household instance has thousands of entities and this feeds a `Select`. The
+ * cap is generous enough to cover every instance we expect and the caller says when it bites, so
+ * a truncated list is never silently a complete one.
+ */
+export function listLinkableEntities(
+  tx: Db,
+  options: { limit?: number; includeHidden?: boolean } = {},
+): { entities: LinkableEntity[]; truncated: boolean } {
+  const limit = options.limit ?? 500;
+  const rows = tx
+    .select({
+      registryId: haEntity.registryId,
+      entityId: haEntity.entityId,
+      domain: haEntity.domain,
+      deviceClass: haEntity.deviceClass,
+      unitOfMeasurement: haEntity.unitOfMeasurement,
+      entityCategory: haEntity.entityCategory,
+      disabledBy: haEntity.disabledBy,
+      hiddenBy: haEntity.hiddenBy,
+      deviceName: haDevice.name,
+      deviceNameByUser: haDevice.nameByUser,
+      areaName: haArea.name,
+      state: haEntityState.state,
+    })
+    .from(haEntity)
+    .leftJoin(haDevice, eq(haDevice.deviceId, haEntity.deviceId))
+    .leftJoin(haArea, eq(haArea.areaId, haDevice.areaId))
+    .leftJoin(haEntityState, eq(haEntityState.registryId, haEntity.registryId))
+    .where(isNull(haEntity.removedAtMs))
+    .orderBy(asc(haEntity.entityId))
+    .limit(limit + 1)
+    .all()
+    .filter(
+      (row) =>
+        options.includeHidden === true ||
+        (row.disabledBy === null &&
+          row.hiddenBy === null &&
+          row.entityCategory !== "diagnostic" &&
+          row.entityCategory !== "config"),
+    );
+
+  const linked = new Map<string, string>();
+  for (const row of tx
+    .select({ registryId: assetHaLink.haEntityRegistryId, name: asset.name })
+    .from(assetHaLink)
+    .innerJoin(asset, eq(asset.id, assetHaLink.assetId))
+    .all()) {
+    if (row.registryId !== null) linked.set(row.registryId, row.name);
+  }
+
+  const truncated = rows.length > limit;
+  return {
+    truncated,
+    entities: rows.slice(0, limit).map((row) => ({
+      registryId: row.registryId,
+      entityId: row.entityId,
+      domain: row.domain,
+      deviceClass: row.deviceClass,
+      unitOfMeasurement: row.unitOfMeasurement,
+      deviceName: row.deviceNameByUser ?? row.deviceName,
+      areaName: row.areaName,
+      state: row.state,
+      linkedAssetName: linked.get(row.registryId) ?? null,
+    })),
+  };
+}

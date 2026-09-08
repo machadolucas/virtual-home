@@ -14,14 +14,18 @@
  * address, and a fresh context is also a fresh store, so no test can inherit another's overrides.
  */
 import { expect, test } from "@playwright/test";
-import { e2eBaseUrl, nextClientIp } from "./fixtures";
+import { e2eBaseUrl } from "./fixtures";
 import {
+  clickCanvasAt,
   deviceOptionsOfProject,
+  findCanvasPick,
   fetchManifest,
   hexDiff,
+  houseClientIp,
   idleFrames,
   measureLoad,
   openHouseSession,
+  orbitOverhead,
   setSurfaceColour,
   vh,
   waitForHook,
@@ -82,12 +86,24 @@ test("the fixture package loads clean, with no cloned materials", async ({ brows
     for (const row of audit) expect(row, row.assetId).toMatchObject({ cloned: 0 });
 
     const render = await vh(page).renderInfo();
-    expect(render.geometries).toBeGreaterThan(0);
-    expect(render.textures).toBe(0);
+    const manifest = await fetchManifest(page, status.modelId!, status.fingerprint!);
+    const hexes = await vh(page).allMaterialHex();
+    const edgeNodes = manifest.assets.filter(
+      (a) => a.edgesNode && status.loadedAssetIds.includes(a.id),
+    ).length;
+
+    // One geometry per mesh-backed surface plus one edges overlay per loaded asset, and nothing
+    // else: no instancing, no render targets, no duplicated scene.
+    expect(render.geometries).toBe(Object.keys(hexes).length + edgeNodes);
+    // §13.2 asks for `textures === 0`. The *package* ships none — no image-based lighting, no maps
+    // in the GLBs — but three allocates one internal empty texture for unassigned sampler slots,
+    // so 1 is the floor here and 2 would mean something started loading an image.
+    expect(render.textures).toBeLessThanOrEqual(1);
+    // MeshStandardMaterial + LineBasicMaterial (the edges overlays) is the whole shader inventory.
     expect(render.programs).toBeLessThanOrEqual(4);
 
     await testInfo.attach("load-timing.json", {
-      body: JSON.stringify({ timing, render, audit }, null, 2),
+      body: JSON.stringify({ timing, render, audit, edgeNodes }, null, 2),
       contentType: "application/json",
     });
     console.log(
@@ -175,10 +191,17 @@ test("clicking a room's floor anchor picks that room's floor at its own datum", 
   const { context, page } = await openHouseSession(browser);
   try {
     // Roof and ceilings off first (the dollhouse preset also clears the active floor), then isolate
-    // the floor the room is on, so the ray from the anchor reaches its floor face.
+    // the floor the room is on, then orbit straight overhead with the arrow keys.
+    //
+    // The overhead pose is the point: from an oblique angle the ray through a room's anchor leaves
+    // through a wall face, which is a *correct* pick of a different surface. Looking down, the
+    // anchor resolves to the floor directly beneath it — the datum this test is about. The
+    // workspace's own "Plan view (P)" would be the natural way to get there and does not work; see
+    // the `test.fixme` below.
     await page.getByRole("button", { name: "Dollhouse (D)" }).click();
     await page.getByRole("button", { name: "Lower floor", exact: true }).click();
-    await waitForStableFrames(page);
+    await waitForStableFrames(page, 1_000);
+    await orbitOverhead(page);
 
     const anchor = await vh(page).roomAnchor(SUNKEN_ROOM.id);
     expect(anchor, "the fixture manifest must have an anchor for this room").not.toBeNull();
@@ -189,12 +212,21 @@ test("clicking a room's floor anchor picks that room's floor at its own datum", 
     expect(hit, "the anchor's screen position must hit geometry").not.toBeNull();
     expect(hit!.surfaceId).toBe(SUNKEN_ROOM.floor);
     expect(hit!.roomId).toBe(SUNKEN_ROOM.id);
+    // The room's floor sits below the floor datum, and the pick lands on *its* floor, not the
+    // slab the rest of the storey shares.
     expect(hit!.point[1]).toBeCloseTo(SUNKEN_ROOM.elevation, 2);
 
-    // And the same point through the real pointer path: a click selects the room.
-    const box = await page.locator("canvas").boundingBox();
-    expect(box).not.toBeNull();
-    await page.mouse.click(box!.x + screen![0], box!.y + screen![1]);
+    // The same surface through the real pointer path. The click has to be on bare canvas: the
+    // label overlay owns the anchor itself (see `findCanvasPick`), and a click on the label would
+    // select the room through the DOM without ever raycasting.
+    const target = await findCanvasPick(
+      page,
+      screen!,
+      (candidate) =>
+        candidate.roomId === SUNKEN_ROOM.id && candidate.surfaceId === SUNKEN_ROOM.floor,
+    );
+    expect(target.pick.point[1]).toBeCloseTo(SUNKEN_ROOM.elevation, 2);
+    await clickCanvasAt(page, target.x, target.y);
     await expect.poll(() => vh(page).selection()).toEqual({ kind: "room", id: SUNKEN_ROOM.id });
   } finally {
     await context.close();
@@ -211,6 +243,10 @@ test("a colour override touches exactly one surface, and reset puts every defaul
   const { context, page } = await openHouseSession(browser, { sel: "room:r-l-a" });
   try {
     await expect(page.getByRole("heading", { name: "Room A", level: 2 })).toBeVisible();
+    // Start from the manifest defaults, so the test is independent of anything a previous run left
+    // behind. (Against the plain harness nothing persists — no model revision is registered — but
+    // the same file also runs against a server that has one.)
+    await page.getByRole("button", { name: "Reset room" }).click();
     const before = await vh(page).allMaterialHex();
 
     await setSurfaceColour(page, "s-r-l-a-floor", "#ff0000");
@@ -234,6 +270,7 @@ test("a colour override touches exactly one surface, and reset puts every defaul
 test("the two faces of one shared wall colour independently", async ({ browser }) => {
   const { context, page } = await openHouseSession(browser, { sel: "room:r-l-a" });
   try {
+    await page.getByRole("button", { name: "Reset room" }).click();
     const before = await vh(page).allMaterialHex();
     expect(before[SHARED_WALL.a]).toBeDefined();
     expect(before[SHARED_WALL.b]).toBeDefined();
@@ -247,6 +284,10 @@ test("the two faces of one shared wall colour independently", async ({ browser }
     expect(hexDiff(before, await vh(page).allMaterialHex())).toEqual([
       { surfaceId: SHARED_WALL.a, before: before[SHARED_WALL.a], after: "#00ff00" },
     ]);
+
+    // Leave no override behind, so a rerun against a reused server starts from the defaults again.
+    await page.getByRole("button", { name: "Reset room" }).click();
+    await expect.poll(() => vh(page).materialHex(SHARED_WALL.a)).toBe(before[SHARED_WALL.a]);
   } finally {
     await context.close();
   }
@@ -256,14 +297,23 @@ test("selecting a room changes no material and compiles no new shader", async ({
   const { context, page } = await openHouseSession(browser);
   try {
     const before = await vh(page).allMaterialHex();
-    const programsBefore = (await vh(page).renderInfo()).programs;
 
+    // The first selection also creates the outline `LineSegments` (§3.4's non-colour signal), and
+    // its `LineBasicMaterial` is one new program — so the invariant §13.2 #12 is really about
+    // selection *changes* once the outline exists, not about the first one.
     await vh(page).select({ kind: "room", id: "r-l-a" });
-    await waitForStableFrames(page);
+    await waitForStableFrames(page, 1_000);
+    const programsAfterFirst = (await vh(page).renderInfo()).programs;
 
-    // The emissive highlight must not fight a colour override, and must not recompile.
+    await vh(page).select({ kind: "room", id: "r-l-b" });
+    await waitForStableFrames(page, 1_000);
+    await vh(page).select({ kind: "surface", id: "s-w-l-ab--r-l-a" });
+    await waitForStableFrames(page, 1_000);
+
+    // The emissive highlight is a uniform write: it can never fight a colour override…
     expect(hexDiff(before, await vh(page).allMaterialHex())).toEqual([]);
-    expect((await vh(page).renderInfo()).programs).toBe(programsBefore);
+    // …and it recompiles nothing.
+    expect((await vh(page).renderInfo()).programs).toBe(programsAfterFirst);
   } finally {
     await context.close();
   }
@@ -348,6 +398,53 @@ test("the orthographic and plan views switch the projection", async ({ browser }
   }
 });
 
+test.fixme("the plan view looks straight down at the active floor", async ({ browser }) => {
+  /**
+   * APP BUG — two of them, both in the camera layer, neither fixed here (this suite does not edit
+   * application code). Measured on this run against the fixture package, headless Chromium:
+   *
+   * 1. `src/house/hooks/useCameraApi.ts:132-135` — `planFor(floorId)` is only
+   *    `fitBox(planBox3(...))`, and `fitBox` (same file, lines 77-99) frames with
+   *    `controls.fitToBox()`, which by design fits along the **current** view direction. Nothing on
+   *    the path ever rotates the polar angle to 0, so "Plan view (P)" produces an orthographic view
+   *    from whatever angle the camera happened to hold. Measured: isolate the lower floor in
+   *    orthographic (pose [3, 1.15, 38.28] → target [3, 1.15, 2], polar 90° — a pure side
+   *    elevation), then press Plan view; the pose does not change at all. §4.2 and §13.2 #16 both
+   *    require polar 0. The `minPolarAngle = maxPolarAngle = 0` lock in
+   *    `src/house/components/Rig.tsx:87-100` only constrains later user input; it never moves the
+   *    camera.
+   *
+   * 2. `src/house/components/Rig.tsx:52-81` — the pose is not carried across a projection switch.
+   *    `<CameraControls key={projection}>` (lines 112-120) remounts, and the capture/restore pair
+   *    does not land: measured, toggling "Orthographic" from the overview pose
+   *    ([19.15, 17, 20.05] → target [3.15, 3, 2.05]) leaves the camera at the freshly-mounted
+   *    orthographic camera's declared default, [22, 16, 24] → target [0, 0, 0]. Because
+   *    `ViewToolbar.planFor` (`src/house/components/ViewToolbar.tsx:51-56`) calls `setProjection`
+   *    and then `runtime.camera?.planFor()` synchronously, the fit runs against the outgoing
+   *    controls instance and is discarded — so entering the plan view from perspective (button or
+   *    the `P` shortcut) lands on that same default pose, polar 63.8°.
+   *
+   * The projection half of both paths *is* asserted and passes, in the test above. What this test
+   * would assert once the camera is fixed: polar 0 and a target over the active floor's centre.
+   */
+  const { context, page } = await openHouseSession(browser);
+  try {
+    await page.getByRole("button", { name: "Upper floor", exact: true }).click();
+    await page.getByRole("button", { name: "Plan view (P)" }).click();
+    await waitForStableFrames(page, 1_000);
+
+    const camera = await vh(page).camera();
+    expect(camera.projection).toBe("ortho");
+    const dx = camera.position[0] - camera.target[0];
+    const dy = camera.position[1] - camera.target[1];
+    const dz = camera.position[2] - camera.target[2];
+    const polarDeg = (Math.atan2(Math.hypot(dx, dz), dy) * 180) / Math.PI;
+    expect(polarDeg).toBeLessThan(1);
+  } finally {
+    await context.close();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // explode
 // ---------------------------------------------------------------------------
@@ -415,7 +512,9 @@ test.skip("entering edit mode zeroes the gap and the save payload is physical", 
 test("an idle workspace asks for no further frames", async ({ browser }, testInfo) => {
   const { context, page } = await openHouseSession(browser);
   try {
-    await waitForStableFrames(page);
+    // A full second of stability first: the last frame of the opening camera transition lands
+    // about 1.7 s after `settled`, and that tail is not what this test is about.
+    await waitForStableFrames(page, 1_000);
     const idle = await idleFrames(page, 2_000);
 
     // The load-bearing assertion: `frameloop="demand"` means nothing may ask to render while the
@@ -446,7 +545,7 @@ test("an asset needs the session cookie, and answers 304 to a matching ETag", as
   const anonymous = await browser.newContext({
     ...deviceOptionsOfProject(),
     baseURL: e2eBaseUrl(),
-    extraHTTPHeaders: { "x-forwarded-for": nextClientIp() },
+    extraHTTPHeaders: { "x-forwarded-for": houseClientIp() },
   });
   try {
     const status = await vh(page).status();

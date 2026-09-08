@@ -7,13 +7,24 @@ import { loadEnv } from "@/env";
 import { writeAudit } from "@/domain/inventory";
 import { action } from "@/server/api/action";
 import { HttpError } from "@/server/api/handler";
+import { mapDomainErrors } from "@/server/actions/inventory/errors";
 import {
   ModelPackageError,
+  getCurrentPackage,
   installPackage,
+  invalidatePackageCache,
   validatePackageDir,
 } from "@/server/house-model/package";
+import {
+  abandonReconciliation,
+  applyReconciliation,
+  decideReconciliationItem,
+  reconciliationSummary,
+  registerRevision,
+} from "@/server/house-model/revision";
 import { userContext } from "@/server/queries/settings/household";
 import { installPackageInput } from "./schemas";
+import { decideReconciliationItemInput, reconciliationActionInput } from "./modelSchemas";
 
 /**
  * Installing a house-model package from `model-incoming`.
@@ -73,8 +84,8 @@ export const installModelPackage = action(installPackageInput, async (input, ses
     throw err;
   }
 
-  const { db } = getDb();
-  writeTx(db, (tx) => {
+  const handle = getDb();
+  writeTx(handle.db, (tx) => {
     const ctx = userContext(session, tx);
     writeAudit(tx, ctx, {
       entityTable: "model_revision",
@@ -88,6 +99,13 @@ export const installModelPackage = action(installPackageInput, async (input, ses
     });
   });
 
+  // Record the revision so colours, placements, routes and annotations can be stamped and, when
+  // the semantic ids have moved, reconciled. Same call `pnpm vh-admin model-import` makes.
+  invalidatePackageCache();
+  const current = await getCurrentPackage();
+  const registration =
+    current === null ? null : registerRevision(handle, current, session.user.id);
+
   revalidatePath("/settings/model");
   revalidatePath("/house");
   return {
@@ -95,5 +113,76 @@ export const installModelPackage = action(installPackageInput, async (input, ses
     modelId: result.modelId,
     alreadyInstalled: result.alreadyInstalled,
     diagnostics: result.diagnostics,
+    revision:
+      registration === null
+        ? null
+        : {
+            status: registration.status,
+            revisionId: registration.revisionId,
+            reconciliationId: registration.reconciliationId ?? null,
+            itemCount: registration.itemCount,
+            aliasCarried: registration.aliasCarried,
+          },
   };
+});
+
+/* -------------------------------------------------------------------------------------------------
+ * Reconciliation
+ *
+ * Three deliberately separate actions. A decision is cheap and revisable; applying is the one
+ * irreversible step, and it refuses (`undecided_items`) until every row has an answer — which is
+ * why the UI can only enable "Apply" once `applicable` is true rather than hoping for the best.
+ * ---------------------------------------------------------------------------------------------- */
+
+/** Record (or change) one item's decision. Writes nothing to the runtime tables. */
+export const decideModelReconciliationItem = action(decideReconciliationItemInput, async (input, session) => {
+  const handle = getDb();
+  const result = mapDomainErrors(() =>
+    decideReconciliationItem(handle, {
+      itemId: input.itemId,
+      decision: input.decision,
+      newNodeId: input.newNodeId ?? null,
+      actorUserId: session.user.id,
+      ...(input.note === undefined ? {} : { note: input.note }),
+    }),
+  );
+  revalidatePath("/settings/model");
+  return result;
+});
+
+/** What "Apply" is about to do, for the confirmation dialog. Read-only. */
+export const readModelReconciliationSummary = action(
+  reconciliationActionInput.omit({ idempotencyKey: true }),
+  async (input) => {
+    const { db } = getDb();
+    return mapDomainErrors(() => reconciliationSummary(db, input.reconciliationId));
+  },
+);
+
+/** The irreversible step: one transaction, every decision, and the current pointer moves. */
+export const applyModelReconciliation = action(reconciliationActionInput, async (input, session) => {
+  const handle = getDb();
+  const result = mapDomainErrors(() =>
+    applyReconciliation(handle, {
+      reconciliationId: input.reconciliationId,
+      actorUserId: session.user.id,
+    }),
+  );
+  revalidatePath("/settings/model");
+  revalidatePath("/house");
+  revalidatePath("/equipment");
+  return result;
+});
+
+/** Walk away: the new revision stays `imported` and the affected rows stay flagged. */
+export const abandonModelReconciliation = action(reconciliationActionInput, async (input, session) => {
+  const handle = getDb();
+  const result = mapDomainErrors(() =>
+    abandonReconciliation(handle, {
+      reconciliationId: input.reconciliationId,
+      actorUserId: session.user.id,
+    }),
+  );
+  revalidatePath("/settings/model");
+  return result;
 });

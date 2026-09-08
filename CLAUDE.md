@@ -53,6 +53,17 @@ workspace) · `src/ui` (design system) · `src/worker` (HA socket, scheduler, ou
 `scripts/` (install/update/backup/restore/admin) · `tests/` (unit, integration, e2e, fixtures) ·
 `docs/`.
 
+## Schema changes — read before editing `src/db/schema`
+- Additive only where possible (`ALTER TABLE ADD COLUMN`). **Never add or change a CHECK/UNIQUE on
+  an existing table that has child tables with `ON DELETE CASCADE`**: drizzle-kit rebuilds the table
+  (create-copy-drop), and the `DROP TABLE` cascades into the children inside the migration
+  transaction (`PRAGMA foreign_keys=OFF` is a no-op there). `drizzle/0002_sad_raza.sql` documents the
+  case that would have deleted every route point. Enforce such rules in code instead.
+- After `pnpm db:generate`, read the SQL. Update the schema snapshot test with `vitest -u` only for
+  the change you made. Migrations are forward-only; two-phase drops.
+- CLI/worker code that imports `src/server/**` must import `scripts/lib/serverOnly` first (the
+  `server-only` guard throws outside Next).
+
 ## Conventions
 - TypeScript strict, `noUncheckedIndexedAccess`. Zod for all external input (HTTP, HA, model files).
 - Server components by default; client components only where interaction needs them; the 3D viewer

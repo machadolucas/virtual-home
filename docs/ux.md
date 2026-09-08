@@ -385,3 +385,121 @@ rows is a worse file to keep. `?format=json` returns the envelope plus every dat
 `?format=csv&dataset=…` returns one flat table and carries the envelope in `X-VH-Export-Context`
 (one dataset per request rather than a zip, which would mean an archiver dependency to serve two
 people on a LAN).
+
+---
+
+## 10. Supplies, equipment and settings screens
+
+The three screens in this slice share one habit: **every number says where it came from, and
+anything unknown says so in words.** That is the same rule as §5's status kinds, applied to
+quantities, battery levels and health figures.
+
+### 10.1 Routes
+
+| Route | What it answers |
+|---|---|
+| `/supplies` | What is on the shelf, and what to buy. Filter chips (`To buy · Expiring · Kits · Everything`) and the search live in the URL, so a filtered list is a link. |
+| `/supplies/new`, `/supplies/[partId]` | Define an item; see its ledger. `?edit=1` on the detail page swaps the panels for the form. |
+| `/supplies/shopping` | Reorder suggestions grouped by supplier, plus copy-as-text. No purchasing, ever. |
+| `/equipment` | Every unit, grouped by location, with battery, HA link state and open-task count. |
+| `/equipment/new`, `/equipment/[assetId]` | Add a unit; see one unit's whole record. `?edit=1` as above. |
+| `/equipment/systems` | The groupings that span rooms: ventilation, water, electrical, network. |
+| `/settings/{household,users,home-assistant,model,system}` | Configuration, with the consequence of each field spelled out. |
+| `/api/exports/{inventory,equipment}` | JSON, or `?format=csv&dataset=<name>`. Both carry the §8.4 envelope. |
+
+`/equipment` is **not** a fifth nav section — `src/ui/shell/nav.ts` still lists four. It is reached
+from `/house`, from a supply's "what it fits", and from Settings → Home Assistant after an import.
+
+### 10.2 Quantities
+
+Everything is integer thousandths in the database and unit-aware on screen
+(`src/features/inventory/units.ts`):
+
+- A whole amount never grows a decimal tail: `2000` is `2 pcs`, never `2.000 pcs`.
+- A kit counts in **kits**, because that is what is on the shelf — `1 kit`, `2 kits` — even though
+  its stored unit is `pcs`.
+- A comma is accepted on input, because a Finnish keyboard produces one; the decimal separator on
+  output is always `.`, because those strings end up in CSV and in copy-as-text.
+- A **negative** balance renders as negative, with an `overdue` glyph and a "reconcile" call to
+  action. It is how a noticed discrepancy is recorded honestly (§1.8), and clamping it to zero
+  would hide exactly the row somebody needs to see.
+
+### 10.3 The kit rule, said out loud
+
+Every kit surface carries one sentence verbatim, from `src/features/inventory/labels.ts`:
+
+> Stock is counted where the goods physically are; opening a kit moves its contents to the
+> component parts.
+
+It appears on the list when the `Kits` filter is on, on the part detail page, in the "Open a kit"
+dialog, and next to the "this is a kit" checkbox — which is the moment somebody forms a mental
+model of how counting works. `is_kit` is not editable afterwards: the ledger rows already written
+mean different things on each side of that line.
+
+### 10.4 Battery, and the words for "we do not know"
+
+`src/features/assets/battery.ts` is the only place a battery reading becomes text, and it has no
+code path that produces `0 %` from a missing reading (CLAUDE.md rule 8):
+
+| Reading | Shown as | Status kind |
+|---|---|---|
+| A recent number | `72 %` | `ok`, or `due` at or under the household threshold |
+| A number older than the stale window | `Last read 40 %` | `stale` |
+| `unknown` / `unavailable` / non-numeric / no link | `Battery unknown` | `unknown` |
+| A real `0` from HA | `0 %` | `due` |
+
+`stale` and `unknown` stay distinct on screen, because "we have an old reading" and "we have no
+reading" call for different actions.
+
+### 10.5 HA link states are not all failures
+
+`renamed` gets a **neutral** badge and a sentence saying nothing broke: every link stores the
+entity registry id, so a rename in Home Assistant only makes the label we cached stale. `missing`
+is the one that gets an `overdue` badge, and the only state a relink can repair. Relinking is
+always a button and never automatic — repointing a link asserts that two registry entries are the
+same physical device, and only the household can say that (§7.2).
+
+### 10.6 Writes that never overwrite
+
+- **Stock take** asks for the count and records the **delta**. When the shelf matches, nothing is
+  written to the ledger and the screen says so — the count still lands in the audit trail, because
+  "somebody counted and it agreed" is what makes the number trustworthy.
+- **Correct** appends a mirror row pointing at the original; both stay visible, and the button
+  disappears once a row has been corrected (the database allows exactly one).
+- **Open a kit / undo** is one reversible movement group, not an availability derivation.
+- **Replace equipment** creates a second `asset` row. Plans move forward; completions never do. The
+  history panel shows the whole chain and marks the rows that belong to an earlier unit.
+- **Retire** is deliberately separate from replacing: nothing took its place, so nothing claims to.
+- **Acknowledge an alert** means "I have seen this", not "this is fixed" — `resolved_at_ms` stays
+  null and only the condition going away clears it.
+
+### 10.7 Settings, and what is deliberately absent
+
+Settings → Household spells out the notification policy in prose and states that **09:00 is a
+provisional default**. Every field says what changing it does, because "catch-up digest threshold"
+means nothing on its own.
+
+Three things are missing on purpose, and each page says why:
+
+- **No user creation, no password reset for somebody else, no delete.** Those need machine access
+  (`pnpm vh-admin`). The display colour is the one profile field a browser may change, because it
+  is the one that grants nothing.
+- **No Home Assistant token field.** It lives in the server environment and is scrubbed out of the
+  error strings this page renders.
+- **No reconciliation buttons.** `src/house/model/reconcile.ts` reports what a new package no
+  longer knows; nothing yet writes `model_reconciliation` rows or applies a decision, so the panel
+  lists whatever items exist and carries a TODO note rather than offering controls that do nothing.
+
+Settings → System draws memory as a plain inline `<svg>` polyline baselined at **zero**, and refuses
+to draw a trend from fewer than two samples: one point is not a trend, and a flat line would imply
+a stability nobody observed. A missing `backup_run` row renders as "no backup has ever been
+recorded" — that is the alert, not a gap in the page.
+
+### 10.8 Exports
+
+Both routes are behind `authed` and `private, no-store`. JSON returns every dataset by default;
+`?dataset=<name>` narrows it. CSV serves **one dataset per file** with the §8.4 context as a leading
+key/value block — one HTTP response is one file, so the context leads the CSV instead of sitting
+beside it as `_context.json`. Conventions: a UTF-8 BOM and CRLF for Excel, ISO-8601 UTC instants
+with a `*_local_date` companion, a decimal quantity beside every `*_milli`, empty fields for NULL,
+and a leading `'` on anything Excel would treat as a formula.

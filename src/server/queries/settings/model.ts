@@ -97,10 +97,18 @@ export interface ReconciliationRow {
   status: "open" | "applied" | "abandoned";
   fromRevisionId: string;
   toRevisionId: string;
+  /** Short content hashes, so a plan reads without cross-referencing the revision list. */
+  fromLabel: string;
+  toLabel: string;
   createdAtMs: number;
   appliedAtMs: number | null;
   summary: Record<string, unknown> | null;
   items: ReconciliationItemRow[];
+  total: number;
+  decided: number;
+  undecided: number;
+  /** Whether `applyReconciliation` would run: still open, and every item answered. */
+  applicable: boolean;
 }
 
 export interface ModelSettings {
@@ -110,15 +118,16 @@ export interface ModelSettings {
   incoming: IncomingPackage[];
   incomingDir: string;
   /**
-   * Whether an apply path exists. `src/house/model/reconcile.ts` is a *report* generator, not a
-   * service that writes `model_reconciliation` rows and applies decisions, so today this is false
-   * and the screen is read-only. Flip it when the service lands.
+   * Whether an apply path exists. `src/server/house-model/revision.ts` now carries the whole
+   * service — `decideReconciliationItem`, `applyReconciliation`, `abandonReconciliation` — so the
+   * screen offers real controls. (`src/house/model/reconcile.ts` remains a separate *report*
+   * generator for the viewer, unrelated to these rows.)
    */
   applyImplemented: boolean;
 }
 
-/** `false` until a `model_reconciliation` service exists — see `applyImplemented`. */
-export const RECONCILIATION_APPLY_IMPLEMENTED = false;
+/** `true` since the `model_reconciliation` apply service landed — see `applyImplemented`. */
+export const RECONCILIATION_APPLY_IMPLEMENTED = true;
 
 export async function readModelSettings(tx: Db): Promise<ModelSettings> {
   const [status, incoming] = await Promise.all([packageStatus(), listIncomingPackages()]);
@@ -150,16 +159,16 @@ export function listReconciliations(tx: Db): ReconciliationRow[] {
   const names = new Map(
     tx.select({ id: user.id, name: user.name }).from(user).all().map((row) => [row.id, row.name]),
   );
+  const hashes = new Map(
+    tx
+      .select({ id: modelRevision.id, hash: modelRevision.contentHash })
+      .from(modelRevision)
+      .all()
+      .map((row) => [row.id, row.hash.slice(0, 12)]),
+  );
 
-  return plans.map((plan) => ({
-    id: plan.id,
-    status: plan.status,
-    fromRevisionId: plan.fromRevisionId,
-    toRevisionId: plan.toRevisionId,
-    createdAtMs: plan.createdAtMs,
-    appliedAtMs: plan.appliedAtMs,
-    summary: parseJsonObject(plan.summaryJson),
-    items: tx
+  return plans.map((plan) => {
+    const items: ReconciliationItemRow[] = tx
       .select()
       .from(modelReconciliationItem)
       .where(eq(modelReconciliationItem.reconciliationId, plan.id))
@@ -179,8 +188,25 @@ export function listReconciliations(tx: Db): ReconciliationRow[] {
         decidedAtMs: item.decidedAtMs,
         note: item.note,
         candidates: parseCandidates(item.candidatesJson),
-      })),
-  }));
+      }));
+    const decided = items.filter((item) => item.decision !== null).length;
+    return {
+      id: plan.id,
+      status: plan.status,
+      fromRevisionId: plan.fromRevisionId,
+      toRevisionId: plan.toRevisionId,
+      fromLabel: hashes.get(plan.fromRevisionId) ?? plan.fromRevisionId.slice(0, 8),
+      toLabel: hashes.get(plan.toRevisionId) ?? plan.toRevisionId.slice(0, 8),
+      createdAtMs: plan.createdAtMs,
+      appliedAtMs: plan.appliedAtMs,
+      summary: parseJsonObject(plan.summaryJson),
+      items,
+      total: items.length,
+      decided,
+      undecided: items.length - decided,
+      applicable: plan.status === "open" && items.length - decided === 0,
+    };
+  });
 }
 
 function parseJsonObject(json: string | null): Record<string, unknown> | null {

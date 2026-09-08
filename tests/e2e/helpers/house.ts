@@ -15,10 +15,11 @@
  *    cross the `page.evaluate` boundary. The wrappers below project every result to plain data
  *    inside the page.
  */
+import { randomInt } from "node:crypto";
 import type { Browser, BrowserContext, JSHandle, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import type { VhHook } from "@/house/test/testHook";
-import { e2eBaseUrl, login, nextClientIp, type E2eUser, type E2eUserKey } from "../fixtures";
+import { e2eBaseUrl, login, type E2eUser, type E2eUserKey } from "../fixtures";
 
 // ---------------------------------------------------------------------------
 // plain-data mirrors of the hook's return types
@@ -291,11 +292,23 @@ export async function openHouseSession(
   const context = await browser.newContext({
     ...deviceOptionsOfProject(),
     baseURL: e2eBaseUrl(),
-    extraHTTPHeaders: { "x-forwarded-for": nextClientIp() },
+    extraHTTPHeaders: { "x-forwarded-for": houseClientIp() },
   });
   const page = await context.newPage();
   await openHouse(page, options);
   return { context, page };
+}
+
+/**
+ * A random client address per context.
+ *
+ * Not `fixtures.ts`'s `nextClientIp()`: that counter restarts with every Playwright process, so
+ * two runs a minute apart against the same reused server (`reuseExistingServer` is on outside CI)
+ * hand out the same addresses and the second run trips the 5-attempts-per-minute sign-in limit.
+ * A random address per context makes a house run independent of what ran before it.
+ */
+export function houseClientIp(): string {
+  return `10.${randomInt(64, 128)}.${randomInt(0, 256)}.${randomInt(1, 255)}`;
 }
 
 /** The device-shaped half of the running project's `use` block. */
@@ -527,6 +540,90 @@ export async function orbitScripted(
     if (target > spent) await page.waitForTimeout(target - spent);
   }
   return { steps, elapsedMs: Date.now() - start };
+}
+
+export interface CanvasPickPoint {
+  /** CSS pixels inside the canvas rect. */
+  x: number;
+  y: number;
+  /** What `__vh.pick()` resolves at that point. */
+  pick: VhPick;
+}
+
+/**
+ * Find a point inside the canvas that (a) nothing in the DOM covers and (b) picks what `predicate`
+ * wants, starting from `base` and trying small offsets.
+ *
+ * Both halves matter. The label overlay draws each room's name as a real `<button>` centred on
+ * `roomAnchor(roomId)` with `pointer-events: auto`
+ * (`src/house/components/LabelOverlay.tsx:113-131`), so a click at exactly `screenOf(roomAnchor(…))`
+ * lands on the label — which selects the room, but through the DOM path, not through the 3D pick,
+ * and it also re-frames the camera. Offsetting a little finds bare canvas over the same floor.
+ */
+export async function findCanvasPick(
+  page: Page,
+  base: readonly [number, number],
+  predicate: (hit: VhPick) => boolean,
+  offsets: ReadonlyArray<readonly [number, number]> = [
+    [0, 0],
+    [0, 28],
+    [28, 0],
+    [0, -28],
+    [-28, 0],
+    [0, 56],
+    [56, 0],
+    [0, -56],
+    [-56, 0],
+  ],
+): Promise<CanvasPickPoint> {
+  const box = await page.locator("canvas").boundingBox();
+  if (!box) throw new Error("the canvas has no bounding box");
+  const tried: string[] = [];
+  for (const [dx, dy] of offsets) {
+    const x = base[0] + dx;
+    const y = base[1] + dy;
+    if (x < 0 || y < 0 || x > box.width || y > box.height) continue;
+    const covering = await elementAt(page, box.x + x, box.y + y);
+    if (covering !== "canvas") {
+      tried.push(`(${dx},${dy}) covered by <${covering}>`);
+      continue;
+    }
+    const hit = await vh(page).pick(x, y);
+    if (hit && predicate(hit)) return { x, y, pick: hit };
+    tried.push(`(${dx},${dy}) picked ${hit?.surfaceId ?? "nothing"}`);
+  }
+  throw new Error(`no clickable canvas point near (${base[0]}, ${base[1]}): ${tried.join("; ")}`);
+}
+
+/** The tag name of the topmost element at a viewport position. */
+async function elementAt(page: Page, clientX: number, clientY: number): Promise<string> {
+  return page.evaluate((p: readonly [number, number]) => {
+    const el = document.elementFromPoint(p[0], p[1]);
+    return el ? el.tagName.toLowerCase() : "none";
+  }, [clientX, clientY] as const);
+}
+
+/** Click a point given in canvas CSS pixels. */
+export async function clickCanvasAt(page: Page, cssX: number, cssY: number): Promise<void> {
+  const box = await page.locator("canvas").boundingBox();
+  if (!box) throw new Error("the canvas has no bounding box");
+  await page.mouse.click(box.x + cssX, box.y + cssY);
+}
+
+/**
+ * Orbit the camera to straight overhead through the real keyboard path (`ArrowUp` = −5° polar,
+ * clamped at 0 by the rig).
+ *
+ * Needed because a pick "through a room's anchor" only resolves to that room's **floor** when the
+ * ray is vertical: from an oblique pose the ray leaves through a wall face, which is a correct pick
+ * of a different surface. The workspace's own top-down plan view cannot be used for this — see the
+ * `test.fixme` in `house.spec.ts` about `planFor()` never rotating to polar 0.
+ */
+export async function orbitOverhead(page: Page, presses = 20): Promise<void> {
+  const region = page.getByRole("application", { name: "House 3D view" });
+  await region.focus();
+  for (let i = 0; i < presses; i++) await region.press("ArrowUp");
+  await waitForStableFrames(page, 500);
 }
 
 // ---------------------------------------------------------------------------

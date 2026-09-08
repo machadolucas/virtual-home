@@ -151,3 +151,26 @@ export const SYSTEM_STATUS_LABEL: Record<SystemStatus, string> = {
 export function locateInHouseHref(assetId: string): string {
   return `/house?sel=asset:${encodeURIComponent(assetId)}`;
 }
+
+/**
+ * The `attachment_link.role` vocabulary for files attached to equipment (`entityKind: 'asset'`).
+ * Free text in the schema, but small and closed in practice, so the action and the UI both import
+ * this list rather than each spelling it out.
+ *
+ * `close_up` is what "Where to find it" shows as a photo gallery; `manual` / `nameplate` /
+ * `document` are what "Manuals & documents" offers when attaching a file; `photo` is a general,
+ * non-close-up photo the action accepts but this page has no dedicated upload control for yet.
+ */
+export const ASSET_ATTACHMENT_ROLES = ["close_up", "manual", "nameplate", "document", "photo"] as const;
+export type AssetAttachmentRole = (typeof ASSET_ATTACHMENT_ROLES)[number];
+
+export const ASSET_ATTACHMENT_ROLE_LABEL: Record<AssetAttachmentRole, string> = {
+  close_up: "Close-up photo",
+  manual: "Manual",
+  nameplate: "Nameplate",
+  document: "Document",
+  photo: "Photo",
+};
+
+/** Roles offered by the "Manuals & documents" upload control. */
+export const ASSET_DOCUMENT_ROLES = ["manual", "nameplate", "document"] as const satisfies readonly AssetAttachmentRole[];

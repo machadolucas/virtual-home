@@ -92,3 +92,17 @@ server is not looking at the real house. The temp data directory is deleted when
 - **A fatal package has no test hook.** `WorkspaceBody` short-circuits to `<SetupState>` before the
   canvas mounts, so `window.__vh` never exists in that state. The invalid-manifest capture asserts
   on the rendered panel instead of through the hook.
+- **A room's anchor is covered by its own label.** The label overlay draws each room name as a real
+  `<button>` centred on `roomAnchor(roomId)` with `pointer-events: auto`, so a click at exactly
+  `screenOf(roomAnchor(…))` selects the room through the DOM rather than through the 3D pick (and
+  re-frames the camera). `findCanvasPick()` in the helper finds a nearby bare-canvas point over the
+  same surface; use it whenever a test needs a real click to go through the raycaster.
+- **`test-results/` is wiped at the start of every run.** It is Playwright's `outputDir`, so the
+  screenshots and `house-measurements.json` always belong to the most recent invocation. Pass
+  `--output=<dir>` if you need to keep an older set.
+- **House sessions use a random `x-forwarded-for`**, not `fixtures.ts`'s `nextClientIp()`: that
+  counter restarts with each Playwright process, so two runs a minute apart against the same reused
+  server hand out the same addresses and the second trips the sign-in rate limit.
+- **Known app bugs the suite records rather than works around** (plan-view camera, pose loss on a
+  projection switch, saved colours never reaching the scene) are written up in `docs/verification.md`
+  and carried as `test.fixme` with the same notes.

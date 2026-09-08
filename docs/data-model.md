@@ -351,3 +351,13 @@ set -a; . ./.env.local; set +a; pnpm db:migrate
 `runMigrations()` also seeds the singletons every run, idempotently: `household_setting`,
 `event_cursor` (`id = 1`), `ha_connection_state` (`id = 'ha'`) and `integration_status`
 (`id = 'ha'`). It never overwrites a value a human has since changed.
+
+
+## Hazard: table rebuilds cascade deletes
+SQLite cannot alter constraints in place, so drizzle-kit implements a changed CHECK/UNIQUE/FK on an
+existing table as create-new → copy → `DROP TABLE` old → rename. Inside the migration transaction
+`PRAGMA foreign_keys = OFF` has no effect, so the `DROP TABLE` fires `ON DELETE CASCADE` into every
+child table (verified on `infra_route` → `infra_route_point`, migration 0002). Rule: only add columns
+to tables that have cascading children; enforce new invariants in the service layer; if a rebuild is
+truly required, migrate children explicitly (copy to temp, rebuild, copy back) and prove it on a
+file database with data before shipping.

@@ -17,14 +17,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { e2eBaseUrl, login, nextClientIp } from "./fixtures";
+import { e2eBaseUrl, login } from "./fixtures";
 import {
   deviceOptionsOfProject,
+  houseClientIp,
   openHouse,
   openHouseSession,
   setSurfaceColour,
   vh,
-  waitForHook,
   waitForStableFrames,
 } from "./helpers/house";
 
@@ -116,9 +116,9 @@ test.describe("desktop scenes", () => {
   test("08 exploded floors", async ({ browser }) => {
     const { context, page } = await openHouseSession(browser);
     try {
-      const slider = page.getByLabel("Explode gap in metres");
-      await slider.fill("2.5");
-      await slider.dispatchEvent("input");
+      // The toggle, not the slider: the gap already sits at `DEFAULT_EXPLODE_GAP` (2.5 m), so
+      // filling the range with 2.5 changes no value and therefore fires no `input` event.
+      await page.getByRole("button", { name: /^(On|Off) \(X\)$/ }).click();
       await expect.poll(() => vh(page).worldY("fixture-upper", "f-upper")).toBeCloseTo(2.5, 6);
       await capture(page, "08-exploded-floors-2.5m");
     } finally {
@@ -142,9 +142,12 @@ test.describe("desktop scenes", () => {
       await capture(page, "10-room-selected-inspector");
 
       // 11. One surface recoloured; the neighbouring room's faces are visibly unchanged.
+      await page.getByRole("button", { name: "Reset room" }).click();
       await setSurfaceColour(page, "s-r-l-a-floor", "#c2185b");
       await expect.poll(() => vh(page).materialHex("s-r-l-a-floor")).toBe("#c2185b");
       await capture(page, "11-colour-override-one-room");
+      // Leave the defaults behind for the next run.
+      await page.getByRole("button", { name: "Reset room" }).click();
     } finally {
       await context.close();
     }
@@ -212,7 +215,7 @@ test.describe("desktop scenes", () => {
     const context = await browser.newContext({
       ...deviceOptionsOfProject(),
       baseURL: e2eBaseUrl(),
-      extraHTTPHeaders: { "x-forwarded-for": nextClientIp() },
+      extraHTTPHeaders: { "x-forwarded-for": houseClientIp() },
     });
     try {
       const page = await context.newPage();
@@ -235,7 +238,7 @@ test.describe("desktop scenes", () => {
     const context = await browser.newContext({
       ...deviceOptionsOfProject(),
       baseURL: e2eBaseUrl(),
-      extraHTTPHeaders: { "x-forwarded-for": nextClientIp() },
+      extraHTTPHeaders: { "x-forwarded-for": houseClientIp() },
     });
     try {
       const page = await context.newPage();
@@ -287,7 +290,7 @@ test.describe("desktop scenes", () => {
     const context = await browser.newContext({
       ...deviceOptionsOfProject(),
       baseURL: e2eBaseUrl(),
-      extraHTTPHeaders: { "x-forwarded-for": nextClientIp() },
+      extraHTTPHeaders: { "x-forwarded-for": houseClientIp() },
       reducedMotion: "reduce",
     });
     try {

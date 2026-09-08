@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, FileText, MapPin, Pencil } from "lucide-react";
+import { ArrowLeft, MapPin, Pencil } from "lucide-react";
 import { requireSessionPage } from "@/server/auth/session";
 import { Badge, EmptyState, Panel, StatusBadge, StatusDot, buttonClasses } from "@/ui";
 import { PageHeader, PageScroll } from "@/ui/shell";
@@ -11,7 +11,7 @@ import { listSpareOptions, readAssetDetail } from "@/server/queries/assets/detai
 import { listSystems } from "@/server/queries/assets/systems";
 import { listAssetOptions } from "@/server/queries/inventory/detail";
 import { listPartOptions } from "@/server/queries/inventory/list";
-import { browseRegistry } from "@/server/queries/ha/registry";
+import { listLinkableEntities } from "@/server/queries/ha/registry";
 import {
   ASSET_STATUS_LABEL,
   ASSET_STATUS_TONE,
@@ -21,7 +21,8 @@ import {
   locateInHouseHref,
 } from "@/features/assets/labels";
 import { formatQuantity } from "@/features/inventory/units";
-import { formatBytes } from "@/features/settings/format";
+import { AssetCloseUpPhotos } from "@/features/assets/AssetCloseUpPhotos";
+import { AssetDocuments } from "@/features/assets/AssetDocuments";
 import { EquipmentForm, type EquipmentFormInitial } from "../EquipmentForm";
 import { ConsumablesEditor } from "./ConsumablesEditor";
 import { LinksPanel } from "./LinksPanel";
@@ -72,22 +73,25 @@ export default async function EquipmentDetailPage({
 
   const { asset } = detail;
 
-  // Entities to offer in the "link an entity" picker: everything live and visible in the cache.
-  const registry = browseRegistry(db, { includeHidden: false, query: "" });
-  const entityOptions = registry.groups
-    .flatMap((group) => group.areas)
-    .flatMap((area) => area.devices)
-    .flatMap((device) =>
-      device.canonicalBatteryEntityId === null
-        ? []
-        : [
-            {
-              value: device.canonicalBatteryEntityId,
-              label: `${device.nameByUser ?? device.name ?? device.deviceId} — battery`,
-              hint: device.areaName ?? undefined,
-            },
-          ],
-    );
+  // Entities to offer in the "link an entity" picker: everything live and visible in the cache,
+  // capped so a 3000-entity instance does not turn a `Select` into a scroll of despair. The
+  // browser under Settings -> Home Assistant is the tool for finding something in a big instance;
+  // this picker is for the handful a person already has in mind.
+  const linkable = listLinkableEntities(db, { limit: 400 });
+  const entityOptions = linkable.entities.map((entity) => ({
+    value: entity.registryId,
+    label: entity.entityId,
+    hint: [
+      entity.deviceName,
+      entity.areaName,
+      entity.state === null
+        ? "no reading cached"
+        : `${entity.state}${entity.unitOfMeasurement === null ? "" : ` ${entity.unitOfMeasurement}`}`,
+      entity.linkedAssetName === null ? null : `already on ${entity.linkedAssetName}`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  }));
 
   return (
     <PageScroll>
@@ -230,16 +234,31 @@ export default async function EquipmentDetailPage({
               />
               <Detail term="Serial number" value={asset.serialNumber ?? "Not recorded"} />
             </dl>
-            {asset.notes === null ? null : (
-              <div className="mt-4 border-t border-line pt-4">
-                <h3 className="text-xs font-medium uppercase tracking-[0.06em] text-ink-3">
-                  Notes and how to find it
-                </h3>
-                <p className="mt-1 max-w-prose whitespace-pre-line text-sm leading-6 text-ink-2">
+          </Panel>
+
+          <Panel
+            title="Where to find it"
+            subtitle="Notes on locating or reaching the unit, plus close-up photos for next time."
+          >
+            <div className="flex flex-col gap-4">
+              {asset.notes === null ? (
+                <p className="text-sm text-ink-3">No notes recorded.</p>
+              ) : (
+                <p className="max-w-prose whitespace-pre-line text-sm leading-6 text-ink-2">
                   {asset.notes}
                 </p>
-              </div>
-            )}
+              )}
+              <AssetCloseUpPhotos
+                assetId={asset.id}
+                photos={detail.closeUpPhotos.map((photo) => ({
+                  id: photo.id,
+                  caption: photo.caption,
+                  originalFilename: photo.originalFilename,
+                  width: photo.width,
+                  height: photo.height,
+                }))}
+              />
+            </div>
           </Panel>
 
           <Panel
@@ -298,7 +317,11 @@ export default async function EquipmentDetailPage({
 
           <Panel
             title="Home Assistant"
-            subtitle="Bound by registry id, so a rename in Home Assistant changes nothing here."
+            subtitle={
+              linkable.truncated
+                ? `Bound by registry id, so a rename in Home Assistant changes nothing here. The picker lists the first ${linkable.entities.length} entities — use Settings → Home Assistant to browse the rest.`
+                : "Bound by registry id, so a rename in Home Assistant changes nothing here."
+            }
           >
             <LinksPanel
               assetId={asset.id}
@@ -473,68 +496,19 @@ export default async function EquipmentDetailPage({
           </Panel>
 
           <Panel
-            title="Manuals and photos"
+            title="Manuals & documents"
             subtitle="Served only through an authenticated route — nothing here is on a public path."
           >
-            {detail.documents.length === 0 && detail.closeUpPhotos.length === 0 ? (
-              <p className="text-sm text-ink-3">
-                Nothing attached. A photo of the nameplate and a close-up of how to reach the unit
-                are the two that save the most time later.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {detail.closeUpPhotos.length === 0 ? null : (
-                  <div>
-                    <h3 className="text-xs font-medium uppercase tracking-[0.06em] text-ink-3">
-                      Close-ups of where it is
-                    </h3>
-                    <ul className="mt-2 flex list-none flex-wrap gap-3">
-                      {detail.closeUpPhotos.map((photo) => (
-                        <li key={photo.id}>
-                          <a
-                            href={`/api/attachments/${photo.id}?variant=web`}
-                            target="_blank"
-                            rel="noreferrer noopener"
-                            className="block max-w-40 overflow-hidden rounded-md border border-line"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={`/api/attachments/${photo.id}?variant=thumb`}
-                              alt={photo.caption ?? photo.originalFilename}
-                              width={photo.width ?? 160}
-                              height={photo.height ?? 120}
-                              className="h-auto w-full"
-                            />
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {detail.documents.length === 0 ? null : (
-                  <ul className="flex list-none flex-col divide-y divide-line">
-                    {detail.documents.map((document) => (
-                      <li
-                        key={document.id}
-                        className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5"
-                      >
-                        <FileText aria-hidden="true" className="size-4 shrink-0 text-ink-3" />
-                        <a
-                          href={`/api/attachments/${document.id}`}
-                          className="text-sm font-medium text-accent-text underline decoration-line-strong underline-offset-2 hover:decoration-current"
-                        >
-                          {document.caption ?? document.originalFilename}
-                        </a>
-                        <span className="text-xs text-ink-3">{document.kind}</span>
-                        <span className="vh-tnum text-xs text-ink-3">
-                          {formatBytes(document.byteSize)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
+            <AssetDocuments
+              assetId={asset.id}
+              documents={detail.documents.map((document) => ({
+                id: document.id,
+                originalFilename: document.originalFilename,
+                caption: document.caption,
+                byteSize: document.byteSize,
+                role: document.role,
+              }))}
+            />
           </Panel>
 
           <Panel title="End of the line">
