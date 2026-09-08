@@ -64,7 +64,8 @@ test("a private attachment needs the session cookie", async ({ browser }) => {
     const page = await signedIn.newPage();
     await login(page, "lucas");
 
-    const url = await uploadPhoto(signedIn.request, 1);
+    // Distinct bytes per project: identical content would be deduplicated (200, not 201).
+    const url = await uploadPhoto(signedIn.request, test.info().project.name === "phone" ? 2 : 1);
 
     // With the cookie: the bytes, and a cache directive that keeps them out of shared caches.
     const ok = await signedIn.request.get(url);

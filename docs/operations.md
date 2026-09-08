@@ -100,7 +100,8 @@ set the alert threshold at 1.5 × measured p95. Watch the trend across updates, 
 
 | Date | Commit | web p50/p95/max (MB) | worker p50/p95/max (MB) |
 |---|---|---|---|
-| (not yet measured) | | | |
+| 2026-09-08 (MacBook Pro M5 Pro, dev machine, 8 samples under light load) | b073000+ | 221 / 225 / 225 | 108 / 108 / 108 (start-up spike 321) |
+| Mac mini | | to be measured after deployment | |
 
 ## HTTP-only fallback
 If TLS is temporarily unavailable, set `VH_BASE_URL=http://<lan-ip>:3010` and `HOST=0.0.0.0`; cookies

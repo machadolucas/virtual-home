@@ -68,15 +68,24 @@ export function Rig() {
     if (!controls) return;
     const pose = poseRef.current;
     if (pose) {
-      void controls.setLookAt(
-        pose.position.x,
-        pose.position.y,
-        pose.position.z,
-        pose.target.x,
-        pose.target.y,
-        pose.target.z,
-        false,
-      );
+      // The drei camera applies its `position` prop after mount; restore the pose after that and
+      // force one controls update so the first rendered frame already shows it.
+      const restore = () => {
+        void controls.setLookAt(
+          pose.position.x,
+          pose.position.y,
+          pose.position.z,
+          pose.target.x,
+          pose.target.y,
+          pose.target.z,
+          false,
+        );
+        controls.update(0);
+        invalidate();
+      };
+      restore();
+      const raf = requestAnimationFrame(restore);
+      return () => cancelAnimationFrame(raf);
     }
     invalidate();
   }, [projection, invalidate]);
@@ -92,6 +101,7 @@ export function Rig() {
     if (planLocked) {
       controls.minPolarAngle = 0;
       controls.maxPolarAngle = 0;
+      void controls.rotatePolarTo(0, false);
       controls.azimuthRotateSpeed = 0;
       controls.mouseButtons.left = ACTION.TRUCK;
       controls.mouseButtons.wheel = ACTION.ZOOM;

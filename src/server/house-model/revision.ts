@@ -71,6 +71,13 @@ export interface RegisterResult {
 
 /** A position that moves further than this by a remap is worth a human's second look. */
 export const MOVE_REVIEW_THRESHOLD_M = 2;
+/** D-016: a record auto-carries only if its node keeps id AND kind AND centroid within this distance. */
+export const AUTO_CARRY_TOLERANCE_M = 0.5;
+
+function centroidDistance(a: Vec3 | undefined, b: Vec3 | undefined): number | null {
+  if (!a || !b) return null;
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
 
 type Vec3 = [number, number, number];
 
@@ -360,7 +367,23 @@ export function registerRevision(handle: DbHandle, pkg: CurrentPackage, actorUse
     const refs = referencedNodes(tx, current.id);
     const plan = planRefs(refs, known, aliasMap(tx, pkg.modelId));
 
-    if (plan.missing.length === 0) {
+    // D-016: an id that survives but changes kind or moves > 0.5 m is a question, not a carry.
+    const accounted = new Set<Ref>([...plan.missing, ...plan.hold, ...plan.remap.map((e) => e.ref)]);
+    const changed: Array<{ ref: Ref; issue: "kind_changed" | "moved_beyond_tolerance"; distance: number | null }> = [];
+    for (const ref of refs) {
+      if (accounted.has(ref)) continue;
+      const oldN = oldNodes.get(ref.nodeId);
+      const newN = newNodes.get(ref.nodeId);
+      if (!oldN || !newN) continue;
+      if (oldN.kind !== newN.kind) {
+        changed.push({ ref, issue: "kind_changed", distance: null });
+        continue;
+      }
+      const d = centroidDistance(oldN.centroid, newN.centroid);
+      if (d !== null && d > AUTO_CARRY_TOLERANCE_M) changed.push({ ref, issue: "moved_beyond_tolerance", distance: d });
+    }
+
+    if (plan.missing.length === 0 && changed.length === 0) {
       restampAll(tx, current.id, revisionId);
       for (const entry of plan.remap) {
         remapEntity(tx, {
@@ -390,6 +413,8 @@ export function registerRevision(handle: DbHandle, pkg: CurrentPackage, actorUse
       status: "open",
       summaryJson: JSON.stringify({
         nodeMissing: plan.missing.length,
+        kindChanged: changed.filter((c) => c.issue === "kind_changed").length,
+        moved: changed.filter((c) => c.issue === "moved_beyond_tolerance").length,
         referenced: refs.length,
         aliasRemapped: plan.remap.length,
         aliasHeld: plan.hold.length,
@@ -412,11 +437,36 @@ export function registerRevision(handle: DbHandle, pkg: CurrentPackage, actorUse
       }).onConflictDoNothing().run();
       setFlag(tx, ref, true);
     }
+    for (const c of changed) {
+      const newN = newNodes.get(c.ref.nodeId);
+      const candidate = {
+        nodeId: c.ref.nodeId,
+        name: c.ref.nodeId,
+        kind: newN?.kind ?? "element",
+        score: 1,
+        reason: c.issue === "kind_changed" ? "same_id_kind_changed" : "same_id_moved",
+        ...(c.distance !== null ? { centroidDistanceM: Math.round(c.distance * 100) / 100 } : {}),
+      };
+      tx.insert(modelReconciliationItem).values({
+        id: newId(),
+        reconciliationId,
+        entityKind: c.ref.entityKind,
+        entityId: c.ref.entityId,
+        oldNodeId: c.ref.nodeId,
+        issue: c.issue,
+        candidatesJson: JSON.stringify([candidate]),
+        // A moved room keeps its id: remapping onto the same id re-projects the position by the
+        // centroid delta. A changed kind is a modelling change the owner should look at first.
+        proposedAction: c.issue === "moved_beyond_tolerance" ? "remap" : "keep",
+        proposedNewNodeId: c.issue === "moved_beyond_tolerance" ? c.ref.nodeId : null,
+      }).onConflictDoNothing().run();
+      setFlag(tx, c.ref, true);
+    }
     return {
       status: "reconciliation_open",
       revisionId,
       reconciliationId,
-      itemCount: plan.missing.length,
+      itemCount: plan.missing.length + changed.length,
       aliasCarried: plan.remap.length + plan.hold.length,
     };
   });
@@ -1274,6 +1324,11 @@ export function applyReconciliation(
       });
     }
     for (const ref of aliasPlan.hold) setFlag(tx, ref, true);
+    // A row written while the plan sat open (somebody placed equipment in a room this package
+    // removes) has no item and no remembered answer. `restampAll` above just moved it onto the new
+    // revision; leaving `needs_reconciliation = 0` there would claim it is placed when its id is
+    // gone. Flag it instead — the next import asks about it.
+    for (const ref of aliasPlan.missing) setFlag(tx, ref, true);
 
     const summary = {
       total: items.length,
@@ -1282,6 +1337,7 @@ export function applyReconciliation(
       archive: applied.archive,
       aliasCarried: aliasPlan.remap.length + aliasPlan.hold.length,
       flaggedMoves: flaggedMoves.length,
+      flaggedUnasked: aliasPlan.missing.length,
     };
 
     tx.update(modelRevision).set({ status: "superseded" }).where(eq(modelRevision.id, from.id)).run();

@@ -46,6 +46,7 @@ import {
   orbitScripted,
   setSurfaceColour,
   vh,
+  waitForHook,
   waitForStableFrames,
   type ManifestShape,
 } from "./helpers/house";
@@ -433,9 +434,9 @@ test("the three faces of the sauna's east wall colour independently", async ({ b
   }
 });
 
-test.fixme("a saved colour comes back on the next page load", async ({ browser }) => {
+test("a saved colour comes back on the next page load", async ({ browser }) => {
   /**
-   * APP BUG — `src/house/hooks/useSceneSync.ts:73-85` (the colour subscription).
+   * APP BUG — `src/house/hooks/useSceneSync.ts:74-86` (the colour subscription).
    *
    * Symptom: a colour override that was saved in an earlier session is hydrated into the store and
    * shown in the inspector, but is **never applied to the scene**. The room renders its manifest
@@ -443,15 +444,17 @@ test.fixme("a saved colour comes back on the next page load", async ({ browser }
    * (`src/house/store/slices/color.ts:28-41`) returns `{}` when the value is unchanged, re-picking
    * the *same* colour does not fix it either.
    *
-   * Measured on this run (real package, one override persisted for `s-w-g-sauna-e--r-g-sauna`):
-   *   fresh load        → `materialHex` `#d9c3a5` (the default), colour input `#ff00ff`
+   * Measured 2026-09-08 by running this test (real package `example-house-1` @ `0000000000000000`,
+   * one override persisted for `s-w-g-sauna-e--r-g-sauna`):
+   *   fresh load        → the inspector's colour input reads `#ff00ff` (so the value *was* saved and
+   *                       hydrated) while `materialHex` reads `#d9c3a5`, the manifest default
    *   change to #00ffff → `materialHex` `#00ffff`   (the subscription path works)
    *   Reset room        → `materialHex` `#d9c3a5`
    *
    * Cause: that effect applies the plan once on mount and then only when `overrides` changes. On
    * mount the GLBs have not arrived yet, so `index.surfaceMesh` is empty and `applyColors` touches
-   * nothing (the guard at line 76, and then an empty scene index). The visibility subscription
-   * (lines 55-69) and the cutaway/explode one (lines 102-107) both include `loaded:
+   * nothing (the guard at line 77, and then an empty scene index). The visibility subscription
+   * (lines 56-70) and the cutaway/explode one (lines 103-107) both include `loaded:
    * s.loadedAssetIds` in their selector for exactly this reason; the colour one does not, so
    * nothing re-applies the plan once the meshes exist.
    *
@@ -465,9 +468,19 @@ test.fixme("a saved colour comes back on the next page load", async ({ browser }
     // Long enough for the 600 ms debounced PATCH to land.
     await page.waitForTimeout(1_500);
 
+    // A reload is a fresh document, so the hook has to be waited for again before anything reads
+    // through it — `waitForStableFrames` would otherwise throw "window.__vh is missing" and hide
+    // the actual symptom.
     await page.reload();
+    await waitForHook(page);
+    await vh(page).settled();
     await waitForStableFrames(page, 1_000);
-    // This is what fails today: the scene shows the default, not the saved colour.
+
+    // The inspector shows the saved colour…
+    await expect(
+      page.locator(`input[type=color][aria-label$="${SAUNA_WALL.sauna}"]`),
+    ).toHaveValue("#ff00ff");
+    // …and this is what fails today: the scene still shows the manifest default.
     await expect.poll(() => vh(page).materialHex(SAUNA_WALL.sauna)).toBe("#ff00ff");
 
     await page.getByRole("button", { name: "Reset room" }).click();

@@ -330,11 +330,21 @@ test.describe("phone scenes", () => {
       await capture(page, "24-phone-house-plan");
 
       // Isolating a floor from the phone's floor chips is the same store write as the desktop's.
+      // Numbered `24b` deliberately: it is a second view of §13.4 #24, not §13.4 #25 (which is a
+      // Locate-mode capture needing a placement and a close-up photo — skipped below).
       await page.getByRole("button", { name: "Lower floor", exact: true }).click();
-      await capture(page, "25-phone-house-floor-isolated");
+      await capture(page, "24b-phone-house-floor-isolated");
     } finally {
       await context.close();
     }
+  });
+
+  test.skip("25 locate mode scrolled to the location note and close-up photo", () => {
+    /**
+     * Needs an `asset_placement` with a location note and a close-up photo attachment, which needs
+     * an equipment asset and a registered `model_revision`; the bootstrap seeds neither. Same root
+     * cause as 23 and 26–28.
+     */
   });
 
   test.skip("26 equipment inspector with battery and linked task", () => {

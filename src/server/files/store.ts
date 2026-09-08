@@ -315,7 +315,24 @@ export async function storeUpload(input: StoreUploadInput): Promise<StoredAttach
       updatedAtMs: at,
       updatedBy: input.uploadedBy,
     };
-    writeTx(db, (tx) => tx.insert(attachment).values(row).run());
+    // Two identical uploads can race past the dedupe read above; the sha256 unique index is the
+    // arbiter. The loser cleans up its files and returns the winner's row.
+    let winner: typeof attachment.$inferSelect | null = null;
+    writeTx(db, (tx) => {
+      const again = tx.select().from(attachment).where(eq(attachment.sha256, sha256)).get();
+      if (again) {
+        winner = again;
+        return;
+      }
+      tx.insert(attachment).values(row).run();
+    });
+    if (winner) {
+      await fs.rm(path.join(absDir, `${id}${sniffed.ext}`), { force: true });
+      await fs.rm(path.join(absDir, `${id}.web.jpg`), { force: true });
+      await fs.rm(path.join(absDir, `${id}.thumb.jpg`), { force: true });
+      await cleanup();
+      return { row: winner, deduped: true, sniffed, derivatives: null, exif };
+    }
 
     await cleanup();
     return { row, deduped: false, sniffed, derivatives, exif };

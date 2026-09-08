@@ -16,4 +16,5 @@ set -a; . "$ENV_FILE"; set +a
 export VH_DATA_DIR="$DATA_DIR" NODE_ENV=production VH_ROLE=web
 export PATH="/opt/homebrew/bin:/opt/homebrew/opt/node@24/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 cd "$APP_DIR"
-exec pnpm exec next start --hostname "${HOST:-127.0.0.1}" --port "${PORT:-3010}"
+# exec node directly: `pnpm exec` would leave a ~120 MB pnpm process resident for the whole run.
+exec node node_modules/next/dist/bin/next start --hostname "${HOST:-127.0.0.1}" --port "${PORT:-3010}"

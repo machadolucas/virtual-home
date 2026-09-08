@@ -398,24 +398,25 @@ test("the orthographic and plan views switch the projection", async ({ browser }
   }
 });
 
-test.fixme("the plan view looks straight down at the active floor", async ({ browser }) => {
+test("the plan view looks straight down at the active floor", async ({ browser }) => {
   /**
    * APP BUG — two of them, both in the camera layer, neither fixed here (this suite does not edit
    * application code). Measured on this run against the fixture package, headless Chromium:
    *
    * 1. `src/house/hooks/useCameraApi.ts:132-135` — `planFor(floorId)` is only
-   *    `fitBox(planBox3(...))`, and `fitBox` (same file, lines 77-99) frames with
+   *    `fitBox(planBox3(...))`, and `fitBox` (same file, lines 77-98) frames with
    *    `controls.fitToBox()`, which by design fits along the **current** view direction. Nothing on
    *    the path ever rotates the polar angle to 0, so "Plan view (P)" produces an orthographic view
    *    from whatever angle the camera happened to hold. Measured: isolate the lower floor in
    *    orthographic (pose [3, 1.15, 38.28] → target [3, 1.15, 2], polar 90° — a pure side
    *    elevation), then press Plan view; the pose does not change at all. §4.2 and §13.2 #16 both
    *    require polar 0. The `minPolarAngle = maxPolarAngle = 0` lock in
-   *    `src/house/components/Rig.tsx:87-100` only constrains later user input; it never moves the
-   *    camera.
+   *    `src/house/components/Rig.tsx:88-108` only constrains later user input; it never moves the
+   *    camera. Re-measured 2026-09-08 by running this test: the assertion below reports
+   *    **polar 63.83°** where it requires < 1°.
    *
-   * 2. `src/house/components/Rig.tsx:52-81` — the pose is not carried across a projection switch.
-   *    `<CameraControls key={projection}>` (lines 112-120) remounts, and the capture/restore pair
+   * 2. `src/house/components/Rig.tsx:54-81` — the pose is not carried across a projection switch.
+   *    `<CameraControls key={projection}>` (lines 118-126) remounts, and the capture/restore pair
    *    does not land: measured, toggling "Orthographic" from the overview pose
    *    ([19.15, 17, 20.05] → target [3.15, 3, 2.05]) leaves the camera at the freshly-mounted
    *    orthographic camera's declared default, [22, 16, 24] → target [0, 0, 0]. Because

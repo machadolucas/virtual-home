@@ -162,13 +162,124 @@ three layers:
 
 ### 3.3 Package swap / model correction
 
-Nothing is auto-migrated. `model/reconcile.ts` takes the ids persisted data references plus a
-`{ modelId, fingerprint, coordinate }` stamp and reports `unknownSurfaceIds`, `unknownRoomIds`,
-`unknownElementIds`, `unknownFloorIds`, `outOfBoundsPositions`, `modelIdChanged` and
-`coordinateSystemChanged`. Any non-empty result is a decision for a human. A changed fingerprint
-alone is *not* a reconciliation — the same ids in a new build are fine. `GET /colors` already
-reports rows whose `surfaceId` the current package no longer knows in a separate `stale` array and
-never applies them.
+Nothing is auto-migrated. Two different things are called reconciliation here, and they do not talk
+to each other:
+
+- **The viewer's report.** `model/reconcile.ts` takes the ids persisted data references plus a
+  `{ modelId, fingerprint, coordinate }` stamp and reports `unknownSurfaceIds`, `unknownRoomIds`,
+  `unknownElementIds`, `unknownFloorIds`, `outOfBoundsPositions`, `modelIdChanged` and
+  `coordinateSystemChanged`. It writes nothing. `GET /colors` and `GET /routes` use the same idea
+  inline: a row whose surface, room or floor id the **current** package no longer knows is returned
+  with that id nulled, listed in `stale`, and flagged — reported, never guessed at or dropped.
+- **The persisted plan.** `server/house-model/revision.ts` records the package as a
+  `model_revision`, and a changed package opens a `model_reconciliation` with one item per affected
+  row that a person answers. That is §3.3.1 below.
+
+A changed fingerprint alone is *not* a reconciliation — the same ids in a new build are fine.
+
+#### 3.3.1 The reconciliation flow
+
+`registerRevision(pkg)` runs on every install (the settings screen and `pnpm vh-admin model-import`
+call the same function) and returns one of four outcomes:
+
+| status | when | what moved |
+|---|---|---|
+| `unchanged` | the fingerprint is already the current revision | nothing; the import is idempotent |
+| `created` | first ever import | the new revision is `current` and the household points at it |
+| `auto_carried` | every node id referenced by runtime data still exists — directly, or through a remembered `model_node_alias` | every stamped row is re-stamped onto the new revision, the old one is `superseded` |
+| `reconciliation_open` | at least one referenced id is gone and no remembered decision covers it | **nothing.** The new revision stays `imported`, the old one stays `current`, the affected rows are flagged `needs_reconciliation = 1`, and an open `model_reconciliation` waits |
+
+A flagged row stays fully usable — a task list does not care about geometry — and only the 3D view
+shows it as unplaced. That is the whole point of D-016: the data is never wrong, it is honest about
+being unplaced.
+
+Each `model_reconciliation_item` carries the entity kind and id, the old node id, the issue, and up
+to five scored candidates from the new package (`[{nodeId,name,kind,score,reason,centroidDistanceM}]`).
+Candidates are ranked by shared id/name tokens among nodes of the same kind, and the item proposes
+`remap` when the best score is ≥ 0.75, otherwise `none` — a proposal, never an action.
+
+**Deciding** (`decideReconciliationItem`) is cheap, revisable and writes nothing to the runtime
+tables. It is validated server-side, which is why the panel can only ever offer, not decide:
+
+| code | meaning |
+|---|---|
+| `remap_needs_node` | a remap with no target and no proposal to accept |
+| `unknown_node` | the new revision has no node by that name (a typed identifier is checked against `model_node`, never against a client-side pattern) |
+| `remap_target_taken` | another colour override or location already claims that identifier |
+| `location_not_archivable` | a location anchors equipment, storage, endpoints and history; it can only be remapped or kept |
+| `reconciliation_not_open` | the plan has already been applied or abandoned |
+
+**Applying** (`applyReconciliation`) is the one irreversible step, and it happens in a single
+`BEGIN IMMEDIATE` transaction. It refuses with `undecided_items` while any item is unanswered — a
+half-applied plan is exactly the silent rewrite D-016 exists to prevent — and then:
+
+1. Re-stamps everything the old revision owned onto the new one, **routes included** (`infra_route`
+   has no node column of its own; its points carry the place).
+2. Acts on each item:
+   - **`remap`** — sets `model_node_id`, re-stamps the revision, clears the flag, re-projects the
+     record's position by the old → new centroid delta, writes `model_node_alias(old → new)`, and
+     follows the secondary columns that also hold the package's own ids
+     (`asset_placement.mount_surface_id`, `infra_route.offset_surface_id`,
+     `surface_color_override.room_id`, `infra_route_point`'s node/room/floor ids,
+     `storage_place.model_node_id`). A re-projection longer than `MOVE_REVIEW_THRESHOLD_M` (2 m)
+     appends a note to the item and raises `app_alert('model_reconciliation')` against that row —
+     applied, but flagged for a human to look at.
+   - **`keep`** — leaves `model_node_id` alone, re-stamps the revision, **keeps
+     `needs_reconciliation = 1`** (the row is honestly unplaced, not wrong) and writes an identity
+     alias `old → old` so the next import does not ask again.
+   - **`archive`** — see §3.3.2.
+3. Writes one `audit_log('model_reconciled')` per item, with the decision, both node ids, both
+   revision ids and — for a deletion — the complete removed row as JSON.
+4. Marks the old revision `superseded`, the new one `current`, and moves
+   `household_setting.current_model_revision_id`. `summary_json` records the counts.
+
+**Abandoning** (`abandonReconciliation`) leaves the new revision `imported`, the household pointer
+untouched, and **the flags in place**: "this row points at an identifier the newest package does
+not have" is still true after walking away. The decisions already recorded are kept as the record
+of what was being considered; a later import starts a fresh plan.
+
+#### 3.3.2 `archive` has no column, so it is spelled out per entity kind
+
+There is no `archived_at_ms` anywhere in the schema, and adding one is not worth a table rebuild
+(CLAUDE.md, schema hazards). `archive` therefore means the closest honest thing per kind, and the
+audit entry says which:
+
+| kind | outcome | why |
+|---|---|---|
+| `location` | refused (`location_not_archivable`) | locations anchor equipment, storage, endpoints and history (design §8.3) |
+| `infra_route` | `lifecycle = 'removed'` + `removed_on` | a real lifecycle that already exists; the polyline, photos and project link survive (§3.5) |
+| `storage_place` | `model_node_id = NULL` | its `location_id` is the actual anchor, so only the model pin is dropped |
+| everything else | row deleted, full JSON in `audit_log.changes_json` | recoverable, and the owning domain record (`asset`, …) is untouched — maintenance history is not geometry |
+
+#### 3.3.3 Remembered decisions
+
+`model_node_alias` is what stops the same question being asked at every re-export (design §8.1
+rule 4). Three shapes, all of them answers rather than questions: `old → new` (follow the rename),
+`old → old` (a remembered `keep`: carried, still flagged, never re-asked) and `old → NULL` (the node
+was intentionally removed; same treatment). A remembered rename only helps while its target still
+exists — otherwise the import asks again.
+
+The alias is keyed by `(model_id, from_revision, to_revision, old_node_id)`, **not** by row. When
+several rows referencing the same identifier are answered differently, the plan remembers the
+decision applied last; each row's own outcome is in its `audit_log` entry, which is where the
+per-row truth lives.
+
+#### 3.3.4 What this does not do yet
+
+- **The import diff emits `node_missing`, `kind_changed` and `moved_beyond_tolerance`** (D-016: a
+  referenced id auto-carries only when its kind is unchanged and its centroid moved ≤ 0.5 m;
+  `AUTO_CARRY_TOLERANCE_M`). A moved node is proposed as a remap onto its own id, which re-projects
+  the position by the centroid delta; a changed kind is proposed as `keep` so the owner looks first.
+  `parent_changed` and `duplicate_node` are allowed by the schema but not produced yet.
+- **`storage_place` and `infra_route_point` carry no `model_revision_id`**, so an import cannot
+  discover them and never opens an item for them: their node references are carried by their parent
+  and swept along by a remap's secondary rewrite. A storage place pinned to an identifier that
+  vanished is corrected by the remap of the row that *was* asked about, and otherwise waits for the
+  integrity sweep below.
+- **No alert when a reconciliation opens, and no nightly orphan sweep.** Design §8.3 asks for
+  `app_alert('model_reconciliation')` when a plan is created and a nightly job counting rows with
+  `needs_reconciliation = 1`. Only the > 2 m move raises an alert today; the open plan is visible on
+  `/settings/model` and nowhere else.
 
 ### 3.4 Routes: what is stored, and the two translations
 

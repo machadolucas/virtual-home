@@ -54,6 +54,17 @@ export function makeCameraApi(
     return [centre.x, Math.max(1.2, centre.y), centre.z];
   };
 
+  /** Resolves with the controls instance once its camera matches the store's projection (≤ ~10 frames). */
+  const settledControls = async () => {
+    const wanted = runtime.store.getState().projection === "ortho" ? "OrthographicCamera" : "PerspectiveCamera";
+    for (let i = 0; i < 10; i++) {
+      const c = controlsRef.current;
+      if (c && (c.camera as THREE.Camera).type === wanted) return c;
+      await new Promise<void>((r) => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(() => r()) : setTimeout(r, 16)));
+    }
+    return controlsRef.current;
+  };
+
   const api: CameraApi = {
     async overview() {
       const target = runtime.manifest ? centreOfProperty() : OVERVIEW_TARGET;
@@ -131,7 +142,17 @@ export function makeCameraApi(
 
     async planFor(floorId) {
       if (!runtime.manifest) return;
+      // A projection switch remounts <CameraControls>; wait until the live instance drives a camera
+      // of the requested projection, otherwise we would steer the instance being unmounted.
+      const controls = await settledControls();
+      // Straight down (polar 0) with plan-north up (azimuth 0) BEFORE fitting: fitToBox keeps the
+      // current view direction, so the tilt is snapped first (a plan is a cut, not a flight).
+      if (controls) {
+        void controls.rotateTo(0, 0, false);
+        controls.update(0);
+      }
       await api.fitBox(planBox3(runtime.manifest, floorId), { padding: 0.5 });
+      runtime.invalidate();
     },
 
     orbit(dAzimuthDeg, dPolarDeg) {

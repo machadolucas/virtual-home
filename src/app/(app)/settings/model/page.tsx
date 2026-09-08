@@ -7,6 +7,7 @@ import { pageContext } from "@/server/queries/settings/household";
 import { readModelSettings } from "@/server/queries/settings/model";
 import { formatBytes } from "@/features/settings/format";
 import { InstallPackage } from "./ModelClient";
+import { ReconciliationPanel } from "./ReconciliationPanel";
 
 export const metadata: Metadata = { title: "House model" };
 
@@ -18,9 +19,10 @@ export const metadata: Metadata = { title: "House model" };
  * rewrites a row that points at the old one. What it can do is open a **reconciliation**, which a
  * person then works through item by item.
  *
- * The reconciliation screen is read-only today: `src/house/model/reconcile.ts` is a report
- * generator, not a service that writes `model_reconciliation` rows and applies decisions. Rather
- * than offer buttons that do nothing, this page lists whatever items exist and says so.
+ * The reconciliation panel is where that happens: `src/server/house-model/revision.ts` records one
+ * decision per row (`remap` / `keep` / `archive`) and applies them all in one transaction, which is
+ * the only step that moves the current revision. (`src/house/model/reconcile.ts` is a separate
+ * *report* generator for the viewer, unrelated to these rows.)
  */
 export default async function ModelSettingsPage() {
   await requireSessionPage("/settings/model");
@@ -238,79 +240,35 @@ export default async function ModelSettingsPage() {
         title="Reconciliation"
         subtitle="What to do about data that points at identifiers a new package no longer has."
       >
-        {settings.reconciliations.length === 0 ? (
-          <p className="max-w-prose text-sm leading-6 text-ink-2">
-            No reconciliation is open. One is created when an import finds rows referencing semantic
-            identifiers the new package does not carry, and it waits for a decision per row —
-            remap, keep, or archive.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-4">
-            {settings.reconciliations.map((plan) => (
-              <div key={plan.id} className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone={plan.status === "open" ? "due" : "neutral"} size="sm">
-                    {plan.status}
-                  </Badge>
-                  <span className="font-mono text-xs text-ink-3">
-                    {plan.fromRevisionId.slice(0, 8)} → {plan.toRevisionId.slice(0, 8)}
-                  </span>
-                  <span className="vh-tnum text-xs text-ink-3">
-                    {plan.items.length} item(s), created{" "}
-                    {new Date(plan.createdAtMs).toISOString().slice(0, 10)}
-                  </span>
-                </div>
-                <ul className="flex list-none flex-col divide-y divide-line rounded-md border border-line">
-                  {plan.items.map((item) => (
-                    <li key={item.id} className="flex flex-col gap-1 px-3 py-2.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone="neutral" size="sm">
-                          {item.entityKind}
-                        </Badge>
-                        <span className="font-mono text-xs text-ink">{item.oldNodeId}</span>
-                        <Badge tone="neutral" size="sm">
-                          {item.issue.replace(/_/g, " ")}
-                        </Badge>
-                        <span className="text-xs text-ink-3">
-                          proposed: {item.proposedAction}
-                          {item.proposedNewNodeId === null ? "" : ` → ${item.proposedNewNodeId}`}
-                        </span>
-                        {item.decision === null ? null : (
-                          <Badge tone="accent" size="sm">
-                            decided: {item.decision}
-                          </Badge>
-                        )}
-                      </div>
-                      {item.candidates.length === 0 ? null : (
-                        <p className="text-xs leading-5 text-ink-3">
-                          Candidates:{" "}
-                          {item.candidates
-                            .map(
-                              (candidate) =>
-                                `${candidate.nodeId}${candidate.score === undefined ? "" : ` (${Math.round(candidate.score * 100)} %)`}`,
-                            )
-                            .join(", ")}
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        )}
-        {settings.applyImplemented ? null : (
-          <p className="mt-4 max-w-prose rounded-md border border-dashed border-line-strong bg-surface-2/60 p-3 text-xs leading-5 text-ink-3">
-            <strong className="font-semibold text-ink-2">TODO — read-only for now.</strong> The
-            deciding and applying half of reconciliation is not implemented:{" "}
-            <code className="font-mono">src/house/model/reconcile.ts</code> produces a report about
-            what a new package no longer knows, but nothing yet writes{" "}
-            <code className="font-mono">model_reconciliation</code> rows or applies a decision in a
-            transaction. Rather than show buttons that would do nothing, this panel lists whatever
-            items exist. Until that service lands, a package swap that moves semantic identifiers
-            leaves the affected rows flagged and usable.
-          </p>
-        )}
+        <ReconciliationPanel
+          plans={settings.reconciliations.map((plan) => ({
+            id: plan.id,
+            status: plan.status,
+            fromLabel: plan.fromLabel,
+            toLabel: plan.toLabel,
+            createdAtMs: plan.createdAtMs,
+            appliedAtMs: plan.appliedAtMs,
+            total: plan.total,
+            decided: plan.decided,
+            undecided: plan.undecided,
+            applicable: plan.applicable,
+            summary: plan.summary,
+            items: plan.items.map((item) => ({
+              id: item.id,
+              entityKind: item.entityKind,
+              entityId: item.entityId,
+              oldNodeId: item.oldNodeId,
+              issue: item.issue,
+              proposedAction: item.proposedAction,
+              proposedNewNodeId: item.proposedNewNodeId,
+              decision: item.decision,
+              decidedNewNodeId: item.decidedNewNodeId,
+              decidedByName: item.decidedByName,
+              note: item.note,
+              candidates: item.candidates,
+            })),
+          }))}
+        />
       </Panel>
     </>
   );

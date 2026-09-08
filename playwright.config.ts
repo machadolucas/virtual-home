@@ -12,6 +12,9 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
+  // One worker: every project shares one harness database and the same two users, so parallel
+  // projects would revoke each other's sessions.
+  workers: 1,
   retries: 0,
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
   use: {

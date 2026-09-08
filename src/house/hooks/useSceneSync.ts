@@ -82,7 +82,12 @@ export function useSceneSync(): void {
       );
     };
     apply(store.getState());
-    return store.subscribe((s) => s.overrides, () => apply(store.getState()));
+    // Overrides arrive from the server before the meshes exist: re-apply as assets land.
+    return store.subscribe(
+      (s) => ({ overrides: s.overrides, loaded: s.loadedAssetIds }),
+      () => apply(store.getState()),
+      { equalityFn: shallow },
+    );
   }, [runtime, store]);
 
   // ---- cutaway + explode (they compose through per-group planes) --------

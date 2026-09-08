@@ -17,7 +17,7 @@ Real household data is never used by default; the real model package is exercise
 | `auth.spec.ts` | — | both | Sign-in, private files, session revocation, deep links, open redirect. |
 | `house.spec.ts` | fixture | desktop | Load integrity, selection + URL sync, click picking, colour isolation, visibility and views, explode offsets, on-demand rendering, asset auth/ETag, mount→unmount→mount disposal. |
 | `house-real.spec.ts` | **real**, opt-in | desktop | The same numeric checks against the household's own package, plus load timing and orbit frame times. Writes `test-results/house-measurements.json`. |
-| `screenshots.spec.ts` | fixture | desktop + phone | The `docs/design-notes/house-workspace-3d.md` §13.4 capture list, into `test-results/screenshots/`. |
+| `screenshots.spec.ts` | fixture | desktop + phone | The `docs/design-notes/house-workspace-3d.md` §13.4 capture list, into `test-results/screenshots/`. Entries needing a placement, a route, a garage/structure asset, a Home Assistant connection or a seeded task are `test.skip` with the reason. |
 
 `tests/e2e/helpers/house.ts` holds everything the house specs share: `openHouse`/`openHouseSession`,
 the typed `vh(page)` wrappers over `window.__vh`, `measureLoad`, `idleFrames`,
@@ -29,7 +29,24 @@ the typed `vh(page)` wrappers over `window.__vh`, `measureLoad`, `idleFrames`,
 pnpm exec playwright test                                     # everything, both projects
 pnpm exec playwright test tests/e2e/house.spec.ts --project=desktop
 pnpm exec playwright test tests/e2e/screenshots.spec.ts       # desktop + phone captures
+pnpm exec playwright test tests/e2e/auth.spec.ts --project=desktop   # one project at a time — see below
 ```
+
+The full sequence behind the numbers in `docs/verification.md`, in the order that leaves both
+artefacts on disk:
+
+```bash
+pnpm exec playwright test tests/e2e/house.spec.ts --project=desktop          # builds .next once
+VH_E2E_SKIP_BUILD=1 VH_REAL_MODEL_DIR="$HOME/virtual-home-data/model-incoming/house-model" \
+  pnpm exec playwright test tests/e2e/house-real.spec.ts --project=desktop   # → house-measurements.json
+VH_E2E_SKIP_BUILD=1 pnpm exec playwright test tests/e2e/screenshots.spec.ts \
+  --output=test-results/pw-artifacts                                         # → screenshots/*.png
+```
+
+`--output=` on the later runs is what keeps them: `test-results/` is Playwright's `outputDir` and is
+wiped at the start of every run, so without it the screenshot run deletes
+`test-results/house-measurements.json` (and vice versa). Pointing `outputDir` at a subdirectory moves
+the wipe there.
 
 Every house test opens its **own browser context**. Sign-in is rate limited to 5 attempts per
 minute per client address, so each context claims its own `x-forwarded-for` (see `fixtures.ts`), and
@@ -47,9 +64,12 @@ existing build:
 VH_E2E_SKIP_BUILD=1 pnpm exec playwright test tests/e2e/house.spec.ts --project=desktop
 ```
 
-That is only safe when `.next` is current *and* was produced with `NEXT_PUBLIC_VH_TEST_HOOK=1` —
-public env vars are inlined at build time, so a build made without it has no `window.__vh` and
-every house test fails at `waitForHook`. To make one by hand:
+`VH_E2E_SKIP_BUILD=1` reuses whatever is already in `.next` (the bootstrap only checks that
+`.next/BUILD_ID` exists). That is only safe when `.next` is current *and* was produced with
+`NEXT_PUBLIC_VH_TEST_HOOK=1` — public env vars are inlined at build time, so a build made without it
+has no `window.__vh` and every house test fails at `waitForHook`. Use it for the second and later
+runs of a session, once one full run has produced the build; use a plain run (which rebuilds) after
+any change to `src/`. To make a reusable build by hand:
 
 ```bash
 NEXT_PUBLIC_VH_TEST_HOOK=1 pnpm exec next build
@@ -69,10 +89,25 @@ VH_REAL_MODEL_DIR="$HOME/virtual-home-data/model-incoming/house-model" \
 
 Nothing is copied into the repository. The spec finds the bootstrap's live temporary data directory
 the same way the bootstrap's own sweeper does — a `vh-e2e-*` directory whose `.bootstrap-pid` names
-a living process — then installs the package through the app's real `installPackage()`. The running
-server picks the new `current.json` up on its next re-check (`getCurrentPackage` stats the pointer at
-most every 10 s), and `afterAll` re-installs the fixture so a later spec against the same reused
-server is not looking at the real house. The temp data directory is deleted when the bootstrap exits.
+a living process — and then shells out to the household's own import command against that directory:
+
+```bash
+VH_DATA_DIR=<harness dir> pnpm exec tsx scripts/vh-admin.ts model-import <VH_REAL_MODEL_DIR>
+```
+
+That is the real path — `validatePackageDir` → `installPackage` → **`registerRevision`**
+(`scripts/vh-admin.ts:264-277`) — and the revision registration is the part that matters: the
+bootstrap's own `installFixtureModel()` calls `installPackage` *only*, so on the plain fixture
+harness nothing that needs a `model_revision` persists. Going through `vh-admin` is what gives this
+spec real colour persistence (and is what makes the saved-colour bug reproducible here and nowhere
+else). It runs as a child process rather than an in-process import because `src/server/**` is
+written for Next's `react-server` condition.
+
+The running server picks the new `current.json` up on its next re-check (`getCurrentPackage` stats
+the pointer at most every 10 s), and `afterAll` re-installs the fixture so a later spec against the
+same reused server is not looking at the real house, then writes
+`test-results/house-measurements.json`. The temp data directory is deleted when the bootstrap exits,
+so no household geometry, database row or render survives the run.
 
 ## Notes and known gaps
 
@@ -80,7 +115,9 @@ server is not looking at the real house. The temp data directory is deleted when
   and it does not call `registerRevision`, so `listPlacements()`/`listRoutes()` answer
   `NotPersistedError`. Every check that needs a placement — edit mode, the save-payload invariant,
   the equipment layer, the route editors, the Home Assistant marker styling — is `test.skip` with
-  that reason rather than faked.
+  that reason rather than faked. `house-real.spec.ts` gets a revision anyway, by importing through
+  `vh-admin` (above); the fixture harness would need `start-server.ts` to do the same, plus one
+  seeded equipment asset, before those skips could become real tests.
 - **Screenshots are reviewed by eye.** No pixel comparison: a software-rasterised headless render is
   not the target machine's GPU. Each capture is still taken only after `__vh.settled` and 250 ms of
   unchanged `invalidateCount()`, so `frameloop="demand"` cannot yield a half-drawn frame.
@@ -98,11 +135,24 @@ server is not looking at the real house. The temp data directory is deleted when
   re-frames the camera). `findCanvasPick()` in the helper finds a nearby bare-canvas point over the
   same surface; use it whenever a test needs a real click to go through the raycaster.
 - **`test-results/` is wiped at the start of every run.** It is Playwright's `outputDir`, so the
-  screenshots and `house-measurements.json` always belong to the most recent invocation. Pass
-  `--output=<dir>` if you need to keep an older set.
+  screenshots and `house-measurements.json` belong to whichever spec ran last unless you move the
+  wipe with `--output=<dir>` — see the sequence under **Running**.
 - **House sessions use a random `x-forwarded-for`**, not `fixtures.ts`'s `nextClientIp()`: that
   counter restarts with each Playwright process, so two runs a minute apart against the same reused
   server hand out the same addresses and the second trips the sign-in rate limit.
 - **Known app bugs the suite records rather than works around** (plan-view camera, pose loss on a
   projection switch, saved colours never reaching the scene) are written up in `docs/verification.md`
-  and carried as `test.fixme` with the same notes.
+  and carried as `test.fixme` with the same notes. To re-verify one, flip its `test.fixme` to `test`,
+  run it, read the failure, and flip it back — that is how the 2026-09-08 figures in
+  `docs/verification.md` (polar 63.83°; `#d9c3a5` in the scene against `#ff00ff` in the inspector)
+  were taken.
+- **`auth.spec.ts` fails on `phone` when both projects run in one invocation.** Both projects upload
+  the same deterministic PNG (`pngBytes(1)`), so the second upload is deduped and `/api/upload`
+  answers `200 … "deduped": true` where `uploadPhoto` asserts `201`. Each project passes 8/8 on its
+  own. Written up as findings 4 and 5 in `docs/verification.md`; the fix belongs in `auth.spec.ts`,
+  which the house suite does not own.
+- **The scripted orbit is ~25 key steps in 2 s, not §13.3's 60.** Each Playwright key press costs
+  ~80 ms against a rendering page, so the sampled p95 blends orbit frames with idle rAF cadence and
+  is a floor on the real per-frame cost. `orbitScripted()` uses `page.keyboard.press()` after a
+  single `focus()` for this reason — `locator.press()` re-resolves and re-focuses every call, and
+  managed only 11 steps.

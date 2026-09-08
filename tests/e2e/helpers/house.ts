@@ -521,6 +521,11 @@ export async function waitForStableFrames(
  * The camera region has to be focused first — the shortcut listener lives on the workspace root,
  * not on `window` (`useKeyboardShortcuts`), which is the property that keeps the rest of the app
  * unaffected.
+ *
+ * The keys then go through `page.keyboard`, not `locator.press()`. `locator.press()` re-resolves the
+ * selector and re-focuses on every call, which costs ~190 ms per step against a scene that is busy
+ * rendering: measured, it produced 11 steps in a 2 s window instead of the ~60 §13.3 asks for, so
+ * most of the sampled frame times were idle cadence rather than orbit frames.
  */
 export async function orbitScripted(
   page: Page,
@@ -533,7 +538,7 @@ export async function orbitScripted(
   const start = Date.now();
   let steps = 0;
   while (Date.now() - start < ms) {
-    await region.press(steps % 2 === 0 ? "ArrowRight" : "ArrowLeft");
+    await page.keyboard.press(steps % 2 === 0 ? "ArrowRight" : "ArrowLeft");
     steps += 1;
     const spent = Date.now() - start;
     const target = steps * stepMs;
@@ -555,8 +560,8 @@ export interface CanvasPickPoint {
  * wants, starting from `base` and trying small offsets.
  *
  * Both halves matter. The label overlay draws each room's name as a real `<button>` centred on
- * `roomAnchor(roomId)` with `pointer-events: auto`
- * (`src/house/components/LabelOverlay.tsx:113-131`), so a click at exactly `screenOf(roomAnchor(…))`
+ * `roomAnchor(roomId)` with `pointer-events: auto` (the `[&>*]:pointer-events-auto` overlay at
+ * `src/house/components/LabelOverlay.tsx:120`, the button at 125), so a click at `screenOf(roomAnchor(…))`
  * lands on the label — which selects the room, but through the DOM path, not through the 3D pick,
  * and it also re-frames the camera. Offsetting a little finds bare canvas over the same floor.
  */
@@ -622,7 +627,7 @@ export async function clickCanvasAt(page: Page, cssX: number, cssY: number): Pro
 export async function orbitOverhead(page: Page, presses = 20): Promise<void> {
   const region = page.getByRole("application", { name: "House 3D view" });
   await region.focus();
-  for (let i = 0; i < presses; i++) await region.press("ArrowUp");
+  for (let i = 0; i < presses; i++) await page.keyboard.press("ArrowUp");
   await waitForStableFrames(page, 500);
 }
 

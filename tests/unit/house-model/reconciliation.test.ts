@@ -29,6 +29,7 @@ import {
   modelReconciliation,
   modelReconciliationItem,
   modelRevision,
+  storagePlace,
   surfaceColorOverride,
 } from "@/db/schema";
 import { ConflictError } from "@/domain/errors";
@@ -51,6 +52,7 @@ const CLOSET_RENAMED = "r-l-closet-renamed";
 /** A room id present in every variant, so records pinned to it are never part of a plan. */
 const STABLE_ROOM = "r-l-a";
 const STABLE_SURFACE = "s-r-l-closet-floor";
+const RENAMED_SURFACE = "s-r-l-closet-slab";
 
 const base = loadManifest(FIXTURE_DIR);
 
@@ -74,6 +76,24 @@ function renamedManifest(shiftX = 0): Manifest {
     if (!room) throw new Error(`fixture changed: no room ${CLOSET_RENAMED} after the rename`);
     room.footprint.outer = room.footprint.outer.map(([x, z]) => [x + shiftX, z]);
   }
+  return reparse(raw);
+}
+
+/** The fixture manifest with the closet's floor *surface* renamed — rooms untouched. */
+function renamedSurfaceManifest(): Manifest {
+  return reparse(
+    JSON.parse(JSON.stringify(base).replaceAll(`"${STABLE_SURFACE}"`, `"${RENAMED_SURFACE}"`)),
+  );
+}
+
+/** The fixture manifest with `r-l-a` shifted along X, id unchanged: D-016's tolerance case. */
+function movedStableRoomManifest(shiftX: number): Manifest {
+  const raw = JSON.parse(JSON.stringify(base)) as {
+    rooms: Array<{ id: string; footprint: { outer: Array<[number, number]> } }>;
+  };
+  const room = raw.rooms.find((entry) => entry.id === STABLE_ROOM);
+  if (!room) throw new Error(`fixture changed: no room ${STABLE_ROOM}`);
+  room.footprint.outer = room.footprint.outer.map(([x, z]) => [x + shiftX, z]);
   return reparse(raw);
 }
 
@@ -208,6 +228,44 @@ function seedRuntimeData(revisionId: string, nodeId: string): Seeded {
   return ids;
 }
 
+/**
+ * An annotation and a route endpoint pinned to `nodeId`, so a plan can contain more than one kind
+ * of row and the two archivable-by-deletion kinds are covered as well as the placement.
+ */
+function seedNodePinned(revisionId: string, nodeId: string): { annotationId: string; endpointId: string } {
+  const at = 1_700_000_100_000;
+  const quad = { createdAtMs: at, createdBy: actorUserId, updatedAtMs: at, updatedBy: actorUserId };
+  const ids = { annotationId: newId(), endpointId: newId() };
+  writeTx(handle.db, (tx) => {
+    tx.insert(annotation)
+      .values({
+        id: ids.annotationId,
+        targetKind: "node",
+        targetId: nodeId,
+        modelRevisionId: revisionId,
+        modelNodeId: nodeId,
+        kind: "note",
+        title: "Filter behind the panel",
+        ...quad,
+      })
+      .run();
+    tx.insert(infraEndpoint)
+      .values({
+        id: ids.endpointId,
+        name: "Closet shutoff",
+        kind: "shutoff",
+        modelRevisionId: revisionId,
+        modelNodeId: nodeId,
+        posX: 2,
+        posY: 1,
+        posZ: 3,
+        ...quad,
+      })
+      .run();
+  });
+  return ids;
+}
+
 function revisionStatus(id: string): string | undefined {
   return handle.db.select().from(modelRevision).where(eq(modelRevision.id, id)).get()?.status;
 }
@@ -297,6 +355,37 @@ describe("registerRevision", () => {
       const row = handle.db.select().from(table).where(eq(column, id)).get();
       expect(row?.modelRevisionId).toBe(second.revisionId);
     }
+  });
+
+  it("opens a moved_beyond_tolerance item when a referenced room keeps its id but moves 3 m", () => {
+    const first = registerRevision(handle, pkgOf(base, "test-fp-1"), actorUserId);
+    const seeded = seedRuntimeData(first.revisionId, STABLE_ROOM);
+
+    const second = registerRevision(handle, pkgOf(movedStableRoomManifest(3), "test-fp-2"), actorUserId);
+    expect(second.status).toBe("reconciliation_open");
+    expect(second.reconciliationId).toBeDefined();
+    const items = openItems(second.reconciliationId!);
+    const moved = items.filter((item) => item.issue === "moved_beyond_tolerance");
+    expect(moved.length).toBeGreaterThan(0);
+    for (const item of moved) {
+      expect(item.oldNodeId).toBe(STABLE_ROOM);
+      expect(item.proposedAction).toBe("remap");
+      expect(item.proposedNewNodeId).toBe(STABLE_ROOM);
+      const cands = JSON.parse(item.candidatesJson ?? "[]") as Array<{ centroidDistanceM?: number }>;
+      expect(cands[0]?.centroidDistanceM).toBeGreaterThan(2.9);
+    }
+    // The old revision stays current until the owner applies the plan.
+    expect(revisionStatus(first.revisionId)).toBe("current");
+    expect(revisionStatus(second.revisionId)).toBe("imported");
+    expect(placement(seeded.placementId)?.needsReconciliation).toBe(true);
+  });
+
+  it("still auto-carries when a referenced room only shifts 0.2 m", () => {
+    const first = registerRevision(handle, pkgOf(base, "test-fp-1"), actorUserId);
+    seedRuntimeData(first.revisionId, STABLE_ROOM);
+    const second = registerRevision(handle, pkgOf(movedStableRoomManifest(0.2), "test-fp-2"), actorUserId);
+    expect(second.status).toBe("auto_carried");
+    expect(revisionStatus(second.revisionId)).toBe("current");
   });
 
   it("opens a reconciliation with a scored candidate when a referenced room id is renamed", () => {
@@ -666,5 +755,292 @@ describe("remembered decisions", () => {
     expect(row?.modelNodeId).toBe(CLOSET_RENAMED);
     expect(row?.modelRevisionId).toBe(second.revisionId);
     expect(row?.needsReconciliation).toBe(false);
+  });
+});
+
+describe("one plan, several kinds of row", () => {
+  /** A plan whose items are an annotation and an endpoint: the two kinds archived by deletion. */
+  function openPlanOfNodePinned() {
+    const first = registerRevision(handle, pkgOf(base, "test-fp-1"), actorUserId);
+    // Pinned to ids the rename keeps, so the placement/colour/route rows are never asked about.
+    const seeded = seedRuntimeData(first.revisionId, STABLE_ROOM);
+    const extra = seedNodePinned(first.revisionId, CLOSET);
+    const second = registerRevision(handle, pkgOf(renamedManifest(), "test-fp-2"), actorUserId);
+    return { first, second, seeded, extra, reconciliationId: second.reconciliationId! };
+  }
+
+  it("archives an annotation and an endpoint, each recoverable from the audit log", () => {
+    const { extra, reconciliationId } = openPlanOfNodePinned();
+    const items = openItems(reconciliationId);
+    expect(items.map((item) => item.entityKind).sort()).toEqual(["annotation", "infra_endpoint"]);
+
+    for (const item of items) decideReconciliationItem(handle, { itemId: item.id, decision: "archive", actorUserId });
+    const result = applyReconciliation(handle, { reconciliationId, actorUserId });
+    expect(result.applied).toEqual({ remap: 0, keep: 0, archive: 2 });
+
+    expect(handle.db.select().from(annotation).where(eq(annotation.id, extra.annotationId)).get()).toBeUndefined();
+    expect(handle.db.select().from(infraEndpoint).where(eq(infraEndpoint.id, extra.endpointId)).get()).toBeUndefined();
+
+    const audits = handle.db
+      .select()
+      .from(auditLog)
+      .all()
+      .filter((entry) => entry.action === "model_reconciled");
+    expect(audits).toHaveLength(2);
+    const restorable = new Map(
+      audits.map((entry) => [entry.entityId, JSON.parse(entry.changesJson ?? "{}") as { outcome: string; removedRow: Record<string, unknown> | null }]),
+    );
+    expect(restorable.get(extra.annotationId)?.outcome).toBe("deleted");
+    expect(restorable.get(extra.annotationId)?.removedRow).toMatchObject({ title: "Filter behind the panel" });
+    expect(restorable.get(extra.endpointId)?.outcome).toBe("deleted");
+    expect(restorable.get(extra.endpointId)?.removedRow).toMatchObject({ name: "Closet shutoff", posX: 2 });
+  });
+
+  it("applies three different decisions in one transaction, one audit entry each", () => {
+    const first = registerRevision(handle, pkgOf(base, "test-fp-1"), actorUserId);
+    const seeded = seedRuntimeData(first.revisionId, CLOSET);
+    const extra = seedNodePinned(first.revisionId, CLOSET);
+    const second = registerRevision(handle, pkgOf(renamedManifest(), "test-fp-2"), actorUserId);
+    const reconciliationId = second.reconciliationId!;
+
+    const items = openItems(reconciliationId);
+    expect(items).toHaveLength(3);
+    const byKind = new Map(items.map((item) => [item.entityKind, item]));
+    decideReconciliationItem(handle, {
+      itemId: byKind.get("asset_placement")!.id,
+      decision: "remap",
+      newNodeId: CLOSET_RENAMED,
+      actorUserId,
+    });
+    decideReconciliationItem(handle, { itemId: byKind.get("annotation")!.id, decision: "keep", actorUserId });
+    decideReconciliationItem(handle, { itemId: byKind.get("infra_endpoint")!.id, decision: "archive", actorUserId });
+
+    expect(reconciliationSummary(handle.db, reconciliationId)).toMatchObject({
+      total: 3,
+      decided: 3,
+      undecided: 0,
+      applicable: true,
+      byDecision: { remap: 1, keep: 1, archive: 1 },
+      byEntityKind: { annotation: 1, asset_placement: 1, infra_endpoint: 1 },
+      byIssue: { node_missing: 3 },
+    });
+
+    const result = applyReconciliation(handle, { reconciliationId, actorUserId });
+    expect(result.applied).toEqual({ remap: 1, keep: 1, archive: 1 });
+
+    expect(placement(seeded.placementId)?.modelNodeId).toBe(CLOSET_RENAMED);
+    expect(placement(seeded.placementId)?.needsReconciliation).toBe(false);
+    const kept = handle.db.select().from(annotation).where(eq(annotation.id, extra.annotationId)).get();
+    expect(kept?.modelNodeId).toBe(CLOSET);
+    expect(kept?.modelRevisionId).toBe(second.revisionId);
+    expect(kept?.needsReconciliation).toBe(true);
+    expect(handle.db.select().from(infraEndpoint).where(eq(infraEndpoint.id, extra.endpointId)).get()).toBeUndefined();
+
+    // One entry per item, so every row's fate is on the record separately.
+    expect(handle.db.select().from(auditLog).all().filter((entry) => entry.action === "model_reconciled")).toHaveLength(3);
+
+    // Documented consequence of `model_node_alias` being keyed by node id: three rows disagreed
+    // about the same identifier, so the plan remembers the decision applied last (items are
+    // applied in `entity_kind` order, and `archive` writes `NULL`). Each row's own outcome is in
+    // the audit log, which is where the per-row truth lives.
+    const alias = aliases();
+    expect(alias).toHaveLength(1);
+    expect(alias[0]).toMatchObject({ oldNodeId: CLOSET, newNodeId: null });
+
+    const plan = handle.db.select().from(modelReconciliation).where(eq(modelReconciliation.id, reconciliationId)).get();
+    expect(JSON.parse(plan?.summaryJson ?? "{}")).toMatchObject({ total: 3, remap: 1, keep: 1, archive: 1 });
+  });
+});
+
+describe("archive, spelled out per entity kind", () => {
+  /**
+   * `infra_route` and `storage_place` carry no `model_revision_id`, so an import cannot discover
+   * them (§ "the two tables carried by their parent") and their items are written here by hand.
+   * The apply path is polymorphic and handles them, and what it does to each is the semantics the
+   * module's doc comment had to invent because there is no `archived_at_ms` column anywhere.
+   */
+  it("marks a route removed and unpins a storage place instead of deleting either", () => {
+    const first = registerRevision(handle, pkgOf(base, "test-fp-1"), actorUserId);
+    const seeded = seedRuntimeData(first.revisionId, CLOSET);
+    const placeId = newId();
+    writeTx(handle.db, (tx) => {
+      const at = 1_700_000_200_000;
+      tx.insert(storagePlace)
+        .values({
+          id: placeId,
+          name: "Shelf by the hatch",
+          locationId: seeded.roomLocationId,
+          modelNodeId: CLOSET,
+          createdAtMs: at,
+          createdBy: actorUserId,
+          updatedAtMs: at,
+          updatedBy: actorUserId,
+        })
+        .run();
+    });
+    const second = registerRevision(handle, pkgOf(renamedManifest(), "test-fp-2"), actorUserId);
+    const reconciliationId = second.reconciliationId!;
+
+    writeTx(handle.db, (tx) => {
+      for (const [entityKind, entityId] of [
+        ["infra_route", seeded.routeId],
+        ["storage_place", placeId],
+      ] as const) {
+        tx.insert(modelReconciliationItem)
+          .values({
+            id: newId(),
+            reconciliationId,
+            entityKind,
+            entityId,
+            oldNodeId: CLOSET,
+            issue: "node_missing",
+            candidatesJson: null,
+            proposedAction: "none",
+            proposedNewNodeId: null,
+          })
+          .run();
+      }
+    });
+
+    for (const item of openItems(reconciliationId)) {
+      decideReconciliationItem(handle, { itemId: item.id, decision: "archive", actorUserId });
+    }
+    const result = applyReconciliation(handle, { reconciliationId, actorUserId });
+    expect(result.applied).toEqual({ remap: 0, keep: 0, archive: 3 });
+
+    // The run survives as history: a pipe that was cut out is the answer to "why is there a stub?"
+    const route = handle.db.select().from(infraRoute).where(eq(infraRoute.id, seeded.routeId)).get();
+    expect(route?.lifecycle).toBe("removed");
+    expect(route?.removedOn).not.toBeNull();
+    expect(route?.needsReconciliation).toBe(false);
+
+    // A storage place is anchored by its location, so only the model pin is dropped.
+    const place = handle.db.select().from(storagePlace).where(eq(storagePlace.id, placeId)).get();
+    expect(place?.name).toBe("Shelf by the hatch");
+    expect(place?.modelNodeId).toBeNull();
+    expect(place?.needsReconciliation).toBe(false);
+
+    const outcomes = handle.db
+      .select()
+      .from(auditLog)
+      .all()
+      .filter((entry) => entry.action === "model_reconciled")
+      .map((entry) => [entry.entityTable, (JSON.parse(entry.changesJson ?? "{}") as { outcome: string }).outcome]);
+    expect(outcomes).toEqual(
+      expect.arrayContaining([
+        ["asset_placement", "deleted"],
+        ["infra_route", "lifecycle_removed"],
+        ["storage_place", "unpinned"],
+      ]),
+    );
+  });
+});
+
+describe("deciding", () => {
+  function openPlan() {
+    const first = registerRevision(handle, pkgOf(base, "test-fp-1"), actorUserId);
+    const seeded = seedRuntimeData(first.revisionId, CLOSET);
+    const second = registerRevision(handle, pkgOf(renamedManifest(), "test-fp-2"), actorUserId);
+    return { first, second, seeded, item: openItems(second.reconciliationId!)[0]!, reconciliationId: second.reconciliationId! };
+  }
+
+  it("accepts the item's own proposal when no identifier is passed", () => {
+    const { item } = openPlan();
+    const decided = decideReconciliationItem(handle, { itemId: item.id, decision: "remap", actorUserId });
+    expect(decided.decidedNewNodeId).toBe(CLOSET_RENAMED);
+  });
+
+  it("is revisable until the plan is applied", () => {
+    const { item, reconciliationId } = openPlan();
+    decideReconciliationItem(handle, { itemId: item.id, decision: "remap", newNodeId: CLOSET_RENAMED, actorUserId });
+    decideReconciliationItem(handle, { itemId: item.id, decision: "keep", actorUserId });
+    const stored = openItems(reconciliationId)[0]!;
+    expect(stored.decision).toBe("keep");
+    // The abandoned target is cleared, so a later apply cannot act on a decision nobody made.
+    expect(stored.decidedNewNodeId).toBeNull();
+  });
+
+  it("refuses a remap onto a surface another colour override already covers", () => {
+    const first = registerRevision(handle, pkgOf(base, "test-fp-1"), actorUserId);
+    seedRuntimeData(first.revisionId, STABLE_ROOM);
+    // A second colour already on the id the new package introduces.
+    writeTx(handle.db, (tx) => {
+      const at = 1_700_000_300_000;
+      tx.insert(surfaceColorOverride)
+        .values({
+          id: newId(),
+          modelId: base.modelId,
+          modelRevisionId: first.revisionId,
+          surfaceId: RENAMED_SURFACE,
+          colorHex: "#112233",
+          createdAtMs: at,
+          createdBy: actorUserId,
+          updatedAtMs: at,
+          updatedBy: actorUserId,
+        })
+        .run();
+    });
+
+    const second = registerRevision(handle, pkgOf(renamedSurfaceManifest(), "test-fp-2"), actorUserId);
+    const items = openItems(second.reconciliationId!);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.entityKind).toBe("surface_color_override");
+    expect(items[0]?.oldNodeId).toBe(STABLE_SURFACE);
+
+    let thrown: unknown;
+    try {
+      decideReconciliationItem(handle, {
+        itemId: items[0]!.id,
+        decision: "remap",
+        newNodeId: RENAMED_SURFACE,
+        actorUserId,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ConflictError);
+    expect((thrown as ConflictError).code).toBe("remap_target_taken");
+    expect(openItems(second.reconciliationId!)[0]?.decision).toBeNull();
+  });
+
+  it("flags a row written while the plan was open instead of carrying it silently", () => {
+    const { first, second, item, reconciliationId } = openPlan();
+    // Somebody places a second unit in the closet before anybody works through the plan: it is
+    // stamped with the revision that is still current and points at an id the new package drops.
+    const lateId = newId();
+    writeTx(handle.db, (tx) => {
+      const at = 1_700_000_400_000;
+      const quad = { createdAtMs: at, createdBy: actorUserId, updatedAtMs: at, updatedBy: actorUserId };
+      // Its own piece of equipment: one asset carries one body placement.
+      const lateAssetId = newId();
+      tx.insert(asset)
+        .values({ id: lateAssetId, name: "Dehumidifier", category: "hvac", status: "installed", ...quad })
+        .run();
+      tx.insert(assetPlacement)
+        .values({
+          id: lateId,
+          assetId: lateAssetId,
+          modelRevisionId: first.revisionId,
+          modelNodeId: CLOSET,
+          posX: 1,
+          posY: 1,
+          posZ: 1,
+          mountKind: "floor",
+          createdAtMs: at,
+          createdBy: actorUserId,
+          updatedAtMs: at,
+          updatedBy: actorUserId,
+        })
+        .run();
+    });
+
+    decideReconciliationItem(handle, { itemId: item.id, decision: "archive", actorUserId });
+    applyReconciliation(handle, { reconciliationId, actorUserId });
+
+    const late = placement(lateId);
+    expect(late?.modelRevisionId).toBe(second.revisionId);
+    // Nobody was asked about it, so it says so rather than claiming to be placed.
+    expect(late?.needsReconciliation).toBe(true);
+    expect(late?.modelNodeId).toBe(CLOSET);
   });
 });

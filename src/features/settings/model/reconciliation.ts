@@ -45,6 +45,8 @@ export interface PlanView {
   decided: number;
   undecided: number;
   applicable: boolean;
+  /** `model_reconciliation.summary_json`, parsed. Counts by outcome; `null` before an outcome. */
+  summary: Record<string, unknown> | null;
 }
 
 /** Plain-English name for each reconcilable table. */
@@ -170,4 +172,101 @@ export function applyConsequences(counts: DecisionCounts): string[] {
   );
   lines.push("The new revision becomes current, the old one is superseded, and the house view follows.");
   return lines;
+}
+
+/* -------------------------------------------------------------------------------------------------
+ * Recorded outcome
+ *
+ * `summary_json` is written by three different code paths (opened, applied, abandoned) and each
+ * writes the keys that mean something to it, so this renders whatever keys are actually there
+ * rather than assuming a fixed shape. An unknown key still shows, with its raw name: a number the
+ * screen cannot explain is better than a number the screen hides.
+ * ---------------------------------------------------------------------------------------------- */
+
+/** Plain-English name for each key `summary_json` is known to carry. */
+export const SUMMARY_LABEL: Record<string, string> = {
+  total: "items",
+  remap: "remapped",
+  keep: "kept",
+  archive: "archived",
+  decided: "decided",
+  aliasCarried: "carried by a remembered decision",
+  flaggedMoves: "positions flagged for review",
+  flaggedUnasked: "rows flagged without being asked",
+  nodeMissing: "identifiers gone",
+  referenced: "records on the old revision",
+  aliasRemapped: "followed a remembered rename",
+  aliasHeld: "held by a remembered keep",
+};
+
+/** The order the known keys read best in; anything else follows, alphabetically. */
+const SUMMARY_ORDER = [
+  "total",
+  "remap",
+  "keep",
+  "archive",
+  "decided",
+  "aliasCarried",
+  "flaggedMoves",
+  "flaggedUnasked",
+  "nodeMissing",
+  "referenced",
+  "aliasRemapped",
+  "aliasHeld",
+];
+
+export interface SummaryEntry {
+  key: string;
+  label: string;
+  value: number;
+}
+
+/**
+ * The counts in `summary_json`, labelled. Only numbers survive: `abandonedAtMs` is an instant, not
+ * a count, and belongs to the timestamp shown beside the status instead.
+ */
+export function summaryEntries(summary: Record<string, unknown> | null): SummaryEntry[] {
+  if (summary === null) return [];
+  const entries: SummaryEntry[] = [];
+  for (const [key, value] of Object.entries(summary)) {
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    if (key.endsWith("Ms")) continue;
+    entries.push({ key, label: SUMMARY_LABEL[key] ?? key.replace(/_/g, " "), value });
+  }
+  return entries.sort((a, b) => {
+    const ai = SUMMARY_ORDER.indexOf(a.key);
+    const bi = SUMMARY_ORDER.indexOf(b.key);
+    if (ai !== bi) return (ai === -1 ? SUMMARY_ORDER.length : ai) - (bi === -1 ? SUMMARY_ORDER.length : bi);
+    return a.key.localeCompare(b.key);
+  });
+}
+
+/** `"1 remapped · 2 kept"`. Empty when nothing was recorded, which the caller words itself. */
+export function summaryLine(summary: Record<string, unknown> | null): string {
+  return summaryEntries(summary)
+    .map((entry) => `${entry.value} ${entry.label}`)
+    .join(" · ");
+}
+
+/** Only a `remap` needs a target, and only a `location` can never be archived (design §8.3). */
+export function decisionAvailable(decision: Decision, entityKind: string): boolean {
+  return !(decision === "archive" && entityKind === "location");
+}
+
+/**
+ * The target a remap should start from: the answer already recorded, else the import's proposal,
+ * else the best-scoring candidate. Never a blind guess — every one of those three came from
+ * either a human or the scorer.
+ */
+export function defaultRemapTarget(item: ItemView): string {
+  return item.decidedNewNodeId ?? item.proposedNewNodeId ?? item.candidates[0]?.nodeId ?? "";
+}
+
+/** How a recorded decision reads in the items table. */
+export function decisionSummary(item: ItemView): string | null {
+  if (item.decision === null) return null;
+  if (item.decision === "remap") {
+    return `Remap → ${item.decidedNewNodeId ?? "?"}`;
+  }
+  return DECISION_LABEL[item.decision];
 }
