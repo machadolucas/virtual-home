@@ -264,6 +264,14 @@ several rows referencing the same identifier are answered differently, the plan 
 decision applied last; each row's own outcome is in its `audit_log` entry, which is where the
 per-row truth lives.
 
+#### 3.3.3b Mirrored locations
+`registerRevision` (and the settings apply action) call `syncLocations`, which mirrors the package's
+buildings, floors and rooms — plus outdoor zones for the terrace, balcony and yard elements — into the
+`location` tree (slug = semantic id, `model_node_id` set). Rows are matched by node id, then by a
+decided/remembered alias (old → new), then by slug, so a renamed room keeps its `location.id` and
+everything attached to it. User-edited names survive. Mirrored rows are never reconciliation items:
+rows whose node vanished are flagged when something references them and dropped otherwise.
+
 #### 3.3.4 What this does not do yet
 
 - **The import diff emits `node_missing`, `kind_changed` and `moved_beyond_tolerance`** (D-016: a

@@ -52,6 +52,9 @@ import {
   type ModelReconciliationStatus,
   type ReconciliationDecision,
   type ReconciliationEntityKind,
+  asset,
+  maintenancePlan,
+  locationMapping,
 } from "@/db/schema";
 import { ConflictError, NotFoundError, ValidationError } from "@/domain/errors";
 import { ringBBox, ringCentroid, ringSignedArea } from "@/house/model/geometry2d";
@@ -149,8 +152,8 @@ function referencedNodes(tx: Db, revisionId: string): Ref[] {
     refs.push({ entityKind: "surface_color_override", entityId: r.id, nodeId: r.node });
   for (const r of tx.select({ id: assetPlacement.id, node: assetPlacement.modelNodeId }).from(assetPlacement).where(eq(assetPlacement.modelRevisionId, revisionId)).all())
     refs.push({ entityKind: "asset_placement", entityId: r.id, nodeId: r.node });
-  for (const r of tx.select({ id: location.id, node: location.modelNodeId }).from(location).where(eq(location.modelRevisionId, revisionId)).all())
-    if (r.node) refs.push({ entityKind: "location", entityId: r.id, nodeId: r.node });
+  // `location` rows are mirrored from the package by `syncLocations` (aliases followed, orphans
+  // flagged or dropped there), so they never become items a person has to decide.
   for (const r of tx.select({ id: infraEndpoint.id, node: infraEndpoint.modelNodeId }).from(infraEndpoint).where(eq(infraEndpoint.modelRevisionId, revisionId)).all())
     if (r.node) refs.push({ entityKind: "infra_endpoint", entityId: r.id, nodeId: r.node });
   for (const r of tx.select({ id: annotation.id, node: annotation.modelNodeId }).from(annotation).where(eq(annotation.modelRevisionId, revisionId)).all())
@@ -297,6 +300,128 @@ function planRefs(
  * Registration
  * ---------------------------------------------------------------------------------------------- */
 
+
+const OUTDOOR_ZONE_ELEMENTS: ReadonlyArray<{ kind: string; slug: string; name: string }> = [
+  { kind: "terrace", slug: "z-terrace", name: "Terrace" },
+  { kind: "balcony", slug: "z-balcony", name: "Balcony" },
+  { kind: "terrain", slug: "z-yard", name: "Yard" },
+];
+
+/**
+ * Mirror the package's buildings, floors and rooms (plus a few outdoor zones) into the `location`
+ * tree so they can be maintenance targets, equipment locations and HA-area mapping targets.
+ * Rows are matched by slug (= the package's stable semantic id), so re-imports update in place
+ * and user edits to `name`/`notes` are preserved.
+ */
+export function syncLocations(tx: Db, revisionId: string, index: ManifestIndex, actorUserId: string | null, now: number): { inserted: number; updated: number; dropped: number } {
+  let inserted = 0;
+  let updated = 0;
+  const all = tx.select().from(location).all();
+  const bySlug = new Map(all.map((row) => [row.slug, row]));
+  const byNode = new Map(all.filter((row) => row.modelNodeId).map((row) => [row.modelNodeId as string, row]));
+  // Renames decided earlier (or remembered from a previous import) re-point the existing row, so
+  // assets and plans attached to the old room keep their location.
+  const aliasOldFor = new Map<string, string>();
+  for (const a of tx.select().from(modelNodeAlias).where(eq(modelNodeAlias.toRevisionId, revisionId)).all()) {
+    if (a.newNodeId && a.newNodeId !== a.oldNodeId) aliasOldFor.set(a.newNodeId, a.oldNodeId);
+  }
+  const touched = new Set<string>();
+  const upsert = (row: {
+    slug: string; kind: "property" | "building" | "floor" | "room" | "zone"; parentId: string | null; name: string;
+    sortOrder: number; floorLevel?: number | null; isOutdoor?: boolean; modelNodeId: string | null;
+  }): string => {
+    // A row already pointing at this node (e.g. remapped during a reconciliation) wins over the slug
+    // match, so a renamed room never ends up mirrored twice.
+    const aliasOld = row.modelNodeId ? aliasOldFor.get(row.modelNodeId) : undefined;
+    const existing =
+      (row.modelNodeId ? byNode.get(row.modelNodeId) : undefined) ??
+      (aliasOld ? byNode.get(aliasOld) : undefined) ??
+      bySlug.get(row.slug);
+    if (existing) {
+      touched.add(existing.id);
+      tx.update(location)
+        .set({
+          parentId: row.parentId,
+          sortOrder: row.sortOrder,
+          floorLevel: row.floorLevel ?? existing.floorLevel,
+          modelRevisionId: revisionId,
+          modelNodeId: row.modelNodeId,
+          needsReconciliation: false,
+          updatedAtMs: now,
+          updatedBy: actorUserId,
+        })
+        .where(eq(location.id, existing.id))
+        .run();
+      updated++;
+      return existing.id;
+    }
+    const id = newId();
+    tx.insert(location).values({
+      id,
+      kind: row.kind,
+      parentId: row.parentId,
+      name: row.name,
+      slug: row.slug,
+      sortOrder: row.sortOrder,
+      floorLevel: row.floorLevel ?? null,
+      isOutdoor: row.isOutdoor ?? false,
+      modelRevisionId: revisionId,
+      modelNodeId: row.modelNodeId,
+      needsReconciliation: false,
+      createdAtMs: now,
+      createdBy: actorUserId,
+      updatedAtMs: now,
+      updatedBy: actorUserId,
+    }).run();
+    inserted++;
+    touched.add(id);
+    return id;
+  };
+
+  const propertyId = upsert({ slug: "property", kind: "property", parentId: null, name: index.manifest.name ?? index.modelId, sortOrder: 0, modelNodeId: null });
+  let b = 0;
+  for (const building of index.buildings.values()) {
+    const buildingId = upsert({ slug: building.id, kind: "building", parentId: propertyId, name: building.name, sortOrder: b++, modelNodeId: building.id });
+    const floors = index.floorsByBuilding.get(building.id) ?? [];
+    floors.forEach((floor, fi) => {
+      const level = index.floorOrder.indexOf(floor.id);
+      const floorLocId = upsert({ slug: floor.id, kind: "floor", parentId: buildingId, name: floor.name, sortOrder: fi, floorLevel: level >= 0 ? level : null, modelNodeId: floor.id });
+      (index.roomsByFloor.get(floor.id) ?? []).forEach((room, ri) => {
+        upsert({ slug: room.id, kind: "room", parentId: floorLocId, name: room.name, sortOrder: ri, modelNodeId: room.id });
+      });
+    });
+  }
+  let z = 0;
+  for (const zone of OUTDOOR_ZONE_ELEMENTS) {
+    const element = [...index.elements.values()].find((e) => e.kind === zone.kind);
+    if (!element) continue;
+    upsert({ slug: zone.slug, kind: "zone", parentId: propertyId, name: zone.name, sortOrder: z++, isOutdoor: true, modelNodeId: element.id });
+  }
+  // Rows the package no longer describes: keep (flagged) when something points at them, else drop.
+  const known = new Set<string>();
+  for (const b of index.buildings.values()) known.add(b.id);
+  for (const f of index.floors.values()) known.add(f.id);
+  for (const r of index.rooms.values()) known.add(r.id);
+  for (const e of index.elements.values()) known.add(e.id);
+  let dropped = 0;
+  for (const row of all) {
+    if (touched.has(row.id) || !row.modelNodeId || known.has(row.modelNodeId)) continue;
+    const referenced =
+      tx.select({ id: asset.id }).from(asset).where(eq(asset.locationId, row.id)).get() ||
+      tx.select({ id: maintenancePlan.id }).from(maintenancePlan).where(eq(maintenancePlan.locationId, row.id)).get() ||
+      tx.select({ id: storagePlace.id }).from(storagePlace).where(eq(storagePlace.locationId, row.id)).get() ||
+      tx.select({ id: locationMapping.id }).from(locationMapping).where(eq(locationMapping.locationId, row.id)).get() ||
+      tx.select({ id: location.id }).from(location).where(eq(location.parentId, row.id)).get();
+    if (referenced) {
+      tx.update(location).set({ needsReconciliation: true, updatedAtMs: now, updatedBy: actorUserId }).where(eq(location.id, row.id)).run();
+    } else {
+      tx.delete(location).where(eq(location.id, row.id)).run();
+      dropped++;
+    }
+  }
+  return { inserted, updated, dropped };
+}
+
 /** Register the installed package in the database. Idempotent for an unchanged fingerprint. */
 export function registerRevision(handle: DbHandle, pkg: CurrentPackage, actorUserId: string | null): RegisterResult {
   const index = buildManifestIndex(pkg.manifest);
@@ -316,7 +441,10 @@ export function registerRevision(handle: DbHandle, pkg: CurrentPackage, actorUse
     const existing = tx.select().from(modelRevision).where(and(eq(modelRevision.modelId, pkg.modelId), eq(modelRevision.contentHash, pkg.fingerprint))).get();
     const current = tx.select().from(modelRevision).where(and(eq(modelRevision.modelId, pkg.modelId), eq(modelRevision.status, "current"))).get();
     if (existing) {
-      if (existing.status === "current") return { status: "unchanged", revisionId: existing.id, itemCount: 0, aliasCarried: 0 };
+      if (existing.status === "current") {
+        syncLocations(tx, existing.id, index, actorUserId, nowMs());
+        return { status: "unchanged", revisionId: existing.id, itemCount: 0, aliasCarried: 0 };
+      }
       const open = tx.select().from(modelReconciliation).where(and(eq(modelReconciliation.toRevisionId, existing.id), eq(modelReconciliation.status, "open"))).get();
       return { status: "reconciliation_open", revisionId: existing.id, reconciliationId: open?.id, itemCount: 0, aliasCarried: 0 };
     }
@@ -358,6 +486,7 @@ export function registerRevision(handle: DbHandle, pkg: CurrentPackage, actorUse
     }
     if (!current) {
       tx.update(householdSetting).set({ currentModelId: pkg.modelId, currentModelRevisionId: revisionId, updatedAtMs: now }).where(eq(householdSetting.id, "household")).run();
+      syncLocations(tx, revisionId, index, actorUserId, now);
       return { status: "created", revisionId, itemCount: 0, aliasCarried: 0 };
     }
 
@@ -402,6 +531,7 @@ export function registerRevision(handle: DbHandle, pkg: CurrentPackage, actorUse
       tx.update(modelRevision).set({ status: "superseded" }).where(eq(modelRevision.id, current.id)).run();
       tx.update(modelRevision).set({ status: "current" }).where(eq(modelRevision.id, revisionId)).run();
       tx.update(householdSetting).set({ currentModelRevisionId: revisionId, updatedAtMs: now }).where(eq(householdSetting.id, "household")).run();
+      syncLocations(tx, revisionId, index, actorUserId, now);
       return { status: "auto_carried", revisionId, itemCount: 0, aliasCarried: plan.remap.length + plan.hold.length };
     }
 

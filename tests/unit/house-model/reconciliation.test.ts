@@ -42,7 +42,9 @@ import {
   decideReconciliationItem,
   reconciliationSummary,
   registerRevision,
+  syncLocations,
 } from "@/server/house-model/revision";
+import { buildManifestIndex } from "@/house/model/manifestIndex";
 import { seedUser, testDb } from "../../helpers/db";
 import { FIXTURE_DIR, loadManifest } from "../house/glb";
 
@@ -139,27 +141,11 @@ function seedRuntimeData(revisionId: string, nodeId: string): Seeded {
     roomLocationId: newId(),
   };
   writeTx(handle.db, (tx) => {
-    const propertyId = newId();
-    const buildingId = newId();
-    const floorId = newId();
     const quad = { createdAtMs: at, createdBy: actorUserId, updatedAtMs: at, updatedBy: actorUserId };
-    tx.insert(location)
-      .values([
-        { id: propertyId, kind: "property", parentId: null, name: "Property", slug: "property", ...quad },
-        { id: buildingId, kind: "building", parentId: propertyId, name: "House", slug: "house", ...quad },
-        { id: floorId, kind: "floor", parentId: buildingId, name: "Lower", slug: "lower", floorLevel: 0, ...quad },
-        {
-          id: ids.roomLocationId,
-          kind: "room",
-          parentId: floorId,
-          name: "Room A",
-          slug: "room-a",
-          modelRevisionId: revisionId,
-          modelNodeId: STABLE_ROOM,
-          ...quad,
-        },
-      ])
-      .run();
+    // Import already mirrored the package's rooms into `location`; the seeded record is that row.
+    const synced = tx.select().from(location).where(eq(location.modelNodeId, STABLE_ROOM)).get();
+    if (!synced) throw new Error(`import did not sync a location for ${STABLE_ROOM}`);
+    ids.roomLocationId = synced.id;
 
     const assetId = newId();
     tx.insert(asset)
@@ -622,35 +608,28 @@ describe("applyReconciliation", () => {
     expect(aliases()[0]).toMatchObject({ oldNodeId: CLOSET, newNodeId: null });
   });
 
-  it("refuses to archive a location, at decision time", () => {
+  it("never asks about mirrored locations: a renamed room is re-pointed once its rename is decided", () => {
     const first = registerRevision(handle, pkgOf(base, "test-fp-1"), actorUserId);
-    writeTx(handle.db, (tx) => {
-      const at = 1_700_000_000_000;
-      const quad = { createdAtMs: at, createdBy: actorUserId, updatedAtMs: at, updatedBy: actorUserId };
-      const propertyId = newId();
-      tx.insert(location)
-        .values([
-          { id: propertyId, kind: "property", parentId: null, name: "Property", slug: "property", ...quad },
-          {
-            id: newId(),
-            kind: "room",
-            parentId: propertyId,
-            name: "Closet",
-            slug: "closet",
-            modelRevisionId: first.revisionId,
-            modelNodeId: CLOSET,
-            ...quad,
-          },
-        ])
-        .run();
-    });
-    const second = registerRevision(handle, pkgOf(renamedManifest(), "test-fp-2"), actorUserId);
-    const item = openItems(second.reconciliationId!)[0]!;
-    expect(item.entityKind).toBe("location");
+    const mirrored = handle.db.select().from(location).where(eq(location.modelNodeId, CLOSET)).get()!;
+    expect(mirrored.modelRevisionId).toBe(first.revisionId);
+    // A plan attached to the closet must survive the rename.
+    seedRuntimeData(first.revisionId, CLOSET);
 
-    expect(() =>
-      decideReconciliationItem(handle, { itemId: item.id, decision: "archive", actorUserId }),
-    ).toThrow(/never archived/);
+    const second = registerRevision(handle, pkgOf(renamedManifest(), "test-fp-2"), actorUserId);
+    const items = openItems(second.reconciliationId!);
+    expect(items.some((item) => item.entityKind === "location")).toBe(false);
+    for (const item of items) {
+      decideReconciliationItem(handle, { itemId: item.id, decision: "remap", newNodeId: CLOSET_RENAMED, actorUserId });
+    }
+    applyReconciliation(handle, { reconciliationId: second.reconciliationId!, actorUserId });
+    // What the settings action does after apply: mirror the new package into the location tree.
+    writeTx(handle.db, (tx) =>
+      syncLocations(tx, second.revisionId, buildManifestIndex(renamedManifest()), actorUserId, 1_700_000_000_000),
+    );
+    const after = handle.db.select().from(location).where(eq(location.id, mirrored.id)).get()!;
+    expect(after.modelNodeId).toBe(CLOSET_RENAMED);
+    expect(after.modelRevisionId).toBe(second.revisionId);
+    expect(handle.db.select().from(location).where(eq(location.modelNodeId, CLOSET_RENAMED)).all()).toHaveLength(1);
   });
 
   it("rejects a remap onto an identifier the new package does not have", () => {

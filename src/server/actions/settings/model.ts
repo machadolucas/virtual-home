@@ -3,6 +3,7 @@
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { getDb, writeTx } from "@/db/client";
+import { nowMs } from "@/db/ids";
 import { loadEnv } from "@/env";
 import { writeAudit } from "@/domain/inventory";
 import { action } from "@/server/api/action";
@@ -13,11 +14,11 @@ import {
   getCurrentPackage,
   installPackage,
   invalidatePackageCache,
-  validatePackageDir,
-} from "@/server/house-model/package";
+  validatePackageDir, manifestIndexOf } from "@/server/house-model/package";
 import {
   abandonReconciliation,
   applyReconciliation,
+  syncLocations,
   decideReconciliationItem,
   reconciliationSummary,
   registerRevision,
@@ -168,6 +169,12 @@ export const applyModelReconciliation = action(reconciliationActionInput, async 
       actorUserId: session.user.id,
     }),
   );
+  // The new revision is current now: mirror its rooms/floors into the location tree.
+  const current = await getCurrentPackage();
+  if (current) {
+    const index = manifestIndexOf(current);
+    writeTx(handle.db, (tx) => syncLocations(tx, result.toRevisionId, index, session.user.id, nowMs()));
+  }
   revalidatePath("/settings/model");
   revalidatePath("/house");
   revalidatePath("/equipment");
