@@ -15,6 +15,16 @@ export interface LoginFormProps {
 
 const GENERIC_ERROR = "Wrong username or password";
 const RATE_LIMIT_ERROR = "Too many attempts, wait a minute";
+/**
+ * A blank field is not a wrong credential. Nothing was sent, so nothing was rejected, and telling
+ * somebody their password is wrong when they have not typed one sends them to reset a password
+ * that is fine.
+ */
+const MISSING_USERNAME = "Enter your username";
+const MISSING_PASSWORD = "Enter your password";
+
+/** Which field the error belongs on. `null` when it is about the pair, not either one. */
+type ErrorField = "username" | "password" | null;
 
 export function LoginForm({ hints, next }: LoginFormProps) {
   const [username, setUsername] = useState("");
@@ -22,6 +32,9 @@ export function LoginForm({ hints, next }: LoginFormProps) {
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // `aria-invalid` used to go on both fields for every failure, so a wrong password marked the
+  // username — which is exactly the field that was correct — as invalid.
+  const [errorField, setErrorField] = useState<ErrorField>(null);
   // With hints on screen the username field is present but visually hidden;
   // this reveals it for an account that is not in the list.
   const [showUsername, setShowUsername] = useState(hints.length === 0);
@@ -30,6 +43,7 @@ export function LoginForm({ hints, next }: LoginFormProps) {
   function pick(hint: LoginHint) {
     setUsername(hint.username);
     setError(null);
+    setErrorField(null);
     passwordRef.current?.focus();
   }
 
@@ -37,11 +51,21 @@ export function LoginForm({ hints, next }: LoginFormProps) {
     event.preventDefault();
     if (busy) return;
     setError(null);
+    setErrorField(null);
 
     const trimmed = username.trim();
-    if (trimmed === "" || password === "") {
-      setError(GENERIC_ERROR);
-      if (trimmed === "") setShowUsername(true);
+    // Nothing is sent when a field is empty, so nothing can have been rejected. Say which field is
+    // missing and mark that one, rather than reporting a credential failure that never happened.
+    if (trimmed === "") {
+      setShowUsername(true);
+      setError(MISSING_USERNAME);
+      setErrorField("username");
+      return;
+    }
+    if (password === "") {
+      setError(MISSING_PASSWORD);
+      setErrorField("password");
+      passwordRef.current?.focus();
       return;
     }
 
@@ -58,7 +82,13 @@ export function LoginForm({ hints, next }: LoginFormProps) {
       // One message for every failure cause; the rate limit is the single
       // exception, because "wrong password" and "locked out" need different
       // reactions from the user and telling them apart costs nothing.
-      setError(result.error.status === 429 ? RATE_LIMIT_ERROR : GENERIC_ERROR);
+      const rateLimited = result.error.status === 429;
+      setError(rateLimited ? RATE_LIMIT_ERROR : GENERIC_ERROR);
+      // The credential *pair* was refused; the server never says which half was wrong, and
+      // guessing would both be a lie and leak which usernames exist. So the invalid marker goes on
+      // the field being retyped, and on nothing else — and a rate limit is about neither field, so
+      // it marks neither.
+      setErrorField(rateLimited ? null : "password");
       passwordRef.current?.focus();
       return;
     }
@@ -134,7 +164,8 @@ export function LoginForm({ hints, next }: LoginFormProps) {
               inputSize="lg"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              aria-invalid={error !== null || undefined}
+              aria-invalid={errorField === "username" || undefined}
+              aria-describedby={errorField === "username" ? "vh-login-error" : undefined}
             />
           )}
         </Field>
@@ -152,8 +183,8 @@ export function LoginForm({ hints, next }: LoginFormProps) {
             inputSize="lg"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            aria-invalid={error !== null || undefined}
-            aria-describedby={error ? "vh-login-error" : undefined}
+            aria-invalid={errorField === "password" || undefined}
+            aria-describedby={errorField === "password" ? "vh-login-error" : undefined}
             icon={<KeyRound aria-hidden="true" />}
           />
         )}

@@ -217,6 +217,7 @@ function ItemRow({
 
   const remapTarget = (target === TYPE_IT ? typed : target).trim();
   const decided = decisionSummary(item);
+  const subject = `${entityKindLabel(item.entityKind)} ${item.entityId}`;
   const canArchive = decisionAvailable("archive", item.entityKind);
 
   const options = [
@@ -287,6 +288,8 @@ function ItemRow({
               className="font-mono"
             />
           ) : null}
+          {/* Three buttons per row, on a table that can be dozens of rows long: the visible words
+              stay short, and the accessible name says which record each one decides. */}
           <div className="flex flex-wrap items-center gap-1.5">
             <Button
               size="sm"
@@ -294,6 +297,7 @@ function ItemRow({
               loading={busy}
               disabled={remapTarget === ""}
               icon={<ArrowRightLeft aria-hidden="true" />}
+              aria-label={`Remap ${subject} onto ${remapTarget === "" ? "an identifier" : remapTarget}`}
               onClick={() => onDecide(item, "remap", remapTarget)}
             >
               Remap
@@ -303,6 +307,7 @@ function ItemRow({
               variant="secondary"
               loading={busy}
               icon={<PinOff aria-hidden="true" />}
+              aria-label={`Keep ${subject} pointing at ${item.oldNodeId}`}
               onClick={() => onDecide(item, "keep", null)}
             >
               Keep
@@ -313,6 +318,7 @@ function ItemRow({
               loading={busy}
               disabled={!canArchive}
               icon={<Archive aria-hidden="true" />}
+              aria-label={`Archive ${subject}`}
               onClick={() => onDecide(item, "archive", null)}
             >
               Archive
@@ -384,7 +390,13 @@ function PlanActions({
         open={applyOpen}
         onOpenChange={setApplyOpen}
         trigger={
-          <Button variant="primary" size="sm" disabled={!ready} icon={<Check aria-hidden="true" />}>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!ready}
+            icon={<Check aria-hidden="true" />}
+            aria-label={`Apply the reconciliation from ${plan.fromLabel} to ${plan.toLabel}`}
+          >
             Apply
           </Button>
         }
@@ -427,7 +439,11 @@ function PlanActions({
         open={abandonOpen}
         onOpenChange={setAbandonOpen}
         trigger={
-          <Button variant="secondary" size="sm">
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-label={`Abandon the reconciliation from ${plan.fromLabel} to ${plan.toLabel}`}
+          >
             Abandon
           </Button>
         }

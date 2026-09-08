@@ -136,6 +136,25 @@ export function AddDeviceDialog({
     },
   });
 
+  /**
+   * Reseed the draft every time the dialog opens.
+   *
+   * The dialog stays mounted between opens, so after adding the first candidate it still pointed
+   * at that same service — which is now taken, so the very next "Add it" failed with
+   * `notify_service_taken` for no reason the user could see. `candidates` is refreshed by
+   * `router.refresh()`, so the first entry on reopen is one that is genuinely still free.
+   */
+  const onOpenChange = (next: boolean): void => {
+    if (next) {
+      const first = candidates[0];
+      setChoice(first?.notifyService ?? TYPE_IT);
+      setLabel(first?.label ?? "");
+      setManualService("");
+      call.reset();
+    }
+    setOpen(next);
+  };
+
   const manual = choice === TYPE_IT;
   const selected = candidates.find((entry) => entry.notifyService === choice);
   const notifyService = manual ? manualService.trim() : choice;
@@ -144,9 +163,16 @@ export function AddDeviceDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={onOpenChange}
       trigger={
-        <Button variant="secondary" size="sm" icon={<Plus aria-hidden="true" />}>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Plus aria-hidden="true" />}
+          // One of these per household member, so the visible text alone is ambiguous in a list
+          // of buttons.
+          aria-label={`Add a device for ${userName}`}
+        >
           Add a device
         </Button>
       }
@@ -273,10 +299,6 @@ export function DeviceRow({
 }) {
   const router = useRouter();
   const toggle = useAction(setNotifyDeviceActive, { onSuccess: () => router.refresh() });
-  const remove = useAction(removeNotifyDevice, {
-    successTitle: "Device removed",
-    onSuccess: () => router.refresh(),
-  });
 
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
@@ -297,15 +319,75 @@ export function DeviceRow({
           }
           onClick={() => toggle.run({ deviceId: device.id, isActive: !device.isActive })}
         />
-        <IconButton
-          label={`Remove ${device.label}`}
-          variant="ghost"
-          size="sm"
-          loading={remove.pending}
-          icon={<Trash2 aria-hidden="true" />}
-          onClick={() => remove.run({ deviceId: device.id })}
-        />
+        <RemoveDevice deviceId={device.id} label={device.label} service={device.notifyService} />
       </span>
     </li>
+  );
+}
+
+/**
+ * Removing a notify device, behind a confirmation.
+ *
+ * It was one unguarded tap, next to the mute button, on a row with no undo — and what it does is
+ * not obvious from the icon: every reminder for that person stops arriving on that phone, silently,
+ * with nothing on any screen afterwards to say why. Muting is the reversible thing and is one tap
+ * away; this one asks first and names both the device and the consequence.
+ */
+function RemoveDevice({
+  deviceId,
+  label,
+  service,
+}: {
+  deviceId: string;
+  label: string;
+  service: string;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const call = useAction(removeNotifyDevice, {
+    successTitle: "Device removed",
+    onSuccess: () => {
+      setOpen(false);
+      router.refresh();
+    },
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={setOpen}
+      trigger={
+        <IconButton
+          label={`Remove ${label}`}
+          variant="ghost"
+          size="sm"
+          icon={<Trash2 aria-hidden="true" />}
+        />
+      }
+      title={`Remove ${label}?`}
+      description="This phone stops receiving reminders immediately."
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={call.pending}>
+            Cancel
+          </Button>
+          <Button variant="danger" loading={call.pending} onClick={() => call.run({ deviceId })}>
+            Remove it
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm leading-6 text-ink-2">
+        Every reminder that would have gone to{" "}
+        <span className="font-mono text-xs">{service}</span> stops, and nothing on any screen will
+        say afterwards that a notification was not sent. If this is temporary, mute it instead —
+        that keeps the registration and can be undone in one tap.
+      </p>
+      {call.error === null ? null : (
+        <p role="alert" className="mt-3 text-sm font-medium text-overdue">
+          {call.error}
+        </p>
+      )}
+    </Dialog>
   );
 }

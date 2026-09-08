@@ -120,7 +120,7 @@ export function ProjectFiles({
                           className="aspect-[4/3] w-full object-cover"
                         />
                       ) : (
-                        <span className="flex aspect-[4/3] w-full items-center justify-center bg-paper-2 p-2 text-center text-xs text-ink-2">
+                        <span className="flex aspect-[4/3] w-full items-center justify-center bg-surface-2 p-2 text-center text-xs text-ink-2">
                           {file.originalFilename}
                         </span>
                       )}
@@ -179,7 +179,7 @@ export function ProjectFiles({
                   const file = event.target.files?.[0];
                   if (file) void upload(file);
                 }}
-                className="block w-full text-sm file:mr-3 file:min-h-9 file:rounded-md file:border file:border-line file:bg-paper-2 file:px-3 file:text-sm"
+                className="block w-full text-sm file:mr-3 file:min-h-9 file:rounded-md file:border file:border-line file:bg-surface-2 file:px-3 file:text-sm"
               />
             )}
           </Field>

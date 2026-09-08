@@ -2,10 +2,11 @@
 
 import { Checkbox as RadixCheckbox } from "radix-ui";
 import { Check, Minus } from "lucide-react";
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { cn, focusRing } from "./cn";
 
 export interface CheckboxProps {
+  /** Force a specific id. Omitted, one is generated — the label still points at it. */
   id?: string;
   name?: string;
   value?: string;
@@ -15,6 +16,8 @@ export interface CheckboxProps {
   disabled?: boolean;
   required?: boolean;
   describedBy?: string;
+  /** Accessible name when there is no visible label and no external `<label htmlFor>`. */
+  ariaLabel?: string;
   /** Inline label. Omit only when an external `<label htmlFor>` exists. */
   label?: ReactNode;
   /** Secondary line under the label. */
@@ -25,6 +28,11 @@ export interface CheckboxProps {
 /**
  * The box is 18 px but the clickable row is at least 44 px tall on phones, so
  * the target is comfortable without a giant checkbox.
+ *
+ * The id is generated when the caller does not supply one. It has to be: the
+ * visible label is a *sibling* of the control, not its parent, so without a
+ * resolving `htmlFor` the box has no accessible name at all and the label is
+ * not clickable — and most call sites have no reason to invent an id.
  */
 export function Checkbox({
   id,
@@ -36,13 +44,17 @@ export function Checkbox({
   disabled,
   required,
   describedBy,
+  ariaLabel,
   label,
   hint,
   className,
 }: CheckboxProps) {
+  const generated = useId();
+  const controlId = id ?? generated;
+
   const box = (
     <RadixCheckbox.Root
-      id={id}
+      id={controlId}
       name={name}
       value={value}
       checked={checked}
@@ -50,6 +62,7 @@ export function Checkbox({
       onCheckedChange={onCheckedChange}
       disabled={disabled}
       required={required}
+      aria-label={label ? undefined : ariaLabel}
       aria-describedby={describedBy}
       className={cn(
         "grid size-[1.125rem] shrink-0 place-items-center rounded-xs border",
@@ -79,7 +92,7 @@ export function Checkbox({
       <span className="flex h-6 items-center">{box}</span>
       <span className="flex min-w-0 flex-col">
         <label
-          htmlFor={id}
+          htmlFor={controlId}
           className={cn(
             "text-sm leading-6 text-ink",
             disabled ? "opacity-55" : "cursor-pointer",

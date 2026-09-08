@@ -1,6 +1,6 @@
 import "server-only";
 import fs from "node:fs";
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { getDb, type Db } from "@/db/client";
 import { loadEnv } from "@/env";
 import {
@@ -17,10 +17,22 @@ import {
 import { readIntegrationStatus, workerAlive, type IntegrationStatusRow } from "@/server/ha/status";
 import type { MetricSample } from "@/features/settings/format";
 
+/**
+ * A size the filesystem either gave us, told us does not exist, or refused.
+ *
+ * The three are different sentences on screen. A `null` that means both "there is no WAL" and
+ * "the stat failed" turns an unreadable file into a confident "None", which is the same class of
+ * bug as rendering `unavailable` as a value.
+ */
+export type FileSize =
+  | { kind: "bytes"; bytes: number }
+  | { kind: "absent" }
+  | { kind: "unreadable" };
+
 export interface StorageFigures {
-  /** `null` when the file cannot be stat'ed (an in-memory database, or a permissions problem). */
-  dbBytes: number | null;
-  walBytes: number | null;
+  dbBytes: FileSize;
+  walBytes: FileSize;
+  /** `null` when the attachments directory could not be read at all. */
   attachmentsBytes: number | null;
   dbPath: string;
 }
@@ -35,19 +47,37 @@ export function readStorage(): StorageFigures {
   const env = loadEnv();
   return {
     dbPath: env.dbPath,
-    dbBytes: statSize(env.dbPath),
-    walBytes: statSize(`${env.dbPath}-wal`),
+    dbBytes: fileSize(env.dbPath),
+    walBytes: fileSize(`${env.dbPath}-wal`),
     attachmentsBytes: dirSize(env.attachDir),
   };
 }
 
-function statSize(filePath: string): number | null {
+/**
+ * `ENOENT` is "there is no such file", which is a fact. Anything else is "we could not look",
+ * which is not — and the two must not collapse into one `null`.
+ */
+function fileSize(filePath: string): FileSize {
   try {
     const stat = fs.statSync(filePath);
-    return stat.isFile() ? stat.size : null;
-  } catch {
-    return null;
+    return stat.isFile() ? { kind: "bytes", bytes: stat.size } : { kind: "absent" };
+  } catch (err) {
+    return isNotFound(err) ? { kind: "absent" } : { kind: "unreadable" };
   }
+}
+
+function isNotFound(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: unknown }).code === "ENOENT"
+  );
+}
+
+/** Byte count for the recursive walk, where "could not stat this one child" simply contributes 0. */
+function statSize(filePath: string): number | null {
+  const size = fileSize(filePath);
+  return size.kind === "bytes" ? size.bytes : null;
 }
 
 /**
@@ -100,16 +130,21 @@ export interface SystemHealth {
   workerAlive: boolean;
   heartbeatPeriodMs: number;
   storage: StorageFigures;
+  /** The newest run, whatever its outcome. Never the newest *successful* one — see below. */
   lastBackup: typeof backupRun.$inferSelect | null;
+  /** The newest run that succeeded, which may be much older than `lastBackup`, or absent. */
+  lastSuccessfulBackup: typeof backupRun.$inferSelect | null;
   recentBackups: (typeof backupRun.$inferSelect)[];
   lastSyncRun: typeof haSyncRun.$inferSelect | null;
   webMetrics: MetricSample[];
   workerMetrics: MetricSample[];
   notifyStateCounts: Record<NotifyCommandState, number>;
+  /** Notify commands that ended badly: `failed` *and* `abandoned`, matching the headline count. */
   notifyFailures: {
     id: string;
     notifyService: string;
     kind: string;
+    state: NotifyCommandState;
     attemptCount: number;
     lastError: string | null;
     createdAtMs: number;
@@ -160,12 +195,16 @@ export function readSystemHealth(tx: Db, nowMs = Date.now()): SystemHealth {
       id: haNotifyCommand.id,
       notifyService: haNotifyCommand.notifyService,
       kind: haNotifyCommand.kind,
+      state: haNotifyCommand.state,
       attemptCount: haNotifyCommand.attemptCount,
       lastError: haNotifyCommand.lastError,
       createdAtMs: haNotifyCommand.createdAtMs,
     })
     .from(haNotifyCommand)
-    .where(eq(haNotifyCommand.state, "failed"))
+    // Both terminal failure states, because the headline counts both. Querying only `failed` left
+    // "Failed or given up: 1" sitting above an empty list — and nothing in the codebase ever
+    // writes `failed` on this table, so the list was empty whatever the count said.
+    .where(inArray(haNotifyCommand.state, ["failed", "abandoned"]))
     .orderBy(desc(haNotifyCommand.createdAtMs))
     .limit(10)
     .all();
@@ -177,12 +216,27 @@ export function readSystemHealth(tx: Db, nowMs = Date.now()): SystemHealth {
     .limit(5)
     .all();
 
+  // The newest run, outcome included — not the newest run that happened to work. Showing the last
+  // success under the heading "Last backup" let a green tick sit directly above three newer failed
+  // rows, which is the one thing this page promises not to do. The last success is a real and
+  // useful figure, so it is reported as itself, next to it.
+  const lastBackup = recentBackups[0] ?? null;
+  const lastSuccessfulBackup =
+    tx
+      .select()
+      .from(backupRun)
+      .where(eq(backupRun.ok, true))
+      .orderBy(desc(backupRun.createdAtMs))
+      .limit(1)
+      .get() ?? null;
+
   return {
     integration,
     workerAlive: workerAlive(integration, nowMs, env.VH_WORKER_HEARTBEAT_MS),
     heartbeatPeriodMs: env.VH_WORKER_HEARTBEAT_MS,
     storage: readStorage(),
-    lastBackup: recentBackups.find((row) => row.ok) ?? recentBackups[0] ?? null,
+    lastBackup,
+    lastSuccessfulBackup,
     recentBackups,
     lastSyncRun:
       tx.select().from(haSyncRun).orderBy(desc(haSyncRun.startedAtMs)).limit(1).get() ?? null,

@@ -3,7 +3,7 @@ import { requireSessionPage } from "@/server/auth/session";
 import { Badge, Panel, StatusBadge } from "@/ui";
 import { PageHeader } from "@/ui/shell";
 import { pageContext } from "@/server/queries/settings/household";
-import { readSystemHealth } from "@/server/queries/settings/system";
+import { readSystemHealth, type FileSize } from "@/server/queries/settings/system";
 import { packageStatus } from "@/server/house-model/package";
 import { formatAge, formatBytes, isoOf, memorySparkline } from "@/features/settings/format";
 import type { MetricSample } from "@/features/settings/format";
@@ -85,24 +85,13 @@ export default async function SystemSettingsPage() {
 
       <Panel title="Storage">
         <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-3">
-          <Detail
-            term="Database"
-            value={
-              health.storage.dbBytes === null ? "Cannot read" : formatBytes(health.storage.dbBytes)
-            }
-          >
+          <Detail term="Database" value={sizeLabel(health.storage.dbBytes)}>
             {health.storage.dbPath}
           </Detail>
-          <Detail
-            term="Write-ahead log"
-            value={
-              health.storage.walBytes === null
-                ? "None"
-                : formatBytes(health.storage.walBytes)
-            }
-          >
-            A WAL that keeps growing means checkpoints are not keeping up — worth knowing, and
-            invisible any other way.
+          <Detail term="Write-ahead log" value={sizeLabel(health.storage.walBytes)}>
+            {health.storage.walBytes.kind === "unreadable"
+              ? "The file is there but could not be measured, which is a permissions problem rather than an absent WAL."
+              : "A WAL that keeps growing means checkpoints are not keeping up — worth knowing, and invisible any other way."}
           </Detail>
           <Detail
             term="Attachments"
@@ -136,6 +125,23 @@ export default async function SystemSettingsPage() {
               <Detail term="Size" value={formatBytes(health.lastBackup.bytes)} />
               <Detail term="Outcome" value={health.lastBackup.ok ? "Succeeded" : "Failed"}>
                 {health.lastBackup.error ?? undefined}
+              </Detail>
+              {/* Reported separately, and never in place of the run above: the most recent attempt
+                  and the most recent success are two different facts, and letting the second stand
+                  in for the first put a tick over newer failures. */}
+              <Detail
+                term="Last successful backup"
+                value={
+                  health.lastSuccessfulBackup === null
+                    ? "None recorded"
+                    : (formatAge(health.lastSuccessfulBackup.createdAtMs, nowMs) ?? "unknown")
+                }
+              >
+                {health.lastSuccessfulBackup === null
+                  ? "Every recorded run failed. There is no snapshot to restore from."
+                  : health.lastSuccessfulBackup.id === health.lastBackup.id
+                    ? "The most recent run is also the most recent success."
+                    : `The most recent run did not succeed; this is the newest one that did (${isoOf(health.lastSuccessfulBackup.createdAtMs) ?? "date unknown"}).`}
               </Detail>
             </dl>
             <ul className="mt-4 flex list-none flex-col divide-y divide-line border-t border-line pt-2">
@@ -197,7 +203,7 @@ export default async function SystemSettingsPage() {
           <Detail term="Failed or given up" value={String(notifyFailed)}>
             {notifyFailed === 0
               ? "Nothing has failed."
-              : "Each one below carries the error Home Assistant returned."}
+              : `The ${health.notifyFailures.length === 1 ? "one" : `most recent ${health.notifyFailures.length}`} below carry the error Home Assistant returned, and say whether the sender gave up.`}
           </Detail>
         </dl>
         {health.notifyFailures.length === 0 ? null : (
@@ -205,7 +211,12 @@ export default async function SystemSettingsPage() {
             {health.notifyFailures.map((failure) => (
               <li key={failure.id} className="flex flex-col gap-0.5 py-2">
                 <span className="flex flex-wrap items-center gap-2 text-xs">
+                  {/* The state is its own badge: "failed" is retryable, "abandoned" means the
+                      sender stopped trying, and one badge for both hid that difference. */}
                   <Badge tone="overdue" size="sm">
+                    {failure.state === "abandoned" ? "gave up" : "failed"}
+                  </Badge>
+                  <Badge tone="neutral" size="sm">
                     {failure.kind}
                   </Badge>
                   <span className="font-mono text-ink-2">{failure.notifyService}</span>
@@ -344,6 +355,21 @@ function Sparkline({
       )}
     </figure>
   );
+}
+
+/**
+ * "Cannot read" and "None" are different claims, so `FileSize` is rendered as three outcomes
+ * rather than a size and a fallback.
+ */
+function sizeLabel(size: FileSize): string {
+  switch (size.kind) {
+    case "bytes":
+      return formatBytes(size.bytes);
+    case "absent":
+      return "None";
+    case "unreadable":
+      return "Cannot read";
+  }
 }
 
 function Detail({

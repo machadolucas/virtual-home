@@ -117,17 +117,7 @@ export interface ModelSettings {
   reconciliations: ReconciliationRow[];
   incoming: IncomingPackage[];
   incomingDir: string;
-  /**
-   * Whether an apply path exists. `src/server/house-model/revision.ts` now carries the whole
-   * service — `decideReconciliationItem`, `applyReconciliation`, `abandonReconciliation` — so the
-   * screen offers real controls. (`src/house/model/reconcile.ts` remains a separate *report*
-   * generator for the viewer, unrelated to these rows.)
-   */
-  applyImplemented: boolean;
 }
-
-/** `true` since the `model_reconciliation` apply service landed — see `applyImplemented`. */
-export const RECONCILIATION_APPLY_IMPLEMENTED = true;
 
 export async function readModelSettings(tx: Db): Promise<ModelSettings> {
   const [status, incoming] = await Promise.all([packageStatus(), listIncomingPackages()]);
@@ -142,18 +132,40 @@ export async function readModelSettings(tx: Db): Promise<ModelSettings> {
     reconciliations: listReconciliations(tx),
     incoming,
     incomingDir: loadEnv().modelIncomingDir,
-    applyImplemented: RECONCILIATION_APPLY_IMPLEMENTED,
   };
 }
 
-/** Reconciliation plans with their items and parsed candidate lists. */
+/** How many settled plans the "Earlier reconciliations" list shows. Open ones are never capped out. */
+const RECENT_PLAN_LIMIT = 5;
+/** A safety bound on open plans. There is normally one; hundreds would mean something else is wrong. */
+const OPEN_PLAN_LIMIT = 20;
+
+/**
+ * Reconciliation plans with their items and parsed candidate lists.
+ *
+ * Open plans are fetched in their own query and merged in. Taking the five most recently *created*
+ * rows and filtering them for `open` afterwards meant that six imports after a plan was opened, the
+ * panel said "No reconciliation is open" — a confident false negative about the one thing on the
+ * page that is waiting for a person.
+ */
 export function listReconciliations(tx: Db): ReconciliationRow[] {
-  const plans = tx
+  const recent = tx
     .select()
     .from(modelReconciliation)
     .orderBy(desc(modelReconciliation.createdAtMs))
-    .limit(5)
+    .limit(RECENT_PLAN_LIMIT)
     .all();
+  const openPlans = tx
+    .select()
+    .from(modelReconciliation)
+    .where(eq(modelReconciliation.status, "open"))
+    .orderBy(desc(modelReconciliation.createdAtMs))
+    .limit(OPEN_PLAN_LIMIT)
+    .all();
+
+  const byId = new Map(recent.map((plan) => [plan.id, plan]));
+  for (const plan of openPlans) byId.set(plan.id, plan);
+  const plans = [...byId.values()].sort((a, b) => b.createdAtMs - a.createdAtMs);
   if (plans.length === 0) return [];
 
   const names = new Map(

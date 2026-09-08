@@ -74,8 +74,13 @@ export function Field({
         </p>
       ) : null}
       {error ? (
+        // `role="alert"` rather than a bare paragraph: a validation message that
+        // appears after the submit is a change nobody looking at the field will
+        // hear otherwise, and `aria-errormessage` only helps once focus lands
+        // back on the control.
         <p
           id={errorId}
+          role="alert"
           className="flex items-start gap-1.5 text-xs leading-5 font-medium text-overdue"
         >
           <span aria-hidden="true">&#9650;</span>

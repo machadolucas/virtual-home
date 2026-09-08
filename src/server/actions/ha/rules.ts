@@ -39,8 +39,11 @@ export const upsertConditionRule = action(upsertConditionRuleInput, async (input
         kind: input.kind,
         name: input.name,
         scope: input.scope,
-        assetId: input.scope === "asset" ? (input.assetId ?? null) : (input.assetId ?? null),
-        haEntityRegistryId: input.haEntityRegistryId ?? null,
+        // Both target columns are cleared unless the scope actually uses them. Otherwise a rule
+        // edited from "one piece of equipment" down to "every battery" keeps the old `asset_id`,
+        // and the row reads as scoped to something it no longer watches.
+        assetId: input.scope === "asset" ? (input.assetId ?? null) : null,
+        haEntityRegistryId: input.scope === "entity" ? (input.haEntityRegistryId ?? null) : null,
         thresholdPct: input.thresholdPct ?? null,
         clearThresholdPct: input.clearThresholdPct ?? null,
         sustainMinutes: input.sustainMinutes ?? null,

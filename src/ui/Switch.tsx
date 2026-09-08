@@ -1,10 +1,11 @@
 "use client";
 
 import { Switch as RadixSwitch } from "radix-ui";
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { cn, focusRing } from "./cn";
 
 export interface SwitchProps {
+  /** Force a specific id. Omitted, one is generated — the label still points at it. */
   id?: string;
   name?: string;
   checked?: boolean;
@@ -23,6 +24,11 @@ export interface SwitchProps {
  * A switch means "takes effect immediately". Use `Checkbox` inside forms that
  * are submitted. The thumb travel is a transform, so it is a single 120 ms
  * transition that reduced-motion collapses to nothing.
+ *
+ * The id is generated when the caller does not supply one. It has to be: the
+ * visible label is a *sibling* of the control, not its parent, so without a
+ * resolving `htmlFor` the switch has no accessible name at all and the label
+ * is not clickable — and most call sites have no reason to invent an id.
  */
 export function Switch({
   id,
@@ -37,9 +43,12 @@ export function Switch({
   hint,
   className,
 }: SwitchProps) {
+  const generated = useId();
+  const controlId = id ?? generated;
+
   const control = (
     <RadixSwitch.Root
-      id={id}
+      id={controlId}
       name={name}
       checked={checked}
       defaultChecked={defaultChecked}
@@ -72,7 +81,7 @@ export function Switch({
     <div className={cn("flex min-h-11 items-start justify-between gap-4 py-1.5", className)}>
       <span className="flex min-w-0 flex-col">
         <label
-          htmlFor={id}
+          htmlFor={controlId}
           className={cn("text-sm leading-6 text-ink", disabled ? "opacity-55" : "cursor-pointer")}
         >
           {label}

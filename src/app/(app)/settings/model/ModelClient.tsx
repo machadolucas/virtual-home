@@ -51,10 +51,7 @@ function IncomingRow({ entry }: { entry: IncomingView }) {
   });
   const install = useAction(installModelPackage, {
     successTitle: "Package installed",
-    successDescription: (data) =>
-      data.alreadyInstalled
-        ? "That exact package was already installed; it is now the current one."
-        : `Fingerprint ${data.fingerprint.slice(0, 12)} is now current.`,
+    successDescription: (data) => installOutcome(data),
     onSuccess: () => {
       setOpen(false);
       router.refresh();
@@ -85,6 +82,9 @@ function IncomingRow({ entry }: { entry: IncomingView }) {
             size="sm"
             loading={validate.pending}
             icon={<FileSearch aria-hidden="true" />}
+            // One row per waiting package: the short visible text stays, the accessible name says
+            // which package it belongs to.
+            aria-label={`Check ${entry.name}`}
             onClick={() => validate.run({ directoryName: entry.name })}
           >
             Check it
@@ -98,6 +98,7 @@ function IncomingRow({ entry }: { entry: IncomingView }) {
                 size="sm"
                 disabled={!entry.looksLikePackage}
                 icon={<Download aria-hidden="true" />}
+                aria-label={`Install ${entry.name}`}
               >
                 Install
               </Button>
@@ -182,6 +183,38 @@ function IncomingRow({ entry }: { entry: IncomingView }) {
       )}
     </li>
   );
+}
+
+/**
+ * What the install actually did, in one sentence.
+ *
+ * The toast used to report only the fingerprint and drop `revision` on the floor — so the single
+ * most consequential outcome, "this opened a reconciliation with 34 rows waiting for a decision",
+ * was never said anywhere. It is also the one outcome that means the package on screen is *not*
+ * yet the one being drawn, which nothing else on the page would have told you.
+ */
+function installOutcome(data: {
+  alreadyInstalled: boolean;
+  fingerprint: string;
+  revision: { status: string; reconciliationId: string | null; itemCount: number } | null;
+}): string {
+  const base = data.alreadyInstalled
+    ? "That exact package was already installed; it is now the current one."
+    : `Fingerprint ${data.fingerprint.slice(0, 12)} is now current.`;
+
+  const revision = data.revision;
+  if (revision === null) return base;
+
+  switch (revision.status) {
+    case "reconciliation_open":
+      return `${base} It opened a reconciliation: ${revision.itemCount} row(s) point at identifiers this package does not carry and are waiting for a decision below. Until it is applied, the house view keeps drawing the previous package.`;
+    case "auto_carried":
+      return `${base} Every affected row was resolved from decisions already recorded, so no reconciliation was needed.`;
+    case "unchanged":
+      return `${base} Nothing referenced anything that moved.`;
+    default:
+      return base;
+  }
 }
 
 function Row({ term, value }: { term: string; value: string }) {

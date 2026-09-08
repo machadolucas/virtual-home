@@ -340,6 +340,9 @@ function Sessions({ list }: { list: SessionListState }) {
                   variant="danger"
                   size="sm"
                   loading={pending === row.id}
+                  // Destructive, and one per session row — "Sign out" alone does not say which
+                  // device is about to lose its session.
+                  aria-label={`Sign out ${row.device.label}, signed in ${row.createdLabel}`}
                   onClick={() => revoke(row)}
                 >
                   Sign out

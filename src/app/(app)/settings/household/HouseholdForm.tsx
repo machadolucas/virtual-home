@@ -89,11 +89,18 @@ export function HouseholdForm({
     >
       <Panel title="This household">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Display name" required help="What this installation calls itself.">
-            {({ id, describedBy }) => (
+          <Field
+            label="Display name"
+            required
+            help="What this installation calls itself."
+            error={fieldError("displayName")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 value={form.displayName}
                 onChange={(event) => set("displayName", event.target.value)}
               />
@@ -147,11 +154,14 @@ export function HouseholdForm({
             label="Remind again every"
             required
             help="How long an unfinished task waits before it is mentioned again."
+            error={fieldError("reminderIntervalDays")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 inputMode="numeric"
                 value={form.reminderIntervalDays}
                 onChange={(event) => set("reminderIntervalDays", event.target.value)}
@@ -164,12 +174,15 @@ export function HouseholdForm({
             label="Send window starts"
             required
             help="Nothing is delivered before this, even if it became due overnight."
+            error={fieldError("sendWindowStart")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 type="time"
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 value={form.sendWindowStart}
                 onChange={(event) => set("sendWindowStart", event.target.value)}
               />
@@ -198,11 +211,14 @@ export function HouseholdForm({
             label="Late if more than"
             required
             help="A reminder slot delivered later than this counts as late rather than on time, which is what the history records."
+            error={fieldError("slotGraceMinutes")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 inputMode="numeric"
                 value={form.slotGraceMinutes}
                 onChange={(event) => set("slotGraceMinutes", event.target.value)}
@@ -215,11 +231,14 @@ export function HouseholdForm({
             label="Outage if the worker is quiet for"
             required
             help="A gap this long in the worker's heartbeat means the reminders for that period were missed, and they are caught up rather than silently skipped."
+            error={fieldError("catchupGapMinutes")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 inputMode="numeric"
                 value={form.catchupGapMinutes}
                 onChange={(event) => set("catchupGapMinutes", event.target.value)}
@@ -232,11 +251,14 @@ export function HouseholdForm({
             label="Bundle catch-ups above"
             required
             help="After an outage, more than this many reminders for one person become a single digest instead of a burst of notifications."
+            error={fieldError("catchupDigestThreshold")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 inputMode="numeric"
                 value={form.catchupDigestThreshold}
                 onChange={(event) => set("catchupDigestThreshold", event.target.value)}
@@ -249,11 +271,14 @@ export function HouseholdForm({
             label="Accept notification buttons for"
             required
             help="How long a “Done” or “Snooze” button in a delivered notification stays valid. Older ones are ignored rather than acted on."
+            error={fieldError("actionTtlDays")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 inputMode="numeric"
                 value={form.actionTtlDays}
                 onChange={(event) => set("actionTtlDays", event.target.value)}
@@ -286,11 +311,14 @@ export function HouseholdForm({
             label="Low below"
             required
             help="A battery at or under this is worth acting on."
+            error={fieldError("batteryThresholdPct")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 inputMode="numeric"
                 value={form.batteryThresholdPct}
                 onChange={(event) => set("batteryThresholdPct", event.target.value)}
@@ -322,11 +350,14 @@ export function HouseholdForm({
             label="Low for at least"
             required
             help="How long it must stay low before a task is opened. A single dip while the radio transmits is not a flat battery."
+            error={fieldError("batterySustainMinutes")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 inputMode="numeric"
                 value={form.batterySustainMinutes}
                 onChange={(event) => set("batterySustainMinutes", event.target.value)}
@@ -339,11 +370,14 @@ export function HouseholdForm({
             label="Recovered for at least"
             required
             help="How long it must stay above the clear level before the episode is closed."
+            error={fieldError("batteryClearSustainMinutes")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 inputMode="numeric"
                 value={form.batteryClearSustainMinutes}
                 onChange={(event) => set("batteryClearSustainMinutes", event.target.value)}
@@ -356,11 +390,14 @@ export function HouseholdForm({
             label="Reading goes stale after"
             required
             help="Older than this and the app shows “last read 40 %” instead of “40 %”. It never shows 0 % for a reading it does not have."
+            error={fieldError("batteryStaleHours")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 inputMode="numeric"
                 value={form.batteryStaleHours}
                 onChange={(event) => set("batteryStaleHours", event.target.value)}
@@ -377,11 +414,14 @@ export function HouseholdForm({
             label="Look ahead"
             required
             help="How far the shopping list looks for tasks that will consume something. Only tasks that already exist count — nothing is forecast."
+            error={fieldError("reorderHorizonDays")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 inputMode="numeric"
                 value={form.reorderHorizonDays}
                 onChange={(event) => set("reorderHorizonDays", event.target.value)}

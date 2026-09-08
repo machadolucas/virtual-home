@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb, writeTx } from "@/db/client";
 import { newId, nowMs } from "@/db/ids";
 import { location, locationMapping } from "@/db/schema";
@@ -149,19 +149,29 @@ function upsert(
  * `suggestLocationMappings` only ever writes `source='suggested'` rows for pairings that have no
  * row at all, so this is safe to press repeatedly: it cannot overwrite a confirmation and cannot
  * resurrect a rejection.
+ *
+ * Two things it now avoids. It does not open a second write transaction to record that nothing
+ * happened — an audit row per fruitless press is noise in the one log that is supposed to be a
+ * record of decisions. And it returns `locationCount`, because "no new exact name matches were
+ * found" is the wrong sentence when the household has no rooms to match *against*: the matcher
+ * returns early in that case and never compares a single name.
  */
 export const refreshMappingSuggestions = action(z.object({}).optional(), async (_input, session) => {
   const handle = getDb();
+  const locationCount =
+    handle.db.select({ n: sql<number>`count(*)` }).from(location).get()?.n ?? 0;
   const suggestions = suggestLocationMappings(handle, nowMs());
-  writeTx(handle.db, (tx) => {
-    const ctx = userContext(session, tx);
-    writeAudit(tx, ctx, {
-      entityTable: "location_mapping",
-      entityId: "suggestions",
-      action: "updated",
-      summary: `${suggestions.length} new mapping suggestion(s) from exact name matches`,
+  if (suggestions.length > 0) {
+    writeTx(handle.db, (tx) => {
+      const ctx = userContext(session, tx);
+      writeAudit(tx, ctx, {
+        entityTable: "location_mapping",
+        entityId: "suggestions",
+        action: "updated",
+        summary: `${suggestions.length} new mapping suggestion(s) from exact name matches`,
+      });
     });
-  });
+  }
   revalidatePath("/settings/home-assistant");
-  return { added: suggestions.length };
+  return { added: suggestions.length, locationCount };
 });
