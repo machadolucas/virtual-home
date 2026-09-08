@@ -53,6 +53,19 @@ export type AnnotationSave = Omit<AnnotationDto, "id" | "needsReconciliation" | 
   id?: string;
 };
 
+/**
+ * Equipment that exists but has no position in this model yet. The workspace needs it to offer
+ * "place this" at all: `placements` only ever contains things already placed, so a freshly
+ * imported device would be invisible everywhere.
+ */
+export interface PlaceableEquipment {
+  assetId: string;
+  name: string;
+  category: string;
+  status: string;
+  locationName: string | null;
+}
+
 export interface HouseDataApi {
   listColorOverrides(modelId: string): Promise<Record<SurfaceId, string>>;
   saveColorOverrides(
@@ -80,6 +93,9 @@ export interface HouseDataApi {
    */
   listProjectOptions(modelId: string): Promise<ProjectOption[]>;
 
+  /** Equipment with no coordinates in this model yet, so the workspace can offer to place it. */
+  listPlaceableEquipment(modelId: string): Promise<PlaceableEquipment[]>;
+
   listAnnotations(modelId: string): Promise<AnnotationDto[]>;
   saveAnnotation(
     modelId: string,
@@ -88,6 +104,21 @@ export interface HouseDataApi {
   ): Promise<AnnotationDto>;
   deleteAnnotation(modelId: string, annotationId: string): Promise<void>;
 }
+
+/**
+ * Refusals this layer can say something useful about. Anything not listed falls back to the
+ * endpoint's own `error` code, which is at least a name rather than an HTTP verb and a number.
+ */
+const REQUEST_ERRORS: Record<string, string> = {
+  mount_surface_kind_mismatch: "That surface cannot take this kind of mount",
+  unknown_surface: "The model does not have that surface any more",
+  unknown_room: "The model does not have that room any more",
+  unknown_floor: "The model does not have that floor any more",
+  room_floor_mismatch: "That room is not on this floor",
+  unknown_attachment: "That photo is not in this household's files",
+  presentation_view_mode: "Leave the exploded or cutaway view before saving a position",
+  fingerprint_mismatch: "The model package changed while this was open — reload the house view",
+};
 
 /** Thrown when the server has no place to put the data yet; the caller keeps it in the store. */
 export class NotPersistedError extends Error {
@@ -113,6 +144,7 @@ export function createMemoryDataApi(
     endpoints?: EndpointDto[];
     annotations?: AnnotationDto[];
     projectOptions?: ProjectOption[];
+    placeableEquipment?: PlaceableEquipment[];
   } = {},
 ): HouseDataApi {
   const overrides = new Map<SurfaceId, string>(Object.entries(seed.overrides ?? {}));
@@ -182,6 +214,9 @@ export function createMemoryDataApi(
     async listProjectOptions() {
       return seed.projectOptions ?? [];
     },
+    async listPlaceableEquipment() {
+      return seed.placeableEquipment ?? [];
+    },
     async listAnnotations() {
       return [...annotations.values()];
     },
@@ -246,7 +281,17 @@ export function createRestDataApi(opts: RestDataApiOptions = {}): HouseDataApi {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       throw new NotPersistedError(body.error ?? "conflict");
     }
-    if (!res.ok) throw new Error(`${init?.method ?? "GET"} ${path} → ${res.status}`);
+    if (!res.ok) {
+      // The endpoint answers `{error, hint}` for every refusal it can explain (an unknown surface,
+      // a mount kind the surface cannot take, a coordinate outside the model). Throwing the status
+      // line instead put `PUT /house-model/…/placements → 400` in front of the household, which
+      // says nothing about what to change.
+      const body = (await res.json().catch(() => ({}))) as { error?: string; hint?: string };
+      const detail = [body.error && (REQUEST_ERRORS[body.error] ?? body.error), body.hint]
+        .filter(Boolean)
+        .join(" — ");
+      throw new Error(detail || `${init?.method ?? "GET"} ${path} → ${res.status}`);
+    }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
   }
@@ -347,6 +392,13 @@ export function createRestDataApi(opts: RestDataApiOptions = {}): HouseDataApi {
         `${model(modelId)}/routes?options=projects`,
       );
       return body.projects ?? [];
+    },
+
+    async listPlaceableEquipment(modelId) {
+      const body = await request<{ placeable: PlaceableEquipment[] }>(
+        `${model(modelId)}/placements?options=placeable`,
+      );
+      return body.placeable ?? [];
     },
 
     async listAnnotations(modelId) {
@@ -459,6 +511,10 @@ export function createResilientDataApi(
     listProjectOptions: wrap(
       remote.listProjectOptions.bind(remote),
       local.listProjectOptions.bind(local),
+    ),
+    listPlaceableEquipment: wrap(
+      remote.listPlaceableEquipment.bind(remote),
+      local.listPlaceableEquipment.bind(local),
     ),
     listAnnotations: wrap(remote.listAnnotations.bind(remote), local.listAnnotations.bind(local)),
     saveAnnotation: wrap(remote.saveAnnotation.bind(remote), local.saveAnnotation.bind(local)),

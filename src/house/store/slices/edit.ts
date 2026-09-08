@@ -24,6 +24,8 @@ export interface EditDraft {
   surfaceId: SurfaceId | null;
   locationNote: string;
   photoId: string | null;
+  /** Chosen silhouette, or `null` to let the view infer one from category and mount. */
+  symbol: string | null;
   dirty: boolean;
 }
 
@@ -46,12 +48,16 @@ export const COALESCE_MS = 400;
 export interface EditSlice {
   editing: EditDraft | null;
   original: EditDraft | null;
+  /** The exploded gap to put back when the editor closes; `null` outside an editing session. */
+  gapBeforeEdit: number | null;
   snap: SnapConfig;
   undo: UndoEntry[];
   redo: UndoEntry[];
   editError: string | null;
 
   beginEdit(draft: EditDraft): void;
+  /** Write the draft with no undo bookkeeping. Only undo/redo should use this. */
+  setDraft(draft: EditDraft): void;
   updateDraft(patch: Partial<EditDraft>, opts?: { coalesce?: boolean }): void;
   cancelEdit(): void;
   endEdit(): void;
@@ -65,6 +71,7 @@ export interface EditSlice {
 export const createEditSlice: StateCreator<HouseStore, Mutators, [], EditSlice> = (set, get) => ({
   editing: null,
   original: null,
+  gapBeforeEdit: null,
   snap: { grid: 0.05, rotationStep: 15, enabled: true, wallSnap: true },
   undo: [],
   redo: [],
@@ -80,6 +87,15 @@ export const createEditSlice: StateCreator<HouseStore, Mutators, [], EditSlice> 
       editing: draft,
       original: draft,
       editError: null,
+      // The stacks belong to one editing session. Carrying them across meant Undo could walk back
+      // into a *previous* draft and, because a draft entry carries its own `placementId`, save one
+      // placement's numbers onto another's row.
+      undo: [],
+      redo: [],
+      // Remember the gap so leaving the editor can put the exploded view back where it was;
+      // clearing it to 0 and never restoring left the On/Off button flipping its label and moving
+      // nothing until the slider was touched.
+      gapBeforeEdit: s.explode.gap,
       explode: { ...s.explode, enabled: false, gap: 0, locked: true },
     })),
 
@@ -107,13 +123,17 @@ export const createEditSlice: StateCreator<HouseStore, Mutators, [], EditSlice> 
       };
     }),
 
+  /** Replace the draft without touching the stacks — what undo and redo need. */
+  setDraft: (draft) => set({ editing: draft }),
+
   cancelEdit: () =>
     set((s) => ({
       editing: null,
       original: null,
       editError: null,
       undo: s.undo.filter((e) => e.t !== "draft"),
-      explode: { ...s.explode, locked: false },
+      explode: { ...s.explode, locked: false, gap: s.gapBeforeEdit ?? s.explode.gap },
+      gapBeforeEdit: null,
     })),
 
   endEdit: () =>
@@ -121,7 +141,9 @@ export const createEditSlice: StateCreator<HouseStore, Mutators, [], EditSlice> 
       editing: null,
       original: null,
       editError: null,
-      explode: { ...s.explode, locked: false },
+      undo: s.undo.filter((e) => e.t !== "draft"),
+      explode: { ...s.explode, locked: false, gap: s.gapBeforeEdit ?? s.explode.gap },
+      gapBeforeEdit: null,
     })),
 
   setSnap: (patch) => set((s) => ({ snap: { ...s.snap, ...patch } })),

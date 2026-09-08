@@ -12,7 +12,14 @@ import { snapValue } from "@/house/model/geometry2d";
 import { coordinateStamp, reconcile } from "@/house/model/reconcile";
 import type { PlacementMount, Vec3 } from "@/house/model/types";
 import type { PickResult } from "@/house/scene/picker";
-import { assertPhysicalY, resolveNumeric, resolveSnap, WALL_STANDOFF } from "@/house/scene/snap";
+import {
+  assertPhysicalY,
+  isSoffitSurface,
+  resolveNumeric,
+  resolveSnap,
+  WALL_STANDOFF,
+} from "@/house/scene/snap";
+import { dragCandidates } from "@/house/scene/picker";
 import { wallFrame } from "@/house/scene/wallFrame";
 import { COALESCE_MS, UNDO_LIMIT, type EditDraft } from "@/house/store/slices/edit";
 import { createHouseStore } from "@/house/store/createHouseStore";
@@ -458,6 +465,278 @@ function draft(): EditDraft {
     surfaceId: null,
     locationNote: "",
     photoId: null,
+    symbol: null,
     dirty: false,
   };
 }
+
+/**
+ * Ceilings and eaves — the mount that used to be impossible.
+ *
+ * The house has lamps under its eaves, and the package models a roof underside as a surface of
+ * kind `other` (`s-e-roof-house-under`). Those were absent from the pick set, and the workspace's
+ * mount union only knew `floor` and `wall`, so an eave spot could not be expressed even though the
+ * database column and the endpoint both accepted a ceiling mount.
+ */
+describe("ceiling and soffit snapping", () => {
+  const built = buildScene(FIXTURE_DIR);
+
+  it("recognises a soffit by kind or by the package's id convention", () => {
+    expect(isSoffitSurface("s-r-l-a-ceiling", "ceiling")).toBe(true);
+    // The real package's roof undersides, which are kind `other`.
+    expect(isSoffitSurface("s-e-roof-house-under", "other")).toBe(true);
+    expect(isSoffitSurface("s-e-roof-garage-under", "other")).toBe(true);
+    expect(isSoffitSurface("s-e-eave-north", "other")).toBe(true);
+    // Everything else of kind `other` keeps falling through to the free plane.
+    expect(isSoffitSurface("s-e-terrain-fx", "other")).toBe(false);
+    expect(isSoffitSurface("s-e-f-ground-ext-out-0-wood", "wall")).toBe(false);
+  });
+
+  it("hangs a fixture from the ceiling it was aimed at", () => {
+    const solution = resolveSnap({
+      hit: hitOn(built, "s-r-l-a-ceiling", "r-l-a", new THREE.Vector3(1.53, 2.4, 1.47)),
+      config: SNAP,
+      manifest: built.manifestIndex,
+      draft: draftAt([0, 0, 0], "f-lower"),
+    });
+
+    expect(solution.mount.kind).toBe("ceiling");
+    expect(solution.surfaceId).toBe("s-r-l-a-ceiling");
+    // Flush with the surface until a drop is typed.
+    expect(solution.physical[1]).toBeCloseTo(2.4, 6);
+    expect(solution.roomId).toBe("r-l-a");
+  });
+
+  it("drops a pendant by the height given, measured from the surface downwards", () => {
+    const solution = resolveSnap({
+      hit: hitOn(built, "s-r-l-a-ceiling", "r-l-a", new THREE.Vector3(1.5, 2.4, 1.5)),
+      config: SNAP,
+      manifest: built.manifestIndex,
+      draft: draftAt([0, 0, 0], "f-lower", {
+        kind: "ceiling",
+        surfaceId: "s-r-l-a-ceiling",
+        height: 0.35,
+        offset: 0,
+      }),
+    });
+    expect(solution.physical[1]).toBeCloseTo(2.4 - 0.35, 6);
+    expect(solution.mount).toMatchObject({ kind: "ceiling", height: 0.35 });
+  });
+
+  it("keeps a ceiling mount out of the way of the wall snap", () => {
+    // A wall hit still wall-snaps: the ceiling branch runs before the floor branch, so it has to
+    // be narrow enough not to swallow the wall case that comes before it.
+    const surfaceId = "s-w-l-ab--r-l-b";
+    const room = built.manifestIndex.rooms.get("r-l-b")!;
+    const mesh = built.index.surfaceMesh.get(surfaceId)!;
+    const anchorPoint = built.manifestIndex.roomAnchors.get(room.id)!.point;
+    const frame = wallFrame(mesh, {
+      towards: new THREE.Vector3(anchorPoint[0], anchorPoint[1], anchorPoint[2]),
+    });
+    const target = frame.toWorld(0.6, room.floorElevation + 1.1, 0);
+
+    const wall = resolveSnap({
+      hit: hitOn(built, surfaceId, room.id, target),
+      config: SNAP,
+      manifest: built.manifestIndex,
+      draft: draftAt([0, 0, 0], "f-lower"),
+      meshOf: (id) => built.index.surfaceMesh.get(id),
+      anchorOf: (id) => built.manifestIndex.roomAnchors.get(id)?.point,
+    });
+    expect(wall.mount.kind).toBe("wall");
+  });
+
+  it("admits ceilings and soffits to the pick set, whatever floor is isolated", () => {
+    const candidates = dragCandidates(built.index, "f-lower");
+    const names = candidates.map((c) => c.name);
+    // A ceiling of the isolated floor is aimable…
+    expect(names.some((n) => n.includes("ceiling"))).toBe(true);
+    // …and so are floors and walls, as before.
+    expect(names.some((n) => n.includes("floor"))).toBe(true);
+  });
+});
+
+/**
+ * The undo stack, which used to grow as you undid.
+ *
+ * `UndoBar` applied an entry through `updateDraft`, which pushes a *new* entry and clears the redo
+ * stack — so Undo never reached further than one step and Redo could never become enabled. A draft
+ * entry also carries its own `placementId`, so a stack surviving `endEdit` could write one
+ * placement's numbers onto another's row.
+ */
+describe("undo and redo", () => {
+  const stepsOf = (store: ReturnType<typeof createHouseStore>) => store.getState().undo.length;
+
+  it("walks back through every step, not just the last one", () => {
+    const store = createHouseStore();
+    store.getState().beginEdit(draft());
+
+    store.getState().updateDraft({ physical: [1, 0, 1] });
+    store.getState().updateDraft({ physical: [2, 0, 2] });
+    store.getState().updateDraft({ physical: [3, 0, 3] });
+    expect(stepsOf(store)).toBe(3);
+
+    // What UndoBar does now: pop, then write the draft *without* recording a new step.
+    const first = store.getState().popUndo();
+    store.getState().setDraft((first as { before: EditDraft }).before);
+    expect(store.getState().editing?.physical).toEqual([2, 0, 2]);
+    expect(stepsOf(store)).toBe(2);
+
+    const second = store.getState().popUndo();
+    store.getState().setDraft((second as { before: EditDraft }).before);
+    expect(store.getState().editing?.physical).toEqual([1, 0, 1]);
+    expect(stepsOf(store)).toBe(1);
+  });
+
+  it("fills the redo stack as it goes, so a step can be re-applied", () => {
+    const store = createHouseStore();
+    store.getState().beginEdit(draft());
+    store.getState().updateDraft({ physical: [1, 0, 1] });
+
+    const entry = store.getState().popUndo();
+    store.getState().setDraft((entry as { before: EditDraft }).before);
+    expect(store.getState().redo).toHaveLength(1);
+
+    const back = store.getState().popRedo();
+    store.getState().setDraft((back as { after: EditDraft }).after);
+    expect(store.getState().editing?.physical).toEqual([1, 0, 1]);
+  });
+
+  it("starts each editing session with empty stacks", () => {
+    const store = createHouseStore();
+    store.getState().beginEdit(draft());
+    store.getState().updateDraft({ physical: [9, 0, 9] });
+    store.getState().endEdit();
+
+    // Session two must not be able to reach session one's numbers.
+    store.getState().beginEdit({ ...draft(), placementId: "other-placement" });
+    expect(store.getState().undo).toEqual([]);
+    expect(store.getState().redo).toEqual([]);
+  });
+
+  it("puts the exploded view back the way it was found", () => {
+    const store = createHouseStore();
+    store.getState().setExplode({ enabled: true, gap: 2.5 });
+
+    store.getState().beginEdit(draft());
+    expect(store.getState().explode.gap).toBe(0);
+
+    store.getState().endEdit();
+    // Leaving it at 0 made the On/Off button flip its label and move nothing.
+    expect(store.getState().explode.gap).toBe(2.5);
+    expect(store.getState().explode.locked).toBe(false);
+
+    store.getState().beginEdit(draft());
+    store.getState().cancelEdit();
+    expect(store.getState().explode.gap).toBe(2.5);
+  });
+});
+
+describe("the not-placed-yet list", () => {
+  const equipment = {
+    assetId: "asset-1",
+    name: "Yard lamp",
+    category: "outdoor",
+    status: "installed",
+    locationName: null,
+  };
+
+  it("drops equipment when it is placed and takes it back when the placement is removed", () => {
+    const store = createHouseStore();
+    store.getState().setPlaceable([equipment]);
+
+    store.getState().markPlaced("asset-1");
+    expect(store.getState().placeable).toEqual([]);
+
+    // Removing a placement says "it is not here", not "it does not exist".
+    store.getState().restorePlaceable(equipment);
+    expect(store.getState().placeable.map((e) => e.assetId)).toEqual(["asset-1"]);
+  });
+
+  it("does not list the same equipment twice", () => {
+    const store = createHouseStore();
+    store.getState().setPlaceable([equipment]);
+    store.getState().restorePlaceable(equipment);
+    expect(store.getState().placeable).toHaveLength(1);
+  });
+});
+
+/**
+ * Typed numbers move the marker.
+ *
+ * `resolveNumeric` used to derive the position from the mount only for a floor mount with a room,
+ * so typing a height on a wall, ceiling or free mount changed `mount` and nothing else — and the
+ * row was saved with the old `pos_y` beside the new `mount_height_m`. The inspector then read one
+ * number while the marker sat at another.
+ */
+describe("numeric editing across mount kinds", () => {
+  const built = buildScene(FIXTURE_DIR);
+  const room = built.manifestIndex.rooms.get("r-l-b")!; // floor at −0.2
+
+  it("puts a floor mount at the room's own floor plus the height", () => {
+    const solution = resolveNumeric(
+      built.manifestIndex,
+      draftAt([3.5, 0, 2], "f-lower", { kind: "floor", height: 1.2 }),
+      SNAP,
+    );
+    expect(solution.physical[1]).toBeCloseTo(room.floorElevation + 1.2, 6);
+  });
+
+  it("moves a free mount too, instead of leaving the height as a lonely number", () => {
+    const solution = resolveNumeric(
+      built.manifestIndex,
+      draftAt([3.5, 0, 2], "f-lower", { kind: "free", height: 2 }),
+      SNAP,
+    );
+    expect(solution.physical[1]).toBeCloseTo(room.floorElevation + 2, 6);
+  });
+
+  it("drops a ceiling mount from the surface it hangs on, using the previous drop to find it", () => {
+    // The marker is at 2.4 with no drop, so the surface is at 2.4; a 0.5 m drop puts it at 1.9.
+    const solution = resolveNumeric(
+      built.manifestIndex,
+      draftAt([1.5, 2.4, 1.5], "f-lower", {
+        kind: "ceiling",
+        surfaceId: "s-r-l-a-ceiling",
+        height: 0.5,
+        offset: 0,
+      }),
+      SNAP,
+      { previousMount: { kind: "ceiling", surfaceId: "s-r-l-a-ceiling", height: 0, offset: 0 } },
+    );
+    expect(solution.physical[1]).toBeCloseTo(1.9, 6);
+    expect(solution.surfaceId).toBe("s-r-l-a-ceiling");
+  });
+
+  it("projects a wall mount onto its wall, so the standoff moves the marker", () => {
+    const surfaceId = "s-w-l-ab--r-l-b";
+    const mesh = built.index.surfaceMesh.get(surfaceId)!;
+    const anchor = built.manifestIndex.roomAnchors.get(room.id)!.point;
+    const frame = wallFrame(mesh, {
+      towards: new THREE.Vector3(anchor[0], anchor[1], anchor[2]),
+    });
+    const onFace = frame.toWorld(0.6, room.floorElevation + 1.1, WALL_STANDOFF);
+
+    const solution = resolveNumeric(
+      built.manifestIndex,
+      {
+        physical: [onFace.x, onFace.y, onFace.z],
+        rotationYDeg: 0,
+        mount: { kind: "wall", surfaceId, height: 1.4, offset: WALL_STANDOFF },
+        floorId: "f-lower",
+      },
+      SNAP,
+      {
+        meshOf: (id) => built.index.surfaceMesh.get(id),
+        anchorOf: (id) => built.manifestIndex.roomAnchors.get(id)?.point,
+      },
+    );
+
+    // The height is measured from the room's own floor, and the point stays on the wall plane.
+    expect(solution.physical[1]).toBeCloseTo(room.floorElevation + 1.4, 3);
+    const local = frame.toLocal(
+      new THREE.Vector3(solution.physical[0], solution.physical[1], solution.physical[2]),
+    );
+    expect(local.d).toBeCloseTo(WALL_STANDOFF, 3);
+  });
+});

@@ -12,17 +12,29 @@ export function UndoBar() {
   );
   const popUndo = useHouseStore((s) => s.popUndo);
   const popRedo = useHouseStore((s) => s.popRedo);
-  const updateDraft = useHouseStore((s) => s.updateDraft);
+  const setDraft = useHouseStore((s) => s.setDraft);
 
   if (!editing) return null;
 
+  /**
+   * Undo writes the draft **without** the undo bookkeeping.
+   *
+   * It used to go through `updateDraft`, which pushes a new undo entry and clears the redo stack —
+   * so the stack grew as you undid, Undo never reached further than one step, and Redo could never
+   * become enabled. A step also carries its own `placementId`, so applying one from a previous
+   * editing session would have written those numbers onto whatever row is open now; the entry is
+   * therefore refused unless it belongs to this draft.
+   */
+  const belongsHere = (entry: { before: { placementId: string | null } }) =>
+    entry.before.placementId === editing.placementId;
+
   const applyUndo = () => {
     const entry = popUndo();
-    if (entry?.t === "draft") updateDraft(entry.before);
+    if (entry?.t === "draft" && belongsHere(entry)) setDraft(entry.before);
   };
   const applyRedo = () => {
     const entry = popRedo();
-    if (entry?.t === "draft") updateDraft(entry.after);
+    if (entry?.t === "draft" && belongsHere({ before: entry.after })) setDraft(entry.after);
   };
 
   return (

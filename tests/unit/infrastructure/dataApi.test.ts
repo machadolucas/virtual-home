@@ -156,6 +156,8 @@ describe("REST client", () => {
       locationNote: "left of the hatch",
       photoId: "att-1",
       entityId: null,
+      symbol: null,
+      category: null,
     });
     const sent = calls[0]?.body.placement as Record<string, unknown>;
     expect(sent.mount).toEqual({ kind: "wall", surfaceId: "s-w-1", height: 1.4, offset: 0.02 });

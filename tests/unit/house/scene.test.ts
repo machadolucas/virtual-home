@@ -387,6 +387,8 @@ describe("explode (fixture)", () => {
       locationNote: "",
       photoId: null,
       entityId: null,
+      symbol: null,
+      category: null,
     };
     markers.set([placement], () => "live", () => "f-upper");
     applyExplode(built.index, { enabled: true, gap: 2.5 });
