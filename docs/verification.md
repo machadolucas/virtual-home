@@ -15,7 +15,7 @@ Update the tables when results change; never record a number that was not measur
 | HA socket: auth, reconnect, resubscribe, heartbeat, registry re-list | `tests/unit/ha/*` | pending |
 | Model manifest validation, colour-plan isolation, visibility/explode policy, geometry | `tests/unit/house/*` | pending |
 | Auth boundary: 401/redirect, expired/revoked, sign-up blocked, rate limit, open redirect | `tests/unit/auth/*` | pending |
-| Browser, auth boundary: sign-in, private attachment, model API closed, session revocation, password change, deep link, open redirect, health | `tests/e2e/auth.spec.ts` | **8 passed, 0 failed** per project when each project is run on its own (`--project=desktop`, then `--project=phone`); a single invocation of *both* projects fails 1 on `phone` for a reason inside that spec — findings 4–5 below (2026-09-08) |
+| Browser, auth boundary: sign-in, private attachment, model API closed, session revocation, password change, deep link, open redirect, health | `tests/e2e/auth.spec.ts` (both projects, one invocation) | **16 passed, 0 failed** — 8 per project (2026-09-08) |
 | Files: safeJoin, sniffing, EXIF stripping, upload cap | `tests/unit/files/*` | pending |
 | Backup/restore round trip | `tests/integration/backup-restore.test.ts` | pending |
 | Browser, fixture package: load integrity, selection + URL sync, click picking, colour isolation, visibility, views, explode, on-demand rendering, asset auth/ETag, mount→unmount→mount disposal | `tests/e2e/house.spec.ts` (`--project=desktop`) | **14 passed, 1 skipped, 1 fixme, 0 failed** of 16 (2026-09-08) |
@@ -71,8 +71,23 @@ which is what makes the colour-persistence bug reproducible there and nowhere el
 
 Browser suites (production build, headless Chromium, 2026-09-08): `house.spec.ts` 14 passed / 1 skipped
 (needs a seeded equipment record) / 0 failed; `house-real.spec.ts` (real package, run separately) 8 passed
-incl. colour persistence across reload; `auth.spec.ts` 8/8 per project; `screenshots.spec.ts` 16 PNGs.
-Playwright runs projects with one worker because they share one harness database.
+incl. colour persistence across reload; `auth.spec.ts` 16/16 with both projects in one invocation;
+`screenshots.spec.ts` 16 PNGs.
+
+**`auth.spec.ts` across two projects, and why `workers: 1` is not negotiable.** Until 2026-09-08 a
+single invocation of both projects failed `changing the password retires the old one` on `phone`
+(and, the file being `mode: "serial"`, skipped the rest of that project). The cause was in the
+suite, not the app: `fixtures.ts`'s `nextClientIp()` counted up from a fixed prefix, and Playwright
+runs each project in its own worker process, so `phone` restarted the counter and handed out the
+addresses `desktop` had just used. Better Auth keys its rate limits by address **plus** path and
+allows 3 `/change-password` calls per 10 s, so the two projects' four calls shared one bucket and
+the test's restore step was answered 429 ("Too many attempts, wait a minute."). Client addresses are
+random per context now — the same thing the house helper already did — and both projects pass in one
+invocation. Running the same file with `--workers=2` still fails, by design and not because of the
+addresses: the projects then run in parallel against one harness database and one pair of seeded
+users, so `desktop`'s "sign out others" revokes the `phone` session that is mid-test (measured
+2026-09-08: `signing out other devices …` fails on `phone`, with both projects' user agents listed
+under one account). That is what `workers: 1` in `playwright.config.ts` exists to prevent.
 
 ## Not verified / limitations
 - Live Home Assistant delivery to phones: requires `HA_TOKEN` on the server; until then tests use the fake HA server.

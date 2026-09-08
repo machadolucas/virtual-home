@@ -8,6 +8,7 @@
  * These are throwaway passwords for a throwaway data directory on 127.0.0.1. Real household
  * passwords never appear in this repository (CLAUDE.md rule 1).
  */
+import { randomInt } from "node:crypto";
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 
 export interface E2eUser {
@@ -40,19 +41,26 @@ function resolveUser(who: E2eUserKey | E2eUser): E2eUser {
 }
 
 /**
- * A distinct client address per browser context.
+ * A distinct, random client address per browser context.
  *
- * Sign-in is rate limited to 5 attempts per minute **per IP** (`buildAuthOptions`), and every
- * request in this suite arrives from 127.0.0.1 — so without this, a handful of tests would start
- * getting 429s instead of exercising what they are about. Better Auth reads the client address
- * from `x-forwarded-for` (`advanced.ipAddress.ipAddressHeaders`), which is exactly what the
- * reverse proxy sets in production, so each context simply claims its own address.
+ * Sign-in is rate limited to 5 attempts per minute **per IP** (`buildAuthOptions`), and Better Auth
+ * adds a default rule of its own — 3 requests per 10 s for `/sign-in`, `/sign-up`, `/change-password`
+ * and `/change-email`, keyed by address **plus** path. Every request in this suite arrives from
+ * 127.0.0.1, so without a per-context address a handful of tests would get 429s instead of
+ * exercising what they are about. Better Auth reads the address from `x-forwarded-for`
+ * (`advanced.ipAddress.ipAddressHeaders`), which is exactly what the reverse proxy sets in
+ * production, so each context simply claims its own.
+ *
+ * Random, not a counter: Playwright runs each project in its own worker process, so a counter
+ * restarts at 1 for the second project and hands out the very addresses the first one just used.
+ * That is what made "changing the password retires the old one" fail on `phone` whenever both
+ * projects ran in a single invocation — the two projects' four `/change-password` calls landed in
+ * one 10 s window on one bucket (max 3), so the test's restore step was answered 429 and, this
+ * file being `mode: "serial"`, the remaining tests never ran. Two runs a minute apart against a
+ * reused server (`reuseExistingServer` is on outside CI) collided the same way.
  */
-let ipCounter = 0;
-
 export function nextClientIp(): string {
-  ipCounter += 1;
-  return `10.42.${Math.floor(ipCounter / 250)}.${(ipCounter % 250) + 1}`;
+  return `10.${randomInt(64, 128)}.${randomInt(0, 256)}.${randomInt(1, 255)}`;
 }
 
 /** Where `start-server.ts` put the app; the same expression `playwright.config.ts` uses. */

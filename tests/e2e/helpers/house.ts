@@ -15,11 +15,10 @@
  *    cross the `page.evaluate` boundary. The wrappers below project every result to plain data
  *    inside the page.
  */
-import { randomInt } from "node:crypto";
 import type { Browser, BrowserContext, JSHandle, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import type { VhHook } from "@/house/test/testHook";
-import { e2eBaseUrl, login, type E2eUser, type E2eUserKey } from "../fixtures";
+import { e2eBaseUrl, login, nextClientIp, type E2eUser, type E2eUserKey } from "../fixtures";
 
 // ---------------------------------------------------------------------------
 // plain-data mirrors of the hook's return types
@@ -300,15 +299,12 @@ export async function openHouseSession(
 }
 
 /**
- * A random client address per context.
- *
- * Not `fixtures.ts`'s `nextClientIp()`: that counter restarts with every Playwright process, so
- * two runs a minute apart against the same reused server (`reuseExistingServer` is on outside CI)
- * hand out the same addresses and the second run trips the 5-attempts-per-minute sign-in limit.
- * A random address per context makes a house run independent of what ran before it.
+ * A random client address per context — `fixtures.ts`'s `nextClientIp()`, under the name the house
+ * specs read with. The randomness (and why a counter collides across projects and across runs) is
+ * documented there.
  */
 export function houseClientIp(): string {
-  return `10.${randomInt(64, 128)}.${randomInt(0, 256)}.${randomInt(1, 255)}`;
+  return nextClientIp();
 }
 
 /** The device-shaped half of the running project's `use` block. */

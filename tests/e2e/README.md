@@ -137,20 +137,23 @@ so no household geometry, database row or render survives the run.
 - **`test-results/` is wiped at the start of every run.** It is Playwright's `outputDir`, so the
   screenshots and `house-measurements.json` belong to whichever spec ran last unless you move the
   wipe with `--output=<dir>` — see the sequence under **Running**.
-- **House sessions use a random `x-forwarded-for`**, not `fixtures.ts`'s `nextClientIp()`: that
-  counter restarts with each Playwright process, so two runs a minute apart against the same reused
-  server hand out the same addresses and the second trips the sign-in rate limit.
+- **Every context claims a random `x-forwarded-for`** (`fixtures.ts`'s `nextClientIp()`, which
+  `houseClientIp()` now simply calls). Not a counter: it restarts with each Playwright worker
+  process — one per project — so the second project, or a rerun a minute later against a reused
+  server, would hand out the same addresses and inherit their rate-limit buckets.
 - **Known app bugs the suite records rather than works around** (plan-view camera, pose loss on a
   projection switch, saved colours never reaching the scene) are written up in `docs/verification.md`
   and carried as `test.fixme` with the same notes. To re-verify one, flip its `test.fixme` to `test`,
   run it, read the failure, and flip it back — that is how the 2026-09-08 figures in
   `docs/verification.md` (polar 63.83°; `#d9c3a5` in the scene against `#ff00ff` in the inspector)
   were taken.
-- **`auth.spec.ts` fails on `phone` when both projects run in one invocation.** Both projects upload
-  the same deterministic PNG (`pngBytes(1)`), so the second upload is deduped and `/api/upload`
-  answers `200 … "deduped": true` where `uploadPhoto` asserts `201`. Each project passes 8/8 on its
-  own. Written up as findings 4 and 5 in `docs/verification.md`; the fix belongs in `auth.spec.ts`,
-  which the house suite does not own.
+- **`auth.spec.ts` passes 16/16 with both projects in one invocation** (fixed 2026-09-08). It used
+  to fail `changing the password retires the old one` on `phone`, because `nextClientIp()` was a
+  per-process counter and the second project reused the first's addresses — and with them its
+  `/change-password` rate-limit bucket (3 per 10 s per address + path). Random addresses per context
+  fixed it; `docs/verification.md` carries the write-up. What still fails, by design, is
+  `--workers=2`: the two projects then run in parallel against one database and one pair of seeded
+  users, and "sign out others" in one project ends the other's session. Hence `workers: 1`.
 - **The scripted orbit is ~25 key steps in 2 s, not §13.3's 60.** Each Playwright key press costs
   ~80 ms against a rendering page, so the sampled p95 blends orbit frames with idle rAF cadence and
   is a floor on the real per-frame cost. `orbitScripted()` uses `page.keyboard.press()` after a

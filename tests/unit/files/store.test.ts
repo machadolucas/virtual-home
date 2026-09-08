@@ -183,6 +183,32 @@ describe("storeUpload — photo", () => {
     expect(handle.db.select().from(attachment).all()).toHaveLength(1);
   });
 
+  it("dedupes two concurrent uploads of the same bytes instead of failing the loser", async () => {
+    const bytes = await photo(6);
+    const dir = path.join(loadEnv().attachDir, ...relDirFor(Date.now()).split("/"));
+    const before = new Set(await fs.readdir(dir).catch(() => []));
+
+    // The dedupe read before the insert is not the arbiter: both calls stage, hash and build their
+    // derivatives before either writes, so both can see an empty table. `writeTx` (BEGIN IMMEDIATE)
+    // re-reads inside the transaction, so the loser returns the winner's row rather than tripping
+    // `ux_attachment_sha256` — which would surface to the browser as a 500 on a duplicate upload.
+    const [first, second] = await Promise.all([
+      storeUpload({ buffer: bytes, origName: "phone.jpg", uploadedBy: uploader }),
+      storeUpload({ buffer: bytes, origName: "laptop.jpg", uploadedBy: uploader }),
+    ]);
+
+    expect(second.row.id).toBe(first.row.id);
+    expect([first.deduped, second.deduped].sort()).toEqual([false, true]);
+    expect(handle.db.select().from(attachment).all()).toHaveLength(1);
+
+    // The loser leaves nothing behind: the only new files are the winner's original and its two
+    // derivatives.
+    const added = (await fs.readdir(dir)).filter((f) => !before.has(f));
+    expect(added).toHaveLength(3);
+    expect(added.filter((f) => f.startsWith(first.row.id))).toHaveLength(3);
+    expect(await tmpEntries()).toEqual([]);
+  });
+
   it("cleans up its staging files", async () => {
     await storeUpload({ buffer: await photo(5), origName: "a.jpg", uploadedBy: uploader });
     expect(await tmpEntries()).toEqual([]);
