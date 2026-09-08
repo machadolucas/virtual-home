@@ -76,8 +76,8 @@ describe("placement mount round trip", () => {
     });
     expect(created.placement.surfaceId).toBe("s-w-l-ab--r-l-a");
     expect(created.placement.locationNote).toBe("Left of the hatch, above the manifold");
-    // The one field that still cannot round-trip is named, not hidden.
-    expect(created.partialFields).toEqual(["entityId"]);
+    // Nothing is partial any more: the HA entity link is joined in rather than reported missing.
+    expect(created.partialFields).toEqual([]);
 
     const row = h.handle.db.select().from(assetPlacement).all()[0];
     expect(row?.mountKind).toBe("wall");
@@ -106,17 +106,49 @@ describe("placement mount round trip", () => {
     expect(created.placement.mount.height).toBeCloseTo(1, 3);
   });
 
-  it("stores a ceiling mount, and answers it in the workspace's narrower union", async () => {
+  it("stores a ceiling mount and answers it as a ceiling mount", async () => {
     const created = await bodyOf<{ placement: PersistedPlacement }>(
       await put({
         position: [1.5, 2.4, 1.5],
         mount: { kind: "ceiling", surfaceId: "s-r-l-a-ceiling", height: 2.4, offset: 0.01 },
       }),
     );
-    // The true value travels beside the narrower one, so nothing is silently coarsened.
+    // It used to come back narrowed to a wall mount, because the workspace's union had no name
+    // for a ceiling. It has one now — which is what makes an eave fixture expressible.
     expect(created.placement.mountKind).toBe("ceiling");
-    expect(created.placement.mount).toMatchObject({ kind: "wall", surfaceId: "s-r-l-a-ceiling" });
+    expect(created.placement.mount).toMatchObject({
+      kind: "ceiling",
+      surfaceId: "s-r-l-a-ceiling",
+      height: 2.4,
+      offset: 0.01,
+    });
     expect(h.handle.db.select().from(assetPlacement).all()[0]?.mountKind).toBe("ceiling");
+  });
+
+  it("stores a free mount as free, rather than flattening it to a floor mount", async () => {
+    const created = await bodyOf<{ placement: PersistedPlacement }>(
+      await put({ position: [1.5, 1.8, 1.5], mount: { kind: "free", height: 1.8 } }),
+    );
+    expect(created.placement.mountKind).toBe("free");
+    expect(created.placement.mount).toMatchObject({ kind: "free" });
+  });
+
+  it("round-trips the chosen symbol, and leaves it null when nobody chose", async () => {
+    const withSymbol = await bodyOf<{ placement: PersistedPlacement & { symbol: string | null } }>(
+      await put({ position: [1.5, 0.4, 1.5], symbol: "lamp_post" }),
+    );
+    expect(withSymbol.placement.symbol).toBe("lamp_post");
+
+    const listed = await bodyOf<{ placements: (PersistedPlacement & { symbol: string | null })[] }>(
+      await list(),
+    );
+    expect(listed.placements[0]?.symbol).toBe("lamp_post");
+
+    // Clearing it hands the decision back to the view's inference.
+    const cleared = await bodyOf<{ placement: PersistedPlacement & { symbol: string | null } }>(
+      await put({ position: [1.5, 0.4, 1.5], symbol: null }),
+    );
+    expect(cleared.placement.symbol).toBeNull();
   });
 
   it("refuses a wall mount on a surface that is not a wall", async () => {
@@ -158,9 +190,183 @@ describe("placement mount round trip", () => {
     expect(h.handle.db.select().from(assetPlacement).all()).toHaveLength(0);
   });
 
-  it("reports the mount as no longer partial", () => {
+  it("reports nothing as partial, the HA entity link included", () => {
     expect(PARTIAL_FIELDS).not.toContain("mount");
     expect(PARTIAL_FIELDS).not.toContain("locationNote");
     expect(PARTIAL_FIELDS).not.toContain("photoId");
+    // It was listed here while the endpoint hardcoded `entityId: null`, which left the whole live
+    // layer in the 3D view dark: the stream subscribes to exactly these ids.
+    expect(PARTIAL_FIELDS).not.toContain("entityId");
+  });
+});
+
+/**
+ * Outdoor equipment: a yard lamp or an eave spot sits outside every room footprint, because the
+ * package's `rooms` are interior only. The endpoint always accepted it; the workspace used to
+ * refuse to save it, which made every outdoor fixture unplaceable.
+ */
+describe("placement outside every room", () => {
+  it("stores a placement with no room, anchored to the floor", async () => {
+    const created = await bodyOf<{ placement: PersistedPlacement }>(
+      await put({ position: [8, 0.4, 6.5], roomId: null, locationNote: "In the eave, above the wood store" }),
+    );
+
+    expect(created.placement.roomId).toBeNull();
+    expect(created.placement.floorId).toBe("f-lower");
+    expect(created.placement.locationNote).toBe("In the eave, above the wood store");
+
+    const row = h.handle.db.select().from(assetPlacement).all()[0];
+    // The anchor is the floor node, which is what `resolveNode` falls back to when no room
+    // contains the point.
+    expect(row?.modelNodeId).toBe("f-lower");
+
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements).toHaveLength(1);
+    expect(listed.placements[0]?.roomId).toBeNull();
+  });
+});
+
+/**
+ * `?options=placeable` is how the workspace learns what there is left to place. Without it,
+ * equipment imported from Home Assistant appeared nowhere: the tree and search both read
+ * `placements`, which only ever holds things already placed.
+ */
+describe("placeable equipment options", () => {
+  const placeable = () =>
+    GET(
+      jsonRequest(`/api/house-model/${h.modelId}/placements?options=placeable`, "GET"),
+      ctx({ modelId: h.modelId }),
+    );
+
+  it("lists equipment that has no placement yet", async () => {
+    const body = await bodyOf<{ placeable: { assetId: string; name: string }[] }>(await placeable());
+    expect(body.placeable.map((e) => e.assetId)).toContain(equipmentId);
+  });
+
+  it("drops it once it has coordinates", async () => {
+    await put({ position: [1.5, 0.4, 1.5] });
+    const body = await bodyOf<{ placeable: { assetId: string }[] }>(await placeable());
+    expect(body.placeable.map((e) => e.assetId)).not.toContain(equipmentId);
+  });
+
+  it("still offers equipment whose placement is a location-only record", async () => {
+    // No coordinates: nothing to draw, so it still needs placing.
+    h.handle.db
+      .insert(assetPlacement)
+      .values({
+        id: "loc-only",
+        assetId: equipmentId,
+        modelRevisionId: h.revisionId,
+        modelNodeId: "f-lower",
+        posX: null,
+        posY: null,
+        posZ: null,
+        placementKind: "body",
+        mountKind: "floor",
+        createdAtMs: 1,
+        createdBy: SESSION_USER_ID,
+        updatedAtMs: 1,
+        updatedBy: SESSION_USER_ID,
+      })
+      .run();
+
+    const body = await bodyOf<{ placeable: { assetId: string }[] }>(await placeable());
+    expect(body.placeable.map((e) => e.assetId)).toContain(equipmentId);
+  });
+});
+
+/**
+ * The Home Assistant link, joined into the placement.
+ *
+ * This endpoint used to answer `entityId: null` unconditionally. The consequence was not cosmetic:
+ * `useHaStream` builds its SSE subscription purely from these ids, so the workspace never opened a
+ * stream — every marker stayed "unlinked" grey, no battery or state badge ever appeared, and the
+ * inspector told the household an entity was not linked when it was.
+ */
+describe("the HA entity link on a placement", () => {
+  const linkEntity = (
+    assetId: string,
+    registryId: string,
+    entityId: string,
+    over: { role?: string; linkState?: string } = {},
+  ) => {
+    const at = 1_700_000_000_000;
+    h.handle.sqlite
+      .prepare(
+        `INSERT INTO ha_entity (registry_id, entity_id, domain, first_seen_ms, last_seen_ms)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(registryId, entityId, entityId.split(".")[0], at, at);
+    h.handle.sqlite
+      .prepare(
+        `INSERT INTO asset_ha_link
+           (id, asset_id, link_kind, ha_entity_registry_id, role, link_state,
+            created_at_ms, created_by, updated_at_ms, updated_by)
+         VALUES (?, ?, 'entity', ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        `link-${registryId}`,
+        assetId,
+        registryId,
+        over.role ?? "primary",
+        over.linkState ?? "active",
+        at,
+        SESSION_USER_ID,
+        at,
+        SESSION_USER_ID,
+      );
+  };
+
+  it("answers the entity id the stream needs", async () => {
+    linkEntity(equipmentId, "reg-1", "sensor.utility_humidity");
+    await put({ position: [1.5, 0.4, 1.5] });
+
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]?.entityId).toBe("sensor.utility_humidity");
+  });
+
+  it("reads the entity id from the registry, not from the link's stale snapshot", async () => {
+    // Rule 8: the link is bound by registry id; `entity_id_snapshot` is a paper trail that goes
+    // stale the moment somebody renames the entity in Home Assistant.
+    linkEntity(equipmentId, "reg-2", "sensor.new_name");
+    h.handle.sqlite
+      .prepare(`UPDATE asset_ha_link SET entity_id_snapshot = 'sensor.old_name'`)
+      .run();
+    await put({ position: [1.5, 0.4, 1.5] });
+
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]?.entityId).toBe("sensor.new_name");
+  });
+
+  it("treats a renamed link as live, because renaming is what produces that state", async () => {
+    linkEntity(equipmentId, "reg-3", "sensor.renamed_one", { linkState: "renamed" });
+    await put({ position: [1.5, 0.4, 1.5] });
+
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]?.entityId).toBe("sensor.renamed_one");
+  });
+
+  it("prefers the primary role when an asset carries several links", async () => {
+    linkEntity(equipmentId, "reg-4", "sensor.secondary", { role: "status" });
+    linkEntity(equipmentId, "reg-5", "sensor.the_primary", { role: "primary" });
+    await put({ position: [1.5, 0.4, 1.5] });
+
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]?.entityId).toBe("sensor.the_primary");
+  });
+
+  it("stays null for equipment with no link, rather than inventing one", async () => {
+    await put({ position: [1.5, 0.4, 1.5] });
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]?.entityId).toBeNull();
+  });
+
+  it("ignores a removed entity — a link to something HA no longer has is not live", async () => {
+    linkEntity(equipmentId, "reg-6", "sensor.gone");
+    h.handle.sqlite.prepare(`UPDATE ha_entity SET removed_at_ms = 1 WHERE registry_id = 'reg-6'`).run();
+    await put({ position: [1.5, 0.4, 1.5] });
+
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]?.entityId).toBeNull();
   });
 });

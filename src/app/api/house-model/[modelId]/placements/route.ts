@@ -21,17 +21,24 @@
  * to a module this endpoint does not own. It stays in `partialFields`, so the workspace states it
  * rather than pretending.
  *
- * The stored mount kind is one of `floor | wall | ceiling | free`; the workspace's own
- * `PlacementMount` union only knows `floor` and `wall`, so `mount` is answered in that narrower
- * shape and the true value travels beside it as `mountKind` (with `mountSurfaceId`,
- * `mountHeightM`, `mountOffsetM`). A ceiling mount reads as a wall mount on its surface, and a
- * free mount as a floor mount at its height — the numbers are unchanged either way.
+ * The stored mount kind is one of `floor | wall | ceiling | free`, and the workspace now knows all
+ * four, so `mount` carries the true kind. `mountKind`/`mountSurfaceId`/`mountHeightM`/
+ * `mountOffsetM` still travel beside it for callers that read the row shape directly.
  */
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { getDb, writeTx } from "@/db/client";
+import { getDb, writeTx, type Db } from "@/db/client";
 import { newId, nowMs } from "@/db/ids";
-import { asset, assetPlacement, attachment, modelRevision, type MountKind } from "@/db/schema";
+import {
+  asset,
+  assetHaLink,
+  assetPlacement,
+  attachment,
+  haEntity,
+  location,
+  modelRevision,
+  type MountKind,
+} from "@/db/schema";
 import { roomAt } from "@/house/model/manifestIndex";
 import type { Placement, PlacementMount } from "@/house/model/types";
 import { authed, badRequest, conflict, HttpError } from "@/server/api/handler";
@@ -51,28 +58,67 @@ type PersistedPlacement = Placement & {
   mountOffsetM: number | null;
 };
 
-/**
- * The stored mount narrowed to the workspace's union. `ceiling` reads as a mount on its surface
- * and `free` as a mount at its height: the numbers are identical, only the noun is coarser, and
- * `mountKind` beside it carries the real one.
- */
+/** The stored mount as the workspace's union, which now names all four kinds. */
 function clientMount(
   kind: MountKind,
   surfaceId: string | null,
   height: number,
   offset: number | null,
 ): PlacementMount {
-  if ((kind === "wall" || kind === "ceiling") && surfaceId !== null)
+  if (kind === "wall" && surfaceId !== null)
     return { kind: "wall", surfaceId, height, offset: offset ?? 0 };
+  if (kind === "ceiling" && surfaceId !== null)
+    return { kind: "ceiling", surfaceId, height, offset: offset ?? 0 };
+  if (kind === "free") return { kind: "free", height };
   return { kind: "floor", height };
 }
 
 /**
- * What `asset_placement` still cannot hold; reported so the UI never pretends otherwise. The HA
- * entity link is a row in `asset_ha_link`, owned by another module — a placement is where a thing
- * sits, not what it reports.
+ * What `asset_placement` still cannot hold. Nothing, now: the HA entity link lives in
+ * `asset_ha_link` and is joined in below rather than reported as missing.
  */
-export const PARTIAL_FIELDS = ["entityId"] as const;
+export const PARTIAL_FIELDS = [] as const;
+
+/**
+ * The live `entity_id` for each of these assets, or nothing when they have no HA link.
+ *
+ * This used to be hardcoded `null`, which quietly disabled the whole live layer in the 3D
+ * workspace: `useHaStream` builds its subscription purely from these ids, so it never opened a
+ * stream at all — every marker stayed "unlinked" grey and the inspector told the household an
+ * entity was not linked when it was.
+ *
+ * Resolution follows rule 8: the link stores the durable **registry id**, and the current
+ * `entity_id` is read from `ha_entity`, never from the link's own snapshot (which is only a paper
+ * trail and goes stale on a rename). A `renamed` link is as live as an `active` one — that is the
+ * state renaming produces, and it is still bound by registry id. The `primary` role wins when an
+ * asset carries several links, because that is the reading the marker is meant to show.
+ */
+function entityIdsByAsset(db: Db, assetIds: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  if (assetIds.length === 0) return out;
+
+  const rows = db
+    .select({
+      assetId: assetHaLink.assetId,
+      role: assetHaLink.role,
+      entityId: haEntity.entityId,
+    })
+    .from(assetHaLink)
+    .innerJoin(haEntity, eq(haEntity.registryId, assetHaLink.haEntityRegistryId))
+    .where(
+      and(
+        inArray(assetHaLink.assetId, [...assetIds]),
+        inArray(assetHaLink.linkState, ["active", "renamed"]),
+        isNull(haEntity.removedAtMs),
+      ),
+    )
+    .all();
+
+  for (const row of rows) {
+    if (row.role === "primary" || !out.has(row.assetId)) out.set(row.assetId, row.entityId);
+  }
+  return out;
+}
 
 const IdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const FiniteSchema = z.number().finite();
@@ -113,6 +159,8 @@ const PlacementSchema = z.object({
   locationNote: z.string().trim().max(1000).nullish(),
   /** An `attachment` id — the close-up that makes the location findable. */
   photoId: z.string().min(1).max(64).nullish(),
+  /** Which silhouette the 3D view draws. Appearance the household chose, not geometry. */
+  symbol: z.string().trim().min(1).max(40).nullish(),
   colorOverride: z
     .string()
     .regex(/^#[0-9a-f]{6}$/)
@@ -132,12 +180,73 @@ const PutSchema = z.object({
 
 const mm = (v: number): number => Math.round(v * 1000) / 1000;
 
-export const GET = authed<Ctx>(async (_session, _req, ctx) => {
+export const GET = authed<Ctx>(async (_session, req, ctx) => {
   const { modelId } = await ctx.params;
   const pkg = await currentPackageForRequest(modelId);
   const index = manifestIndexOf(pkg);
 
   const db = getDb().db;
+
+  // `?options=placeable` answers "what is there left to place?" — equipment that has no placement
+  // with coordinates in this model yet. It lives on this resource for the same reason
+  // `?options=projects` lives on routes: it exists only to start a write to *this* resource, and
+  // the workspace should not need a second round trip for it.
+  //
+  // Without this the workspace could only ever show equipment that was already placed, so a
+  // freshly imported device was unreachable: not in the tree, not in search, and `E` had nothing
+  // to act on. Virtual (software) units are excluded — they are not things you can point at.
+  if (new URL(req.url).searchParams.get("options") === "placeable") {
+    const revisionIdsForModel = db
+      .select({ id: modelRevision.id })
+      .from(modelRevision)
+      .where(eq(modelRevision.modelId, modelId))
+      .all()
+      .map((r) => r.id);
+
+    // A placement with no coordinates is a location-only record (see the GET below), so it does
+    // not count as placed here: it still has nothing to draw and still needs a position.
+    const placed = new Set(
+      revisionIdsForModel.length === 0
+        ? []
+        : db
+            .select({ assetId: assetPlacement.assetId })
+            .from(assetPlacement)
+            .where(
+              and(
+                inArray(assetPlacement.modelRevisionId, revisionIdsForModel),
+                isNotNull(assetPlacement.posX),
+              ),
+            )
+            .all()
+            .map((r) => r.assetId),
+    );
+
+    const rows = db
+      .select({
+        assetId: asset.id,
+        name: asset.name,
+        category: asset.category,
+        status: asset.status,
+        locationName: location.name,
+      })
+      .from(asset)
+      .leftJoin(location, eq(location.id, asset.locationId))
+      .where(eq(asset.isVirtual, false))
+      .orderBy(asc(asset.name))
+      .all();
+
+    const placeable = rows
+      .filter((row) => !placed.has(row.assetId))
+      .map((row) => ({
+        assetId: row.assetId,
+        name: row.name,
+        category: row.category,
+        status: row.status,
+        locationName: row.locationName ?? null,
+      }));
+
+    return Response.json({ placeable }, { headers: NO_STORE });
+  }
   const revisionIds = db
     .select({ id: modelRevision.id })
     .from(modelRevision)
@@ -166,15 +275,20 @@ export const GET = authed<Ctx>(async (_session, _req, ctx) => {
       mountHeightM: assetPlacement.mountHeightM,
       mountOffsetM: assetPlacement.mountOffsetM,
       locationNote: assetPlacement.locationNote,
+      symbol: assetPlacement.symbol,
       photoAttachmentId: assetPlacement.photoAttachmentId,
       needsReconciliation: assetPlacement.needsReconciliation,
       name: asset.name,
+      // Read-only, for the view's symbol inference — a wall-mounted sensor and a wall lamp are
+      // different silhouettes, and the category is what tells them apart.
+      category: asset.category,
     })
     .from(assetPlacement)
     .innerJoin(asset, eq(asset.id, assetPlacement.assetId))
     .where(inArray(assetPlacement.modelRevisionId, revisionIds))
     .all();
 
+  const entityIds = entityIdsByAsset(db, [...new Set(rows.map((row) => row.assetId))]);
   const placements: PersistedPlacement[] = [];
   const stale: string[] = [];
 
@@ -209,7 +323,9 @@ export const GET = authed<Ctx>(async (_session, _req, ctx) => {
       surfaceId: row.mountSurfaceId,
       locationNote: row.locationNote ?? "",
       photoId: row.photoAttachmentId,
-      entityId: null,
+      entityId: entityIds.get(row.assetId) ?? null,
+      symbol: row.symbol,
+      category: row.category,
       mountKind: row.mountKind,
       mountSurfaceId: row.mountSurfaceId,
       mountHeightM: height,
@@ -268,7 +384,7 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     });
 
   const equipment = db
-    .select({ id: asset.id, name: asset.name })
+    .select({ id: asset.id, name: asset.name, category: asset.category })
     .from(asset)
     .where(eq(asset.id, p.equipmentId))
     .get();
@@ -355,6 +471,7 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     mountHeightM,
     mountOffsetM,
     locationNote: p.locationNote ?? null,
+    symbol: p.symbol ?? null,
     photoAttachmentId: p.photoId ?? null,
     needsReconciliation: false,
     colorOverride: p.colorOverride ?? null,
@@ -413,7 +530,9 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     surfaceId: mountSurfaceId,
     locationNote: p.locationNote ?? "",
     photoId: p.photoId ?? null,
-    entityId: null,
+    entityId: entityIdsByAsset(db, [p.equipmentId]).get(p.equipmentId) ?? null,
+    symbol: p.symbol ?? null,
+    category: equipment.category,
     mountKind,
     mountSurfaceId,
     mountHeightM,
