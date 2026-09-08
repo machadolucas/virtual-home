@@ -20,6 +20,7 @@ import { cutRange } from "@/house/model/framingBoxes";
 import { DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from "@/house/model/background";
 import type { FloorId, Selection } from "@/house/model/types";
 import { createRuntime, type HouseRuntime } from "@/house/runtime";
+import type { CanvasTool } from "@/house/store/slices/view";
 import { createHouseStore } from "@/house/store/createHouseStore";
 import {
   createMemoryDataApi,
@@ -27,11 +28,13 @@ import {
   createRestDataApi,
   NotPersistedError,
   type ColorOverrideWrite,
+  type PlaceableEquipment,
 } from "@/house/store/dataApi";
 import { connectHaSse } from "@/house/store/haSse";
 import { readUrlState, syncUrl } from "@/house/store/urlSync";
 import {
   floorIdByIndex,
+  isTypingTarget,
   SHORTCUTS,
   useKeyboardShortcuts,
   type ShortcutHandlers,
@@ -39,18 +42,35 @@ import {
 import { HouseRuntimeContext, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { useModelPackage } from "../hooks/useModelPackage";
 import { useIsPhone } from "../hooks/useReducedMotion";
+import { usePanelLayout } from "../hooks/usePanelLayout";
 import { CutawayControl } from "./CutawayControl";
 import { ExplodeControl } from "./ExplodeControl";
 import { HouseCanvasLazy } from "./HouseCanvasLazy";
 import { HouseErrorBoundary } from "./HouseErrorBoundary";
+import { CanvasHints, setHintsSeen } from "./CanvasHints";
 import { PropertyTree } from "./PropertyTree";
+import { ToolPalette } from "./ToolPalette";
 import { RouteLegend } from "./RouteLayer";
 import { SetupState } from "./SetupState";
 import { ViewToolbar } from "./ViewToolbar";
+import { PlaceableList } from "./edit/PlaceableList";
+import { RouteCreateControl } from "./routeEditor/RouteCreateControl";
+import { RoutePath3D } from "./routeEditor/RoutePath3D";
+import { startPlacement } from "./edit/startPlacement";
 import { PlacementEditor } from "./edit/PlacementEditor";
+import { SnapReadoutOverlay } from "./edit/SnapIndicator";
 import { Inspector } from "./inspector/Inspector";
 import { PhoneHouse } from "./phone/PhoneHouse";
-import { Input } from "@/ui";
+import { IconButton, Input } from "@/ui";
+import { cn } from "@/ui/cn";
+import {
+  PanelBottomClose,
+  PanelBottomOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from "lucide-react";
 import { PlanEditor2D } from "./routeEditor/PlanEditor2D";
 import { WallElevationEditor2D } from "./routeEditor/WallElevationEditor2D";
 
@@ -140,6 +160,8 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
       announcement: s.announcement,
       editing: s.editing !== null,
       routeDraft: s.routeDraft !== null,
+      tool: s.tool,
+      cameraOverride: s.cameraOverride,
     })),
   );
 
@@ -148,6 +170,8 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
   const handlers = useShortcutHandlers(runtime, focusSearch, showHelp);
   useKeyboardShortcuts(rootRef, handlers, !state.fatal);
   useRegionCycling(rootRef, [treeRef, canvasRegionRef, inspectorRef]);
+  useToolCamera(runtime);
+  const panels = usePanelLayout();
 
   if (state.phase === "failed" || state.fatal)
     return (
@@ -176,17 +200,34 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
       // The shortcut listener lives here; the element is focusable so F6 has somewhere to land.
       tabIndex={-1}
     >
-      <aside
-        ref={treeRef}
-        aria-label="Property tree"
-        className="flex w-64 shrink-0 flex-col gap-2 overflow-y-auto rounded-lg border border-line bg-surface p-3"
-      >
-        <label className="flex flex-col gap-1 text-xs">
-          <span className="text-ink-2">Search rooms and equipment (/)</span>
-          <SearchBox runtime={runtime} inputRef={searchRef} />
-        </label>
-        <PropertyTree />
-      </aside>
+      {panels.collapsed.tree ? (
+        <PanelRail
+          side="left"
+          label="Show the property tree"
+          onExpand={() => panels.toggle("tree")}
+        />
+      ) : (
+        <aside
+          ref={treeRef}
+          aria-label="Property tree"
+          className="flex w-64 shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface"
+        >
+          <PanelHeader
+            title="Property"
+            collapseLabel="Collapse the property tree"
+            icon={<PanelLeftClose aria-hidden="true" />}
+            onCollapse={() => panels.toggle("tree")}
+          />
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="text-ink-2">Search rooms and equipment (/)</span>
+              <SearchBox runtime={runtime} inputRef={searchRef} />
+            </label>
+            <PropertyTree />
+            <PlaceableList />
+          </div>
+        </aside>
+      )}
 
       <section
         ref={canvasRegionRef}
@@ -201,29 +242,93 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
           2 or 3 to isolate a floor, 0 for the whole property, P for a top-down plan, and question
           mark for the full list of shortcuts.
         </p>
-        <div className="relative min-h-0 flex-1">
+        <div
+          className={cn(
+            "relative min-h-0 flex-1",
+            // The pointer says what the tool will do before the user commits to a gesture.
+            state.cameraOverride || state.tool === "orbit"
+              ? "[&_canvas]:cursor-grab [&_canvas]:active:cursor-grabbing"
+              : state.tool === "place"
+                ? "[&_canvas]:cursor-crosshair"
+                : "[&_canvas]:cursor-default",
+          )}
+        >
           <HouseErrorBoundary>
             <CanvasWithBackground />
           </HouseErrorBoundary>
+          <ToolPalette />
+          <SnapReadoutOverlay />
+          {state.routeDraft ? <RoutePath3D /> : null}
+          <CanvasHints />
           <LoadProgress />
         </div>
-        <div className="flex flex-wrap items-start gap-4 rounded-lg border border-line bg-surface p-3">
-          <CutawayControl />
-          <ExplodeControl />
-          <RouteLegend />
-        </div>
+        {panels.collapsed.controls ? (
+          <div className="flex shrink-0 items-center justify-between rounded-lg border border-line bg-surface px-2 py-1">
+            <span className="text-xs text-ink-3">View controls</span>
+            <IconButton
+              label="Show the view controls"
+              size="sm"
+              icon={<PanelBottomOpen aria-hidden="true" />}
+              onClick={() => panels.toggle("controls")}
+            />
+          </div>
+        ) : (
+          <div className="shrink-0 rounded-lg border border-line bg-surface">
+            <div className="flex items-center justify-between border-b border-line px-2 py-1">
+              <span className="text-xs font-medium text-ink-2">View controls</span>
+              <IconButton
+                label="Collapse the view controls"
+                size="sm"
+                icon={<PanelBottomClose aria-hidden="true" />}
+                onClick={() => panels.toggle("controls")}
+              />
+            </div>
+            <div className="flex max-h-56 flex-wrap items-start gap-4 overflow-y-auto p-3">
+              <CutawayControl />
+              <ExplodeControl />
+              <RouteLegend />
+            </div>
+          </div>
+        )}
       </section>
 
-      <aside
-        ref={inspectorRef}
-        aria-label="Inspector"
-        className="flex w-80 shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-line bg-surface p-3"
-      >
-        <ViewToolbar />
-        <hr className="border-line" />
-        {state.editing ? <PlacementEditor /> : <Inspector />}
-        {state.routeDraft ? <RouteEditors /> : null}
-      </aside>
+      {/* An editor with nowhere to render is a trap: with the inspector collapsed (a choice that
+          persists across reloads) pressing `E` locked the explode view and offered no Save, no
+          Cancel and no numeric fields — only Esc got out. Editing forces the panel open. */}
+      {panels.collapsed.inspector && !state.editing && !state.routeDraft ? (
+        <PanelRail
+          side="right"
+          label="Show the inspector"
+          onExpand={() => panels.toggle("inspector")}
+        />
+      ) : (
+        <aside
+          ref={inspectorRef}
+          aria-label="Inspector"
+          className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface"
+        >
+          <PanelHeader
+            title="View"
+            collapseLabel="Collapse the inspector"
+            icon={<PanelRightClose aria-hidden="true" />}
+            onCollapse={() => panels.toggle("inspector")}
+          />
+          {/* Two independent scroll regions. The view controls are long enough to push the
+              selected item's details below the fold when they share one scroller, which is the
+              one thing this panel exists to show. */}
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <ViewToolbar />
+          </div>
+          <section
+            aria-label="Selected item details"
+            className="flex max-h-[60%] shrink-0 flex-col overflow-y-auto border-t border-line p-3"
+          >
+            {state.editing ? <PlacementEditor /> : <Inspector />}
+            {state.routeDraft ? <RouteEditors /> : null}
+            <RouteCreateControl />
+          </section>
+        </aside>
+      )}
 
       <p aria-live="polite" className="sr-only">
         {state.announcement}
@@ -263,6 +368,15 @@ function useDataHydration(runtime: HouseRuntime): void {
         const placements = await runtime.dataApi.listPlacements(modelId);
         if (!cancelled) store.getState().setPlacements(placements);
       } catch (err) {
+        if (!cancelled && !(err instanceof NotPersistedError))
+          store.getState().setDataError(messageOf(err));
+      }
+      try {
+        const placeable = await runtime.dataApi.listPlaceableEquipment(modelId);
+        if (!cancelled) store.getState().setPlaceable(placeable);
+      } catch (err) {
+        // Not fatal: the workspace still shows everything already placed. Only the "not placed
+        // yet" list goes missing, so it says nothing rather than claiming the list is empty.
         if (!cancelled && !(err instanceof NotPersistedError))
           store.getState().setDataError(messageOf(err));
       }
@@ -550,9 +664,22 @@ function useShortcutHandlers(
           s.cancelEdit();
           return;
         }
-        if (s.selection?.kind !== "equipment") return;
+        // Silence here read as "E is broken". It is not: edit mode acts on one piece of
+        // equipment, so it needs one selected — and equipment that has never been placed is
+        // started from the "Not placed yet" list instead, since there is no marker to select.
+        if (s.selection?.kind !== "equipment") {
+          s.announce(
+            s.placeable.length > 0
+              ? "Select a placed piece of equipment to adjust it, or use “Not placed yet” in the property panel to place one."
+              : "Select a piece of equipment first — E adjusts the selected placement.",
+          );
+          return;
+        }
         const placement = s.placements.find((p) => p.id === s.selection?.id);
-        if (!placement) return;
+        if (!placement) {
+          s.announce("That equipment has no placement to adjust yet.");
+          return;
+        }
         s.beginEdit({
           placementId: placement.id,
           equipmentId: placement.equipmentId,
@@ -566,8 +693,12 @@ function useShortcutHandlers(
           surfaceId: placement.surfaceId,
           locationNote: placement.locationNote,
           photoId: placement.photoId,
+          symbol: placement.symbol,
           dirty: false,
         });
+      },
+      setTool(tool) {
+        get().setTool(tool);
       },
       planView() {
         const s = get();
@@ -637,6 +768,72 @@ function useShortcutHandlers(
 }
 
 const DISCARD_PROMPT = "Press Esc again to discard the unsaved placement.";
+
+/**
+ * Who owns the left button, decided **before** the gesture starts.
+ *
+ * This is the fix for "the camera moves while I drag the marker". `camera-controls` binds its own
+ * `pointerdown` on the canvas, and a gesture it has already captured keeps running even if
+ * `enabled` is flipped mid-drag — so the old code, which disabled the controls inside the app's
+ * own `pointerdown`, was always one handler too late. Deciding from the tool means the controls
+ * are already off when the pointer goes down.
+ *
+ * Space is the escape hatch: held, the camera is on loan whatever the tool says, so no mode is a
+ * dead end. It is released on blur too — a window that loses focus mid-hold must not keep the
+ * camera stuck on.
+ *
+ * The flag itself is applied by `Rig`, as a prop on the controls: drei rebuilds the controls
+ * instance when the default camera changes, so writing `enabled` onto a captured instance silently
+ * disabled a dead object while the live one kept orbiting.
+ */
+function useToolCamera(runtime: HouseRuntime): void {
+  const { editing, setCameraOverride, setTool } = useHouseStore(
+    useShallow((s) => ({
+      // A route draft aims with the pointer just like a placement does, so it takes the camera
+      // off the left button on the same terms.
+      editing: s.editing !== null || s.routeDraft !== null,
+      setCameraOverride: s.setCameraOverride,
+      setTool: s.setTool,
+    })),
+  );
+
+  // Entering the placement editor switches to the place tool, and leaving it hands the camera
+  // back. Without this, edit mode opened with the camera still on the left button and the first
+  // drag spun the house.
+  const previous = useRef<CanvasTool | null>(null);
+  useEffect(() => {
+    if (editing) {
+      previous.current = runtime.store.getState().tool;
+      setTool("place");
+      return;
+    }
+    const restore = previous.current;
+    previous.current = null;
+    if (restore && restore !== "place") setTool(restore);
+  }, [editing, setTool, runtime]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || event.repeat) return;
+      if (isTypingTarget(event.target)) return;
+      event.preventDefault();
+      setCameraOverride(true);
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code !== "Space") return;
+      setCameraOverride(false);
+    };
+    const onBlur = () => setCameraOverride(false);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [setCameraOverride]);
+}
 
 /** `F6` cycles the landmark regions forwards, `Shift+F6` backwards. */
 function useRegionCycling(
@@ -734,12 +931,24 @@ function RouteEditors() {
         <h3 className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Route path — {routeDraft.name}
         </h3>
+        {/* "Done" used to just close the draft: it neither saved nor reverted, so every point edit
+            was lost on reload while the 3D line kept showing it. Saving lives in the panel below
+            (which states it), so this says what it does — and warns when there is something to
+            lose. */}
         <button
           type="button"
-          onClick={endRouteDraft}
+          onClick={() => {
+            if (
+              window.confirm(
+                "Close the path editor? Anything not saved with “Save path” below is discarded.",
+              )
+            ) {
+              endRouteDraft();
+            }
+          }}
           className="min-h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3"
         >
-          Done
+          Close editor
         </button>
       </header>
       {phone ? (
@@ -769,14 +978,21 @@ function SearchBox({
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const [query, setQuery] = useState("");
-  const { index, placements } = useHouseStore(
-    useShallow((s) => ({ index: s.index, placements: s.placements })),
+  const { index, placements, placeable } = useHouseStore(
+    useShallow((s) => ({ index: s.index, placements: s.placements, placeable: s.placeable })),
   );
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (q.length < 2 || !index) return [];
-    const out: Array<{ selection: Selection; label: string; secondary: string }> = [];
+    // A result either selects something in the model, or starts placing equipment that is not in
+    // the model yet — the union rather than two lists, so one Enter does the obvious thing.
+    const out: Array<
+      { label: string; secondary: string } & (
+        | { selection: Selection; placeable?: undefined }
+        | { placeable: PlaceableEquipment; selection?: undefined }
+      )
+    > = [];
     for (const room of index.rooms.values()) {
       const haystack = [room.name, room.nameFi ?? "", ...room.aliases].join(" ").toLowerCase();
       if (haystack.includes(q))
@@ -791,11 +1007,21 @@ function SearchBox({
       out.push({
         selection: { kind: "equipment", id: p.id },
         label: p.name,
-        secondary: p.roomId ? (index.rooms.get(p.roomId)?.name ?? p.roomId) : p.floorId,
+        secondary: p.roomId ? (index.rooms.get(p.roomId)?.name ?? p.roomId) : "outside",
+      });
+    }
+    // Equipment with no placement yet. Without these, searching for something just imported from
+    // Home Assistant found nothing, which reads as "the import did not work".
+    for (const e of placeable) {
+      if (!e.name.toLowerCase().includes(q)) continue;
+      out.push({
+        placeable: e,
+        label: e.name,
+        secondary: e.locationName ? `not placed · ${e.locationName}` : "not placed",
       });
     }
     return out.slice(0, 8);
-  }, [query, index, placements]);
+  }, [query, index, placements, placeable]);
 
   const focus = useCallback(
     async (selection: Selection) => {
@@ -826,6 +1052,21 @@ function SearchBox({
     [runtime],
   );
 
+  const activate = useCallback(
+    async (result: (typeof results)[number]) => {
+      if (result.placeable) {
+        if (!startPlacement(runtime, result.placeable)) {
+          runtime.store
+            .getState()
+            .announce("There is no house model loaded, so there is nowhere to place it yet.");
+        }
+        return;
+      }
+      await focus(result.selection);
+    },
+    [runtime, focus],
+  );
+
   return (
     <div className="relative">
       {/* The design system's field, not a bespoke input: `fieldSurface` is what carries the
@@ -839,7 +1080,7 @@ function SearchBox({
         onKeyDown={(event) => {
           if (event.key !== "Enter") return;
           const first = results[0];
-          if (first) void focus(first.selection);
+          if (first) void activate(first);
         }}
         placeholder="Kitchen, door sensor…"
         aria-label="Search rooms and equipment"
@@ -847,10 +1088,10 @@ function SearchBox({
       {results.length ? (
         <ul className="mt-1 flex flex-col gap-0.5">
           {results.map((r) => (
-            <li key={`${r.selection.kind}:${r.selection.id}`}>
+            <li key={r.selection ? `${r.selection.kind}:${r.selection.id}` : `asset:${r.placeable.assetId}`}>
               <button
                 type="button"
-                onClick={() => void focus(r.selection)}
+                onClick={() => void activate(r)}
                 className="min-h-8 w-full truncate rounded px-1 text-left text-xs text-ink hover:bg-surface-3"
               >
                 {r.label}
@@ -860,6 +1101,58 @@ function SearchBox({
           ))}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+/** The header strip every expanded side panel carries, with its collapse control. */
+function PanelHeader({
+  title,
+  collapseLabel,
+  icon,
+  onCollapse,
+}: {
+  title: string;
+  collapseLabel: string;
+  icon: React.ReactNode;
+  onCollapse: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center justify-between border-b border-line px-2 py-1">
+      <span className="text-xs font-medium text-ink-2">{title}</span>
+      <IconButton label={collapseLabel} size="sm" icon={icon} onClick={onCollapse} />
+    </div>
+  );
+}
+
+/**
+ * What a collapsed panel leaves behind: a rail narrow enough to be worth collapsing for, wide
+ * enough to hold a real 32 px target. The label is on the button, so the only affordance is also
+ * the accessible name.
+ */
+function PanelRail({
+  side,
+  label,
+  onExpand,
+}: {
+  side: "left" | "right";
+  label: string;
+  onExpand: () => void;
+}) {
+  return (
+    <div className="flex w-10 shrink-0 flex-col items-center rounded-lg border border-line bg-surface py-1">
+      <IconButton
+        label={label}
+        size="sm"
+        icon={
+          side === "left" ? (
+            <PanelLeftOpen aria-hidden="true" />
+          ) : (
+            <PanelRightOpen aria-hidden="true" />
+          )
+        }
+        onClick={onExpand}
+      />
     </div>
   );
 }
@@ -910,6 +1203,16 @@ function ShortcutHelp({ onClose }: { onClose: () => void }) {
             Close
           </button>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            setHintsSeen(false);
+            onClose();
+          }}
+          className="mt-2 min-h-8 rounded-md border border-line px-2 text-xs font-medium text-ink hover:bg-surface-3"
+        >
+          Show the “working the 3D view” hint again
+        </button>
         <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
           {SHORTCUTS.map((s) => (
             <div key={s.keys} className="col-span-2 grid grid-cols-subgrid">

@@ -1,7 +1,8 @@
 "use client";
 /**
  * The non-3D route to everything: property → buildings → floors → rooms → surfaces, plus the
- * equipment placed on each floor.
+ * equipment placed on each floor and an `Outside` branch for the outdoor zones and anything
+ * placed out there.
  *
  * `role="tree"` with a **roving `tabIndex`**: one tab stop for the whole tree, arrows navigate,
  * `Home`/`End` jump, `Enter`/`Space` selects, typing jumps to a matching label. Selecting here
@@ -23,6 +24,17 @@ interface TreeNode {
   /** Floor nodes also isolate the floor when selected. */
   floorId?: string;
 }
+
+/**
+ * The outdoor zones, by the element `kind` the package uses. Mirrors
+ * `OUTDOOR_ZONE_ELEMENTS` in `src/server/house-model/revision.ts` — the same three zones the
+ * importer mirrors into the `location` tree, so "Yard" means the same thing in both places.
+ */
+const OUTDOOR_ZONES = [
+  { kind: "terrain", name: "Yard" },
+  { kind: "terrace", name: "Terrace" },
+  { kind: "balcony", name: "Balcony" },
+] as const;
 
 export function PropertyTree() {
   const runtime = useHouseRuntime();
@@ -111,7 +123,7 @@ export function PropertyTree() {
           }
         }
 
-        for (const placement of placements.filter((p) => p.floorId === floor.id)) {
+        for (const placement of placements.filter((p) => p.floorId === floor.id && p.roomId)) {
           const pid = `equipment:${placement.id}`;
           map.get(fid)!.children.push(pid);
           add({
@@ -127,6 +139,59 @@ export function PropertyTree() {
         }
       }
     }
+
+    // Outside. The package's `rooms` are interior only, so anything on the terrace, the balcony or
+    // in the yard resolves to no room and would otherwise be invisible here — including the yard
+    // lamps and eave fixtures this branch exists to reach. The zones mirror the same element kinds
+    // the importer turns into `location` rows (`OUTDOOR_ZONE_ELEMENTS`), so the two trees agree.
+    const outdoorPlacements = placements.filter((p) => !p.roomId);
+    const zones = OUTDOOR_ZONES.map((zone) => {
+      const element = [...index.elements.values()].find((e) => e.kind === zone.kind);
+      return element ? { ...zone, elementId: element.id } : null;
+    }).filter((zone): zone is (typeof OUTDOOR_ZONES)[number] & { elementId: string } => zone !== null);
+
+    if (zones.length > 0 || outdoorPlacements.length > 0) {
+      map.get("property")!.children.push("outside");
+      add({
+        id: "outside",
+        label: "Outside",
+        secondary: outdoorPlacements.length > 0 ? `${outdoorPlacements.length} placed` : undefined,
+        depth: 1,
+        selection: null,
+        children: [],
+        parent: "property",
+      });
+
+      for (const zone of zones) {
+        const zid = `element:${zone.elementId}`;
+        map.get("outside")!.children.push(zid);
+        add({
+          id: zid,
+          label: zone.name,
+          secondary: zone.elementId,
+          depth: 2,
+          selection: { kind: "element", id: zone.elementId },
+          children: [],
+          parent: "outside",
+        });
+      }
+
+      for (const placement of outdoorPlacements) {
+        const pid = `equipment:${placement.id}`;
+        map.get("outside")!.children.push(pid);
+        add({
+          id: pid,
+          label: placement.name,
+          secondary: "outside",
+          depth: 2,
+          selection: { kind: "equipment", id: placement.id },
+          children: [],
+          parent: "outside",
+          floorId: placement.floorId,
+        });
+      }
+    }
+
     return map;
   }, [index, placements]);
 

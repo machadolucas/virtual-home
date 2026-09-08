@@ -14,6 +14,7 @@
  * is where the "model is in a weird state" bugs live.
  */
 import { useEffect } from "react";
+
 import { shallow } from "zustand/vanilla/shallow";
 import { planAllSurfaces } from "@/house/model/colorPlan";
 import { buildGroupOrder, clipGroupOf, explodeOffset } from "@/house/model/explodeGroups";
@@ -22,12 +23,16 @@ import type { Placement } from "@/house/model/types";
 import { applyColors } from "@/house/scene/applyColors";
 import { applyVisibility } from "@/house/scene/applyVisibility";
 import { applyExplode } from "@/house/scene/explode";
+import { defaultSymbol, isPlacementSymbol } from "@/house/scene/symbols";
 import { highlightTargets } from "@/house/scene/highlight";
 import { inventoryOf } from "@/house/scene/SceneIndex";
 import { classifyState, haStore, markerStateKey } from "@/house/store/haStore";
 import type { HouseStore } from "@/house/store/createHouseStore";
 import { useHouseRuntime } from "./useHouseStore";
 import { isRunVisibleOn } from "@/features/projects/renovationDate";
+
+/** The id the in-progress draft borrows while it has no row of its own. */
+export const DRAFT_MARKER_ID = "__vh_draft__";
 
 export function useSceneSync(): void {
   const runtime = useHouseRuntime();
@@ -147,12 +152,70 @@ export function useSceneSync(): void {
         p.surfaceId ? clipGroupOf(runtime.manifest!, p.surfaceId) : p.floorId;
       const stateOf = (p: Placement) =>
         p.entityId ? markerStateKey(ha.entities[p.entityId], ha.connection, now) : "unlinked";
-      markers.set(s.placements, stateOf, groupOf);
+      const symbolOf = (p: Placement) =>
+        isPlacementSymbol(p.symbol)
+          ? p.symbol
+          : defaultSymbol({
+              category: p.category,
+              mountKind: p.mount.kind,
+              // No room means outdoors here: the package's rooms are interior only, so a
+              // roomless placement is on the terrace, the balcony or in the yard.
+              isOutdoor: p.roomId === null,
+            });
+
+      // The draft rides along as one more marker, so the thing being placed is **visible while
+      // being placed**. Before this, a new placement was invisible until saved: the only feedback
+      // was three numbers in the panel, which is a poor way to tell whether a lamp is where you
+      // meant. It is never persisted — the draft is client state and `set()` rebuilds from
+      // scratch on the next change.
+      const draft = s.editing;
+      const withDraft: Placement[] =
+        draft === null
+          ? s.placements
+          : [
+              // An existing placement being edited is replaced by its draft, so it does not draw
+              // twice — once at the saved position and once under the cursor.
+              ...s.placements.filter((p) => p.id !== draft.placementId),
+              {
+                id: draft.placementId ?? DRAFT_MARKER_ID,
+                modelId: draft.modelId,
+                equipmentId: draft.equipmentId,
+                name: draft.name,
+                position: draft.physical,
+                rotationYDeg: draft.rotationYDeg,
+                mount: draft.mount,
+                floorId: draft.floorId,
+                roomId: draft.roomId,
+                surfaceId: draft.surfaceId,
+                locationNote: draft.locationNote,
+                photoId: draft.photoId,
+                entityId: null,
+                symbol: draft.symbol,
+                category: null,
+              },
+            ];
+
+      // The "Equipment" layer checkbox used to move nothing: `computeVisibility` never read it, so
+      // markers were drawn whatever the toolbar said. The draft is exempt — hiding the thing you
+      // are currently placing would be absurd.
+      const drawn = s.layers.equipment
+        ? withDraft
+        : withDraft.filter((p) => p.id === (draft?.placementId ?? DRAFT_MARKER_ID) && draft !== null);
+
+      markers.set(drawn, stateOf, groupOf, symbolOf);
       applyExplode(index, s.explode);
       runtime.invalidate();
     };
     apply(store.getState());
-    return store.subscribe((s) => s.placements, () => apply(store.getState()));
+    return store.subscribe(
+      (s: HouseStore) => ({
+        placements: s.placements,
+        editing: s.editing,
+        equipmentLayer: s.layers.equipment,
+      }),
+      () => apply(store.getState()),
+      { equalityFn: shallow },
+    );
   }, [runtime, store]);
 
   // ---- routes -----------------------------------------------------------
@@ -163,9 +226,11 @@ export function useSceneSync(): void {
       if (!index || !routes) return;
       // One predicate for "is this run present on the viewed date" (planned, installed, removed),
       // shared with the inspector so the two can never disagree.
-      const visible = s.routes.filter(
-        (r) => s.visibleSystems[r.system] && isRunVisibleOn(r, s.renovationDate),
-      );
+      // The "Infrastructure routes" checkbox defaulted to *off* while the lines were drawn
+      // regardless — a control showing the opposite of the screen. It is honoured now.
+      const visible = s.layers.routes
+        ? s.routes.filter((r) => s.visibleSystems[r.system] && isRunVisibleOn(r, s.renovationDate))
+        : [];
       routes.set(visible, { tubes: !s.performanceMode });
       runtime.invalidate();
     };
@@ -173,6 +238,7 @@ export function useSceneSync(): void {
     return store.subscribe(
       (s: HouseStore) => ({
         routes: s.routes,
+        routeLayer: s.layers.routes,
         visibleSystems: s.visibleSystems,
         renovationDate: s.renovationDate,
         performanceMode: s.performanceMode,

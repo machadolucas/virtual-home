@@ -38,6 +38,8 @@ export interface VhHook {
   pickables(): number;
   select(selection: Selection | null): void;
   selection(): Selection | null;
+  /** Whether the camera controls currently accept the left button, or `null` if not mounted. */
+  controlsEnabled(): boolean | null;
   camera(): { position: [number, number, number]; target: [number, number, number]; projection: string };
   screenOf(world: [number, number, number]): [number, number] | null;
   roomAnchor(roomId: string): [number, number, number] | null;
@@ -154,6 +156,15 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
 
     selection() {
       return runtime.store.getState().selection;
+    },
+
+    /**
+     * Who currently owns the left button: the camera, or the pointer tool. `null` when the canvas
+     * has not published its controls yet. Read-only — the tool is changed through the UI, so a
+     * test that flips this would be testing itself.
+     */
+    controlsEnabled() {
+      return runtime.controls?.enabled ?? null;
     },
 
     camera() {
