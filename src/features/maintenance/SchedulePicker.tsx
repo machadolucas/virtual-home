@@ -62,6 +62,8 @@ export function SchedulePicker({ value, onChange, anchorDate }: SchedulePickerPr
   const ruleResult = useMemo(() => toRecurrenceRule(value), [value]);
   const [preview, setPreview] = useState<SchedulePreview | null>(null);
   const [loading, setLoading] = useState(false);
+  /** The preview never arrived — a lost session, the server down, the network gone. */
+  const [unavailable, setUnavailable] = useState(false);
 
   const ruleJson = ruleResult.ok ? JSON.stringify(ruleResult.rule) : null;
 
@@ -74,15 +76,28 @@ export function SchedulePicker({ value, onChange, anchorDate }: SchedulePickerPr
     // Debounced: typing "12" in the interval box should not fire two previews.
     const timer = setTimeout(() => {
       setLoading(true);
+      setUnavailable(false);
       void previewSchedule({
         rule: JSON.parse(ruleJson),
         anchorDate,
         count: 3,
-      }).then((result) => {
-        if (cancelled) return;
-        setLoading(false);
-        setPreview(result.ok ? result.data : null);
-      });
+      })
+        .then((result) => {
+          if (cancelled) return;
+          setLoading(false);
+          setPreview(result.ok ? result.data : null);
+          setUnavailable(!result.ok);
+        })
+        // A rejected call is a lost network or a dead server, not a bad rule. Without this the
+        // rejection escapes the `void` unhandled and `setLoading(false)` never runs, so the
+        // spinner turns forever under "Working it out…" and the form looks broken rather than
+        // offline. The plan itself is still perfectly saveable — the preview is a courtesy.
+        .catch(() => {
+          if (cancelled) return;
+          setLoading(false);
+          setPreview(null);
+          setUnavailable(true);
+        });
     }, 250);
     return () => {
       cancelled = true;
@@ -374,6 +389,11 @@ export function SchedulePicker({ value, onChange, anchorDate }: SchedulePickerPr
         </h4>
         {!ruleResult.ok ? (
           <p className="mt-1 text-sm text-ink-3">{ruleResult.error}</p>
+        ) : unavailable ? (
+          <p className="mt-1 text-sm text-ink-2">
+            The preview could not be worked out just now — it is computed on the server, in the
+            household time zone. The schedule itself is fine and the plan can still be saved.
+          </p>
         ) : preview === null ? (
           <p className="mt-1 text-sm text-ink-3">Working it out…</p>
         ) : preview.error !== null ? (

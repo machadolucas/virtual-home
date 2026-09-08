@@ -434,6 +434,48 @@ describe("progress actions", () => {
     expect(check?.valueNumber).toBe(120);
   });
 
+  it("keeps a recorded value when the tick that follows does not carry one", async () => {
+    const { versionId } = makeProcedure(world, { requiresValue: "number" });
+    const occurrenceId = makeOccurrence(world, {
+      dueDate: "2026-09-08",
+      status: "due",
+      procedureVersionId: versionId,
+    });
+    const checklistItemId = world.handle.db.select().from(procedureChecklistItem).all()[0]!.id;
+
+    expectOk(
+      await setChecklistProgress({ occurrenceId, checklistItemId, state: "done", valueNumber: 120 }),
+    );
+    // Un-ticking says nothing about the reading, so the reading survives it — and survives the
+    // re-tick too. This is the difference between "not sent" and "cleared".
+    expectOk(await setChecklistProgress({ occurrenceId, checklistItemId, state: "todo" }));
+    expectOk(await setChecklistProgress({ occurrenceId, checklistItemId, state: "done" }));
+    expect(
+      world.handle.db
+        .select()
+        .from(occurrenceProgressItem)
+        .where(eq(occurrenceProgressItem.itemKind, "checklist"))
+        .get()?.valueNumber,
+    ).toBe(120);
+
+    // An explicit null is still a clear: the field was visible and the user emptied it.
+    expectOk(
+      await setChecklistProgress({
+        occurrenceId,
+        checklistItemId,
+        state: "done",
+        valueNumber: null,
+      }),
+    );
+    expect(
+      world.handle.db
+        .select()
+        .from(occurrenceProgressItem)
+        .where(eq(occurrenceProgressItem.itemKind, "checklist"))
+        .get()?.valueNumber,
+    ).toBeNull();
+  });
+
   it("refuses a step id that is not in this task's procedure version", async () => {
     const { versionId } = makeProcedure(world);
     const occurrenceId = makeOccurrence(world, {

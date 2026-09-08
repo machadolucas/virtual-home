@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import {
   dayOffset,
+  defaultPostponeDate,
   describeDue,
   describePast,
   describeWindow,
@@ -16,6 +17,7 @@ import {
   formatDateShort,
   formatMinutes,
   occurrenceStatusKind,
+  postponeExhausted,
 } from "@/features/maintenance/dueDate";
 
 const TODAY = "2026-09-08";
@@ -141,5 +143,29 @@ describe("formatMinutes", () => {
     expect(formatMinutes(45)).toBe("45 min");
     expect(formatMinutes(60)).toBe("1 h");
     expect(formatMinutes(135)).toBe("2 h 15 min");
+  });
+});
+
+describe("defaultPostponeDate", () => {
+  it("is a week after the due date for a task that is not yet late", () => {
+    expect(defaultPostponeDate("2026-09-20", TODAY, "2026-12-31")).toBe("2026-09-27");
+  });
+
+  it("never opens in the past for a task that is long overdue", () => {
+    // Due 30 days ago: a week after the due date is 23 days behind us, which used to arrive as a
+    // pre-filled invalid date with the Postpone button already disabled.
+    expect(defaultPostponeDate("2026-08-09", TODAY, "2026-12-31")).toBe("2026-09-15");
+  });
+
+  it("never opens past the household limit", () => {
+    expect(defaultPostponeDate("2026-09-20", TODAY, "2026-09-22")).toBe("2026-09-22");
+  });
+});
+
+describe("postponeExhausted", () => {
+  it("is true only once the limit itself is behind us", () => {
+    expect(postponeExhausted(TODAY, "2026-09-08")).toBe(false);
+    expect(postponeExhausted(TODAY, "2026-09-09")).toBe(false);
+    expect(postponeExhausted(TODAY, "2026-09-07")).toBe(true);
   });
 });

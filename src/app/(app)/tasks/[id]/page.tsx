@@ -14,6 +14,7 @@ import {
   formatMinutes,
   occurrenceStatusKind,
 } from "@/features/maintenance/dueDate";
+import { BookingControls } from "@/features/maintenance/BookingControls";
 import { ConditionChoices } from "@/features/maintenance/ConditionChoices";
 import { PhotoUploader } from "@/features/maintenance/PhotoUploader";
 import { ProcedureRunner } from "@/features/maintenance/ProcedureRunner";
@@ -214,7 +215,7 @@ export default async function TaskPage(props: { params: Promise<{ id: string }> 
         ) : null}
 
         {task.booking !== null ? (
-          <p className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-blocked/45 bg-blocked-soft px-3 py-2 text-sm text-blocked">
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-blocked/45 bg-blocked-soft px-3 py-2 text-sm text-blocked">
             <HardHat aria-hidden="true" className="size-4" />
             <span>
               {task.booking.providerName} is booked
@@ -225,7 +226,22 @@ export default async function TaskPage(props: { params: Promise<{ id: string }> 
               {task.booking.reference === null ? "" : ` · ref ${task.booking.reference}`}. Booking is
               not completion: this task stays open until somebody records what was done.
             </span>
-          </p>
+            {/* Appointments move, and the action bar hides "Book a professional" as soon as one
+                exists — so without this control the first booking somebody typed was the only one
+                the task could ever have. */}
+            {open ? (
+              <span className="ms-auto">
+                <BookingControls
+                  occurrenceId={task.id}
+                  bookingId={task.booking.id}
+                  status={task.booking.status}
+                  scheduledLocalDate={task.booking.scheduledLocalDate}
+                  windowNote={task.booking.windowNote}
+                  reference={task.booking.reference}
+                />
+              </span>
+            ) : null}
+          </div>
         ) : null}
 
         {window !== null ? (
@@ -381,7 +397,12 @@ export default async function TaskPage(props: { params: Promise<{ id: string }> 
         </Panel>
       ) : null}
 
-      <MaterialsPanel occurrenceId={task.id} materials={task.materials} open={open} />
+      <MaterialsPanel
+        occurrenceId={task.id}
+        materials={task.materials}
+        open={open}
+        blocked={task.blockedReason !== null}
+      />
 
       <PhotoUploader
         occurrenceId={task.id}

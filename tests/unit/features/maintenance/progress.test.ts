@@ -20,11 +20,22 @@ const steps = [
 ];
 
 function step(id: string, state: ProgressLike["state"]): ProgressLike {
-  return { itemKind: "step", stepId: id, checklistItemId: null, state };
+  return { itemKind: "step", stepId: id, checklistItemId: null, state, valueText: null, valueNumber: null };
 }
 
-function check(id: string, state: ProgressLike["state"]): ProgressLike {
-  return { itemKind: "checklist", stepId: null, checklistItemId: id, state };
+function check(
+  id: string,
+  state: ProgressLike["state"],
+  value: { valueText?: string | null; valueNumber?: number | null } = {},
+): ProgressLike {
+  return {
+    itemKind: "checklist",
+    stepId: null,
+    checklistItemId: id,
+    state,
+    valueText: value.valueText ?? null,
+    valueNumber: value.valueNumber ?? null,
+  };
 }
 
 describe("isSettled", () => {
@@ -43,6 +54,19 @@ describe("indexProgress", () => {
     expect(index.stepState.get("s1")).toBe("done");
     expect(index.checklistState.get("c1")).toBe("done");
     expect(index.stepState.get("c1")).toBeUndefined();
+  });
+
+  it("carries the value a checklist item recorded, so the runner can show it back", () => {
+    const index = indexProgress([
+      check("c1", "done", { valueNumber: 21.4 }),
+      check("c2", "done", { valueText: "batch 220" }),
+      check("c3", "todo"),
+    ]);
+    expect(index.checklistValue.get("c1")).toEqual({ valueText: null, valueNumber: 21.4 });
+    expect(index.checklistValue.get("c2")).toEqual({ valueText: "batch 220", valueNumber: null });
+    expect(index.checklistValue.get("c3")).toEqual({ valueText: null, valueNumber: null });
+    // A step has no value of its own, and asking for one is a lookup miss rather than a null row.
+    expect(index.checklistValue.get("s1")).toBeUndefined();
   });
 });
 

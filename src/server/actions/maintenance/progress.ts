@@ -28,6 +28,11 @@ import { domainCall, id, revalidateMaintenance } from "./shared";
  * `stepId` / `checklistItemId` are checked against the occurrence's **frozen** procedure version,
  * so a step id from a newer draft cannot be recorded against work that was generated from an older
  * one.
+ *
+ * `valueText` / `valueNumber` / `attachmentId` distinguish **omitted** from **cleared**: an
+ * omitted field leaves whatever is stored alone, `null` erases it. Without that distinction,
+ * un-ticking and re-ticking a box — which says nothing about the reading — would silently destroy
+ * a measurement somebody took, and a step update (which never carries values) would wipe them too.
  */
 function upsertProgress(
   tx: Db,
@@ -98,7 +103,12 @@ function upsertProgress(
   // The unique index covers NULLable columns, where SQLite treats NULLs as distinct — so the
   // lookup is written out rather than left to `onConflictDoUpdate`.
   const existing = tx
-    .select({ id: occurrenceProgressItem.id })
+    .select({
+      id: occurrenceProgressItem.id,
+      valueText: occurrenceProgressItem.valueText,
+      valueNumber: occurrenceProgressItem.valueNumber,
+      attachmentId: occurrenceProgressItem.attachmentId,
+    })
     .from(occurrenceProgressItem)
     .where(
       and(
@@ -118,9 +128,10 @@ function upsertProgress(
     tx.update(occurrenceProgressItem)
       .set({
         state: values.state,
-        valueText: values.valueText ?? null,
-        valueNumber: values.valueNumber ?? null,
-        attachmentId: values.attachmentId ?? null,
+        valueText: values.valueText === undefined ? existing.valueText : values.valueText,
+        valueNumber: values.valueNumber === undefined ? existing.valueNumber : values.valueNumber,
+        attachmentId:
+          values.attachmentId === undefined ? existing.attachmentId : values.attachmentId,
         changedAtMs: nowMs,
         changedBy: actorUserId,
       })
@@ -194,9 +205,11 @@ export const setChecklistProgress = action(
           stepId: input.stepId ?? null,
           checklistItemId: input.checklistItemId,
           state: input.state,
-          valueText: input.valueText ?? null,
-          valueNumber: input.valueNumber ?? null,
-          attachmentId: input.attachmentId ?? null,
+          // Passed straight through, `undefined` included: the schema is `nullish()`, so a field
+          // the form did not send stays as it is and an explicit `null` clears it.
+          valueText: input.valueText,
+          valueNumber: input.valueNumber,
+          attachmentId: input.attachmentId,
         }),
       ),
     );

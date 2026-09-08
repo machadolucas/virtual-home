@@ -18,11 +18,14 @@ export function MaterialsPanel({
   occurrenceId,
   materials,
   open,
+  blocked,
 }: {
   occurrenceId: string;
   materials: readonly MaterialLine[];
   /** Closed tasks show the list for reference but offer no "waiting" affordance. */
   open: boolean;
+  /** Already marked as waiting: `blockTask` would refuse with `already_blocked`. */
+  blocked: boolean;
 }) {
   if (materials.length === 0) {
     return (
@@ -84,10 +87,15 @@ export function MaterialsPanel({
       </ul>
       {open && short.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3">
-          <WaitingForMaterialsButton
-            occurrenceId={occurrenceId}
-            partNames={short.map((line) => line.partName)}
-          />
+          {/* Offering this on a task that is already waiting is offering an action that can only
+              fail (`already_blocked`); the reason is on the task above, so saying it again here
+              would be noise. */}
+          {blocked ? null : (
+            <WaitingForMaterialsButton
+              occurrenceId={occurrenceId}
+              partNames={short.map((line) => line.partName)}
+            />
+          )}
           <Link href="/supplies" className={buttonClasses({ variant: "ghost", size: "sm" })}>
             Open Supplies
           </Link>

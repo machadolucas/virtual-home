@@ -29,8 +29,13 @@ import {
 } from "@/ui";
 import type { Priority } from "@/db/schema/maintenance";
 import type { PartUnit } from "@/db/schema/inventory";
-import { cancelPlanAction, createPlan, updatePlan } from "@/server/actions/maintenance/plans";
-import { messageFor, newRequestKey, useAction } from "./useAction";
+import {
+  cancelPlanAction,
+  createPlan,
+  seedPlan,
+  updatePlan,
+} from "@/server/actions/maintenance/plans";
+import { messageFor, useAction } from "./useAction";
 import { SchedulePicker } from "./SchedulePicker";
 import { formatQty, parseQty } from "./materials";
 import {
@@ -111,7 +116,6 @@ export function PlanForm({
   canCancel = false,
 }: PlanFormProps) {
   const router = useRouter();
-  const [key] = useState(newRequestKey);
 
   const [target, setTarget] = useState(initial?.target ?? targets[0]?.value ?? "");
   const [title, setTitle] = useState(initial?.title ?? "");
@@ -146,10 +150,19 @@ export function PlanForm({
 
   const create = useAction(createPlan, { refresh: false });
   const update = useAction(updatePlan, { success: "Plan saved." });
+  const seed = useAction(seedPlan, { success: "Starting point recorded. No completion was logged." });
   const cancel = useAction(cancelPlanAction, { refresh: false });
 
   const ruleResult = toRecurrenceRule(schedule);
   const canSave = target !== "" && title.trim() !== "" && ruleResult.ok;
+
+  function seedPayload() {
+    return {
+      kind: seedKind,
+      date: seedNeedsDate(seedKind) ? seedDate : undefined,
+      note: seedNote.trim() === "" ? undefined : seedNote.trim(),
+    };
+  }
 
   function planPayload() {
     if (!ruleResult.ok) throw new Error("unreachable: guarded by canSave");
@@ -180,21 +193,17 @@ export function PlanForm({
     if (mode === "create") {
       const result = await create.run({
         plan: planPayload(),
-        seed: {
-          kind: seedKind,
-          date: seedNeedsDate(seedKind) ? seedDate : undefined,
-          note: seedNote.trim() === "" ? undefined : seedNote.trim(),
-        },
-        idempotencyKey: key,
+        seed: seedPayload(),
+        idempotencyKey: create.requestKey,
       });
       if (result !== null) router.push(`/plans/${result.planId}`);
       return;
     }
     if (planId === undefined) return;
-    await update.run({ planId, plan: planPayload(), idempotencyKey: `${key}-update` });
+    await update.run({ planId, plan: planPayload(), idempotencyKey: update.requestKey });
   }
 
-  const failure = create.failure ?? update.failure ?? cancel.failure;
+  const failure = create.failure ?? update.failure ?? seed.failure ?? cancel.failure;
   const pending = create.pending || update.pending;
 
   return (
@@ -290,7 +299,11 @@ export function PlanForm({
       {askSetup ? (
         <Panel
           title="When was this last done?"
-          subtitle="This sets the starting point the schedule is measured from. It is never recorded as a completion — History stays empty until real work is logged."
+          subtitle={
+            mode === "create"
+              ? "This sets the starting point the schedule is measured from. It is never recorded as a completion — History stays empty until real work is logged."
+              : "This plan is still waiting for a starting point, so it is paused and generates nothing. Answering here writes the anchor the schedule is measured from — never a completion, so History stays empty until real work is logged. It is its own act, separate from saving the rest of the form."
+          }
         >
           <div className="flex flex-col gap-4">
             <RadioGroup
@@ -338,9 +351,39 @@ export function PlanForm({
             ) : null}
             {seedKind === "ask_later" ? (
               <p className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">
-                The plan will be saved but paused, with no task generated. It will appear on Today
-                under “Plans waiting for a starting point”.
+                {mode === "create"
+                  ? "The plan will be saved but paused, with no task generated. It will appear on Today under “Plans waiting for a starting point”."
+                  : "That is where this plan already is: paused, with no task generated, listed on Today under “Plans waiting for a starting point”. Pick one of the answers above to get it running."}
               </p>
+            ) : null}
+            {/* Edit mode needs its own submit: "Save changes" writes the plan's fields, and a
+                starting point is a different act with a different consequence (the plan unpauses
+                and a first task appears). Folding it into the same button would make one press
+                mean two things, and the seed would be invisible in the audit trail as its own
+                decision. */}
+            {mode === "edit" && planId !== undefined ? (
+              <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
+                <Button
+                  variant="primary"
+                  loading={seed.pending}
+                  disabled={
+                    seedKind === "ask_later" ||
+                    (seedNeedsDate(seedKind) && seedDate.trim() === "")
+                  }
+                  onClick={() =>
+                    void seed.run({
+                      planId,
+                      seed: seedPayload(),
+                      idempotencyKey: seed.requestKey,
+                    })
+                  }
+                >
+                  Set the starting point
+                </Button>
+                <span className="text-xs text-ink-3">
+                  Writes a schedule anchor and nothing else. No work is recorded as done.
+                </span>
+              </div>
             ) : null}
           </div>
         </Panel>
@@ -509,7 +552,7 @@ export function PlanForm({
                     .run({
                       planId,
                       reason: cancelReason.trim() === "" ? undefined : cancelReason.trim(),
-                      idempotencyKey: `${key}-cancel`,
+                      idempotencyKey: cancel.requestKey,
                     })
                     .then((result) => {
                       if (result !== null) router.push("/plans");

@@ -33,7 +33,7 @@ import {
   saveProcedureDraft,
   startProcedureDraft,
 } from "@/server/actions/maintenance/procedures";
-import { messageFor, newRequestKey, useAction } from "./useAction";
+import { messageFor, useAction } from "./useAction";
 import { parseQty } from "./materials";
 
 export interface EditorChecklistItem {
@@ -121,7 +121,6 @@ export function ProcedureEditor({
   hasDraft,
 }: ProcedureEditorProps) {
   const router = useRouter();
-  const [key] = useState(newRequestKey);
   const [values, setValues] = useState<ProcedureEditorValues>(initial);
   const [publishOpen, setPublishOpen] = useState(false);
   const [changeNote, setChangeNote] = useState("");
@@ -143,7 +142,7 @@ export function ProcedureEditor({
             loading={start.pending}
             onClick={() =>
               void start
-                .run({ procedureId, idempotencyKey: `${key}-start` })
+                .run({ procedureId, idempotencyKey: start.requestKey })
                 .then((result) => {
                   // Drop any `?version=` from the URL: the draft is what should now be on screen.
                   if (result !== null) router.push(`/procedures/${procedureId}`);
@@ -758,7 +757,7 @@ export function ProcedureEditor({
           disabled={values.title.trim() === ""}
           icon={<Save aria-hidden="true" />}
           onClick={() =>
-            void save.run({ procedureId, content: payload(), idempotencyKey: `${key}-save` })
+            void save.run({ procedureId, content: payload(), idempotencyKey: save.requestKey })
           }
         >
           Save draft
@@ -782,7 +781,7 @@ export function ProcedureEditor({
             className="ms-auto"
             loading={discard.pending}
             onClick={() =>
-              void discard.run({ procedureId, idempotencyKey: `${key}-discard` })
+              void discard.run({ procedureId, idempotencyKey: discard.requestKey })
             }
           >
             Discard draft
@@ -806,14 +805,14 @@ export function ProcedureEditor({
               loading={publish.pending || save.pending}
               onClick={() =>
                 void save
-                  .run({ procedureId, content: payload(), idempotencyKey: `${key}-presave` })
+                  .run({ procedureId, content: payload(), idempotencyKey: save.requestKey })
                   .then((saved) => {
                     if (saved === null) return;
                     return publish
                       .run({
                         procedureId,
                         changeNote: changeNote.trim() === "" ? null : changeNote.trim(),
-                        idempotencyKey: `${key}-publish`,
+                        idempotencyKey: publish.requestKey,
                       })
                       .then((result) => {
                         if (result !== null) setPublishOpen(false);

@@ -4,9 +4,10 @@
  *
  * Two things here are load-bearing rather than cosmetic:
  *
- *  1. **`requestId` is created once, when the dialog opens, and reused on every resubmit.** If the
- *     first attempt actually committed but the response was lost, the retry is an idempotent
- *     replay, not a second completion and a second deduction (§5.1 step 1).
+ *  1. **`requestId` covers one submit and every resubmit of it.** If the first attempt actually
+ *     committed but the response was lost, the retry is an idempotent replay, not a second
+ *     completion and a second deduction (§5.1 step 1). It is replaced only after a success, so
+ *     completing a reopened task never replays the completion that was voided.
  *  2. **Insufficient stock is not an error the form swallows.** The server refuses to guess (§5.3);
  *     the response comes back with a line-by-line list, every field the user typed is still here,
  *     and each short line gets the three honest choices. Submitting again carries the same
@@ -27,12 +28,13 @@ import {
 } from "@/ui";
 import type { ReplacementReason } from "@/db/schema/assets";
 import { completeTask } from "@/server/actions/maintenance/complete";
-import { messageFor, newRequestKey, useAction } from "./useAction";
+import { messageFor, useAction } from "./useAction";
 import { formatDate } from "./dueDate";
 import {
   diffMaterials,
   describeSource,
   formatQty,
+  missingRequired,
   parseQty,
   prefillMaterials,
   qtyStep,
@@ -89,6 +91,35 @@ const SHORT_OPTIONS = [
   },
 ] as const;
 
+/**
+ * One line as the user currently has it. `actualQtyMilli` is `null` while the box holds something
+ * that is not a quantity — an emptied field, a stray letter. It is deliberately *not* the
+ * pre-filled expectation: leaving the expected value in place there would let a cleared field
+ * submit "2 filters used" as a fact nobody typed, which is rule 6 territory.
+ */
+interface DraftLine {
+  partId: string;
+  actualQtyMilli: number | null;
+  resolutionIfShort?: MaterialDraft["resolutionIfShort"];
+}
+
+/**
+ * The drafts as the rest of the form wants them, or `null` when any line is still unreadable.
+ * Returning `null` rather than coercing is what keeps an un-entered amount out of the ledger.
+ */
+function readyLines(drafts: readonly DraftLine[]): MaterialDraft[] | null {
+  const out: MaterialDraft[] = [];
+  for (const draft of drafts) {
+    if (draft.actualQtyMilli === null) return null;
+    out.push({
+      partId: draft.partId,
+      actualQtyMilli: draft.actualQtyMilli,
+      resolutionIfShort: draft.resolutionIfShort,
+    });
+  }
+  return out;
+}
+
 interface ShortLine {
   partId: string;
   partName: string;
@@ -139,10 +170,6 @@ export function CompleteDialog({
   assetName,
   isConditionTask,
 }: CompleteDialogProps) {
-  // Created once per dialog instance. The dialog is unmounted after a success, so a second
-  // completion of a reopened task gets a fresh key rather than replaying the old one.
-  const [requestId] = useState(newRequestKey);
-
   const [whenMode, setWhenMode] = useState<"now" | "date">("now");
   const [date, setDate] = useState(today);
   const [time, setTime] = useState("12:00");
@@ -153,7 +180,7 @@ export function CompleteDialog({
   const [effort, setEffort] = useState(estimatedMinutes === null ? "" : String(estimatedMinutes));
   const [outcome, setOutcome] = useState<"done" | "done_with_issues" | "partial">("done");
 
-  const [drafts, setDrafts] = useState<MaterialDraft[]>(() => prefillMaterials(materials));
+  const [drafts, setDrafts] = useState<DraftLine[]>(() => prefillMaterials(materials));
   const [qtyText, setQtyText] = useState<Record<string, string>>(() =>
     Object.fromEntries(materials.map((line) => [line.partId, String(line.expectedQtyMilli / 1000)])),
   );
@@ -167,7 +194,10 @@ export function CompleteDialog({
   const [cloneConsumables, setCloneConsumables] = useState(true);
   const [cloneHaLinks, setCloneHaLinks] = useState(true);
 
-  const { run, pending, failure } = useAction(completeTask, {
+  // `requestKey` survives a refusal and is replaced after a success, which is exactly what
+  // `requestId` needs: resubmitting after `insufficient_stock` must be the *same* request, and a
+  // second completion of a reopened task must not replay the first one.
+  const { run, pending, failure, requestKey } = useAction(completeTask, {
     success: "Completion recorded.",
     onDone: () => onOpenChange(false),
   });
@@ -177,7 +207,29 @@ export function CompleteDialog({
     [failure],
   );
 
-  const rows = useMemo(() => diffMaterials(materials, drafts), [materials, drafts]);
+  const unreadable = useMemo(
+    () => new Set(drafts.filter((draft) => draft.actualQtyMilli === null).map((d) => d.partId)),
+    [drafts],
+  );
+  // An unreadable line is diffed as zero only so the list still renders in one pass; the line
+  // shows its own error instead of a shortfall, and submit is disabled, so that zero never leaves
+  // the browser.
+  const rows = useMemo(
+    () =>
+      diffMaterials(
+        materials,
+        drafts.map((draft) => ({ ...draft, actualQtyMilli: draft.actualQtyMilli ?? 0 })),
+      ),
+    [materials, drafts],
+  );
+  const zeroedRequired = useMemo(
+    () =>
+      missingRequired(
+        materials,
+        drafts.map((draft) => ({ ...draft, actualQtyMilli: draft.actualQtyMilli ?? 0 })),
+      ),
+    [materials, drafts],
+  );
   // A line is "short" either because the local balance says so, or because the server said so on
   // the previous attempt (the ledger can have moved between the page render and the submit).
   const shortPartIds = new Set([
@@ -187,12 +239,14 @@ export function CompleteDialog({
   const needsResolution = [...shortPartIds].filter(
     (partId) => (drafts.find((draft) => draft.partId === partId)?.resolutionIfShort ?? null) === null,
   );
-  const blocked = serverShortLines.length > 0 && needsResolution.length > 0;
+  const blocked =
+    (serverShortLines.length > 0 && needsResolution.length > 0) || unreadable.size > 0;
 
   function setQty(partId: string, text: string): void {
     setQtyText((current) => ({ ...current, [partId]: text }));
+    // `null` is stored, not discarded. Returning early here is what used to leave the pre-filled
+    // expectation in the draft and record it as what was used.
     const parsed = parseQty(text);
-    if (parsed === null) return;
     setDrafts((current) =>
       current.map((draft) => (draft.partId === partId ? { ...draft, actualQtyMilli: parsed } : draft)),
     );
@@ -209,11 +263,13 @@ export function CompleteDialog({
   }
 
   function submit(): void {
+    const lines = readyLines(drafts);
+    if (lines === null) return;
     const performedByUserId = performer.startsWith("user:") ? performer.slice(5) : null;
     const performedByProviderId = performer.startsWith("provider:") ? performer.slice(9) : null;
     void run({
       occurrenceId,
-      requestId,
+      requestId: requestKey,
       completedAt:
         whenMode === "now"
           ? { mode: "now" }
@@ -224,12 +280,12 @@ export function CompleteDialog({
       notes: notes.trim() === "" ? undefined : notes.trim(),
       effortMinutes: effort.trim() === "" ? null : Number(effort),
       outcome,
-      materials: drafts.map((draft) => ({
-        partId: draft.partId,
-        actualQtyMilli: draft.actualQtyMilli,
+      materials: lines.map((line) => ({
+        partId: line.partId,
+        actualQtyMilli: line.actualQtyMilli,
         expectedQtyMilli:
-          materials.find((line) => line.partId === draft.partId)?.expectedQtyMilli ?? null,
-        resolutionIfShort: draft.resolutionIfShort,
+          materials.find((entry) => entry.partId === line.partId)?.expectedQtyMilli ?? null,
+        resolutionIfShort: line.resolutionIfShort,
       })),
       ...(replacing && assetName !== null
         ? {
@@ -428,8 +484,10 @@ export function CompleteDialog({
               {rows.map((row) => {
                 const line = materials.find((entry) => entry.partId === row.partId);
                 const serverShort = serverShortLines.find((entry) => entry.partId === row.partId);
-                const isShort = row.isShort || serverShort !== undefined;
+                const unreadableLine = unreadable.has(row.partId);
+                const isShort = !unreadableLine && (row.isShort || serverShort !== undefined);
                 const draft = drafts.find((entry) => entry.partId === row.partId);
+                const errorId = unreadableLine ? `used-${row.partId}-error` : undefined;
                 return (
                   <li
                     key={row.partId}
@@ -455,11 +513,27 @@ export function CompleteDialog({
                           className="w-24"
                           value={qtyText[row.partId] ?? ""}
                           aria-label={`Quantity of ${row.partName} used, in ${row.unit}`}
+                          aria-invalid={unreadableLine || undefined}
+                          aria-errormessage={errorId}
                           onChange={(event) => setQty(row.partId, event.target.value)}
                         />
                         <span>{row.unit}</span>
                       </label>
                     </div>
+
+                    {unreadableLine ? (
+                      <p
+                        id={errorId}
+                        className="mt-2 flex items-start gap-1.5 text-xs font-medium leading-5 text-overdue"
+                      >
+                        <span aria-hidden="true">&#9650;</span>
+                        <span>
+                          Type how much was used, or 0 if none was. An empty box is not the same
+                          answer as {formatQty(row.expectedQtyMilli, row.unit)}, so nothing is
+                          recorded until this says something.
+                        </span>
+                      </p>
+                    ) : null}
 
                     {isShort ? (
                       <div className="mt-3 border-t border-line pt-3">
@@ -486,10 +560,22 @@ export function CompleteDialog({
                 );
               })}
             </ul>
-            {!resolutionsComplete(rows) && serverShortLines.length === 0 ? (
+            {!resolutionsComplete(rows) && serverShortLines.length === 0 && unreadable.size === 0 ? (
               <p className="text-sm text-ink-3">
                 One or more lines look short against the ledger. You can submit anyway — the server
                 re-checks and will ask what to do rather than guessing.
+              </p>
+            ) : null}
+            {/* A warning, never a block: "we expected to use one, we did not" is a real answer,
+                and §5.3 leaves the judgement with the person who was standing there. */}
+            {zeroedRequired.length > 0 && unreadable.size === 0 ? (
+              <p className="flex items-start gap-2 text-sm text-ink-2">
+                <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-blocked" />
+                <span>
+                  {zeroedRequired.map((entry) => entry.partName).join(", ")}{" "}
+                  {zeroedRequired.length === 1 ? "is" : "are"} listed as required for this task and
+                  set to zero. That is fine if none was used — the completion will simply say so.
+                </span>
               </p>
             ) : null}
           </fieldset>

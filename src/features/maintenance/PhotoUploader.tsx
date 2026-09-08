@@ -74,6 +74,18 @@ export function PhotoUploader({
         return;
       }
       await link.run({ attachmentId, scope, entityId, occurrenceId, role: null });
+    } catch {
+      // A rejected `fetch` is the phone losing the network mid-upload, or the server going away.
+      // Without this the rejection escapes the `void upload(file)` at the call site unhandled: the
+      // spinner simply stops and nothing on screen says the photo was not stored. This is the
+      // flow that happens standing in a plant room on one bar of signal.
+      toast({
+        title: "The photo was not sent",
+        description:
+          "The connection dropped before the upload finished. Nothing was stored — try again.",
+        tone: "error",
+        duration: 0,
+      });
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";

@@ -21,8 +21,13 @@ import {
   snoozeUntilTomorrow,
   unblockTask,
 } from "@/server/actions/maintenance/occurrence";
-import { messageFor, newRequestKey, useAction } from "./useAction";
-import { describeDue, formatDate } from "./dueDate";
+import { messageFor, useAction } from "./useAction";
+import {
+  defaultPostponeDate,
+  describeDue,
+  formatDate,
+  postponeExhausted,
+} from "./dueDate";
 
 interface DialogControl {
   open: boolean;
@@ -61,14 +66,16 @@ export function PostponeDialog({
   open,
   onOpenChange,
 }: PostponeDialogProps) {
-  const [date, setDate] = useState(() => addDaysLocal(dueDate, 7));
+  // A week out, floored at a week from today and clamped to the household limit: a task that is a
+  // month overdue must not open on a date in the past with the button already disabled.
+  const [date, setDate] = useState(() => defaultPostponeDate(dueDate, today, limitDate));
   const [reason, setReason] = useState("");
-  const [key] = useState(newRequestKey);
-  const { run, pending, failure } = useAction(postponeTask, {
+  const { run, pending, failure, requestKey } = useAction(postponeTask, {
     success: "Due date moved.",
     onDone: () => onOpenChange(false),
   });
 
+  const exhausted = postponeExhausted(today, limitDate);
   const tooEarly = compareLocalDate(date, today) < 0;
   const tooLate = compareLocalDate(date, limitDate) > 0;
 
@@ -86,13 +93,13 @@ export function PostponeDialog({
           <Button
             variant="primary"
             loading={pending}
-            disabled={tooEarly || tooLate}
+            disabled={exhausted || tooEarly || tooLate}
             onClick={() =>
               void run({
                 occurrenceId,
                 newDueDate: date,
                 reason: reason.trim() === "" ? undefined : reason.trim(),
-                idempotencyKey: key,
+                idempotencyKey: requestKey,
               })
             }
           >
@@ -106,6 +113,15 @@ export function PostponeDialog({
           Currently due {formatDate(dueDate)}
           {originalDueDate !== dueDate ? ` · originally due ${formatDate(originalDueDate)}` : ""}.
         </p>
+        {exhausted ? (
+          <p className="rounded-md border border-blocked/45 bg-blocked-soft px-3 py-2 text-sm text-blocked">
+            This task has used up its postpone budget: the household limit is{" "}
+            {formatDate(limitDate)}, measured from the original due date of{" "}
+            {formatDate(originalDueDate)}, and that is already past. There is no date left to move
+            it to. Do the work, skip it with a reason, or mark it as waiting for something.
+          </p>
+        ) : null}
+        {exhausted ? null : (
         <Field
           label="New due date"
           required
@@ -132,6 +148,7 @@ export function PostponeDialog({
             />
           )}
         </Field>
+        )}
         <Field label="Why" help="Optional, but it is what makes the timeline readable later.">
           {({ id, describedBy }) => (
             <Textarea
@@ -235,8 +252,7 @@ export interface SkipDialogProps extends DialogControl {
 
 export function SkipDialog({ occurrenceId, dueDate, hasPlan, open, onOpenChange }: SkipDialogProps) {
   const [reason, setReason] = useState("");
-  const [key] = useState(newRequestKey);
-  const { run, pending, failure } = useAction(skipTask, {
+  const { run, pending, failure, requestKey } = useAction(skipTask, {
     success: "Task skipped. No completion was recorded.",
     onDone: () => onOpenChange(false),
   });
@@ -262,7 +278,7 @@ export function SkipDialog({ occurrenceId, dueDate, hasPlan, open, onOpenChange 
             loading={pending}
             disabled={reason.trim() === ""}
             onClick={() =>
-              void run({ occurrenceId, reason: reason.trim(), idempotencyKey: key })
+              void run({ occurrenceId, reason: reason.trim(), idempotencyKey: requestKey })
             }
           >
             Skip without doing it
@@ -302,8 +318,7 @@ export interface BlockDialogProps extends DialogControl {
 
 export function BlockDialog({ occurrenceId, open, onOpenChange }: BlockDialogProps) {
   const [reason, setReason] = useState("");
-  const [key] = useState(newRequestKey);
-  const { run, pending, failure } = useAction(blockTask, {
+  const { run, pending, failure, requestKey } = useAction(blockTask, {
     success: "Marked as blocked.",
     onDone: () => onOpenChange(false),
   });
@@ -324,7 +339,7 @@ export function BlockDialog({ occurrenceId, open, onOpenChange }: BlockDialogPro
             variant="primary"
             loading={pending}
             disabled={reason.trim() === ""}
-            onClick={() => void run({ occurrenceId, reason: reason.trim(), idempotencyKey: key })}
+            onClick={() => void run({ occurrenceId, reason: reason.trim(), idempotencyKey: requestKey })}
           >
             Mark as waiting
           </Button>
@@ -383,6 +398,8 @@ export function ReopenButton({ occurrenceId }: { occurrenceId: string }) {
 
 export interface TaskQuickActionsProps {
   occurrenceId: string;
+  /** The task's own title, so one row's buttons are distinguishable from the next row's. */
+  title: string;
   dueDate: string;
   originalDueDate: string;
   today: string;
@@ -396,9 +413,14 @@ export interface TaskQuickActionsProps {
  *
  * Completing is deliberately **not** here. A completion asks who did it, when, and what was used;
  * a one-tap "done" on a list is how fake history gets written.
+ *
+ * Each control carries the task's title in its accessible name while keeping the short visible
+ * label: a list of ten tasks otherwise offers thirty controls called "Open", "Snooze 1 day" and
+ * "Postpone…", which is unusable by voice or by screen reader.
  */
 export function TaskQuickActions({
   occurrenceId,
+  title,
   dueDate,
   originalDueDate,
   today,
@@ -410,7 +432,11 @@ export function TaskQuickActions({
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <Link href={`/tasks/${occurrenceId}`} className={buttonClasses({ variant: "secondary", size: "sm" })}>
+      <Link
+        href={`/tasks/${occurrenceId}`}
+        aria-label={`Open ${title}`}
+        className={buttonClasses({ variant: "secondary", size: "sm" })}
+      >
         Open
       </Link>
       {canSnooze ? (
@@ -418,6 +444,7 @@ export function TaskQuickActions({
           variant="ghost"
           size="sm"
           loading={snooze.pending}
+          aria-label={`Snooze the reminder for ${title} by one day`}
           icon={<AlarmClock aria-hidden="true" />}
           onClick={() => void snooze.run({ occurrenceId })}
         >
@@ -427,6 +454,7 @@ export function TaskQuickActions({
       <Button
         variant="ghost"
         size="sm"
+        aria-label={`Postpone ${title}…`}
         icon={<CalendarClock aria-hidden="true" />}
         onClick={() => setPostponeOpen(true)}
       >
@@ -478,8 +506,9 @@ export function WaitingForMaterialsButton({
   occurrenceId,
   partNames,
 }: WaitingForMaterialsButtonProps) {
-  const [key] = useState(newRequestKey);
-  const { run, pending } = useAction(blockTask, { success: "Marked as waiting for materials." });
+  const { run, pending, requestKey } = useAction(blockTask, {
+    success: "Marked as waiting for materials.",
+  });
   const reason =
     partNames.length === 0
       ? "Waiting for materials"
@@ -490,7 +519,7 @@ export function WaitingForMaterialsButton({
       variant="secondary"
       size="sm"
       loading={pending}
-      onClick={() => void run({ occurrenceId, reason, idempotencyKey: key })}
+      onClick={() => void run({ occurrenceId, reason, idempotencyKey: requestKey })}
     >
       Mark as waiting for materials
     </Button>

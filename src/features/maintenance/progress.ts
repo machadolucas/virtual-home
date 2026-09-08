@@ -9,6 +9,15 @@ export interface ProgressLike {
   stepId: string | null;
   checklistItemId: string | null;
   state: "todo" | "in_progress" | "done" | "skipped";
+  /** What was recorded against a checklist item that asks for one. `null` when nothing was. */
+  valueText: string | null;
+  valueNumber: number | null;
+}
+
+/** The reading a checklist item carries: "outlet at 21.4 °C", "brand X, batch 220". */
+export interface ChecklistValue {
+  valueText: string | null;
+  valueNumber: number | null;
 }
 
 export interface StepLike {
@@ -20,18 +29,29 @@ export interface StepLike {
 export interface ProgressIndex {
   stepState: Map<string, ProgressLike["state"]>;
   checklistState: Map<string, ProgressLike["state"]>;
+  /**
+   * The recorded value per checklist item. Carried alongside the state because the reading *is*
+   * the record for a "measure the outlet temperature" item — a form that collects it, stores it
+   * and then shows an empty box on the next render has lost it as far as the user can tell.
+   */
+  checklistValue: Map<string, ChecklistValue>;
 }
 
 export function indexProgress(rows: readonly ProgressLike[]): ProgressIndex {
   const stepState = new Map<string, ProgressLike["state"]>();
   const checklistState = new Map<string, ProgressLike["state"]>();
+  const checklistValue = new Map<string, ChecklistValue>();
   for (const row of rows) {
     if (row.itemKind === "step" && row.stepId !== null) stepState.set(row.stepId, row.state);
     if (row.itemKind === "checklist" && row.checklistItemId !== null) {
       checklistState.set(row.checklistItemId, row.state);
+      checklistValue.set(row.checklistItemId, {
+        valueText: row.valueText,
+        valueNumber: row.valueNumber,
+      });
     }
   }
-  return { stepState, checklistState };
+  return { stepState, checklistState, checklistValue };
 }
 
 /** A step counts as settled once it is `done` or deliberately `skipped`. */

@@ -9,6 +9,7 @@
  */
 import type { StatusKind } from "@/ui/status";
 import {
+  addDaysLocal,
   compareLocalDate,
   daysBetweenLocal,
   parseLocalDate,
@@ -156,4 +157,34 @@ export function formatMinutes(minutes: number | null | undefined): string | null
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+}
+
+/** How far out a postpone opens by default, in days. A week is the unit people actually think in. */
+const POSTPONE_DEFAULT_DAYS = 7;
+
+/**
+ * The date the postpone dialog should open with.
+ *
+ * A week after the due date is the intent, but for a task that is already a month overdue that is
+ * a date in the past: the field opens invalid, the button opens disabled, and the user has to
+ * retype something before the dialog does anything. So the floor is a week from *today*, and the
+ * whole thing is clamped to the household's postpone limit.
+ *
+ * When the limit itself is already behind us the postpone budget is spent — `postponeExhausted`
+ * says so, and the caller should offer that fact rather than an impossible range.
+ */
+export function defaultPostponeDate(
+  dueDate: LocalDate,
+  today: LocalDate,
+  limitDate: LocalDate,
+): LocalDate {
+  const fromDue = addDaysLocal(dueDate, POSTPONE_DEFAULT_DAYS);
+  const fromToday = addDaysLocal(today, POSTPONE_DEFAULT_DAYS);
+  const wanted = compareLocalDate(fromDue, fromToday) > 0 ? fromDue : fromToday;
+  return compareLocalDate(wanted, limitDate) > 0 ? limitDate : wanted;
+}
+
+/** True when the household's postpone limit is already in the past: no legal date is left. */
+export function postponeExhausted(today: LocalDate, limitDate: LocalDate): boolean {
+  return compareLocalDate(limitDate, today) < 0;
 }

@@ -20,6 +20,7 @@ import {
   indexProgress,
   isSettled,
   summariseProgress,
+  type ChecklistValue,
   type ProgressLike,
 } from "./progress";
 
@@ -73,6 +74,10 @@ export function ProcedureRunner({
   const resumeAt = firstUnfinishedStepId(steps, progress);
   const summary = summariseProgress(steps, looseChecklist, progress);
   const [openStepId, setOpenStepId] = useState<string | null>(resumeAt ?? steps[0]?.id ?? null);
+  // Which control is waiting for the server. `pending` on the hook is global to the hook, so
+  // without this every visible step's buttons spin while one step is being ticked — on a phone,
+  // in a plant room, that reads as "the whole list is busy" rather than "this one is saving".
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
 
   const stepAction = useAction(setStepProgress, { refresh: true });
   const checkAction = useAction(setChecklistProgress, { refresh: true });
@@ -217,9 +222,11 @@ export function ProcedureRunner({
                               key={item.id}
                               item={item}
                               state={index.checklistState.get(item.id)}
+                              recorded={index.checklistValue.get(item.id)}
                               readOnly={readOnly}
-                              pending={checkAction.pending}
-                              onChange={(next) =>
+                              pending={checkAction.pending && pendingKey === `check:${item.id}`}
+                              onChange={(next) => {
+                                setPendingKey(`check:${item.id}`);
                                 void checkAction.run({
                                   occurrenceId,
                                   checklistItemId: item.id,
@@ -227,8 +234,8 @@ export function ProcedureRunner({
                                   state: next.state,
                                   valueText: next.valueText,
                                   valueNumber: next.valueNumber,
-                                })
-                              }
+                                });
+                              }}
                             />
                           ))}
                         </ul>
@@ -239,9 +246,10 @@ export function ProcedureRunner({
                           <Button
                             variant={state === "done" ? "secondary" : "primary"}
                             size="sm"
-                            loading={stepAction.pending}
+                            loading={stepAction.pending && pendingKey === `done:${step.id}`}
                             icon={<Check aria-hidden="true" />}
                             onClick={() => {
+                              setPendingKey(`done:${step.id}`);
                               void stepAction.run({
                                 occurrenceId,
                                 stepId: step.id,
@@ -256,9 +264,10 @@ export function ProcedureRunner({
                           <Button
                             variant="ghost"
                             size="sm"
-                            loading={stepAction.pending}
+                            loading={stepAction.pending && pendingKey === `skip:${step.id}`}
                             icon={<SkipForward aria-hidden="true" />}
                             onClick={() => {
+                              setPendingKey(`skip:${step.id}`);
                               void stepAction.run({
                                 occurrenceId,
                                 stepId: step.id,
@@ -289,9 +298,11 @@ export function ProcedureRunner({
                   key={item.id}
                   item={item}
                   state={index.checklistState.get(item.id)}
+                  recorded={index.checklistValue.get(item.id)}
                   readOnly={readOnly}
-                  pending={checkAction.pending}
-                  onChange={(next) =>
+                  pending={checkAction.pending && pendingKey === `check:${item.id}`}
+                  onChange={(next) => {
+                    setPendingKey(`check:${item.id}`);
                     void checkAction.run({
                       occurrenceId,
                       checklistItemId: item.id,
@@ -299,8 +310,8 @@ export function ProcedureRunner({
                       state: next.state,
                       valueText: next.valueText,
                       valueNumber: next.valueNumber,
-                    })
-                  }
+                    });
+                  }}
                 />
               ))}
             </ul>
@@ -311,27 +322,44 @@ export function ProcedureRunner({
   );
 }
 
+/**
+ * What the row asks the server to record.
+ *
+ * `valueText` / `valueNumber` are **omitted** for an item that does not ask for that kind of
+ * value, and the server keeps whatever it already holds for an omitted field. An explicit `null`
+ * is a clear, and only a visible, emptied field produces one — otherwise merely re-ticking a box
+ * would wipe a reading somebody walked out to the plant room to take.
+ */
 interface ChecklistChange {
   state: "todo" | "done";
-  valueText: string | null;
-  valueNumber: number | null;
+  valueText?: string | null;
+  valueNumber?: number | null;
 }
 
 function ChecklistRow({
   item,
   state,
+  recorded,
   readOnly,
   pending,
   onChange,
 }: {
   item: RunnerChecklistItem;
   state: ProgressLike["state"] | undefined;
+  /** What is already stored for this item, so the field opens with it rather than empty. */
+  recorded: ChecklistValue | undefined;
   readOnly: boolean;
   pending: boolean;
   onChange: (next: ChecklistChange) => void;
 }) {
-  const [text, setText] = useState("");
-  const [number, setNumber] = useState("");
+  // Seeded from the persisted row: the fields are the only place the reading is visible, so
+  // starting them empty on every mount is indistinguishable from having lost it.
+  const [text, setText] = useState(recorded?.valueText ?? "");
+  const [number, setNumber] = useState(
+    recorded?.valueNumber === null || recorded?.valueNumber === undefined
+      ? ""
+      : String(recorded.valueNumber),
+  );
   const done = state === "done";
 
   return (
@@ -342,9 +370,10 @@ function ChecklistRow({
         onCheckedChange={(value) =>
           onChange({
             state: value === true ? "done" : "todo",
-            valueText: item.requiresValue === "text" && text !== "" ? text : null,
-            valueNumber:
-              item.requiresValue === "number" && number !== "" ? Number(number) : null,
+            ...(item.requiresValue === "text" ? { valueText: text === "" ? null : text } : {}),
+            ...(item.requiresValue === "number"
+              ? { valueNumber: number === "" ? null : Number(number) }
+              : {}),
           })
         }
         label={item.text}
@@ -381,6 +410,35 @@ function ChecklistRow({
           onChange={(event) => setText(event.target.value)}
         />
       ) : null}
+      {readOnly ? <RecordedValue item={item} recorded={recorded} /> : null}
     </li>
   );
+}
+
+/**
+ * The reading, on a closed task. Read-only is not the same as invisible: the value is part of what
+ * was recorded, and a completed task that hides it is missing the answer somebody wrote down.
+ */
+function RecordedValue({
+  item,
+  recorded,
+}: {
+  item: RunnerChecklistItem;
+  recorded: ChecklistValue | undefined;
+}) {
+  if (item.requiresValue === "number" && recorded?.valueNumber !== null && recorded?.valueNumber !== undefined) {
+    return (
+      <span className="vh-tnum text-sm text-ink-2">
+        {recorded.valueNumber}
+        {item.unit === null ? "" : ` ${item.unit}`}
+      </span>
+    );
+  }
+  if (item.requiresValue === "text" && recorded?.valueText !== null && recorded?.valueText !== undefined) {
+    return <span className="text-sm text-ink-2">{recorded.valueText}</span>;
+  }
+  if (item.requiresValue === "number" || item.requiresValue === "text") {
+    return <span className="text-sm text-ink-3">Nothing recorded</span>;
+  }
+  return null;
 }
