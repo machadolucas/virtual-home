@@ -1,0 +1,2 @@
+DROP INDEX `ux_ha_entity_unique_id`;--> statement-breakpoint
+CREATE UNIQUE INDEX `ux_ha_entity_unique_id` ON `ha_entity` (`platform`,`unique_id`,`domain`) WHERE unique_id IS NOT NULL AND removed_at_ms IS NULL;

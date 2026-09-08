@@ -121,8 +121,14 @@ export const haEntity = sqliteTable(
     uniqueIndex("ux_ha_entity_entity_id")
       .on(t.entityId)
       .where(sql`removed_at_ms IS NULL`),
+    // `domain` belongs in this index: Home Assistant guarantees `unique_id` is
+    // unique per platform *per domain*, not per platform. Real registries
+    // collide constantly without it — `mobile_app` reuses one id for a
+    // `device_tracker` and a `notify`, HACS for a `switch` and an `update`,
+    // `apple_tv` across `media_player`/`remote`/`binary_sensor` — and the
+    // rolled-back snapshot left the whole registry mirror empty.
     uniqueIndex("ux_ha_entity_unique_id")
-      .on(t.platform, t.uniqueId)
+      .on(t.platform, t.uniqueId, t.domain)
       .where(sql`unique_id IS NOT NULL AND removed_at_ms IS NULL`),
     index("ix_ha_entity_device").on(t.deviceId),
     index("ix_ha_entity_class").on(t.deviceClass, t.unitOfMeasurement),

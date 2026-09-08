@@ -654,7 +654,7 @@ exports[`migrations > produces the expected schema 1`] = `
   },
   {
     "name": "ux_ha_entity_unique_id",
-    "sql": "CREATE UNIQUE INDEX \`ux_ha_entity_unique_id\` ON \`ha_entity\` (\`platform\`,\`unique_id\`) WHERE unique_id IS NOT NULL AND removed_at_ms IS NULL",
+    "sql": "CREATE UNIQUE INDEX \`ux_ha_entity_unique_id\` ON \`ha_entity\` (\`platform\`,\`unique_id\`,\`domain\`) WHERE unique_id IS NOT NULL AND removed_at_ms IS NULL",
     "type": "index",
   },
   {
