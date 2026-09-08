@@ -24,6 +24,7 @@ import {
   TRACKING_MODE_LABEL,
   formatMilli,
   parseQuantityToMilli,
+  readRowQuantity,
 } from "@/features/inventory/units";
 import { useAction } from "@/features/settings/actionClient";
 import { createPart, updatePart } from "@/server/actions/inventory/parts";
@@ -123,7 +124,20 @@ export function PartForm({
   const set = <K extends keyof PartFormInitial>(key: K, value: PartFormInitial[K]): void =>
     setForm((current) => ({ ...current, [key]: value }));
 
+  // The kit's contents are saved with the item, as one list. A row that cannot be read has to
+  // block the save rather than be filtered out of it: dropping it created the kit without that
+  // part and said "Item added".
+  const componentErrors = form.components.map((row) => ({
+    part: row.componentPartId === "" ? "Choose a part." : null,
+    qty: readRowQuantity(row.qty).error,
+  }));
+  const componentsIncomplete =
+    form.isKit &&
+    !editing &&
+    componentErrors.some((entry) => entry.part !== null || entry.qty !== null);
+
   const submit = (): void => {
+    if (componentsIncomplete) return;
     const base = {
       name: form.name,
       spec: form.spec,
@@ -153,8 +167,8 @@ export function PartForm({
       ...base,
       idempotencyKey: create.idempotencyKey,
       components: form.components.flatMap((row) => {
-        const qtyMilli = parseQuantityToMilli(row.qty);
-        if (row.componentPartId === "" || qtyMilli === null || qtyMilli <= 0) return [];
+        const { qtyMilli } = readRowQuantity(row.qty);
+        if (row.componentPartId === "" || qtyMilli === null) return [];
         return [{ componentPartId: row.componentPartId, qtyMilli }];
       }),
       suppliers:
@@ -206,11 +220,17 @@ export function PartForm({
             )}
           </Field>
 
-          <Field label="Specification" help="Size, grade, class — whatever decides whether it fits.">
-            {({ id, describedBy }) => (
+          <Field
+            label="Specification"
+            help="Size, grade, class — whatever decides whether it fits."
+            error={fieldError("spec")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 value={form.spec}
                 onChange={(event) => set("spec", event.target.value)}
                 placeholder="F7, 200×200×46 mm"
@@ -218,10 +238,16 @@ export function PartForm({
             )}
           </Field>
 
-          <Field label="Dimensions">
-            {({ id }) => (
+          <Field
+            label="Dimensions"
+            error={fieldError("dimensions")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 value={form.dimensions}
                 onChange={(event) => set("dimensions", event.target.value)}
                 placeholder="200 × 200 × 46 mm"
@@ -229,10 +255,16 @@ export function PartForm({
             )}
           </Field>
 
-          <Field label="Manufacturer">
-            {({ id }) => (
+          <Field
+            label="Manufacturer"
+            error={fieldError("manufacturer")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 value={form.manufacturer}
                 onChange={(event) => set("manufacturer", event.target.value)}
               />
@@ -256,10 +288,16 @@ export function PartForm({
             )}
           </Field>
 
-          <Field label="Barcode (EAN)">
-            {({ id }) => (
+          <Field
+            label="Barcode (EAN)"
+            error={fieldError("ean")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 value={form.ean}
                 onChange={(event) => set("ean", event.target.value)}
                 inputMode="numeric"
@@ -268,10 +306,16 @@ export function PartForm({
             )}
           </Field>
 
-          <Field label="Where it lives" help="The shelf or bin it is normally kept on.">
-            {({ id }) => (
+          <Field
+            label="Where it lives"
+            help="The shelf or bin it is normally kept on."
+            error={fieldError("defaultStoragePlaceId")}
+          >
+            {({ id, describedBy, invalid }) => (
               <Select
                 id={id}
+                describedBy={describedBy}
+                invalid={invalid}
                 value={form.defaultStoragePlaceId === "" ? NO_PLACE : form.defaultStoragePlaceId}
                 onValueChange={(value) =>
                   set("defaultStoragePlaceId", value === NO_PLACE ? "" : value)
@@ -285,10 +329,16 @@ export function PartForm({
 
       <Panel title="How it is counted">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Counting" required help={TRACKING_MODE_HELP[form.trackingMode]}>
-            {({ id, describedBy }) => (
+          <Field
+            label="Counting"
+            required
+            help={TRACKING_MODE_HELP[form.trackingMode]}
+            error={fieldError("trackingMode")}
+          >
+            {({ id, describedBy, invalid }) => (
               <Select
                 id={id}
+                invalid={invalid}
                 describedBy={describedBy}
                 value={form.trackingMode}
                 onValueChange={(value) => set("trackingMode", value as PartTrackingMode)}
@@ -301,10 +351,17 @@ export function PartForm({
             )}
           </Field>
 
-          <Field label="Unit" required help="The unit you buy and store it in.">
-            {({ id }) => (
+          <Field
+            label="Unit"
+            required
+            help="The unit you buy and store it in."
+            error={fieldError("unit")}
+          >
+            {({ id, describedBy, invalid }) => (
               <Select
                 id={id}
+                describedBy={describedBy}
+                invalid={invalid}
                 value={form.unit}
                 onValueChange={(value) => set("unit", value as PartUnit)}
                 options={PART_UNITS.map((unit) => ({ value: unit, label: unit }))}
@@ -351,11 +408,14 @@ export function PartForm({
           <Field
             label="Lead time"
             help="Days between ordering and having it in your hand. Shown on the shopping list."
+            error={fieldError("leadTimeDays")}
           >
-            {({ id, describedBy }) => (
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 value={form.leadTimeDays}
                 onChange={(event) => set("leadTimeDays", event.target.value)}
                 inputMode="numeric"
@@ -413,10 +473,17 @@ export function PartForm({
               ) : null}
               {form.components.map((row, index) => (
                 <div key={index} className="flex flex-wrap items-end gap-2">
-                  <Field label="Part" className="min-w-48 flex-1" hideLabel={index > 0}>
-                    {({ id }) => (
+                  <Field
+                    label="Part"
+                    className="min-w-48 flex-1"
+                    hideLabel={index > 0}
+                    error={componentErrors[index]?.part ?? undefined}
+                  >
+                    {({ id, describedBy, invalid }) => (
                       <Select
                         id={id}
+                        describedBy={describedBy}
+                        invalid={invalid}
                         ariaLabel="Part in the kit"
                         value={row.componentPartId}
                         onValueChange={(value) =>
@@ -432,10 +499,18 @@ export function PartForm({
                       />
                     )}
                   </Field>
-                  <Field label="How many" className="w-28" hideLabel={index > 0}>
-                    {({ id }) => (
+                  <Field
+                    label="How many"
+                    className="w-28"
+                    hideLabel={index > 0}
+                    error={componentErrors[index]?.qty ?? undefined}
+                  >
+                    {({ id, describedBy, invalid, errorId }) => (
                       <Input
                         id={id}
+                        aria-describedby={describedBy}
+                        aria-invalid={invalid || undefined}
+                        aria-errormessage={errorId}
                         aria-label="How many of this part are in the kit"
                         value={row.qty}
                         onChange={(event) =>
@@ -614,10 +689,17 @@ export function PartForm({
       )}
 
       <Panel title="Notes">
-        <Field label="Anything worth remembering" hideLabel>
-          {({ id }) => (
+        <Field
+          label="Anything worth remembering"
+          hideLabel
+          error={fieldError("notes")}
+        >
+          {({ id, describedBy, invalid, errorId }) => (
             <Textarea
               id={id}
+              aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              aria-errormessage={errorId}
               aria-label="Notes about this item"
               value={form.notes}
               onChange={(event) => set("notes", event.target.value)}
@@ -635,7 +717,7 @@ export function PartForm({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" loading={call.pending}>
+        <Button type="submit" loading={call.pending} disabled={componentsIncomplete}>
           {editing ? "Save changes" : "Add the item"}
         </Button>
         <Button type="button" variant="ghost" onClick={() => router.back()} disabled={call.pending}>

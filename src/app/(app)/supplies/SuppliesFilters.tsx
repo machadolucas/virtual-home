@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { IconButton, Input, SegmentedControl } from "@/ui";
@@ -26,6 +26,25 @@ export function SuppliesFilters({
   const currentQuery = params.get("q") ?? "";
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // The box is **controlled**, and follows the URL only when the URL changed for a reason that is
+  // not this box. It used to be uncontrolled with `key={currentQuery}`, which remounted it on this
+  // component's own debounced push — stealing the caret 250 ms after every pause in typing. The
+  // comment there argued the remount was what kept an uncontrolled input honest; it was the bug.
+  const [draftQuery, setDraftQuery] = useState(currentQuery);
+  const pushedQuery = useRef(currentQuery);
+
+  useEffect(() => {
+    if (currentQuery !== pushedQuery.current) {
+      pushedQuery.current = currentQuery;
+      setDraftQuery(currentQuery);
+    }
+  }, [currentQuery]);
+
+  // A push that lands after this component is gone yanks the user back to a page they have left.
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+  }, []);
+
   const push = useCallback(
     (next: { filter?: string; q?: string }) => {
       const search = new URLSearchParams(params.toString());
@@ -34,19 +53,17 @@ export function SuppliesFilters({
         if (next.q === "") search.delete("q");
         else search.set("q", next.q);
       }
+      if (next.q !== undefined) pushedQuery.current = next.q;
       const query = search.toString();
       router.replace(query === "" ? pathname : `${pathname}?${query}`, { scroll: false });
     },
     [params, pathname, router],
   );
 
-  /**
-   * Debounced, and driven from the event rather than from an effect: the input is uncontrolled
-   * (`key` + `defaultValue`), so the URL is the single source of truth and there is no second copy
-   * of the query to keep in step.
-   */
+  /** Debounced: the URL stays the source of truth, but not on every keystroke. */
   const onType = useCallback(
     (value: string) => {
+      setDraftQuery(value);
       if (timer.current !== null) clearTimeout(timer.current);
       timer.current = setTimeout(() => push({ q: value }), 250);
     },
@@ -70,16 +87,13 @@ export function SuppliesFilters({
       <label className="flex items-center gap-2 sm:w-72">
         <span className="sr-only">Search supplies</span>
         <Input
-          // `key` remounts the field when the URL query changes from outside (the back button, a
-          // link somebody sent), which is how an uncontrolled input stays honest.
-          key={currentQuery}
           type="search"
-          defaultValue={currentQuery}
+          value={draftQuery}
           onChange={(event) => onType(event.target.value)}
           placeholder="Name, code, shelf, equipment…"
           icon={<Search aria-hidden="true" />}
           trailing={
-            currentQuery === "" ? undefined : (
+            draftQuery === "" ? undefined : (
               <IconButton
                 label="Clear search"
                 variant="ghost"
@@ -87,6 +101,7 @@ export function SuppliesFilters({
                 icon={<X aria-hidden="true" />}
                 onClick={() => {
                   if (timer.current !== null) clearTimeout(timer.current);
+                  setDraftQuery("");
                   push({ q: "" });
                 }}
               />

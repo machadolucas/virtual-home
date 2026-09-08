@@ -12,7 +12,7 @@ import {
 import type { PartTrackingMode, PartUnit } from "@/db/schema";
 import { Button, Dialog, Field, Input, Select, Textarea } from "@/ui";
 import { KIT_RULE_TEXT } from "@/features/inventory/labels";
-import { formatQuantity, parseQuantityToMilli } from "@/features/inventory/units";
+import { formatQuantity, parseQuantityToMilli, readPrice } from "@/features/inventory/units";
 import { useAction } from "@/features/settings/actionClient";
 import {
   addPurchase,
@@ -66,9 +66,11 @@ function PurchaseDialog(props: StockActionsProps) {
   const [qty, setQty] = useState("1");
   const [lotId, setLotId] = useState(NO_LOT);
   const [placeId, setPlaceId] = useState(NO_LOT);
-  const [price, setPrice] = useState("");
+  const [priceText, setPriceText] = useState("");
   const [occurredOn, setOccurredOn] = useState(props.today);
   const [notes, setNotes] = useState("");
+
+  const price = readPrice(priceText);
 
   const call = useAction(addPurchase, {
     successTitle: "Purchase recorded",
@@ -77,10 +79,13 @@ function PurchaseDialog(props: StockActionsProps) {
     onSuccess: () => {
       setOpen(false);
       setQty("1");
+      setPriceText("");
       setNotes("");
       router.refresh();
     },
   });
+
+  const fieldError = (name: string): string | undefined => call.fieldErrors[name]?.[0];
 
   return (
     <Dialog
@@ -100,13 +105,14 @@ function PurchaseDialog(props: StockActionsProps) {
           </Button>
           <Button
             loading={call.pending}
+            disabled={price.error !== null || parseQuantityToMilli(qty) === null}
             onClick={() =>
               call.run({
                 partId: props.partId,
                 qtyMilli: parseQuantityToMilli(qty) ?? 0,
                 lotId: lotId === NO_LOT ? null : lotId,
                 storagePlaceId: placeId === NO_LOT ? null : placeId,
-                unitPriceCents: parsePriceCents(price),
+                unitPriceCents: price.cents,
                 occurredOn: occurredOn === "" ? undefined : occurredOn,
                 notes,
                 idempotencyKey: call.idempotencyKey,
@@ -123,11 +129,14 @@ function PurchaseDialog(props: StockActionsProps) {
           label="How much arrived"
           required
           help={`In ${props.unit}. ${props.trackingMode === "discrete" ? "Whole units only." : "Decimals are fine."}`}
+          error={fieldError("qtyMilli")}
         >
-          {({ id, describedBy }) => (
+          {({ id, describedBy, invalid, errorId }) => (
             <Input
               id={id}
               aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              aria-errormessage={errorId}
               value={qty}
               onChange={(event) => setQty(event.target.value)}
               inputMode="decimal"
@@ -138,10 +147,16 @@ function PurchaseDialog(props: StockActionsProps) {
         </Field>
 
         {props.lots.length === 0 ? null : (
-          <Field label="Which lot" help="Leave unset if this arrival is not a tracked lot.">
-            {({ id }) => (
+          <Field
+            label="Which lot"
+            help="Leave unset if this arrival is not a tracked lot."
+            error={fieldError("lotId")}
+          >
+            {({ id, describedBy, invalid }) => (
               <Select
                 id={id}
+                describedBy={describedBy}
+                invalid={invalid}
                 value={lotId}
                 onValueChange={setLotId}
                 options={[{ value: NO_LOT, label: "No particular lot" }, ...props.lots]}
@@ -151,10 +166,16 @@ function PurchaseDialog(props: StockActionsProps) {
         )}
 
         {props.storagePlaces.length === 0 ? null : (
-          <Field label="Where it went" help="Defaults to the item's usual place.">
-            {({ id }) => (
+          <Field
+            label="Where it went"
+            help="Defaults to the item's usual place."
+            error={fieldError("storagePlaceId")}
+          >
+            {({ id, describedBy, invalid }) => (
               <Select
                 id={id}
+                describedBy={describedBy}
+                invalid={invalid}
                 value={placeId}
                 onValueChange={setPlaceId}
                 options={[{ value: NO_LOT, label: "The usual place" }, ...props.storagePlaces]}
@@ -164,23 +185,35 @@ function PurchaseDialog(props: StockActionsProps) {
         )}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Unit price" help="Optional. Per unit, not per order.">
-            {({ id, describedBy }) => (
+          <Field
+            label="Unit price"
+            help="Optional. Per unit, not per order."
+            error={price.error ?? undefined}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
-                value={price}
-                onChange={(event) => setPrice(event.target.value)}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
+                value={priceText}
+                onChange={(event) => setPriceText(event.target.value)}
                 inputMode="decimal"
-                placeholder="12.90"
+                placeholder="12,90"
               />
             )}
           </Field>
-          <Field label="When it arrived" help="Backdating is fine; the ledger records both dates.">
-            {({ id, describedBy }) => (
+          <Field
+            label="When it arrived"
+            help="Backdating is fine; the ledger records both dates."
+            error={fieldError("occurredOn")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 type="date"
                 value={occurredOn}
                 max={props.today}
@@ -190,10 +223,16 @@ function PurchaseDialog(props: StockActionsProps) {
           </Field>
         </div>
 
-        <Field label="Note">
-          {({ id }) => (
+        <Field
+          label="Note"
+          error={fieldError("notes")}
+        >
+          {({ id, describedBy, invalid, errorId }) => (
             <Textarea
               id={id}
+              aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              aria-errormessage={errorId}
               rows={2}
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
@@ -231,6 +270,8 @@ function StockTakeDialog(props: StockActionsProps) {
       router.refresh();
     },
   });
+
+  const fieldError = (name: string): string | undefined => call.fieldErrors[name]?.[0];
 
   const countedMilli = parseQuantityToMilli(counted);
   const delta = countedMilli === null ? null : countedMilli - props.onHandMilli;
@@ -277,11 +318,18 @@ function StockTakeDialog(props: StockActionsProps) {
           .
         </p>
 
-        <Field label="What you counted" required help={`In ${props.unit}.`}>
-          {({ id, describedBy }) => (
+        <Field
+          label="What you counted"
+          required
+          help={`In ${props.unit}.`}
+          error={fieldError("countedMilli")}
+        >
+          {({ id, describedBy, invalid, errorId }) => (
             <Input
               id={id}
               aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              aria-errormessage={errorId}
               value={counted}
               onChange={(event) => setCounted(event.target.value)}
               inputMode="decimal"
@@ -302,11 +350,17 @@ function StockTakeDialog(props: StockActionsProps) {
           </p>
         )}
 
-        <Field label="Why the difference" help="Worth a sentence when the count is a surprise.">
-          {({ id, describedBy }) => (
+        <Field
+          label="Why the difference"
+          help="Worth a sentence when the count is a surprise."
+          error={fieldError("notes")}
+        >
+          {({ id, describedBy, invalid, errorId }) => (
             <Textarea
               id={id}
               aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              aria-errormessage={errorId}
               rows={2}
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
@@ -340,6 +394,9 @@ function ExplodeDialog(props: StockActionsProps) {
   });
 
   const kitsAvailable = props.onHandMilli / 1000;
+  // `parseInt(count, 10) || 1` turned "", "0" and "abc" into one box and wrote a real explode
+  // group for it. A box count nobody typed is not a default, it is a guess about stock.
+  const boxes = readBoxCount(count);
 
   return (
     <Dialog
@@ -364,13 +421,15 @@ function ExplodeDialog(props: StockActionsProps) {
           </Button>
           <Button
             loading={call.pending}
-            onClick={() =>
+            disabled={boxes === null}
+            onClick={() => {
+              if (boxes === null) return;
               call.run({
                 kitPartId: props.partId,
-                count: Number.parseInt(count, 10) || 1,
+                count: boxes,
                 idempotencyKey: call.idempotencyKey,
-              })
-            }
+              });
+            }}
           >
             Open it
           </Button>
@@ -388,11 +447,18 @@ function ExplodeDialog(props: StockActionsProps) {
           label="How many boxes"
           required
           help={`${kitsAvailable} on hand. Opening more than you have is allowed and shows as a negative — but it usually means a stock take is overdue.`}
+          error={
+            count.trim() === "" || boxes !== null
+              ? undefined
+              : "A whole number of boxes, at least one."
+          }
         >
-          {({ id, describedBy }) => (
+          {({ id, describedBy, invalid, errorId }) => (
             <Input
               id={id}
               aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              aria-errormessage={errorId}
               value={count}
               onChange={(event) => setCount(event.target.value)}
               inputMode="numeric"
@@ -425,6 +491,8 @@ function UndoDialog(props: StockActionsProps) {
       router.refresh();
     },
   });
+
+  const fieldError = (name: string): string | undefined => call.fieldErrors[name]?.[0];
 
   if (first === undefined) return null;
 
@@ -460,10 +528,16 @@ function UndoDialog(props: StockActionsProps) {
       }
     >
       <div className="flex flex-col gap-4">
-        <Field label="Which opening" required>
-          {({ id }) => (
+        <Field
+          label="Which opening"
+          required
+          error={fieldError("groupId")}
+        >
+          {({ id, describedBy, invalid }) => (
             <Select
               id={id}
+              describedBy={describedBy}
+              invalid={invalid}
               value={groupId}
               onValueChange={setGroupId}
               options={props.undoableGroups.map((group) => ({
@@ -584,11 +658,10 @@ function EstimateDialog(props: StockActionsProps) {
   );
 }
 
-/** `"12.90"` -> `1290`. Returns `null` for an empty or unparseable field. */
-function parsePriceCents(raw: string): number | null {
-  const trimmed = raw.trim().replace(",", ".");
-  if (trimmed === "") return null;
-  const value = Number.parseFloat(trimmed);
-  if (!Number.isFinite(value) || value < 0) return null;
-  return Math.round(value * 100);
+/** `"2"` → `2`. `null` for anything that is not a whole number of boxes — never a defaulted 1. */
+function readBoxCount(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const value = Number.parseInt(trimmed, 10);
+  return value > 0 ? value : null;
 }

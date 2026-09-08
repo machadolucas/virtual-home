@@ -190,6 +190,7 @@ export function TaskRow({
         <div className="pl-8">
           <TaskQuickActions
             occurrenceId={task.id}
+            title={task.title}
             dueDate={task.dueDate}
             originalDueDate={task.originalDueDate}
             today={today}

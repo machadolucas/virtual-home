@@ -49,12 +49,19 @@ export function SystemDialog({
   assets,
   locations,
   triggerLabel,
+  triggerAriaLabel,
   triggerVariant = "secondary",
 }: {
   initial: SystemDraft;
   assets: readonly PickerOption[];
   locations: readonly PickerOption[];
   triggerLabel: string;
+  /**
+   * The trigger's accessible name, when the visible one repeats down a list. A page of systems
+   * otherwise offers a column of buttons all called "Edit", which is unusable by voice or by
+   * screen reader; the short visible label stays as it is.
+   */
+  triggerAriaLabel?: string;
   triggerVariant?: "primary" | "secondary" | "ghost";
 }) {
   const router = useRouter();
@@ -82,6 +89,7 @@ export function SystemDialog({
         <Button
           variant={triggerVariant}
           size="sm"
+          aria-label={triggerAriaLabel}
           icon={editing ? <Pencil aria-hidden="true" /> : <Plus aria-hidden="true" />}
         >
           {triggerLabel}
@@ -262,7 +270,12 @@ export function DeleteSystemButton({
       open={open}
       onOpenChange={setOpen}
       trigger={
-        <Button variant="ghost" size="sm" icon={<Trash2 aria-hidden="true" />}>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Delete ${systemName}`}
+          icon={<Trash2 aria-hidden="true" />}
+        >
           Delete
         </Button>
       }

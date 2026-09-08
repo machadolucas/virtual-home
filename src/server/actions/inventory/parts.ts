@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { getDb, writeTx } from "@/db/client";
+import { getDb, writeTx, type Db } from "@/db/client";
 import { newId, nowMs } from "@/db/ids";
 import {
   kitComponent,
@@ -11,6 +11,7 @@ import {
   partCompatibility,
   partLot,
   partSupplier,
+  stockTransaction,
 } from "@/db/schema";
 import { ValidationError } from "@/domain/errors";
 import { getPart, writeAudit } from "@/domain/inventory";
@@ -182,6 +183,24 @@ export const createPart = action(createPartInput, async (input, session) => {
   return { partId };
 });
 
+/**
+ * True when this part has any movement recorded against it.
+ *
+ * `qty_milli` is a bare integer count of thousandths — the row does not carry its own unit. So the
+ * unit on the part is what gives every historical row its meaning, and changing it silently
+ * reinterprets the whole ledger: 2000 stops being "2 pieces" and starts being "2 litres".
+ */
+function hasStockHistory(tx: Db, partId: string): boolean {
+  return (
+    tx
+      .select({ id: stockTransaction.id })
+      .from(stockTransaction)
+      .where(eq(stockTransaction.partId, partId))
+      .limit(1)
+      .get() !== undefined
+  );
+}
+
 export const updatePart = action(updatePartInput, async (input, session) => {
   const { db } = getDb();
   mapDomainErrors(() => assertReorderPair(input.reorderThresholdMilli, input.reorderTargetMilli));
@@ -196,6 +215,26 @@ export const updatePart = action(updatePartInput, async (input, session) => {
         throw new ValidationError(
           "is_kit_immutable",
           "whether a part is a kit cannot be changed later — its existing stock rows mean different things on each side of that line",
+        );
+      }
+      // The same argument as `is_kit_immutable`, for the two other fields that decide what a
+      // stored `qty_milli` *means*. Both are free to change while the ledger is still empty, which
+      // is the case that matters in practice: fixing a mistake on a part nobody has bought yet.
+      const unitChanged = before.unit !== input.unit;
+      const goingDiscrete =
+        before.trackingMode !== "discrete" && input.trackingMode === "discrete";
+      if ((unitChanged || goingDiscrete) && hasStockHistory(tx, input.partId)) {
+        if (unitChanged) {
+          throw new ValidationError(
+            "unit_immutable_with_history",
+            "the unit cannot be changed once movements exist — every recorded amount is a count of thousandths of this unit, so changing it would silently reinterpret the whole ledger",
+            { from: before.unit, to: input.unit },
+          );
+        }
+        throw new ValidationError(
+          "tracking_mode_immutable_with_history",
+          "this part cannot become whole-units-only once movements exist — a recorded amount that is not a whole unit would become impossible to state",
+          { from: before.trackingMode, to: input.trackingMode },
         );
       }
       const next = {

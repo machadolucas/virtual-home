@@ -6,7 +6,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { CONSUMABLE_ROLES, type ConsumableRole } from "@/db/schema";
 import { Button, Dialog, Field, IconButton, Input, Select } from "@/ui";
 import { CONSUMABLE_ROLE_LABEL } from "@/features/assets/labels";
-import { parseQuantityToMilli } from "@/features/inventory/units";
+import { readRowQuantity } from "@/features/inventory/units";
 import { useAction } from "@/features/settings/actionClient";
 import { setConsumables } from "@/server/actions/assets/equipment";
 
@@ -45,6 +45,14 @@ export function ConsumablesEditor({
     },
   });
 
+  // The whole set is posted at once, so a row that cannot be read has to block the save. Filtering
+  // it out instead removed the line and reported success.
+  const rowErrors = rows.map((row) => ({
+    part: row.partId === "" ? "Choose an item." : null,
+    qty: readRowQuantity(row.qty).error,
+  }));
+  const incomplete = rowErrors.some((entry) => entry.part !== null || entry.qty !== null);
+
   return (
     <Dialog
       open={open}
@@ -64,12 +72,13 @@ export function ConsumablesEditor({
           </Button>
           <Button
             loading={call.pending}
+            disabled={incomplete}
             onClick={() =>
               call.run({
                 assetId,
                 consumables: rows.flatMap((row) => {
-                  const qtyMilli = parseQuantityToMilli(row.qty);
-                  if (row.partId === "" || qtyMilli === null || qtyMilli <= 0) return [];
+                  const { qtyMilli } = readRowQuantity(row.qty);
+                  if (row.partId === "" || qtyMilli === null) return [];
                   return [{ partId: row.partId, role: row.role, qtyMilli }];
                 }),
               })
@@ -94,10 +103,17 @@ export function ConsumablesEditor({
 
         {rows.map((row, index) => (
           <div key={index} className="flex flex-wrap items-end gap-2">
-            <Field label="Item" className="min-w-44 flex-1" hideLabel={index > 0}>
-              {({ id }) => (
+            <Field
+              label="Item"
+              className="min-w-44 flex-1"
+              hideLabel={index > 0}
+              error={rowErrors[index]?.part ?? undefined}
+            >
+              {({ id, describedBy, invalid }) => (
                 <Select
                   id={id}
+                  describedBy={describedBy}
+                  invalid={invalid}
                   ariaLabel="Item this unit consumes"
                   value={row.partId}
                   onValueChange={(value) =>
@@ -130,10 +146,18 @@ export function ConsumablesEditor({
                 />
               )}
             </Field>
-            <Field label="How many" className="w-24" hideLabel={index > 0}>
-              {({ id }) => (
+            <Field
+              label="How many"
+              className="w-24"
+              hideLabel={index > 0}
+              error={rowErrors[index]?.qty ?? undefined}
+            >
+              {({ id, describedBy, invalid, errorId }) => (
                 <Input
                   id={id}
+                  aria-describedby={describedBy}
+                  aria-invalid={invalid || undefined}
+                  aria-errormessage={errorId}
                   aria-label="How many it takes"
                   inputMode="decimal"
                   value={row.qty}

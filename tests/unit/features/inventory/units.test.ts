@@ -13,6 +13,8 @@ import {
   formatSignedQuantity,
   isWholeUnit,
   parseQuantityToMilli,
+  readPrice,
+  readRowQuantity,
   stockDisplay,
 } from "@/features/inventory/units";
 
@@ -130,5 +132,46 @@ describe("stockDisplay", () => {
 
   it("is never low when no threshold is set", () => {
     expect(stockDisplay(1000, "pcs", false, null).tone).toBe("ok");
+  });
+});
+
+describe("readPrice", () => {
+  it("reads the separators a Finnish keyboard produces", () => {
+    expect(readPrice("12,90")).toEqual({ cents: 1290, error: null });
+    expect(readPrice("12.90")).toEqual({ cents: 1290, error: null });
+    // The three hand-rolled parsers this replaced did `replace(",", ".")` + `parseFloat`, which
+    // read these two as 1,00 € and 1,23 € respectively.
+    expect(readPrice("1 234,50")).toEqual({ cents: 123450, error: null });
+    expect(readPrice("1,234.50")).toEqual({ cents: 123450, error: null });
+    expect(readPrice("12,90 €")).toEqual({ cents: 1290, error: null });
+  });
+
+  it("distinguishes an empty box from an unreadable one", () => {
+    expect(readPrice("")).toEqual({ cents: null, error: null });
+    expect(readPrice("   ")).toEqual({ cents: null, error: null });
+    expect(readPrice("abc").cents).toBeNull();
+    expect(readPrice("abc").error).not.toBeNull();
+  });
+
+  it("refuses a negative price rather than storing one", () => {
+    expect(readPrice("-5,00").cents).toBeNull();
+    expect(readPrice("-5,00").error).not.toBeNull();
+  });
+});
+
+describe("readRowQuantity", () => {
+  it("accepts an amount and reports everything else", () => {
+    expect(readRowQuantity("2")).toEqual({ qtyMilli: 2000, error: null });
+    expect(readRowQuantity("0,75")).toEqual({ qtyMilli: 750, error: null });
+  });
+
+  it("never returns a usable amount for a row that would be dropped", () => {
+    // These are the three shapes that used to be silently filtered out of a whole-list save,
+    // deleting the row and reporting success.
+    for (const raw of ["", "abc", "0", "-1"]) {
+      const reading = readRowQuantity(raw);
+      expect(reading.qtyMilli).toBeNull();
+      expect(reading.error).not.toBeNull();
+    }
   });
 });

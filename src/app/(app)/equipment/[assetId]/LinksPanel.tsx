@@ -65,6 +65,11 @@ export function LinksPanel({
         <ul className="flex list-none flex-col divide-y divide-line">
           {links.map((link) => {
             const meta = LINK_STATE_META[link.linkState];
+            // Every row's buttons otherwise read as the same three names to a screen reader, so a
+            // links list is an undifferentiated "Retire this link, Remove this link, Retire this
+            // link…". The entity id is what tells them apart on screen too.
+            const subject =
+              link.entityId ?? link.entityIdSnapshot ?? link.haDeviceName ?? "this link";
             const suggestion = suggestions.find((entry) => entry.linkId === link.id);
             return (
               <li key={link.id} className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
@@ -97,17 +102,17 @@ export function LinksPanel({
                         assetId={assetId}
                         linkId={link.id}
                         linkState="retired"
-                        label="Retire this link"
+                        label={`Retire ${subject}`}
                       />
                     ) : link.linkState === "retired" ? (
                       <SetStateButton
                         assetId={assetId}
                         linkId={link.id}
                         linkState="active"
-                        label="Bring this link back"
+                        label={`Bring ${subject} back`}
                       />
                     ) : null}
-                    <UnlinkButton assetId={assetId} linkId={link.id} />
+                    <UnlinkButton assetId={assetId} linkId={link.id} subject={subject} />
                   </span>
                 </div>
 
@@ -227,7 +232,16 @@ function SetStateButton({
   );
 }
 
-function UnlinkButton({ assetId, linkId }: { assetId: string; linkId: string }) {
+function UnlinkButton({
+  assetId,
+  linkId,
+  subject,
+}: {
+  assetId: string;
+  linkId: string;
+  /** The entity this link points at, so one row's Remove is distinguishable from the next. */
+  subject: string;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const call = useAction(unlinkHa, {
@@ -244,7 +258,7 @@ function UnlinkButton({ assetId, linkId }: { assetId: string; linkId: string }) 
       onOpenChange={setOpen}
       trigger={
         <IconButton
-          label="Remove this link"
+          label={`Remove the link to ${subject}`}
           variant="ghost"
           size="sm"
           icon={<Link2Off aria-hidden="true" />}

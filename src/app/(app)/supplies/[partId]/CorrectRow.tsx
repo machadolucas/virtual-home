@@ -54,8 +54,15 @@ export function CorrectRow({
     <Dialog
       open={open}
       onOpenChange={setOpen}
+      /* Every row in the ledger has one of these; without the movement in the accessible name they
+         are a column of buttons all called "Correct". */
       trigger={
-        <Button variant="ghost" size="sm" icon={<RotateCcw aria-hidden="true" />}>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Correct ${describe}`}
+          icon={<RotateCcw aria-hidden="true" />}
+        >
           Correct
         </Button>
       }

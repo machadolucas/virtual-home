@@ -12,6 +12,7 @@
  *  - A kit counts in kits, because that is what is on the shelf — `"1 kit"`, `"2 kits"`. This
  *    mirrors `reorderSuggestions`' own wording so the list and the detail page agree.
  */
+import { parseCents } from "@/features/projects/labels";
 import type { PartUnit } from "@/db/schema";
 
 /** Millis per whole unit. The ledger's contract, not a display choice. */
@@ -128,3 +129,53 @@ export const TRACKING_MODE_HELP = {
   estimated:
     "No scale involved: you set a percentage on the open container and the ledger records the implied change.",
 } as const;
+
+/** What a typed price field currently holds. `cents` is `null` for an empty *or* unreadable box. */
+export interface PriceReading {
+  cents: number | null;
+  /** A sentence for the field's `error`, or `null` when there is nothing to complain about. */
+  error: string | null;
+}
+
+/**
+ * Read a price the way a person types it: `"12,90"`, `"1 234,50"`, `"1,234.50 €"`.
+ *
+ * The parsing itself is `parseCents` (integer arithmetic on the digit strings — never
+ * `Math.round(value * 100)`, which turns `"1 234,50"` into a euro and a half). This wrapper adds
+ * the part a form needs on top of it: telling "left empty", which is a legitimate `null`, apart
+ * from "not a price", which must be said out loud rather than silently dropped.
+ *
+ * It lives here rather than beside each form because the supplies, equipment and settings screens
+ * all read prices and this module is the shared home that slice already has for money and
+ * quantity arithmetic.
+ */
+export function readPrice(raw: string): PriceReading {
+  if (raw.trim() === "") return { cents: null, error: null };
+  const cents = parseCents(raw);
+  if (cents === null) {
+    return { cents: null, error: "That is not an amount. Try something like 12,90." };
+  }
+  if (cents < 0) return { cents: null, error: "A price cannot be negative." };
+  return { cents, error: null };
+}
+
+/**
+ * One row of a "what is in this box" list, read back.
+ *
+ * The lists that use it (kit contents, what a unit consumes) are saved as a whole: the server
+ * replaces the stored set with what it receives. So a row that cannot be read must stop the save,
+ * not be filtered out of it — dropping it is a silent deletion, reported with a success toast.
+ */
+export interface RowQuantity {
+  qtyMilli: number | null;
+  /** A sentence for the field's `error`, or `null` when the row is usable. */
+  error: string | null;
+}
+
+export function readRowQuantity(raw: string): RowQuantity {
+  if (raw.trim() === "") return { qtyMilli: null, error: "Say how many." };
+  const qtyMilli = parseQuantityToMilli(raw);
+  if (qtyMilli === null) return { qtyMilli: null, error: "That is not an amount." };
+  if (qtyMilli <= 0) return { qtyMilli: null, error: "Must be more than zero." };
+  return { qtyMilli, error: null };
+}

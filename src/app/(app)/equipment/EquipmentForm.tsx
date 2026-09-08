@@ -14,7 +14,7 @@ import {
 } from "@/db/schema";
 import { Button, Checkbox, Field, IconButton, Input, Panel, Select, Textarea } from "@/ui";
 import { CATEGORY_LABEL, CONSUMABLE_ROLE_LABEL } from "@/features/assets/labels";
-import { parseQuantityToMilli } from "@/features/inventory/units";
+import { readPrice, readRowQuantity } from "@/features/inventory/units";
 import { useAction } from "@/features/settings/actionClient";
 import { createEquipment, updateEquipment } from "@/server/actions/assets/equipment";
 
@@ -120,7 +120,20 @@ export function EquipmentForm({
     value: EquipmentFormInitial[K],
   ): void => setForm((current) => ({ ...current, [key]: value }));
 
+  const price = readPrice(form.purchasePrice);
+
+  // Consumables are saved with the unit, as one list. A row that cannot be read blocks the save
+  // rather than being filtered out of it — dropping it created the unit without that consumable
+  // and reported success.
+  const consumableErrors = form.consumables.map((line) => ({
+    part: line.partId === "" ? "Choose an item." : null,
+    qty: readRowQuantity(line.qty).error,
+  }));
+  const consumablesIncomplete =
+    !editing && consumableErrors.some((entry) => entry.part !== null || entry.qty !== null);
+
   const submit = (): void => {
+    if (price.error !== null || consumablesIncomplete) return;
     const base = {
       name: form.name,
       category: form.category,
@@ -135,7 +148,7 @@ export function EquipmentForm({
       installedOn: form.installedOn === "" ? null : form.installedOn,
       installedOnPrecision:
         form.installedOnPrecision === "" ? null : form.installedOnPrecision,
-      purchasePriceCents: parsePriceCents(form.purchasePrice),
+      purchasePriceCents: price.cents,
       currency: form.currency === "" ? null : form.currency.toUpperCase(),
       warrantyUntil: form.warrantyUntil === "" ? null : form.warrantyUntil,
       expectedLifeYears:
@@ -151,8 +164,8 @@ export function EquipmentForm({
       ...base,
       idempotencyKey: create.idempotencyKey,
       consumables: form.consumables.flatMap((line) => {
-        const qtyMilli = parseQuantityToMilli(line.qty);
-        if (line.partId === "" || qtyMilli === null || qtyMilli <= 0) return [];
+        const { qtyMilli } = readRowQuantity(line.qty);
+        if (line.partId === "" || qtyMilli === null) return [];
         return [{ partId: line.partId, role: line.role, qtyMilli }];
       }),
       systemIds: form.systemIds,
@@ -338,11 +351,17 @@ export function EquipmentForm({
             )}
           </Field>
 
-          <Field label="Purchase price" help="Per unit, at purchase.">
-            {({ id, describedBy }) => (
+          <Field
+            label="Purchase price"
+            help="Per unit, at purchase."
+            error={price.error ?? undefined}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 inputMode="decimal"
                 value={form.purchasePrice}
                 onChange={(event) => set("purchasePrice", event.target.value)}
@@ -403,10 +422,17 @@ export function EquipmentForm({
             ) : null}
             {form.consumables.map((line, index) => (
               <div key={index} className="flex flex-wrap items-end gap-2">
-                <Field label="Item" className="min-w-44 flex-1" hideLabel={index > 0}>
-                  {({ id }) => (
+                <Field
+                  label="Item"
+                  className="min-w-44 flex-1"
+                  hideLabel={index > 0}
+                  error={consumableErrors[index]?.part ?? undefined}
+                >
+                  {({ id, describedBy, invalid }) => (
                     <Select
                       id={id}
+                      describedBy={describedBy}
+                      invalid={invalid}
                       ariaLabel="Item this equipment consumes"
                       value={line.partId}
                       onValueChange={(value) =>
@@ -443,10 +469,18 @@ export function EquipmentForm({
                     />
                   )}
                 </Field>
-                <Field label="How many" className="w-24" hideLabel={index > 0}>
-                  {({ id }) => (
+                <Field
+                  label="How many"
+                  className="w-24"
+                  hideLabel={index > 0}
+                  error={consumableErrors[index]?.qty ?? undefined}
+                >
+                  {({ id, describedBy, invalid, errorId }) => (
                     <Input
                       id={id}
+                      aria-describedby={describedBy}
+                      aria-invalid={invalid || undefined}
+                      aria-errormessage={errorId}
                       aria-label="How many it takes"
                       inputMode="decimal"
                       value={line.qty}
@@ -550,7 +584,11 @@ export function EquipmentForm({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" loading={call.pending}>
+        <Button
+          type="submit"
+          loading={call.pending}
+          disabled={price.error !== null || consumablesIncomplete}
+        >
           {editing ? "Save changes" : "Add the equipment"}
         </Button>
         <Button type="button" variant="ghost" onClick={() => router.back()} disabled={call.pending}>
@@ -559,12 +597,4 @@ export function EquipmentForm({
       </div>
     </form>
   );
-}
-
-function parsePriceCents(raw: string): number | null {
-  const trimmed = raw.trim().replace(",", ".");
-  if (trimmed === "") return null;
-  const value = Number.parseFloat(trimmed);
-  if (!Number.isFinite(value) || value < 0) return null;
-  return Math.round(value * 100);
 }

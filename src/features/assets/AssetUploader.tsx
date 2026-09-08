@@ -75,6 +75,17 @@ export function AssetUploader({
         return;
       }
       await onUploaded(parsed);
+    } catch {
+      // A rejected `fetch` is a dropped connection or a server that went away mid-upload. Without
+      // this the rejection escapes the `void upload(file)` at the call site unhandled, the spinner
+      // just stops, and nothing on screen says the file never arrived.
+      toast({
+        title: "The file was not sent",
+        description:
+          "The connection dropped before the upload finished. Nothing was stored — try again.",
+        tone: "error",
+        duration: 0,
+      });
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";

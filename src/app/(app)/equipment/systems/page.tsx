@@ -102,6 +102,7 @@ export default async function SystemsPage() {
               <>
                 <SystemDialog
                   triggerLabel="Edit"
+                  triggerAriaLabel={`Edit ${system.name}`}
                   assets={assets}
                   locations={locations}
                   initial={{

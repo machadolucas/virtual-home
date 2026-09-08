@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import type { PartUnit } from "@/db/schema";
 import { Button, Checkbox, Dialog, Field, IconButton, Input, Select, Textarea } from "@/ui";
-import { parseQuantityToMilli } from "@/features/inventory/units";
+import { parseQuantityToMilli, readPrice, readRowQuantity } from "@/features/inventory/units";
 import { useAction } from "@/features/settings/actionClient";
 import {
   removeSupplier,
@@ -80,6 +80,8 @@ export function LotDialog({
     },
   });
 
+  const fieldError = (name: string): string | undefined => call.fieldErrors[name]?.[0];
+
   const set = <K extends keyof LotDraft>(key: K, value: LotDraft[K]): void =>
     setDraft((current) => ({ ...current, [key]: value }));
 
@@ -127,11 +129,18 @@ export function LotDialog({
       }
     >
       <div className="flex flex-col gap-4">
-        <Field label="Label" required help="How you would point at it: “5 l can, opened March”.">
-          {({ id, describedBy }) => (
+        <Field
+          label="Label"
+          required
+          help="How you would point at it: “5 l can, opened March”."
+          error={fieldError("label")}
+        >
+          {({ id, describedBy, invalid, errorId }) => (
             <Input
               id={id}
               aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              aria-errormessage={errorId}
               value={draft.label}
               onChange={(event) => set("label", event.target.value)}
               autoFocus
@@ -140,30 +149,48 @@ export function LotDialog({
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Bought on">
-            {({ id }) => (
+          <Field
+            label="Bought on"
+            error={fieldError("purchasedOn")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 type="date"
                 value={draft.purchasedOn}
                 onChange={(event) => set("purchasedOn", event.target.value)}
               />
             )}
           </Field>
-          <Field label="Expires on">
-            {({ id }) => (
+          <Field
+            label="Expires on"
+            error={fieldError("expiresOn")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 type="date"
                 value={draft.expiresOn}
                 onChange={(event) => set("expiresOn", event.target.value)}
               />
             )}
           </Field>
-          <Field label="Opened on">
-            {({ id }) => (
+          <Field
+            label="Opened on"
+            error={fieldError("openedOn")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 type="date"
                 value={draft.openedOn}
                 onChange={(event) => set("openedOn", event.target.value)}
@@ -180,7 +207,7 @@ export function LotDialog({
               ? `Required for an estimated item: “40 % left” needs to know 40 % of what. In ${unit}.`
               : `Optional. In ${unit}.`
           }
-          error={call.fieldErrors["initialQtyMilli"]?.[0]}
+          error={fieldError("initialQtyMilli")}
         >
           {({ id, describedBy, invalid }) => (
             <Input
@@ -196,10 +223,15 @@ export function LotDialog({
         </Field>
 
         {storagePlaces.length === 0 ? null : (
-          <Field label="Where this one is kept">
-            {({ id }) => (
+          <Field
+            label="Where this one is kept"
+            error={fieldError("storagePlaceId")}
+          >
+            {({ id, describedBy, invalid }) => (
               <Select
                 id={id}
+                describedBy={describedBy}
+                invalid={invalid}
                 value={draft.storagePlaceId === "" ? NO_PLACE : draft.storagePlaceId}
                 onValueChange={(value) =>
                   set("storagePlaceId", value === NO_PLACE ? "" : value)
@@ -217,10 +249,16 @@ export function LotDialog({
           hint="An open lot is used first, and it is the one the estimate applies to."
         />
 
-        <Field label="Note">
-          {({ id }) => (
+        <Field
+          label="Note"
+          error={fieldError("notes")}
+        >
+          {({ id, describedBy, invalid, errorId }) => (
             <Textarea
               id={id}
+              aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              aria-errormessage={errorId}
               rows={2}
               value={draft.notes}
               onChange={(event) => set("notes", event.target.value)}
@@ -283,6 +321,8 @@ export function SupplierDialog({
   const [draft, setDraft] = useState(initial);
   const editing = initial.supplierId !== undefined;
 
+  const price = readPrice(draft.lastPrice);
+
   const call = useAction(upsertSupplier, {
     successTitle: editing ? "Supplier saved" : "Supplier added",
     onSuccess: () => {
@@ -290,6 +330,8 @@ export function SupplierDialog({
       router.refresh();
     },
   });
+
+  const fieldError = (name: string): string | undefined => call.fieldErrors[name]?.[0];
 
   const set = <K extends keyof SupplierDraft>(key: K, value: SupplierDraft[K]): void =>
     setDraft((current) => ({ ...current, [key]: value }));
@@ -321,7 +363,7 @@ export function SupplierDialog({
           </Button>
           <Button
             loading={call.pending}
-            disabled={draft.supplierName.trim() === ""}
+            disabled={draft.supplierName.trim() === "" || price.error !== null}
             onClick={() =>
               call.run({
                 partId,
@@ -329,7 +371,7 @@ export function SupplierDialog({
                 supplierName: draft.supplierName,
                 supplierSku: draft.supplierSku,
                 url: draft.url,
-                lastPriceCents: parsePriceCents(draft.lastPrice),
+                lastPriceCents: price.cents,
                 currency: draft.currency === "" ? null : draft.currency.toUpperCase(),
                 packQtyMilli: parseQuantityToMilli(draft.packQty),
                 leadTimeDays:
@@ -346,20 +388,33 @@ export function SupplierDialog({
     >
       <div className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Supplier" required>
-            {({ id }) => (
+          <Field
+            label="Supplier"
+            required
+            error={fieldError("supplierName")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 value={draft.supplierName}
                 onChange={(event) => set("supplierName", event.target.value)}
                 autoFocus
               />
             )}
           </Field>
-          <Field label="Their article number">
-            {({ id }) => (
+          <Field
+            label="Their article number"
+            error={fieldError("supplierSku")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 className="font-mono"
                 value={draft.supplierSku}
                 onChange={(event) => set("supplierSku", event.target.value)}
@@ -368,7 +423,7 @@ export function SupplierDialog({
           </Field>
         </div>
 
-        <Field label="Link" error={call.fieldErrors["url"]?.[0]}>
+        <Field label="Link" error={fieldError("url")}>
           {({ id, describedBy, invalid }) => (
             <Input
               id={id}
@@ -383,21 +438,30 @@ export function SupplierDialog({
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Last price paid" help="Per unit.">
-            {({ id, describedBy }) => (
+          <Field label="Last price paid" help="Per unit." error={price.error ?? undefined}>
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 value={draft.lastPrice}
                 onChange={(event) => set("lastPrice", event.target.value)}
                 inputMode="decimal"
+                placeholder="12,90"
               />
             )}
           </Field>
-          <Field label="Currency">
-            {({ id }) => (
+          <Field
+            label="Currency"
+            error={fieldError("currency")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 value={draft.currency}
                 onChange={(event) => set("currency", event.target.value)}
                 maxLength={3}
@@ -405,11 +469,17 @@ export function SupplierDialog({
               />
             )}
           </Field>
-          <Field label="Pack size" help={`How much comes in one pack, in ${unit}.`}>
-            {({ id, describedBy }) => (
+          <Field
+            label="Pack size"
+            help={`How much comes in one pack, in ${unit}.`}
+            error={fieldError("packQtyMilli")}
+          >
+            {({ id, describedBy, invalid, errorId }) => (
               <Input
                 id={id}
                 aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                aria-errormessage={errorId}
                 value={draft.packQty}
                 onChange={(event) => set("packQty", event.target.value)}
                 inputMode="decimal"
@@ -418,11 +488,17 @@ export function SupplierDialog({
           </Field>
         </div>
 
-        <Field label="Lead time" help="Days from ordering to holding it.">
-          {({ id, describedBy }) => (
+        <Field
+          label="Lead time"
+          help="Days from ordering to holding it."
+          error={fieldError("leadTimeDays")}
+        >
+          {({ id, describedBy, invalid, errorId }) => (
             <Input
               id={id}
               aria-describedby={describedBy}
+              aria-invalid={invalid || undefined}
+              aria-errormessage={errorId}
               value={draft.leadTimeDays}
               onChange={(event) => set("leadTimeDays", event.target.value)}
               inputMode="numeric"
@@ -458,18 +534,45 @@ export function RemoveSupplierButton({
   supplierName: string;
 }) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const call = useAction(removeSupplier, {
     successTitle: "Supplier removed",
-    onSuccess: () => router.refresh(),
+    onSuccess: () => {
+      setOpen(false);
+      router.refresh();
+    },
   });
+
+  // Confirmed, like every other destructive control here: one tap used to take the URL, the SKU,
+  // the last price and the pack size with it, with nothing to undo it.
   return (
-    <IconButton
-      label={`Remove ${supplierName}`}
-      variant="ghost"
-      size="sm"
-      loading={call.pending}
-      icon={<Trash2 aria-hidden="true" />}
-      onClick={() => call.run({ partId, supplierId })}
+    <Dialog
+      open={open}
+      onOpenChange={setOpen}
+      trigger={
+        <IconButton
+          label={`Remove ${supplierName}`}
+          variant="ghost"
+          size="sm"
+          icon={<Trash2 aria-hidden="true" />}
+        />
+      }
+      title={`Remove ${supplierName}?`}
+      description="Its link, order code, pack size and last known price go with it. Past purchases already recorded in the ledger are not affected."
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={call.pending}>
+            Keep it
+          </Button>
+          <Button
+            variant="danger"
+            loading={call.pending}
+            onClick={() => call.run({ partId, supplierId })}
+          >
+            Remove it
+          </Button>
+        </>
+      }
     />
   );
 }
@@ -497,6 +600,14 @@ export function KitContentsDialog({
     },
   });
 
+  // The save replaces the whole list, so a row that cannot be read has to block it. Filtering the
+  // row out instead deleted a component and said "Kit contents saved".
+  const rowErrors = rows.map((row) => ({
+    part: row.componentPartId === "" ? "Choose a part." : null,
+    qty: readRowQuantity(row.qty).error,
+  }));
+  const incomplete = rowErrors.some((entry) => entry.part !== null || entry.qty !== null);
+
   return (
     <Dialog
       open={open}
@@ -515,12 +626,13 @@ export function KitContentsDialog({
           </Button>
           <Button
             loading={call.pending}
+            disabled={incomplete}
             onClick={() =>
               call.run({
                 partId,
                 components: rows.flatMap((row) => {
-                  const qtyMilli = parseQuantityToMilli(row.qty);
-                  if (row.componentPartId === "" || qtyMilli === null || qtyMilli <= 0) return [];
+                  const { qtyMilli } = readRowQuantity(row.qty);
+                  if (row.componentPartId === "" || qtyMilli === null) return [];
                   return [{ componentPartId: row.componentPartId, qtyMilli }];
                 }),
               })
@@ -539,10 +651,17 @@ export function KitContentsDialog({
         ) : null}
         {rows.map((row, index) => (
           <div key={index} className="flex flex-wrap items-end gap-2">
-            <Field label="Part" className="min-w-44 flex-1" hideLabel={index > 0}>
-              {({ id }) => (
+            <Field
+              label="Part"
+              className="min-w-44 flex-1"
+              hideLabel={index > 0}
+              error={rowErrors[index]?.part ?? undefined}
+            >
+              {({ id, describedBy, invalid }) => (
                 <Select
                   id={id}
+                  describedBy={describedBy}
+                  invalid={invalid}
                   ariaLabel="Part in the kit"
                   value={row.componentPartId}
                   onValueChange={(value) =>
@@ -557,10 +676,18 @@ export function KitContentsDialog({
                 />
               )}
             </Field>
-            <Field label="How many" className="w-24" hideLabel={index > 0}>
-              {({ id }) => (
+            <Field
+              label="How many"
+              className="w-24"
+              hideLabel={index > 0}
+              error={rowErrors[index]?.qty ?? undefined}
+            >
+              {({ id, describedBy, invalid, errorId }) => (
                 <Input
                   id={id}
+                  aria-describedby={describedBy}
+                  aria-invalid={invalid || undefined}
+                  aria-errormessage={errorId}
                   aria-label="How many are in the kit"
                   value={row.qty}
                   onChange={(event) =>
@@ -664,13 +791,4 @@ export function ArchiveToggle({
       )}
     </Dialog>
   );
-}
-
-/** `"12.90"` -> `1290`. */
-function parsePriceCents(raw: string): number | null {
-  const trimmed = raw.trim().replace(",", ".");
-  if (trimmed === "") return null;
-  const value = Number.parseFloat(trimmed);
-  if (!Number.isFinite(value) || value < 0) return null;
-  return Math.round(value * 100);
 }
