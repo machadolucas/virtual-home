@@ -444,7 +444,7 @@ test("a saved colour comes back on the next page load", async ({ browser }) => {
    * (`src/house/store/slices/color.ts:28-41`) returns `{}` when the value is unchanged, re-picking
    * the *same* colour does not fix it either.
    *
-   * Measured 2026-09-08 by running this test (real package `example-house-1` @ `0000000000000000`,
+   * Measured 2026-09-08 by running this test against the real installed package,
    * one override persisted for `s-w-g-sauna-e--r-g-sauna`):
    *   fresh load        → the inspector's colour input reads `#ff00ff` (so the value *was* saved and
    *                       hydrated) while `materialHex` reads `#d9c3a5`, the manifest default

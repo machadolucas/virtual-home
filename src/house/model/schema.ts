@@ -1,6 +1,6 @@
 /**
  * Zod mirror of the model package's `manifest.schema.json` (shared model-package contract v1.0,
- * Example House extensions).
+ * plus this household's own extensions).
  *
  * Rules followed here:
  *  - Every object is a **loose** object (`z.looseObject`), because the JSON Schema sets
