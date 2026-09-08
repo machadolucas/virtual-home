@@ -36,6 +36,20 @@
       "when": 1788887329427,
       "tag": "0004_gifted_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788903328236,
+      "tag": "0005_foamy_peter_quill",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788906728804,
+      "tag": "0006_faulty_thanos",
+      "breakpoints": true
     }
   ]
 }

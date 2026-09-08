@@ -113,6 +113,20 @@ export const haEntity = sqliteTable(
     entityCategory: text("entity_category"),
     disabledBy: text("disabled_by"),
     hiddenBy: text("hidden_by"),
+    /**
+     * Liveness from the last full snapshot, for **every** entity — distinct from
+     * `ha_entity_state`, which caches values only for the entities something is linked to.
+     *
+     * The import browser needs it: HA's registry keeps entries whose integration no longer
+     * provides them (`restored`), and a registry row says nothing about whether the thing is
+     * alive. Verbatim, `unknown`/`unavailable` included, per hard rule 8 — this is the absence of
+     * a reading, and the browser's job is to report that absence, not to reinterpret it.
+     */
+    liveState: text("live_state"),
+    /** HA's `restored` attribute: the entity is in the registry but nothing is providing it. */
+    liveRestored: integer("live_restored", { mode: "boolean" }),
+    /** When the snapshot that produced `live_state` ran. Null until the first snapshot. */
+    liveAtMs: integer("live_at_ms"),
     firstSeenMs: integer("first_seen_ms").notNull(),
     lastSeenMs: integer("last_seen_ms").notNull(),
     removedAtMs: integer("removed_at_ms"),

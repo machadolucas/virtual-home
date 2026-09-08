@@ -81,9 +81,13 @@ function RefreshButton() {
   const call = useAction(refreshMappingSuggestions, {
     successTitle: "Suggestions refreshed",
     successDescription: (data) =>
-      data.added === 0
-        ? "No new exact name matches were found."
-        : `${data.added} new suggestion(s) from exact name matches.`,
+      data.added > 0
+        ? `${data.added} new suggestion(s) from exact name matches.`
+        : data.locationCount === 0
+          ? // Not "no matches were found" — with no rooms recorded, the matcher has nothing to
+            // match against and never compares a name at all.
+            "There are no rooms in this app yet, so there was nothing to match Home Assistant's areas against. Add rooms first."
+          : "No new exact name matches were found.",
     onSuccess: () => router.refresh(),
   });
   return (
@@ -160,12 +164,14 @@ function MappingRowView({
             selectSize="sm"
           />
         </label>
+        {/* One trio of these per HA area or floor, so the accessible name has to carry the row. */}
         <Button
           size="sm"
           variant="primary"
           loading={call.pending}
           disabled={choice === ""}
           icon={<Check aria-hidden="true" />}
+          aria-label={`Confirm the mapping for ${row.haName}`}
           onClick={() =>
             call.run({
               haKind: row.haKind,
@@ -183,6 +189,7 @@ function MappingRowView({
           loading={call.pending}
           disabled={choice === "" && row.locationId === null}
           icon={<X aria-hidden="true" />}
+          aria-label={`Reject the mapping for ${row.haName}`}
           onClick={() =>
             call.run({
               haKind: row.haKind,
@@ -199,6 +206,7 @@ function MappingRowView({
             size="sm"
             variant="ghost"
             loading={call.pending}
+            aria-label={`Start over on the mapping for ${row.haName}`}
             onClick={() =>
               call.run({ haKind: row.haKind, haId: row.haId, decision: "clear" })
             }

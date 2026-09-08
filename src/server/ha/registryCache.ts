@@ -671,11 +671,38 @@ function readEntityRecords(tx: Db): { live: EntityRecord[]; removed: Set<string>
   return { live, removed };
 }
 
+/**
+ * The liveness fields for one entity, or nothing to change when this run has no states.
+ *
+ * An entity in the registry with no state object at all is as dead as a `restored` one — HA has
+ * the entry but nothing is publishing it — so it is recorded as such rather than left blank.
+ */
+function liveness(
+  states: ReadonlyMap<string, NormalizedState> | undefined,
+  entityId: string,
+  nowMs: number,
+): { liveState?: string | null; liveRestored?: boolean | null; liveAtMs?: number | null } {
+  if (!states) return {};
+  const state = states.get(entityId);
+  if (!state) return { liveState: null, liveRestored: null, liveAtMs: nowMs };
+  const attributes = state.attributes as Record<string, unknown> | undefined;
+  return {
+    liveState: state.raw,
+    liveRestored: attributes?.["restored"] === true,
+    liveAtMs: nowMs,
+  };
+}
+
 function syncEntities(
   tx: Db,
   entries: readonly HaEntityRegistryEntry[],
   nowMs: number,
   counters: SyncCounters,
+  /**
+   * Present only on a full snapshot. A registry-only re-list must leave the liveness columns
+   * alone rather than blank them: it carries no states, and "we did not look" is not "it is dead".
+   */
+  states: ReadonlyMap<string, NormalizedState> | undefined,
 ): void {
   const knownAreas = liveIds(tx, "area");
   const knownDevices = liveIds(tx, "device");
@@ -722,6 +749,7 @@ function syncEntities(
       hiddenBy: record.hiddenBy,
       lastSeenMs: nowMs,
       removedAtMs: null,
+      ...liveness(states, record.entityId, nowMs),
     };
     tx.insert(haEntity)
       .values({ ...values, firstSeenMs: nowMs })
@@ -1030,7 +1058,7 @@ function applyAll(
       syncFloors(tx, lists.floors, nowMs, counters);
       syncAreas(tx, lists.areas, nowMs, counters);
       syncDevices(tx, lists.devices, nowMs, counters);
-      syncEntities(tx, lists.entities, nowMs, counters);
+      syncEntities(tx, lists.entities, nowMs, counters, states);
       recomputeCanonicalBatteries(tx, nowMs, counters, states);
       const syncRunId = writeSyncRun(tx, counters, startedAtMs, nowMs);
       return { ...counters, syncRunId };
@@ -1072,7 +1100,9 @@ export function applyRegistryList(
           recomputeCanonicalBatteries(tx, nowMs, counters);
           break;
         case "entity":
-          syncEntities(tx, list as readonly HaEntityRegistryEntry[], nowMs, counters);
+          // A `*_registry_updated` re-list carries no states, so liveness is left as the last
+          // snapshot recorded it.
+          syncEntities(tx, list as readonly HaEntityRegistryEntry[], nowMs, counters, undefined);
           recomputeCanonicalBatteries(tx, nowMs, counters);
           break;
       }

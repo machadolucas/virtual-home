@@ -1023,7 +1023,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`created_at_ms\` integer NOT NULL,
 	\`created_by\` text,
 	\`updated_at_ms\` integer NOT NULL,
-	\`updated_by\` text,
+	\`updated_by\` text, \`symbol\` text,
 	FOREIGN KEY (\`asset_id\`) REFERENCES \`asset\`(\`id\`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (\`model_revision_id\`) REFERENCES \`model_revision\`(\`id\`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (\`photo_attachment_id\`) REFERENCES \`attachment\`(\`id\`) ON UPDATE no action ON DELETE set null,
@@ -1430,7 +1430,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`hidden_by\` text,
 	\`first_seen_ms\` integer NOT NULL,
 	\`last_seen_ms\` integer NOT NULL,
-	\`removed_at_ms\` integer,
+	\`removed_at_ms\` integer, \`live_state\` text, \`live_restored\` integer, \`live_at_ms\` integer,
 	FOREIGN KEY (\`device_id\`) REFERENCES \`ha_device\`(\`device_id\`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (\`area_id\`) REFERENCES \`ha_area\`(\`area_id\`) ON UPDATE no action ON DELETE set null
 )",

@@ -30,6 +30,9 @@ export interface RegistryEntityRow {
   /** Latest cached state, verbatim. `null` when this entity is not in the state cache. */
   state: string | null;
   stateLastUpdatedMs: number | null;
+  /** Liveness from the last full registry snapshot — present for every entity, not just cached ones. */
+  liveness: EntityLiveness;
+  liveState: string | null;
   /** Equipment already linked to this entity, if any. */
   linkedAssetId: string | null;
   linkedAssetName: string | null;
@@ -52,6 +55,12 @@ export interface RegistryDeviceRow {
   entityCount: number;
   /** Entities of this device that are neither diagnostic/config nor disabled/hidden. */
   visibleEntityCount: number;
+  /** Of the visible ones, how many Home Assistant is actually providing right now. */
+  liveEntityCount: number;
+  /** Visible entities that are restored, unavailable, unknown or have no state at all. */
+  deadEntityCount: number;
+  /** True when liveness has never been measured (no snapshot since the columns were added). */
+  livenessUnmeasured: boolean;
   linkedAssetId: string | null;
   linkedAssetName: string | null;
   /** The location a confirmed mapping (or a suggestion) puts this device's area in. */
@@ -76,6 +85,12 @@ export interface RegistryBrowseOptions {
   includeHidden: boolean;
   /** Case-insensitive substring across device and entity names/ids. */
   query: string;
+  /**
+   * Drop devices whose every shown entity is dead — restored, unavailable, unknown or stateless.
+   * On by default: a registry of any age accumulates entries whose integration no longer provides
+   * them, and they are the bulk of what makes the import list look wrong.
+   */
+  hideDead?: boolean;
 }
 
 export interface RegistryBrowseResult {
@@ -83,6 +98,14 @@ export interface RegistryBrowseResult {
   deviceCount: number;
   /** Devices the filter removed, so the toggle can say what it is hiding. */
   hiddenDeviceCount: number;
+  /** Devices removed specifically because nothing they expose is alive. */
+  deadDeviceCount: number;
+  /**
+   * True when no visible entity anywhere has a measured liveness — the state after a registry-only
+   * sync, before the first state snapshot. Nothing can be said about what is live, including that
+   * everything is.
+   */
+  livenessUnmeasured: boolean;
   /** True when the registry cache is empty — the worker has never synced. */
   cacheEmpty: boolean;
 }
@@ -110,7 +133,14 @@ export function browseRegistry(
     .all();
 
   if (devices.length === 0) {
-    return { groups: [], deviceCount: 0, hiddenDeviceCount: 0, cacheEmpty: true };
+    return {
+      groups: [],
+      deviceCount: 0,
+      hiddenDeviceCount: 0,
+      deadDeviceCount: 0,
+      livenessUnmeasured: true,
+      cacheEmpty: true,
+    };
   }
 
   const areas = tx.select().from(haArea).where(isNull(haArea.removedAtMs)).all();
@@ -121,21 +151,36 @@ export function browseRegistry(
   const mappings = readAreaMappings(tx);
 
   const deviceIds = devices.map((row) => row.deviceId);
-  const entityCounts = new Map<string, { total: number; visible: number }>();
+  const entityCounts = new Map<
+    string,
+    { total: number; visible: number; live: number; dead: number; unmeasured: number }
+  >();
   for (const row of tx
     .select({
       deviceId: haEntity.deviceId,
       entityCategory: haEntity.entityCategory,
       disabledBy: haEntity.disabledBy,
       hiddenBy: haEntity.hiddenBy,
+      liveState: haEntity.liveState,
+      liveRestored: haEntity.liveRestored,
+      liveAtMs: haEntity.liveAtMs,
     })
     .from(haEntity)
     .where(and(isNull(haEntity.removedAtMs), inArray(haEntity.deviceId, deviceIds)))
     .all()) {
     if (row.deviceId === null) continue;
-    const current = entityCounts.get(row.deviceId) ?? { total: 0, visible: 0 };
+    const current =
+      entityCounts.get(row.deviceId) ?? { total: 0, visible: 0, live: 0, dead: 0, unmeasured: 0 };
     current.total += 1;
-    if (isVisibleEntity(row)) current.visible += 1;
+    if (isVisibleEntity(row)) {
+      current.visible += 1;
+      // Liveness is counted over the *visible* entities only: a disabled or diagnostic entity
+      // being dead says nothing about whether the device is worth importing.
+      const liveness = livenessOf(row);
+      if (liveness === null) current.unmeasured += 1;
+      else if (liveness === "live") current.live += 1;
+      else current.dead += 1;
+    }
     entityCounts.set(row.deviceId, current);
   }
 
@@ -162,12 +207,24 @@ export function browseRegistry(
   }
 
   const needle = normalise(options.query.trim());
+  const hideDead = options.hideDead !== false;
   let hiddenDeviceCount = 0;
+  let deadDeviceCount = 0;
+  // Counted over every device in the cache, not just the ones that survive the filters: whether
+  // liveness has ever been measured is a fact about the snapshot, not about this search.
+  let measuredEntityCount = 0;
+  let visibleEntityCount = 0;
+  for (const counts of entityCounts.values()) {
+    visibleEntityCount += counts.visible;
+    measuredEntityCount += counts.live + counts.dead;
+  }
 
   const rows: RegistryDeviceRow[] = [];
   for (const device of devices) {
     const area = device.areaId === null ? null : (areaById.get(device.areaId) ?? null);
-    const counts = entityCounts.get(device.deviceId) ?? { total: 0, visible: 0 };
+    const counts =
+      entityCounts.get(device.deviceId) ??
+      { total: 0, visible: 0, live: 0, dead: 0, unmeasured: 0 };
 
     if (!options.includeHidden && device.disabledBy !== null) {
       hiddenDeviceCount += 1;
@@ -176,6 +233,17 @@ export function browseRegistry(
     if (!options.includeHidden && counts.visible === 0 && counts.total > 0) {
       // Every entity is diagnostic/config or disabled: nothing here maps to equipment.
       hiddenDeviceCount += 1;
+      continue;
+    }
+    // Nothing this device exposes is alive. Counted separately from the flags above, because the
+    // remedy is different: these are stale registry entries to clean up in Home Assistant, or
+    // hardware that is currently offline — not entities someone chose to hide.
+    if (hideDead && counts.visible > 0 && counts.live === 0 && counts.dead > 0) {
+      // Only `deadDeviceCount`. Adding it to `hiddenDeviceCount` too made the "diagnostic and
+      // disabled" toggle claim these devices as its own, so the hint read "43 device(s) are hidden
+      // because everything they expose is diagnostic, config, disabled or hidden" when 40 of them
+      // were stale registry entries instead — and the remedy for the two is different.
+      deadDeviceCount += 1;
       continue;
     }
 
@@ -210,6 +278,9 @@ export function browseRegistry(
       canonicalBatteryEntityId: device.canonicalBatteryEntityId,
       entityCount: counts.total,
       visibleEntityCount: counts.visible,
+      liveEntityCount: counts.live,
+      deadEntityCount: counts.dead,
+      livenessUnmeasured: counts.visible > 0 && counts.unmeasured === counts.visible,
       linkedAssetId: linked?.id ?? null,
       linkedAssetName: linked?.name ?? null,
       suggestedLocationId: mapping?.locationId ?? null,
@@ -258,8 +329,41 @@ export function browseRegistry(
     groups: ordered,
     deviceCount: rows.length,
     hiddenDeviceCount,
+    deadDeviceCount,
+    livenessUnmeasured: visibleEntityCount > 0 && measuredEntityCount === 0,
     cacheEmpty: false,
   };
+}
+
+/**
+ * Is a registry entity actually being provided right now?
+ *
+ * `restored` is HA's own marker for "the entry is in the registry but the integration is not
+ * providing it" — the classic leftover after a device is removed or re-paired. `unavailable` and
+ * `unknown` are the absence of a reading (hard rule 8), and an entity with no state object at all
+ * is in the same boat. None of them is reinterpreted; they are reported.
+ *
+ * `null` means "not measured yet": no snapshot has run since the columns were added, so the
+ * browser must not claim the thing is dead.
+ */
+export type EntityLiveness = "live" | "restored" | "unavailable" | "unknown" | "no_state" | null;
+
+export function livenessOf(row: {
+  liveState: string | null;
+  liveRestored: boolean | null;
+  liveAtMs: number | null;
+}): EntityLiveness {
+  if (row.liveAtMs === null) return null;
+  if (row.liveRestored === true) return "restored";
+  if (row.liveState === null) return "no_state";
+  if (row.liveState === "unavailable") return "unavailable";
+  if (row.liveState === "unknown") return "unknown";
+  return "live";
+}
+
+/** Everything except a confirmed `live` (and except "not measured", which is not a claim). */
+export function isDeadLiveness(liveness: EntityLiveness): boolean {
+  return liveness !== null && liveness !== "live";
 }
 
 function isVisibleEntity(row: {
@@ -299,6 +403,9 @@ export function readDeviceEntities(
       areaId: haEntity.areaId,
       state: haEntityState.state,
       stateLastUpdatedMs: haEntityState.lastUpdatedMs,
+      liveState: haEntity.liveState,
+      liveRestored: haEntity.liveRestored,
+      liveAtMs: haEntity.liveAtMs,
     })
     .from(haEntity)
     .leftJoin(haEntityState, eq(haEntityState.registryId, haEntity.registryId))
@@ -328,6 +435,7 @@ export function readDeviceEntities(
     .filter((row) => options.includeHidden || isVisibleEntity(row))
     .map((row) => ({
       ...row,
+      liveness: livenessOf(row),
       linkedAssetId: linked.get(row.registryId)?.id ?? null,
       linkedAssetName: linked.get(row.registryId)?.name ?? null,
     }));

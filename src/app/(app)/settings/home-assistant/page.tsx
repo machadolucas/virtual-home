@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
 import { requireSessionPage } from "@/server/auth/session";
-import { Badge, ConnectionPill, Panel, type ConnectionState } from "@/ui";
+import { Badge, ConnectionPill, Panel, connectionStateOf } from "@/ui";
 import { PageHeader } from "@/ui/shell";
 import type { IntegrationState } from "@/db/schema";
 import { pageContext } from "@/server/queries/settings/household";
 import { listLocationOptions } from "@/server/queries/assets/list";
 import { listAssetOptions } from "@/server/queries/inventory/detail";
 import { listPartOptions } from "@/server/queries/inventory/list";
-import { browseRegistry, readDeviceEntities } from "@/server/queries/ha/registry";
+import {
+  browseRegistry,
+  listLinkableEntities,
+  readDeviceEntities,
+} from "@/server/queries/ha/registry";
 import { listConditionRules, listLocationMappings } from "@/server/queries/ha/mappings";
 import { readIntegrationStatus, workerAlive } from "@/server/ha/status";
 import { formatAge, isoOf } from "@/features/settings/format";
@@ -25,6 +29,9 @@ export const metadata: Metadata = { title: "Home Assistant" };
  * is a different message from "Home Assistant is unreachable". Blaming HA for a dead worker is the
  * kind of bug that costs an hour of debugging the wrong box, so the two are reported separately
  * and neither is guessed from the other.
+ *
+ * The pill in the header comes from `connectionStateOf` in `@/ui/status` — the same function the
+ * app shell's pill and the Today banner use, so two pills on one screen cannot disagree.
  */
 export default async function HomeAssistantSettingsPage({
   searchParams,
@@ -35,13 +42,16 @@ export default async function HomeAssistantSettingsPage({
   const params = await searchParams;
   const query = firstValue(params["q"]) ?? "";
   const includeHidden = firstValue(params["hidden"]) === "1";
+  // Dead rows are out by default; `?dead=1` brings them back for the rare "where did my washing
+  // machine go" moment.
+  const showDead = firstValue(params["dead"]) === "1";
 
   const { db, household, nowMs } = pageContext();
   const env = loadEnv();
   const status = readIntegrationStatus(db);
   const alive = workerAlive(status, nowMs, env.VH_WORKER_HEARTBEAT_MS);
 
-  const registry = browseRegistry(db, { includeHidden, query });
+  const registry = browseRegistry(db, { includeHidden, query, hideDead: !showDead });
 
   // Entities for the devices actually on screen. Loading them per device on demand would be a
   // round trip per row; loading the whole registry would be thousands of rows for no reason.
@@ -61,6 +71,8 @@ export default async function HomeAssistantSettingsPage({
           unitOfMeasurement: entity.unitOfMeasurement,
           entityCategory: entity.entityCategory,
           state: entity.state,
+          liveness: entity.liveness,
+          liveState: entity.liveState,
           linkedAssetName: entity.linkedAssetName,
         }));
       }
@@ -76,6 +88,17 @@ export default async function HomeAssistantSettingsPage({
     value: asset.id,
     label: asset.name,
     hint: asset.locationName ?? undefined,
+  }));
+
+  // Targets for an entity-scoped rule. The same capped list the equipment page links against; the
+  // panel says when it was truncated rather than presenting a shortlist as the whole instance.
+  const linkable = listLinkableEntities(db, { limit: 400 });
+  const ruleEntities = linkable.entities.map((entity) => ({
+    value: entity.registryId,
+    label: entity.entityId,
+    hint:
+      [entity.deviceName, entity.areaName, entity.deviceClass].filter(Boolean).join(" · ") ||
+      entity.domain,
   }));
 
   return (
@@ -194,6 +217,9 @@ export default async function HomeAssistantSettingsPage({
                 entryType: device.entryType,
                 entityCount: device.entityCount,
                 visibleEntityCount: device.visibleEntityCount,
+                liveEntityCount: device.liveEntityCount,
+                deadEntityCount: device.deadEntityCount,
+                livenessUnmeasured: device.livenessUnmeasured,
                 linkedAssetId: device.linkedAssetId,
                 linkedAssetName: device.linkedAssetName,
                 suggestedLocationId: device.suggestedLocationId,
@@ -204,8 +230,11 @@ export default async function HomeAssistantSettingsPage({
           }))}
           deviceCount={registry.deviceCount}
           hiddenDeviceCount={registry.hiddenDeviceCount}
+          deadDeviceCount={registry.deadDeviceCount}
+          livenessUnmeasured={registry.livenessUnmeasured}
           cacheEmpty={registry.cacheEmpty}
           includeHidden={includeHidden}
+          showDead={showDead}
           query={query}
           locations={locations}
           assets={assets}
@@ -232,6 +261,8 @@ export default async function HomeAssistantSettingsPage({
         <RulesPanel
           rules={listConditionRules(db)}
           assets={assets}
+          entities={ruleEntities}
+          entitiesTruncated={linkable.truncated}
           parts={listPartOptions(db, { excludeKits: true }).map((part) => ({
             value: part.id,
             label: part.name,
@@ -286,31 +317,6 @@ const STATE_HELP: Record<IntegrationState, string> = {
     "Home Assistant refused the token. Create a new long-lived token and put it in the secrets file; retrying will not help.",
   disconnected: "No socket. The worker retries with backoff.",
 };
-
-/**
- * The integration state mapped onto the four-state connection pill.
- *
- * A dead worker is `unknown`, not `disconnected`: we have no report about Home Assistant at all,
- * and claiming it is disconnected would be asserting something nobody observed.
- */
-function connectionStateOf(
-  state: IntegrationState | null,
-  workerRunning: boolean,
-): ConnectionState {
-  if (state === null || !workerRunning) return "unknown";
-  switch (state) {
-    case "subscribed":
-      return "connected";
-    case "connecting":
-    case "authenticating":
-    case "syncing":
-    case "degraded":
-      return "degraded";
-    case "auth_failed":
-    case "disconnected":
-      return "disconnected";
-  }
-}
 
 function Detail({
   term,

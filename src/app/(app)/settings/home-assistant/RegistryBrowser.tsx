@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRight, Cpu, Search, X } from "lucide-react";
 import { ASSET_CATEGORIES, HA_LINK_ROLES, type AssetCategory, type HaLinkRole } from "@/db/schema";
 import {
@@ -18,7 +18,33 @@ import {
 } from "@/ui";
 import { CATEGORY_LABEL, HA_LINK_ROLE_HELP, HA_LINK_ROLE_LABEL } from "@/features/assets/labels";
 import { useAction } from "@/features/settings/actionClient";
-import { importHaDevice } from "@/server/actions/ha/import";
+import { importHaDevice, importHaDevices } from "@/server/actions/ha/import";
+
+/**
+ * What to say about an entity Home Assistant is not providing. `live` and "not measured yet" say
+ * nothing at all — a note on every healthy row would be noise, and claiming staleness we have not
+ * measured would be worse.
+ */
+const LIVENESS_NOTE: Record<string, string | null> = {
+  live: null,
+  unmeasured: null,
+  restored: "restored — Home Assistant lists it but no integration provides it",
+  unavailable: "unavailable right now",
+  unknown: "no value (unknown)",
+  no_state: "no state object at all",
+};
+
+/**
+ * Codes `importHaDevices` can refuse with, as sentences. An unmapped code is still shown verbatim
+ * rather than replaced with "something went wrong": an unfamiliar code is a better clue than none.
+ */
+const BULK_ERROR: Record<string, string> = {
+  unauthorized: "Your session expired. Reload the page and sign in again.",
+  invalid_request: "The server did not accept that selection. Reload the page and try again.",
+  internal: "The server could not complete the import. Nothing in the failed batch was created.",
+  unknown_category: "That equipment category is not one this app knows.",
+  conflict: "Somebody else changed this at the same time. Reload and try again.",
+};
 
 const NO_LOCATION = "__none";
 const NO_ROLE = "__skip";
@@ -33,6 +59,12 @@ export interface BrowserDevice {
   entryType: string | null;
   entityCount: number;
   visibleEntityCount: number;
+  /** Of the visible entities, how many HA is actually providing right now. */
+  liveEntityCount: number;
+  /** Visible entities that are restored, unavailable, unknown or stateless. */
+  deadEntityCount: number;
+  /** No snapshot has measured liveness yet, so nothing is claimed about it. */
+  livenessUnmeasured: boolean;
   linkedAssetId: string | null;
   linkedAssetName: string | null;
   suggestedLocationId: string | null;
@@ -56,6 +88,8 @@ export interface BrowserEntity {
   unitOfMeasurement: string | null;
   entityCategory: string | null;
   state: string | null;
+  liveness: "live" | "restored" | "unavailable" | "unknown" | "no_state" | null;
+  liveState: string | null;
   linkedAssetName: string | null;
 }
 
@@ -80,8 +114,11 @@ export function RegistryBrowser({
   groups,
   deviceCount,
   hiddenDeviceCount,
+  deadDeviceCount,
+  livenessUnmeasured,
   cacheEmpty,
   includeHidden,
+  showDead,
   query,
   locations,
   assets,
@@ -90,8 +127,12 @@ export function RegistryBrowser({
   groups: readonly BrowserFloor[];
   deviceCount: number;
   hiddenDeviceCount: number;
+  deadDeviceCount: number;
+  /** No state snapshot has measured liveness yet, so nothing may be claimed about it. */
+  livenessUnmeasured: boolean;
   cacheEmpty: boolean;
   includeHidden: boolean;
+  showDead: boolean;
   query: string;
   locations: readonly Choice[];
   assets: readonly Choice[];
@@ -100,21 +141,72 @@ export function RegistryBrowser({
 }) {
   const router = useRouter();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  const [draftQuery, setDraftQuery] = useState(query);
+  /**
+   * The result of the last bulk import, held here rather than in the bar.
+   *
+   * Finishing a run clears the selection, which unmounts the bar — so a summary owned by the bar
+   * was destroyed in the same tick it was set, and every run reported nothing whatever happened.
+   */
+  const [lastImport, setLastImport] = useState<BulkOutcome | null>(null);
+
+  /**
+   * The filter values as of *now*, read at the moment the debounced push fires.
+   *
+   * `push` used to close over the props, so a search typed and then a toggle flipped within the
+   * debounce window pushed the toggle's previous value straight back.
+   */
+  const latest = useRef({ query, includeHidden, showDead });
+  useEffect(() => {
+    latest.current = { query, includeHidden, showDead };
+  }, [query, includeHidden, showDead]);
+
+  /** The `q` this component last put in the URL, so its own push does not look like navigation. */
+  const pushedQuery = useRef(query);
+
+  // Follow the URL when it changes for a reason that is not this box — back/forward, or a link
+  // into a filtered view. The input is controlled rather than remounted with `key={query}`:
+  // remounting on our own debounced push stole the caret 250 ms after every pause in typing.
+  useEffect(() => {
+    if (query !== pushedQuery.current) {
+      pushedQuery.current = query;
+      setDraftQuery(query);
+    }
+  }, [query]);
+
+  // A pending push after this component is gone yanks the user back to a page they have left.
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+  }, []);
+
+  const toggleSelected = useCallback((deviceId: string, checked: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(deviceId);
+      else next.delete(deviceId);
+      return next;
+    });
+  }, []);
 
   const push = useCallback(
-    (next: { q?: string; hidden?: boolean }) => {
+    (next: { q?: string; hidden?: boolean; dead?: boolean }) => {
+      const current = latest.current;
       const params = new URLSearchParams();
-      const q = next.q === undefined ? query : next.q;
-      const hidden = next.hidden === undefined ? includeHidden : next.hidden;
+      const q = next.q === undefined ? current.query : next.q;
+      const hidden = next.hidden === undefined ? current.includeHidden : next.hidden;
+      const dead = next.dead === undefined ? current.showDead : next.dead;
       if (q !== "") params.set("q", q);
       if (hidden) params.set("hidden", "1");
+      if (dead) params.set("dead", "1");
+      pushedQuery.current = q;
       const search = params.toString();
       router.replace(
         search === "" ? "/settings/home-assistant" : `/settings/home-assistant?${search}`,
         { scroll: false },
       );
     },
-    [query, includeHidden, router],
+    [router],
   );
 
   const onType = useCallback(
@@ -141,14 +233,16 @@ export function RegistryBrowser({
         <label className="flex items-center gap-2 sm:w-72">
           <span className="sr-only">Search devices</span>
           <Input
-            key={query}
             type="search"
-            defaultValue={query}
-            onChange={(event) => onType(event.target.value)}
+            value={draftQuery}
+            onChange={(event) => {
+              setDraftQuery(event.target.value);
+              onType(event.target.value);
+            }}
             placeholder="Device, manufacturer, model, area…"
             icon={<Search aria-hidden="true" />}
             trailing={
-              query === "" ? undefined : (
+              draftQuery === "" ? undefined : (
                 <IconButton
                   label="Clear search"
                   variant="ghost"
@@ -156,6 +250,7 @@ export function RegistryBrowser({
                   icon={<X aria-hidden="true" />}
                   onClick={() => {
                     if (timer.current !== null) clearTimeout(timer.current);
+                    setDraftQuery("");
                     push({ q: "" });
                   }}
                 />
@@ -163,17 +258,49 @@ export function RegistryBrowser({
             }
           />
         </label>
-        <Switch
-          checked={includeHidden}
-          onCheckedChange={(checked) => push({ hidden: checked })}
-          label="Show diagnostic and disabled things"
-          hint={
-            hiddenDeviceCount === 0
-              ? "Nothing is being hidden right now."
-              : `${hiddenDeviceCount} device(s) are hidden because everything they expose is diagnostic, config, disabled or hidden.`
-          }
-        />
+        <div className="flex flex-col gap-3">
+          <Switch
+            checked={includeHidden}
+            onCheckedChange={(checked) => push({ hidden: checked })}
+            label="Show diagnostic and disabled things"
+            hint={
+              hiddenDeviceCount === 0
+                ? "Nothing is being hidden right now."
+                : `${hiddenDeviceCount} device(s) are hidden because everything they expose is diagnostic, config, disabled or hidden.`
+            }
+          />
+          <Switch
+            checked={showDead}
+            onCheckedChange={(checked) => push({ dead: checked })}
+            label="Show things Home Assistant is not providing"
+            hint={
+              deadDeviceCount > 0
+                ? `${deadDeviceCount} device(s) hidden because nothing they expose is live — a restored entity is one Home Assistant still lists but no integration provides. Clean those up in Home Assistant, or turn this on if something here is only temporarily offline.`
+                : livenessUnmeasured
+                  ? // Nothing has been hidden, but nothing has been *checked* either: after a
+                    // registry-only sync every `live_at_ms` is null, and "everything is live" would
+                    // be a claim about a measurement that has not happened (rule 8).
+                    "Liveness has not been measured yet, so nothing has been hidden on those grounds — the worker records it on its first state snapshot."
+                  : "Every device listed has at least one live entity."
+            }
+          />
+        </div>
       </div>
+
+      {selected.size > 0 ? (
+        <BulkImportBar
+          deviceIds={[...selected]}
+          onStarted={() => setLastImport(null)}
+          onFinished={(outcome) => {
+            setLastImport(outcome);
+            setSelected(new Set());
+            router.refresh();
+          }}
+          onClear={() => setSelected(new Set())}
+        />
+      ) : null}
+
+      {lastImport === null ? null : <BulkImportOutcome outcome={lastImport} />}
 
       {deviceCount === 0 ? (
         <p className="text-sm text-ink-3">
@@ -194,6 +321,28 @@ export function RegistryBrowser({
                       key={device.deviceId}
                       className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5"
                     >
+                      {device.linkedAssetId === null ? (
+                        <>
+                          {/* The name is the label, but repeating it inline would double every
+                              row; an external sr-only label keeps the accessible name. */}
+                          <label
+                            htmlFor={`select-${device.deviceId}`}
+                            className="sr-only"
+                          >
+                            Select {device.nameByUser ?? device.name ?? device.deviceId} for bulk
+                            import
+                          </label>
+                          <Checkbox
+                            id={`select-${device.deviceId}`}
+                            checked={selected.has(device.deviceId)}
+                            onCheckedChange={(checked) =>
+                              toggleSelected(device.deviceId, checked === true)
+                            }
+                          />
+                        </>
+                      ) : (
+                        <span className="w-4 shrink-0" />
+                      )}
                       <Cpu aria-hidden="true" className="size-4 shrink-0 text-ink-3" />
                       <span className="text-sm font-medium text-ink">
                         {device.nameByUser ?? device.name ?? device.deviceId}
@@ -210,6 +359,16 @@ export function RegistryBrowser({
                       <span className="vh-tnum text-xs text-ink-3">
                         {device.visibleEntityCount} of {device.entityCount} entities
                       </span>
+                      {device.livenessUnmeasured ? null : device.liveEntityCount === 0 &&
+                        device.deadEntityCount > 0 ? (
+                        <Badge tone="overdue" size="sm">
+                          Nothing live
+                        </Badge>
+                      ) : device.deadEntityCount > 0 ? (
+                        <Badge tone="stale" size="sm">
+                          {device.deadEntityCount} not live
+                        </Badge>
+                      ) : null}
                       {device.linkedAssetId === null ? null : (
                         <Badge tone="ok" size="sm">
                           Already {device.linkedAssetName}
@@ -231,6 +390,164 @@ export function RegistryBrowser({
           </div>
         ))
       )}
+    </div>
+  );
+}
+
+/**
+ * Bulk import: one category for the batch, the device row linked, no entity roles.
+ *
+ * With a registry of a few hundred devices the single-device dialog is the wrong tool — but
+ * guessing which entity is each device's primary reading would be inventing data, so this
+ * deliberately does less: equipment rows linked to their devices, ready for the dialog to refine
+ * one at a time. It says exactly that on screen rather than implying a full import.
+ *
+ * Sent in chunks of 50 (the action's cap) to keep each write transaction short, with progress
+ * across chunks and the three outcomes reported separately at the end.
+ *
+ * Two things this has to get right, both of which it once got wrong:
+ *  - **The idempotency key is per run, not per selection.** It used to be the joined device ids
+ *    truncated to 200 characters, which is about five of them: a later import of any set sharing
+ *    those first five replayed the earlier stored response and reported "Created 8" while writing
+ *    nothing at all.
+ *  - **Every path ends with a summary.** A refused chunk used to `return` out of the loop, which
+ *    threw away the counts from the chunks that had already committed, left the page showing the
+ *    pre-import list, and said nothing about how far it got.
+ */
+export interface BulkOutcome {
+  /** Devices in the selection when the run started. */
+  total: number;
+  /** Devices in chunks the server accepted. Less than `total` means it stopped part-way. */
+  attempted: number;
+  created: number;
+  skipped: number;
+  /** The reason it stopped, already turned into a sentence. `null` when it ran to the end. */
+  error: string | null;
+}
+
+function BulkImportBar({
+  deviceIds,
+  onStarted,
+  onFinished,
+  onClear,
+}: {
+  deviceIds: readonly string[];
+  onStarted: () => void;
+  onFinished: (outcome: BulkOutcome) => void;
+  onClear: () => void;
+}) {
+  const CHUNK = 50;
+  const [category, setCategory] = useState<AssetCategory>("appliance");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(0);
+
+  const run = async () => {
+    setBusy(true);
+    setDone(0);
+    onStarted();
+    let created = 0;
+    let skipped = 0;
+    let attempted = 0;
+    let error: string | null = null;
+    // One key per press of the button, extended per chunk. Random, so two runs over overlapping
+    // selections are two runs; stable within the run, so a retried chunk replays rather than
+    // creating a second copy of everything it already wrote. The fallback matches
+    // `features/settings/actionClient`: `randomUUID` needs a secure context.
+    const runId =
+      globalThis.crypto?.randomUUID?.() ??
+      `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    try {
+      for (let i = 0; i < deviceIds.length; i += CHUNK) {
+        const chunk = deviceIds.slice(i, i + CHUNK);
+        const result = await importHaDevices({
+          deviceIds: chunk,
+          category,
+          useMappedLocation: true,
+          idempotencyKey: `bulk-${runId}-${i / CHUNK}`,
+        });
+        if (!result.ok) {
+          error = BULK_ERROR[result.error] ?? `The server refused the import (${result.error}).`;
+          break;
+        }
+        created += result.data.createdCount;
+        skipped += result.data.skipped.length;
+        attempted += chunk.length;
+        setDone(Math.min(i + chunk.length, deviceIds.length));
+      }
+    } catch (err) {
+      // A rejected promise — the action never returned, so nothing is known about the last chunk.
+      // Reported rather than swallowed, and the counts from the chunks that did commit are kept.
+      error =
+        err instanceof Error
+          ? `The import stopped: ${err.message}`
+          : "The import stopped before it could finish.";
+    } finally {
+      setBusy(false);
+      // Always, on every path. The rows this run did create are real whether or not the run
+      // finished, so the page has to be refreshed and the outcome stated — leaving the list stale
+      // after a partial import is how somebody imports the same set twice.
+      onFinished({ total: deviceIds.length, attempted, created, skipped, error });
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-md border border-line bg-surface-2 p-3">
+      <p className="text-sm text-ink">
+        <span className="font-medium">{deviceIds.length}</span> selected
+      </p>
+      <Field label="Category for all of them" className="w-56">
+        {({ id, describedBy }) => (
+          <Select
+            id={id}
+            describedBy={describedBy}
+            value={category}
+            onValueChange={(value) => setCategory(value as AssetCategory)}
+            options={ASSET_CATEGORIES.map((value) => ({ value, label: CATEGORY_LABEL[value] }))}
+          />
+        )}
+      </Field>
+      <Button onClick={() => void run()} disabled={busy}>
+        {busy ? `Importing ${done} of ${deviceIds.length}…` : `Import ${deviceIds.length}`}
+      </Button>
+      <Button variant="ghost" onClick={onClear} disabled={busy}>
+        Clear
+      </Button>
+      <p className="basis-full text-xs leading-5 text-ink-3">
+        Creates one piece of equipment per device, linked to the device row, with the room from a
+        <em> confirmed</em> area mapping only. It does not choose entity roles — open a device to
+        pick its primary reading.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * What the last bulk import did, stated after the bar has gone.
+ *
+ * It reports what was attempted as well as what was created, because "Created 8" out of a
+ * selection of fifty is a different sentence from "Created 8" out of eight.
+ */
+function BulkImportOutcome({ outcome }: { outcome: BulkOutcome }) {
+  const complete = outcome.error === null && outcome.attempted === outcome.total;
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-line bg-surface-2 p-3">
+      {outcome.error === null ? null : (
+        // `text-overdue`, which is a real token — `text-danger` is not defined anywhere in
+        // globals.css, so this rendered in inherited ink, indistinguishable from the grey note
+        // beside it. The glyph carries the same meaning without relying on the colour.
+        <p role="alert" className="flex items-start gap-1.5 text-xs leading-5 text-overdue">
+          <span aria-hidden="true">&#9650;</span>
+          <span>{outcome.error}</span>
+        </p>
+      )}
+      <p className="text-xs leading-5 text-ink-2">
+        {complete
+          ? `Created ${outcome.created} of ${outcome.total} selected.`
+          : `Stopped after ${outcome.attempted} of ${outcome.total} selected; ${outcome.created} created before it stopped. The rest were not attempted — select them again to retry.`}{" "}
+        {outcome.skipped > 0
+          ? `Skipped ${outcome.skipped} that were already linked or gone from the registry.`
+          : "Nothing skipped."}
+      </p>
     </div>
   );
 }
@@ -283,6 +600,11 @@ function ImportDialog({
           variant="secondary"
           size="sm"
           iconTrailing={<ChevronRight aria-hidden="true" />}
+          // The visible text stays two words; the accessible name names the row, so a list of 483
+          // devices is not 483 buttons all called "Import".
+          aria-label={`${device.linkedAssetId === null ? "Import" : "Link more to"} ${
+            device.nameByUser ?? device.name ?? device.deviceId
+          }`}
         >
           {device.linkedAssetId === null ? "Import" : "Link more"}
         </Button>
@@ -461,6 +783,15 @@ function ImportDialog({
                         .filter(Boolean)
                         .join(" · ")}
                     </span>
+                    {LIVENESS_NOTE[entity.liveness ?? "unmeasured"] ? (
+                      // `text-stale`, a real token — `text-warning` does not exist, so this note
+                      // rendered in the same grey as the metadata line above it. The glyph means
+                      // the note still reads as a warning without the colour.
+                      <span className="flex items-start gap-1.5 text-xs text-stale">
+                        <span aria-hidden="true">&#9888;</span>
+                        <span>{LIVENESS_NOTE[entity.liveness ?? "unmeasured"]}</span>
+                      </span>
+                    ) : null}
                     {entity.linkedAssetName === null ? null : (
                       <span className="text-xs text-ink-3">
                         already linked to {entity.linkedAssetName}
