@@ -31,6 +31,10 @@ import {
   waitForHook,
   waitForStableFrames,
 } from "./helpers/house";
+import { E2E_PLACEABLE_NAMES } from "./fixtures";
+
+// One placeable per test: placing one consumes it, and the suite shares a database.
+const [PLACE_ME, LOCK_ME, HOVER_ME] = E2E_PLACEABLE_NAMES;
 
 const MODEL_ID = "fixture-house";
 
@@ -485,25 +489,154 @@ test("the explode gap moves each floor by its own offset and hides split edge ov
   }
 });
 
-test.skip("entering edit mode zeroes the gap and the save payload is physical", async () => {
+test("equipment that is not placed yet can be placed, outdoors, from the tree panel", async ({
+  browser,
+}) => {
   /**
-   * Not exercisable against the e2e harness, and deliberately skipped rather than faked.
+   * The flow that used to be impossible, end to end.
    *
-   * Edit mode is entered from an **equipment selection** (`E` is a no-op unless
-   * `selection.kind === 'equipment'`, see `useShortcutHandlers` → `toggleEdit` in
-   * `src/house/components/HouseWorkspace.tsx`), and a placement only exists once there is an
-   * `asset` row plus a registered `model_revision` for the package. `tests/e2e/start-server.ts`
-   * installs the fixture package but seeds no equipment and registers no revision, so
-   * `listPlacements()` answers `NotPersistedError` and the workspace has nothing to edit —
-   * `lastSavePayload()` can therefore never be non-null here.
-   *
-   * The invariants themselves are covered without a browser:
-   *  - `beginEdit` sets `explode: { enabled: false, gap: 0, locked: true }` — `tests/unit/house/edit.test.ts`;
-   *  - the endpoint refuses any write that is not `viewMode: "normal"` — `src/app/api/house-model/[modelId]/placements/route.ts`.
-   *
-   * To make this runnable, the harness would have to seed one equipment asset and call
-   * `registerRevision`, which is a change to `tests/e2e/start-server.ts` (not owned by this file).
+   * Two separate bugs met here: edit mode could only be entered from an existing *placement*
+   * (`E` was a no-op otherwise, and search only listed placements), so equipment imported from
+   * Home Assistant was unreachable; and saving refused any point that resolved to no room, which
+   * is every outdoor fixture, because the package's `rooms` are interior only.
    */
+  const { context, page } = await openHouseSession(browser);
+  try {
+    // The panel states the count rather than hiding when there is nothing to place.
+    const notPlaced = page.getByRole("button", { name: /Not placed yet/ });
+    await expect(notPlaced).toBeVisible();
+    await notPlaced.click();
+
+    await page.getByRole("button", { name: `Place ${PLACE_ME} in the model` }).click();
+
+    // Edit mode is open on a new draft. (That entering it locks the explode gap flat is asserted
+    // without a browser, in tests/unit/house/edit.test.ts.)
+    await expect(page.getByRole("heading", { name: "Place equipment" })).toBeVisible();
+
+    // A point outside every room footprint: the fixture's rooms all sit within x/z 0.2–5.8.
+    const inspector = page.getByRole("region", { name: "Selected item details" });
+    await inspector.getByLabel("X (m)").fill("8");
+    await inspector.getByLabel("Z (m)").fill("6.5");
+
+    await page.getByRole("button", { name: "Save placement" }).click();
+
+    // Saved, with no room — anchored to the floor instead, and never refused.
+    await expect(page.getByRole("heading", { name: "Place equipment" })).toBeHidden();
+    const payload = (await vh(page).lastSavePayload()) as {
+      roomId: string | null;
+      floorId: string;
+      position: [number, number, number];
+    } | null;
+    expect(payload).not.toBeNull();
+    expect(payload?.roomId).toBeNull();
+    expect(payload?.floorId).toBeTruthy();
+    expect(payload?.position?.[0]).toBeCloseTo(8, 3);
+
+    // And it is reachable again: the tree grows an "Outside" branch for it.
+    await expect(page.getByRole("treeitem", { name: /Outside/ })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
+test("the place tool locks the camera, so dragging aims instead of orbiting", async ({
+  browser,
+}) => {
+  /**
+   * The complaint this fixes, verbatim: "when dragging it in the grid, the camera moves at the
+   * same time".
+   *
+   * The cause was ordering, not intent: `camera-controls` binds its own `pointerdown` on the
+   * canvas and keeps a gesture it has already captured, so disabling the controls inside the app's
+   * own `pointerdown` — which is what the editor used to do — was always one handler too late.
+   * Ownership is now decided by the tool, before any gesture starts.
+   */
+  const { context, page } = await openHouseSession(browser);
+  try {
+    await page.getByRole("button", { name: /Not placed yet/ }).click();
+    await page.getByRole("button", { name: `Place ${LOCK_ME} in the model` }).click();
+    await expect(page.getByRole("heading", { name: "Place equipment" })).toBeVisible();
+
+    // Entering the editor takes the camera off the left button.
+    await expect(page.getByRole("radio", { name: /^Place \(M\)/ })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    // The camera glides after any programmatic move (`smoothTime` 0.25), so settle first:
+    // otherwise this measures the tail of the last animation rather than the drag.
+    const settled = async () => {
+      let previous = await vh(page).camera();
+      for (let i = 0; i < 40; i++) {
+        await page.waitForTimeout(100);
+        const next = await vh(page).camera();
+        const still = ([0, 1, 2] as const).every(
+          (axis) => Math.abs(next.position[axis] - previous.position[axis]) < 1e-4,
+        );
+        if (still) return next;
+        previous = next;
+      }
+      return previous;
+    };
+
+    const before = await settled();
+    const canvas = page.locator("canvas").first();
+    const box = (await canvas.boundingBox())!;
+
+    // A real drag across the middle of the view — the gesture that used to spin the house.
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.55);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.45, { steps: 12 });
+    await page.mouse.up();
+
+    // The mechanism, asserted directly: the camera does not hold the left button.
+    expect(await vh(page).controlsEnabled()).toBe(false);
+
+    const after = await vh(page).camera();
+    for (const axis of [0, 1, 2] as const) {
+      // A 2 cm tolerance on a 25 m camera distance: this is "did not orbit", not "did not move a
+      // float", so it cannot be defeated by the smoothing tail.
+      expect(Math.abs(after.position[axis] - before.position[axis])).toBeLessThan(0.02);
+      expect(Math.abs(after.target[axis] - before.target[axis])).toBeLessThan(0.02);
+    }
+
+    // Holding Space hands the camera back, so the tool is never a dead end.
+    await page.keyboard.down("Space");
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.55);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.4, { steps: 12 });
+    await page.mouse.up();
+    await page.keyboard.up("Space");
+
+    expect(await vh(page).controlsEnabled()).toBe(false); // released again on key-up
+
+    const orbited = await vh(page).camera();
+    const moved = ([0, 1, 2] as const).some(
+      (axis) => Math.abs(orbited.position[axis] - before.position[axis]) > 0.1,
+    );
+    expect(moved).toBe(true);
+  } finally {
+    await context.close();
+  }
+});
+
+test("aiming shows the position on hover, before anything is clicked", async ({ browser }) => {
+  const { context, page } = await openHouseSession(browser);
+  try {
+    await page.getByRole("button", { name: /Not placed yet/ }).click();
+    await page.getByRole("button", { name: `Place ${HOVER_ME} in the model` }).click();
+
+    const canvas = page.locator("canvas").first();
+    const box = (await canvas.boundingBox())!;
+    // No button pressed: the readout used to appear only once a drag was under way, so the only
+    // way to find out where a click would land was to click.
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+
+    const readout = page.locator("p.font-mono", { hasText: /x -?\d/ }).first();
+    await expect(readout).toBeVisible();
+  } finally {
+    await context.close();
+  }
 });
 
 // ---------------------------------------------------------------------------

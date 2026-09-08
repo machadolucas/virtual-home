@@ -164,6 +164,9 @@ export function vh(page: Page) {
         undefined,
       ),
 
+    controlsEnabled: (): Promise<boolean | null> =>
+      evalHook(page, ({ hook }) => hook.controlsEnabled(), undefined),
+
     camera: (): Promise<VhCamera> =>
       evalHook(
         page,

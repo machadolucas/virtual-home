@@ -19,6 +19,20 @@ export interface E2eUser {
   displayColor: string;
 }
 
+/**
+ * Equipment the harness seeds **without** a placement, so tests can exercise "place something that
+ * is not in the model yet". Named for the case that used to be impossible: fixtures that live
+ * outdoors, where no room footprint contains them.
+ *
+ * There are several because placing one consumes it: the suite shares one harness database and
+ * runs single-worker, so a test that saves a placement removes that row from every later test's
+ * "Not placed yet" list. One name per test keeps them independent of order.
+ */
+export const E2E_PLACEABLE_NAMES = ["Yard lamp", "Eave spot", "Porch light"] as const;
+
+/** The first of them, for tests that only need one. */
+export const E2E_PLACEABLE_NAME = E2E_PLACEABLE_NAMES[0];
+
 export const E2E_USERS = {
   lucas: {
     username: "lucas",
