@@ -171,6 +171,49 @@ export function connectionMeta(state: ConnectionState): ConnectionMeta {
   return CONNECTION_META[state];
 }
 
+/**
+ * The single mapping from `integration_status.state` (plus "is the worker alive") onto the pill.
+ *
+ * There is exactly one of these on purpose. The header pill and `/settings/home-assistant` sit in
+ * the same viewport, and two independent derivations meant the two pills disagreed about the same
+ * row — one calling a dead worker `disconnected` while the other called it `unknown`.
+ *
+ * A dead worker is `unknown`, not `disconnected`: nobody has observed Home Assistant at all, and
+ * claiming it is disconnected would assert something nothing measured (rule 8). `connecting`,
+ * `authenticating` and `syncing` are `degraded`: the worker *is* reporting, and the link is
+ * genuinely part-way up rather than unobserved.
+ *
+ * The parameter is typed structurally rather than against `IntegrationState` so this module stays
+ * free of database imports; `IntegrationState` is assignable to it, and the switch is exhaustive.
+ */
+export type IntegrationStateName =
+  | "connecting"
+  | "authenticating"
+  | "syncing"
+  | "subscribed"
+  | "degraded"
+  | "auth_failed"
+  | "disconnected";
+
+export function connectionStateOf(
+  state: IntegrationStateName | null,
+  workerRunning: boolean,
+): ConnectionState {
+  if (state === null || !workerRunning) return "unknown";
+  switch (state) {
+    case "subscribed":
+      return "connected";
+    case "connecting":
+    case "authenticating":
+    case "syncing":
+    case "degraded":
+      return "degraded";
+    case "auth_failed":
+    case "disconnected":
+      return "disconnected";
+  }
+}
+
 export function isConnectionState(value: unknown): value is ConnectionState {
   return typeof value === "string" && (CONNECTION_STATES as readonly string[]).includes(value);
 }

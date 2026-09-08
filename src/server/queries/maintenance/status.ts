@@ -4,7 +4,7 @@ import type { Db } from "@/db/client";
 import { workerHeartbeat } from "@/db/schema/notifications";
 import { loadEnv } from "@/env";
 import { readIntegrationStatus, workerAlive } from "@/server/ha/status";
-import type { ConnectionState } from "@/ui/status";
+import { connectionStateOf, type ConnectionState } from "@/ui/status";
 
 /**
  * The banner at the top of `/today`.
@@ -17,6 +17,11 @@ import type { ConnectionState } from "@/ui/status";
  *
  * `unknown` is never rendered as healthy (CLAUDE.md rule 8 and `docs/ux.md` §5): with no rows at
  * all the banner says it does not know, not that everything is fine.
+ *
+ * The prose below is this banner's own — it names the box to blame, which a four-state pill cannot.
+ * The `connection` field is **not** its own: it comes from `connectionStateOf`, the one mapping
+ * `/settings/home-assistant` also uses, so the header pill and this banner cannot contradict each
+ * other about the same row.
  */
 export type MaintenanceHealthKind =
   | "worker_down"
@@ -58,7 +63,13 @@ export function loadMaintenanceHealth(db: Db, nowMs: number): MaintenanceHealth 
     db.select().from(workerHeartbeat).where(eq(workerHeartbeat.name, TICK_LEASE_NAME)).get() ?? null;
   const periodMs = loadEnv().VH_WORKER_HEARTBEAT_MS;
 
+  const alive = workerAlive(status, nowMs, periodMs);
+  // One derivation, shared with the settings page. Every branch below reuses it rather than
+  // restating a state of its own.
+  const connection = connectionStateOf(status?.state ?? null, alive);
+
   const base = {
+    connection,
     heartbeatAtMs: status?.heartbeatAtMs ?? null,
     lastOkAtMs: status?.lastOkAtMs ?? null,
     lastError: status?.lastError ?? null,
@@ -69,7 +80,6 @@ export function loadMaintenanceHealth(db: Db, nowMs: number): MaintenanceHealth 
     return {
       ...base,
       kind: "unknown",
-      connection: "unknown",
       title: "Integration state unknown",
       detail:
         "There is no status row yet, so the app cannot say whether the background service or Home Assistant are running.",
@@ -77,11 +87,10 @@ export function loadMaintenanceHealth(db: Db, nowMs: number): MaintenanceHealth 
     };
   }
 
-  if (!workerAlive(status, nowMs, periodMs)) {
+  if (!alive) {
     return {
       ...base,
       kind: "worker_down",
-      connection: "disconnected",
       title: "Background service not running",
       detail:
         "The worker has not reported in. This is about the worker, not about Home Assistant — the heartbeat is written whether or not Home Assistant is reachable.",
@@ -95,7 +104,6 @@ export function loadMaintenanceHealth(db: Db, nowMs: number): MaintenanceHealth 
       return {
         ...base,
         kind: "ok",
-        connection: "connected",
         title: "Home Assistant connected",
         detail: "Readings are current and reminders are being delivered.",
         consequence: null,
@@ -104,7 +112,6 @@ export function loadMaintenanceHealth(db: Db, nowMs: number): MaintenanceHealth 
       return {
         ...base,
         kind: "ha_degraded",
-        connection: "degraded",
         title: "Home Assistant degraded",
         detail:
           "The worker is running and reconnecting, but the link to Home Assistant is not healthy.",
@@ -114,7 +121,6 @@ export function loadMaintenanceHealth(db: Db, nowMs: number): MaintenanceHealth 
       return {
         ...base,
         kind: "ha_auth_failed",
-        connection: "disconnected",
         title: "Home Assistant rejected the token",
         detail:
           "Authentication failed, so no readings are arriving and no notifications can be sent through Home Assistant.",
@@ -124,7 +130,6 @@ export function loadMaintenanceHealth(db: Db, nowMs: number): MaintenanceHealth 
       return {
         ...base,
         kind: "ha_disconnected",
-        connection: "disconnected",
         title: "Home Assistant unreachable",
         detail: "The worker is alive but cannot reach Home Assistant.",
         consequence: "Condition alerts will not update and reminders cannot be delivered.",
@@ -135,7 +140,6 @@ export function loadMaintenanceHealth(db: Db, nowMs: number): MaintenanceHealth 
       return {
         ...base,
         kind: "ha_connecting",
-        connection: "unknown",
         title: "Connecting to Home Assistant",
         detail: `The link is ${CONNECTING_WORDS[status.state]}. Until it settles, readings are not current.`,
         consequence: "Battery readings may be stale for a moment.",

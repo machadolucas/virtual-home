@@ -26,6 +26,7 @@ export {
   toStatusKind,
   compareStatusUrgency,
   connectionMeta,
+  connectionStateOf,
   isConnectionState,
   toConnectionState,
 } from "./status";
@@ -35,6 +36,7 @@ export type {
   StatusMeta,
   ConnectionState,
   ConnectionMeta,
+  IntegrationStateName,
 } from "./status";
 
 /* controls */

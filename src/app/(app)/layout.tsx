@@ -1,4 +1,7 @@
+import { getDb } from "@/db/client";
+import { nowMs } from "@/db/ids";
 import { requireSessionPage } from "@/server/auth/session";
+import { loadMaintenanceHealth } from "@/server/queries/maintenance/status";
 import { AppShell } from "@/ui/shell";
 
 /**
@@ -20,6 +23,11 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     readString(session.user, "username") ??
     "Household member";
 
+  // The Today banner's own loader, whose `connection` field is `connectionStateOf` — the one
+  // mapping `/settings/home-assistant` also renders. So the header pill, the banner and the
+  // settings page cannot disagree about the same `integration_status` row.
+  const { connection } = loadMaintenanceHealth(getDb().db, nowMs());
+
   return (
     <AppShell
       user={{
@@ -27,7 +35,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         username: readString(session.user, "username"),
         displayColor: readString(session.user, "displayColor"),
       }}
-      connection="unknown"
+      connection={connection}
     >
       {children}
     </AppShell>

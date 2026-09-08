@@ -23,9 +23,11 @@ export interface ConnectionPillProps {
 /**
  * Home Assistant connection indicator for the top bar.
  *
- * Placeholder for now: the real state will arrive over the events stream once
- * the worker publishes it. It deliberately shows `unknown` rather than
- * optimistically claiming "connected" — an unknown link is not a working one.
+ * The state is measured, not guessed: every render site derives it from
+ * `connectionStateOf` over the worker's `integration_status` row, so the
+ * header pill and `/settings/home-assistant` always say the same thing. It
+ * shows `unknown` rather than optimistically claiming "connected" — an
+ * unobserved link is not a working one.
  */
 export function ConnectionPill({ state, since, compact = false, className }: ConnectionPillProps) {
   const meta = connectionMeta(state);

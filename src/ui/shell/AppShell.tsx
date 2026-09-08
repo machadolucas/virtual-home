@@ -19,7 +19,7 @@ import { UserMenu } from "./UserMenu";
 
 export interface AppShellProps {
   user: { name: string; username: string | null; displayColor: string | null };
-  /** Placeholder until the worker publishes the real HA link state. */
+  /** The HA link state, derived server-side from `integration_status`. */
   connection?: ConnectionState;
   children: ReactNode;
 }
