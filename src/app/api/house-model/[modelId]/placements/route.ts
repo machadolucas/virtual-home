@@ -24,7 +24,7 @@
  * four, so `mount` carries the true kind. `mountKind`/`mountSurfaceId`/`mountHeightM`/
  * `mountOffsetM` still travel beside it for callers that read the row shape directly.
  */
-import { canMountSurface } from "@/house/model/mountSurface";
+import { canMountSurface, canAttachSurface } from "@/house/model/mountSurface";
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, writeTx, type Db } from "@/db/client";
@@ -70,7 +70,7 @@ function clientMount(
     return { kind: "wall", surfaceId, height, offset: offset ?? 0 };
   if (kind === "ceiling" && surfaceId !== null)
     return { kind: "ceiling", surfaceId, height, offset: offset ?? 0 };
-  if (kind === "free") return { kind: "free", height };
+  if (kind === "free") return { kind: "free", height, ...(surfaceId ? { surfaceId } : {}) };
   return { kind: "floor", height };
 }
 
@@ -105,6 +105,7 @@ function linkedEntitiesByAsset(
     .select({
       assetId: assetHaLink.assetId,
       role: assetHaLink.role,
+      source: assetHaLink.linkKind,
       entityId: haEntity.entityId,
       name: haEntity.name,
       originalName: haEntity.originalName,
@@ -127,6 +128,7 @@ function linkedEntitiesByAsset(
     .select({
       assetId: assetHaLink.assetId,
       role: assetHaLink.role,
+      source: assetHaLink.linkKind,
       entityId: haEntity.entityId,
       name: haEntity.name,
       originalName: haEntity.originalName,
@@ -167,12 +169,18 @@ function linkedEntitiesByAsset(
     seen.add(key);
     return true;
   });
-  rows.sort((a, b) => priority[a.role] - priority[b.role] || a.entityId.localeCompare(b.entityId));
+  // A deliberate entity link supplies the label. Whole-device expansion remains in the payload
+  // for live fixture behavior, but must not let an incidental update/config entity take over it.
+  rows.sort((a, b) =>
+    Number(a.source === "device") - Number(b.source === "device") ||
+    priority[a.role] - priority[b.role] ||
+    a.entityId.localeCompare(b.entityId));
   for (const row of rows) {
     const linked = out.get(row.assetId) ?? [];
     linked.push({
       entityId: row.entityId,
       role: row.role,
+      source: row.source,
       name: row.name ?? row.originalName ?? null,
       deviceClass: row.deviceClass,
       unit: row.unit,
@@ -203,7 +211,7 @@ const MountSchema = z.discriminatedUnion("kind", [
     height: FiniteSchema.optional(),
     offset: FiniteSchema.default(0),
   }),
-  z.object({ kind: z.literal("free"), height: FiniteSchema.optional() }),
+  z.object({ kind: z.literal("free"), height: FiniteSchema.optional(), surfaceId: IdSchema.optional() }),
 ]);
 
 const PlacementSchema = z.object({
@@ -476,10 +484,12 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
   // The mount names a surface of *this* package, or it names nothing. A stale surface id would
   // otherwise be stored and only discovered as a missing marker months later.
   const mountSurfaceId =
-    p.mount && (p.mount.kind === "wall" || p.mount.kind === "ceiling") ? p.mount.surfaceId : null;
+    p.mount && "surfaceId" in p.mount ? p.mount.surfaceId ?? null : null;
   if (mountSurfaceId !== null) {
     const surface = index.surfaces.get(mountSurfaceId);
     if (!surface) throw badRequest("unknown_surface", { surfaceId: mountSurfaceId });
+    if (p.mount?.kind === "free" && !canAttachSurface(index, mountSurfaceId))
+      throw badRequest("mount_surface_kind_mismatch", { surfaceId: mountSurfaceId, mountKind: "free" });
     if (p.mount?.kind === "wall" && !canMountSurface(index, mountSurfaceId, "wall"))
       throw badRequest("mount_surface_kind_mismatch", {
         surfaceId: mountSurfaceId,

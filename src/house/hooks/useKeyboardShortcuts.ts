@@ -185,7 +185,7 @@ export function useKeyboardShortcuts(
 
 /** The help dialog's contents, kept next to the map so the two cannot drift. */
 export const SHORTCUTS: ReadonlyArray<{ keys: string; action: string }> = [
-  { keys: "1 / 2 / 3", action: "Isolate the first / second / third floor" },
+  { keys: "1 / 2 / 3", action: "Top-down focus on the first / second / third floor" },
   { keys: "0", action: "All floors (overview)" },
   { keys: "R", action: "Reset to the property overview" },
   { keys: "F", action: "Frame the current selection" },

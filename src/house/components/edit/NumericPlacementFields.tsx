@@ -59,6 +59,7 @@ export function NumericPlacementFields() {
         rotationYDeg: solution.rotationYDeg,
         roomId: solution.roomId,
         floorId: solution.floorId,
+        surfaceId: solution.surfaceId,
       },
       { coalesce: true },
     );
@@ -76,7 +77,10 @@ export function NumericPlacementFields() {
           if (!Number.isFinite(value)) return;
           const physical: [number, number, number] = [...editing.physical];
           physical[i] = value;
-          commit({ physical });
+          if (i === 1 && editing.mount.kind !== "ceiling") {
+            const base = room?.floorElevation ?? floor?.elevation ?? 0;
+            commit({ physical, mount: { ...editing.mount, height: value - base } });
+          } else commit({ physical });
         }}
         className="min-h-9 rounded-md border border-line px-2 font-mono text-xs"
       />
@@ -161,7 +165,7 @@ export function NumericPlacementFields() {
           </label>
           <label
             className="flex items-center gap-1"
-            title="Suspended, buried, or on a post — attached to nothing the model knows about"
+            title="Place on any model object, or freely in space"
           >
             <input
               type="radio"
@@ -169,19 +173,19 @@ export function NumericPlacementFields() {
               checked={editing.mount.kind === "free"}
               onChange={() => commit({ mount: { kind: "free", height: editing.mount.height } })}
             />
-            Free
+            Free / other surface
           </label>
         </div>
         {editing.surfaceId === null ? (
           <p className="text-[10px] leading-3 text-ink-3">
-            Click a wall, a ceiling or an eave in the 3D view to mount it there.
+            Click any visible model surface to attach it there. Hold Alt for precision without grid snapping.
           </p>
         ) : (
           <p className="font-mono text-[10px] leading-3 text-ink-3">
             {editing.surfaceId}
             {!canWall && !canCeiling ? (
               <span className="ml-1 font-sans text-ink-3">
-                — this surface takes a floor or free mount
+                — attached to this object with a free mount
               </span>
             ) : null}
           </p>

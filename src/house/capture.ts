@@ -98,18 +98,38 @@ function paintLabels(context: CanvasRenderingContext2D, labelHost: HTMLElement |
     context.textBaseline = "middle";
     const maxWidth = Math.max(1, rect.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 2 * border);
     const text = label.dataset.captureText ?? label.textContent ?? "";
-    const lines = [""];
-    if (style.whiteSpace === "normal") {
-      for (const word of text.split(/\s+/)) {
-        const last = lines.length - 1;
-        const next = lines[last] ? `${lines[last]} ${word}` : word;
-        if (lines[last] && context.measureText(next).width > maxWidth) lines.push(word);
-        else lines[last] = next;
-      }
-    } else lines[0] = text;
+    const lines = wrapCaptureText(
+      text,
+      maxWidth,
+      (candidate) => context.measureText(candidate).width,
+      style.whiteSpace === "normal",
+    );
     const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.4;
     lines.forEach((line, i) => context.fillText(line, x + rect.width / 2, y + rect.height / 2 + (i - (lines.length - 1) / 2) * lineHeight, maxWidth));
     context.restore();
   }
   context.restore();
+}
+
+/** Preserve expanded-card rows in PNGs while still wrapping an individually long reading. */
+export function wrapCaptureText(
+  text: string,
+  maxWidth: number,
+  measure: (text: string) => number,
+  wrap: boolean,
+): string[] {
+  if (!wrap) return [text.replace(/\n/g, " · ")];
+  const lines: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    let line = "";
+    for (const word of paragraph.trim().split(/\s+/).filter(Boolean)) {
+      const next = line ? `${line} ${word}` : word;
+      if (line && measure(next) > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else line = next;
+    }
+    lines.push(line);
+  }
+  return lines.length ? lines : [""];
 }

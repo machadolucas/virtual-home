@@ -24,6 +24,7 @@ import {
   focusContextFor,
   focusCutSurfaceIds,
 } from "@/house/model/focusContext";
+import { roomAt } from "@/house/model/manifestIndex";
 import { computeVisibility } from "@/house/model/visibilityPlan";
 import type { Placement } from "@/house/model/types";
 import { applyColors } from "@/house/scene/applyColors";
@@ -75,18 +76,77 @@ export function useSceneSync(): void {
       return centres;
     };
 
+    const contextualRoomFocuses = (
+      s: HouseStore,
+      focus: ReturnType<typeof resolveFocus>,
+    ): NonNullable<ReturnType<typeof resolveFocus>>[] => {
+      if (focus?.roomId) return [focus];
+      const manifest = runtime.manifest;
+      if (!manifest) return [];
+      const target = runtime.camera?.pose().target ?? [0, 0, 0];
+      const floorIds = (focus?.floorId || s.activeFloorId
+        ? [focus?.floorId ?? s.activeFloorId!]
+        : [...manifest.floors.values()]
+            .filter((floor) => !focus || floor.buildingId === focus.buildingId)
+            .map((floor) => floor.id));
+
+      const contexts: NonNullable<ReturnType<typeof resolveFocus>>[] = [];
+      for (const floorId of floorIds) {
+        const direct = roomAt(manifest, floorId, target[0], target[2]);
+        if (direct) {
+          const context = focusContextFor(manifest, { kind: "room", id: direct });
+          if (context) contexts.push(context);
+          continue;
+        }
+
+        // Camera targets often sit in a stair void or just outside an irregular footprint. Use the
+        // closest label-safe room anchor on each visible floor. Global Show inside therefore opens
+        // every building storey instead of silently choosing one arbitrary vertical datum.
+        let closest: { id: string; distance: number } | null = null;
+        for (const room of manifest.roomsByFloor.get(floorId) ?? []) {
+          const point = manifest.roomAnchors.get(room.id)?.point;
+          if (!point) continue;
+          const distance = Math.hypot(point[0] - target[0], point[2] - target[2]);
+          if (!closest || distance < closest.distance) closest = { id: room.id, distance };
+        }
+        const context = closest
+          ? focusContextFor(manifest, { kind: "room", id: closest.id })
+          : null;
+        if (context) contexts.push(context);
+      }
+      return contexts;
+    };
+
     const applyFocusCuts = (s: HouseStore, clearWhenInactive: boolean) => {
       const manifest = runtime.manifest;
-      const focus = resolveFocus(s);
+      const resolvedFocus = resolveFocus(s);
       if (!manifest || !runtime.clip) return;
-      if (!focus?.roomId || !focus.floorId || !runtime.camera3d) {
+      if (s.wallMode === "cut") {
+        const cuts = new Map<string, number>();
+        for (const floor of manifest.floors.values()) {
+          const wallFaces = [...manifest.surfaces.values()]
+            .filter(
+              (surface) =>
+                surface.kind === "wall" && manifest.floorOfSurface.get(surface.id) === floor.id,
+            )
+            .map((surface) => surface.id);
+          const cap = floor.elevation + 0.9 + (runtime.offsets.get(floor.id) ?? 0);
+          for (const sid of focusCutSurfaceIds(manifest, wallFaces)) cuts.set(sid, cap);
+        }
+        if (runtime.clip.setFocusCuts(cuts)) runtime.invalidate();
+        return;
+      }
+      const focuses = contextualRoomFocuses(s, resolvedFocus);
+      if (s.wallMode !== "contextual" || focuses.length === 0 || !runtime.camera3d) {
         if (clearWhenInactive && runtime.clip.setFocusCuts(new Map())) runtime.invalidate();
         return;
       }
       const cuts = new Map<string, number>();
       const camera = runtime.camera3d.getWorldPosition(new THREE.Vector3());
-      const room = manifest.rooms.get(focus.roomId);
-      if (room) {
+      for (const focus of focuses) {
+        if (!focus.roomId || !focus.floorId) continue;
+        const room = manifest.rooms.get(focus.roomId);
+        if (!room) continue;
         const groupOffset = runtime.offsets.get(focus.floorId) ?? 0;
         const cap =
           room.floorElevation +
@@ -113,6 +173,7 @@ export function useSceneSync(): void {
         viewMode: s.viewMode,
         projection: s.projection,
         activeFloorId: s.activeFloorId,
+        wallMode: s.wallMode,
         roofVisible: s.roofVisible,
         ceilingsVisible: s.ceilingsVisible,
         edgesVisible: s.edgesVisible,
@@ -132,6 +193,7 @@ export function useSceneSync(): void {
         viewMode: s.viewMode,
         projection: s.projection,
         activeFloorId: s.activeFloorId,
+        wallMode: s.wallMode,
         roofVisible: s.roofVisible,
         ceilingsVisible: s.ceilingsVisible,
         edgesVisible: s.edgesVisible,

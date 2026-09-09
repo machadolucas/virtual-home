@@ -45,9 +45,9 @@ test("compact controls are separate and collapsing placement cancels it", async 
   try {
     const inspector = page.getByRole("complementary", { name: "Inspector", exact: true });
     const controls = page.getByRole("region", { name: "View controls", exact: true });
-    await expect(inspector.getByRole("checkbox", { name: "Roof (H)" })).toHaveCount(0);
+    await expect(inspector.getByRole("switch", { name: "Roof (H)" })).toHaveCount(0);
     await controls.getByRole("tab", { name: "Layers", exact: true }).click();
-    await expect(controls.getByRole("checkbox", { name: "Roof (H)" })).toBeVisible();
+    await expect(controls.getByRole("switch", { name: "Roof (H)" })).toBeVisible();
     await controls.getByRole("tab", { name: "Rendering", exact: true }).click();
     await expect(controls.getByRole("radiogroup", { name: "3D background" })).toBeVisible();
     await page.getByRole("button", { name: "Collapse the view controls", exact: true }).click();
@@ -129,5 +129,24 @@ test("hovering an elevated surface shows a ground projection without changing th
     await testInfo.attach("elevation-preview.png", { body: await page.screenshot(), contentType: "image/png" });
     await page.mouse.move(0, 0);
     await expect(readout).toBeHidden();
+  } finally { await context.close(); }
+});
+
+test("rendering controls share the available desktop width", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name === "phone", "Phone has its compact floor and equipment view.");
+  const { context, page } = await openHouseSession(browser);
+  try {
+    const controls = page.getByRole("region", { name: "View controls", exact: true });
+    await controls.getByRole("tab", { name: "Rendering", exact: true }).click();
+    const performance = controls.getByRole("switch", { name: "Performance mode (pixel ratio 1)", exact: true });
+    const background = controls.getByRole("radiogroup", { name: "3D background", exact: true });
+    await expect(performance).toBeVisible();
+    await expect(background).toBeVisible();
+    const p = (await performance.boundingBox())!;
+    const b = (await background.boundingBox())!;
+    expect(b.x).toBeGreaterThan(p.x + p.width);
+    const palette = (await page.getByRole("radiogroup", { name: "Pointer tool", exact: true }).boundingBox())!;
+    expect(palette.width).toBeLessThan(60);
+    await testInfo.attach("compact-rendering-controls.png", { body: await page.screenshot(), contentType: "image/png" });
   } finally { await context.close(); }
 });

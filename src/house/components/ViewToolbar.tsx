@@ -5,11 +5,10 @@
  * fields, in full, on every change.
  */
 import { HouseBackgroundControl } from "@/features/settings/HouseBackgroundControl";
-import { ALL_LAYERS, type LayerId } from "@/house/model/types";
+import { Eye } from "lucide-react";
+import { ALL_LAYERS, type LayerId, type WallMode } from "@/house/model/types";
+import { Switch } from "@/ui";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
-
-// Stable empty result: a selector that returns a fresh array makes useSyncExternalStore loop.
-const NO_FLOORS: readonly string[] = [];
 
 const LAYER_LABELS: Record<LayerId, string> = {
   structure: "Structure (trusses, footings)",
@@ -35,6 +34,7 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
       background: s.background,
       layers: s.layers,
       explodeGap: s.explode.gap,
+      wallMode: s.wallMode,
     })),
   );
   const setRoofVisible = useHouseStore((s) => s.setRoofVisible);
@@ -46,53 +46,34 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
   const applyDollhouse = useHouseStore((s) => s.applyDollhouse);
   const applyOverview = useHouseStore((s) => s.applyOverview);
   const setProjection = useHouseStore((s) => s.setProjection);
-  const setViewMode = useHouseStore((s) => s.setViewMode);
-  const floors = useHouseStore((s) => s.index?.floorOrder ?? NO_FLOORS);
-  const floorNames = useHouseStore((s) => s.index?.floors ?? null);
-  const isolateFloor = useHouseStore((s) => s.isolateFloor);
-
-  const planFor = (floorId: string) => {
-    setViewMode("plan");
-    setProjection("ortho");
-    isolateFloor(floorId);
-    void runtime.camera?.planFor(floorId);
-  };
+  const setWallMode = useHouseStore((s) => s.setWallMode);
 
   return (
     <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
       {section === "view" ? (
-      <fieldset className="flex flex-col gap-2">
-        <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
-          Floors
-        </legend>
-        <div className="flex flex-wrap gap-1">
-          <ToolbarButton
-            pressed={state.activeFloorId === null}
-            onClick={() => {
-              isolateFloor(null);
-              void runtime.camera?.overview();
-            }}
-          >
-            All
-          </ToolbarButton>
-          {floors.map((floorId) => (
-            <ToolbarButton
-              key={floorId}
-              pressed={state.activeFloorId === floorId}
-              onClick={() => {
-                isolateFloor(floorId);
-                void runtime.camera?.frameFloor(floorId);
-              }}
+      <fieldset className="flex min-w-0 flex-col gap-2">
+        <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">Walls</legend>
+        <div role="radiogroup" aria-label="Wall display" className="grid grid-cols-2 gap-1">
+          {WALL_MODES.map((mode) => (
+            <button
+              key={mode.value}
+              type="button"
+              role="radio"
+              aria-checked={state.wallMode === mode.value}
+              onClick={() => setWallMode(mode.value)}
+              className={`min-h-8 rounded-md border px-2 text-xs font-medium transition-colors ${
+                state.wallMode === mode.value
+                  ? "border-accent bg-accent-soft text-accent-text"
+                  : "border-line bg-surface text-ink hover:bg-surface-3"
+              }`}
             >
-              {floorNames?.get(floorId)?.name ?? floorId}
-            </ToolbarButton>
+              {mode.label}
+            </button>
           ))}
         </div>
-        {state.activeFloorId ? (
-          <ToolbarButton pressed={state.viewMode === "plan"} onClick={() => planFor(state.activeFloorId as string)}>
-            Plan view (P)
-          </ToolbarButton>
-        ) : null}
+        <p className="max-w-md text-[11px] leading-4 text-ink-3">
+          Contextual lowers the walls between the camera and the selected room as you rotate.
+        </p>
       </fieldset>
 
       ) : null}
@@ -110,7 +91,9 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
           >
             Overview (R)
           </ToolbarButton>
-          <ToolbarButton onClick={applyDollhouse}>Dollhouse (D)</ToolbarButton>
+          <ToolbarButton onClick={applyDollhouse} title="Hide the roof and ceilings, then cut walls around the selected room">
+            <span className="inline-flex items-center gap-1"><Eye aria-hidden="true" className="size-3.5" />Show inside (D)</span>
+          </ToolbarButton>
           <ToolbarButton
             pressed={state.projection === "ortho"}
             onClick={() => setProjection(state.projection === "ortho" ? "perspective" : "ortho")}
@@ -142,7 +125,7 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
         <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Layers
         </legend>
-        <div className="grid grid-cols-2 gap-x-4">
+        <div className="grid grid-cols-1 gap-x-4 lg:grid-cols-2">
         {ALL_LAYERS.map((layer) => (
           <Toggle
             key={layer}
@@ -157,20 +140,91 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
       </>
       ) : null}
       {section === "rendering" ? (
-      <fieldset className="flex min-w-0 flex-1 flex-col gap-1">
+      <fieldset className="grid min-w-0 flex-1 grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(12rem,0.7fr)_minmax(16rem,1.3fr)]">
         <legend className="sr-only">
           Rendering
         </legend>
-        <Toggle
-          checked={state.performanceMode}
-          onChange={setPerformanceMode}
-          label="Performance mode (pixel ratio 1)"
-        />
-        <p className="mt-2 text-xs font-medium text-ink-2">Background</p>
-        <HouseBackgroundControl value={state.background} onPreview={setBackground} />
+        <Toggle checked={state.performanceMode} onChange={setPerformanceMode} label="Performance mode (pixel ratio 1)" />
+        <div className="min-w-0">
+          <p className="mb-2 text-xs font-medium text-ink-2">Background</p>
+          <HouseBackgroundControl value={state.background} onPreview={setBackground} />
+        </div>
       </fieldset>
       ) : null}
     </div>
+  );
+}
+
+const WALL_MODES: ReadonlyArray<{ value: WallMode; label: string }> = [
+  { value: "cut", label: "All cut" },
+  { value: "contextual", label: "Contextual" },
+  { value: "up", label: "All up" },
+  { value: "closed", label: "All up + roof/ceiling" },
+];
+
+/** Compact floor-by-building controls that stay on the model rather than in the bottom drawer. */
+export function FloorControls() {
+  const runtime = useHouseRuntime();
+  const { index, activeFloorId, isolateFloor, setProjection, setViewMode } = useHouseStore(
+    useShallow((s) => ({
+      index: s.index,
+      activeFloorId: s.activeFloorId,
+      isolateFloor: s.isolateFloor,
+      setProjection: s.setProjection,
+      setViewMode: s.setViewMode,
+    })),
+  );
+  if (!index) return null;
+
+  const focusFloor = (floorId: string) => {
+    setProjection("ortho");
+    isolateFloor(floorId);
+    setViewMode("plan");
+    void runtime.camera?.planFor(floorId);
+  };
+
+  return (
+    <section
+      aria-label="Floor focus"
+      className="pointer-events-auto absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] rounded-lg border border-line bg-surface/95 p-1.5 shadow-pop backdrop-blur"
+    >
+      <div className="flex items-end gap-2 overflow-x-auto">
+        <div className="flex flex-col gap-1">
+          <span className="px-1 text-[10px] font-medium uppercase tracking-wide text-ink-3">Property</span>
+          <ToolbarButton
+            pressed={activeFloorId === null}
+            onClick={() => {
+              isolateFloor(null);
+              void runtime.camera?.overview();
+            }}
+          >
+            All
+          </ToolbarButton>
+        </div>
+        {[...index.buildings.values()].map((building) => (
+          <fieldset key={building.id} className="flex shrink-0 flex-col gap-1">
+            <legend className="px-1 text-[10px] font-medium uppercase tracking-wide text-ink-3">
+              {building.name}
+            </legend>
+            <div className="flex gap-1">
+              {(index.floorsByBuilding.get(building.id) ?? [])
+                .slice()
+                .sort((a, b) => a.elevation - b.elevation)
+                .map((floor) => (
+                  <ToolbarButton
+                    key={floor.id}
+                    pressed={activeFloorId === floor.id}
+                    title={`Top-down focus on ${floor.name}; other buildings and supporting floors remain visible`}
+                    onClick={() => focusFloor(floor.id)}
+                  >
+                    {floor.name}
+                  </ToolbarButton>
+                ))}
+            </div>
+          </fieldset>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -215,14 +269,6 @@ function Toggle({
   label: string;
 }) {
   return (
-    <label className="flex min-h-8 items-center gap-2 text-xs text-ink">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.currentTarget.checked)}
-        className="h-4 w-4"
-      />
-      {label}
-    </label>
+    <Switch checked={checked} onCheckedChange={onChange} label={label} className="min-h-8 py-0 text-xs" />
   );
 }

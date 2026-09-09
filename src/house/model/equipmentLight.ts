@@ -28,6 +28,8 @@ export interface LightAppearance {
 
 const DOWN: LightAim = { yawDeg: 0, pitchDeg: -90 };
 const UP: LightAim = { yawDeg: 0, pitchDeg: 90 };
+/** A warm household bulb when HA exposes no colour capability/value. */
+export const DEFAULT_LIGHT_COLOR_KELVIN = 2_700;
 
 const radians = (degrees: number): number => (degrees * Math.PI) / 180;
 const degrees = (radiansValue: number): number => (radiansValue * 180) / Math.PI;
@@ -87,7 +89,7 @@ export function lightAppearance(input: LightStateInput): LightAppearance | null 
     hs(input.hsColor) ??
     kelvin(input.colorTempKelvin) ??
     mireds(input.colorTempMireds) ??
-    ([1, 1, 1] satisfies Vec3);
+    kelvin(DEFAULT_LIGHT_COLOR_KELVIN)!;
 
   return { intensity, color };
 }

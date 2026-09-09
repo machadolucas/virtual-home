@@ -176,7 +176,7 @@ describe("applyVisibility (fixture)", () => {
     for (const sid of ceilings) expect(built.index.surfaceMesh.get(sid)!.visible, sid).toBe(false);
   });
 
-  it("isolates a floor and drops the hidden floor's meshes from the pickables", () => {
+  it("focuses a floor while keeping lower supporting meshes pickable", () => {
     const built = buildScene(FIXTURE_DIR);
     applyVisibility(
       computeVisibility(
@@ -185,9 +185,9 @@ describe("applyVisibility (fixture)", () => {
       ),
       built.index,
     );
-    expect(built.index.pickables).not.toContain(built.index.surfaceMesh.get("s-r-l-a-floor"));
+    expect(built.index.pickables).toContain(built.index.surfaceMesh.get("s-r-l-a-floor"));
     expect(built.index.pickables).toContain(built.index.surfaceMesh.get("s-r-u-a-floor"));
-    // the dormer lives in the roof asset under `f-upper`, so it survives the isolation
+    // the dormer lives in the roof asset under `f-upper`, so it survives the focus
     expect(built.index.pickables).toContain(built.index.surfaceMesh.get("s-e-dormer-fx-wall"));
   });
 

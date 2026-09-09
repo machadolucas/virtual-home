@@ -7,21 +7,40 @@ import { clipGroupOf } from "../model/explodeGroups";
 import { isLightEntity, lightAppearance, lightDirection } from "../model/equipmentLight";
 import { defaultSymbol, isPlacementSymbol } from "../scene/symbols";
 import { isVisibleUp } from "../scene/applyVisibility";
-import { EquipmentLightLayer, type EquipmentLightSpec } from "../scene/equipmentLights";
+import {
+  EquipmentLightLayer,
+  LIGHT_BUDGET,
+  PERFORMANCE_LIGHT_BUDGET,
+  prepareEquipmentLightSurfaces,
+  type EquipmentLightSpec,
+} from "../scene/equipmentLights";
 import { classifyState, haStore } from "../store/haStore";
 import { useHouseRuntime } from "./useHouseStore";
 
 export function useEquipmentLights() {
   const runtime = useHouseRuntime();
   const scene = useThree((s) => s.scene);
+  const gl = useThree((s) => s.gl);
   const refresh = useRef<(() => void) | null>(null);
   const lastCamera = useRef(new THREE.Vector3(Infinity, Infinity, Infinity));
   const lastRefresh = useRef(0);
+  const preparedIndex = useRef<{ index: typeof runtime.index; assetCount: number }>({
+    index: null,
+    assetCount: -1,
+  });
 
   useEffect(() => {
     const layer = new EquipmentLightLayer(scene);
+    const previousShadows = {
+      enabled: gl.shadowMap.enabled,
+      autoUpdate: gl.shadowMap.autoUpdate,
+      type: gl.shadowMap.type,
+    };
+    gl.shadowMap.enabled = true;
+    gl.shadowMap.autoUpdate = false;
+    gl.shadowMap.type = THREE.PCFShadowMap;
     runtime.equipmentLights = layer;
-    const update = () => {
+    const update = (refreshOccluders = false) => {
       const state = runtime.store.getState();
       const index = runtime.index;
       const manifest = runtime.manifest;
@@ -56,12 +75,20 @@ export function useEquipmentLights() {
       }
       const selected = state.selection?.kind === "equipment" ? state.selection.id : null;
       candidates.sort((a, b) => (a.id === selected ? -1 : b.id === selected ? 1 : new THREE.Vector3(...a.position).distanceToSquared(camera) - new THREE.Vector3(...b.position).distanceToSquared(camera)));
-      if (layer.set(candidates, state.performanceMode ? 2 : 8)) runtime.invalidate();
+      const changed = layer.set(
+        candidates,
+        state.performanceMode ? PERFORMANCE_LIGHT_BUDGET : LIGHT_BUDGET,
+      );
+      const surfacesChanged = index ? prepareEquipmentLightSurfaces(index) : false;
+      if (changed || surfacesChanged || refreshOccluders) {
+        gl.shadowMap.needsUpdate = true;
+        runtime.invalidate();
+      }
     };
     refresh.current = update;
     update();
-    const offStore = runtime.store.subscribe(update);
-    const offHa = haStore.subscribe((s) => [s.entities, s.connection] as const, update);
+    const offStore = runtime.store.subscribe(() => update(true));
+    const offHa = haStore.subscribe((s) => [s.entities, s.connection] as const, () => update());
     // Expire readings even when no HA message arrives, without rendering unchanged frames.
     const timer = setInterval(update, 30_000);
     return () => {
@@ -70,10 +97,29 @@ export function useEquipmentLights() {
       refresh.current = null;
       runtime.equipmentLights = null;
       layer.dispose();
+      gl.shadowMap.enabled = previousShadows.enabled;
+      gl.shadowMap.autoUpdate = previousShadows.autoUpdate;
+      gl.shadowMap.type = previousShadows.type;
     };
-  }, [runtime, scene]);
+  }, [runtime, scene, gl]);
 
-  useFrame(({ camera, clock }) => {
+  useFrame(({ camera, clock }, delta) => {
+    const index = runtime.index;
+    if (
+      index &&
+      (preparedIndex.current.index !== index || preparedIndex.current.assetCount !== index.assets.size)
+    ) {
+      // The house store survives a client-side navigation, so `assetLoaded(id)` can be a no-op on
+      // re-entry even though a brand-new SceneIndex and meshes were built. Detect the scene itself
+      // so those meshes always become shadow receivers/occluders and the new maps render once.
+      preparedIndex.current = { index, assetCount: index.assets.size };
+      prepareEquipmentLightSurfaces(index);
+      gl.shadowMap.needsUpdate = true;
+      runtime.invalidate();
+    }
+    // R3F's first delta after an idle demand loop includes the whole idle gap. Cap that first step
+    // so a light event after a quiet second cannot complete its 160 ms fade in one frame.
+    if (runtime.equipmentLights?.tick(Math.min(delta, 1 / 30))) runtime.invalidate();
     if (clock.elapsedTime - lastRefresh.current < 0.15 || camera.position.distanceToSquared(lastCamera.current) < 0.01) return;
     lastCamera.current.copy(camera.position);
     lastRefresh.current = clock.elapsedTime;

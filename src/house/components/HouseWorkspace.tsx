@@ -49,6 +49,7 @@ import { PropertyTree } from "./PropertyTree";
 import { ToolPalette } from "./ToolPalette";
 import { SetupState } from "./SetupState";
 import { ViewControls } from "./ViewControls";
+import { FloorControls } from "./ViewToolbar";
 import { PlaceableList } from "./edit/PlaceableList";
 import { RouteCreateControl } from "./routeEditor/RouteCreateControl";
 import { RoutePath3D } from "./routeEditor/RoutePath3D";
@@ -239,7 +240,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
       >
         <p id="vh-canvas-help" className="sr-only">
           Arrow keys orbit the camera, Shift and the arrow keys pan, plus and minus zoom. Press 1,
-          2 or 3 to isolate a floor, 0 for the whole property, P for a top-down plan, and question
+          2 or 3 for a top-down floor focus, 0 for the whole property, P for a top-down plan, and question
           mark for the full list of shortcuts.
         </p>
         <div
@@ -257,6 +258,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
             <CanvasWithBackground />
           </HouseErrorBoundary>
           <ToolPalette />
+          <FloorControls />
           <SnapReadoutOverlay />
           {state.routeDraft ? <RoutePath3D /> : null}
           <CanvasHints />
@@ -613,8 +615,10 @@ function useShortcutHandlers(
         const s = get();
         const floorId = floorIdByIndex(s.index?.floorOrder ?? [], n);
         if (!floorId) return;
+        s.setProjection("ortho");
         s.isolateFloor(floorId);
-        void runtime.camera?.frameFloor(floorId);
+        s.setViewMode("plan");
+        void runtime.camera?.planFor(floorId);
       },
       allFloors() {
         get().isolateFloor(null);

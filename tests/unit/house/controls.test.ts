@@ -1,6 +1,7 @@
 import CameraControlsImpl from "camera-controls";
 import { describe, expect, it } from "vitest";
 import { controlBindings } from "@/house/components/Rig";
+import { createHouseStore } from "@/house/store/createHouseStore";
 
 const ACTION = CameraControlsImpl.ACTION;
 
@@ -26,5 +27,59 @@ describe("viewer control bindings", () => {
     expect(controlBindings("plan", "ortho", "orbit", false).left).toBe(ACTION.TRUCK);
     expect(controlBindings("overview", "perspective", "select", true).left).toBe(ACTION.ROTATE);
     expect(controlBindings("plan", "ortho", "place", true).left).toBe(ACTION.TRUCK);
+  });
+});
+
+describe("wall display presets", () => {
+  it("keeps the roof and ceiling switches synchronized with the four wall modes", () => {
+    const store = createHouseStore();
+    store.getState().setWallMode("contextual");
+    expect(store.getState()).toMatchObject({
+      wallMode: "contextual",
+      roofVisible: false,
+      ceilingsVisible: false,
+      wallModeExplicit: true,
+    });
+
+    store.getState().setWallMode("closed");
+    expect(store.getState()).toMatchObject({
+      wallMode: "closed",
+      roofVisible: true,
+      ceilingsVisible: true,
+    });
+
+    store.getState().setCeilingsVisible(false);
+    expect(store.getState()).toMatchObject({
+      wallMode: "up",
+      roofVisible: true,
+      ceilingsVisible: false,
+    });
+  });
+
+  it("opens a floor focus after a closed shell, then honors a later close", () => {
+    const automatic = createHouseStore();
+    automatic.getState().isolateFloor("f-upper");
+    expect(automatic.getState()).toMatchObject({
+      activeFloorId: "f-upper",
+      wallMode: "contextual",
+      wallModeExplicit: false,
+    });
+
+    const explicit = createHouseStore();
+    explicit.getState().setWallMode("closed");
+    explicit.getState().isolateFloor("f-upper");
+    expect(explicit.getState()).toMatchObject({
+      wallMode: "contextual",
+      wallModeExplicit: false,
+      roofVisible: false,
+      ceilingsVisible: false,
+    });
+    explicit.getState().setWallMode("closed");
+    expect(explicit.getState()).toMatchObject({
+      wallMode: "closed",
+      wallModeExplicit: true,
+      roofVisible: true,
+      ceilingsVisible: true,
+    });
   });
 });

@@ -50,6 +50,7 @@ export interface VhRenderInfo {
   geometries: number;
   textures: number;
   programs: number;
+  shadowMapEnabled: boolean;
 }
 
 export interface VhFrameSample {
@@ -228,6 +229,9 @@ export function vh(page: Page) {
 
     invalidateCount: (): Promise<number> =>
       evalHook(page, ({ hook }) => hook.invalidateCount(), undefined),
+    renderedLights: () => evalHook(page, ({ hook }) => hook.renderedLights(), undefined),
+    shadowSurface: (surfaceId: string) =>
+      evalHook(page, ({ hook, arg }) => hook.shadowSurface(arg), surfaceId),
     lastSavePayload: (): Promise<unknown> =>
       evalHook(page, ({ hook }) => (hook.lastSavePayload() ?? null) as unknown, undefined),
     disposedInfo: (): Promise<{ geometries: number; textures: number } | null> =>

@@ -362,6 +362,7 @@ describe("the HA entity link on a placement", () => {
       {
         entityId: "sensor.the_primary",
         role: "primary",
+        source: "entity",
         name: "Room humidity",
         deviceClass: "humidity",
         unit: "%",
@@ -369,6 +370,7 @@ describe("the HA entity link on a placement", () => {
       {
         entityId: "sensor.secondary",
         role: "status",
+        source: "entity",
         name: null,
         deviceClass: null,
         unit: null,
@@ -398,7 +400,7 @@ describe("the HA entity link on a placement", () => {
 
     const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
     expect(listed.placements[0]?.linkedEntities).toEqual([
-      expect.objectContaining({ entityId: "sensor.meter_battery", role: "battery_level" }),
+      expect.objectContaining({ entityId: "sensor.meter_battery", role: "battery_level", source: "entity" }),
     ]);
     expect(listed.placements[0]?.entityId).toBe("sensor.meter_battery");
   });
@@ -495,6 +497,24 @@ describe("spotlight physical aim", () => {
   it.each([{ yawDeg: 181, pitchDeg: 0 }, { yawDeg: 0, pitchDeg: 91 }, { yawDeg: "bad", pitchDeg: 0 }])("rejects invalid beam angles %j", async (lightAim) => {
     const response = await put({ position: [1, 1, 1], lightAim });
     expect(response.status).toBe(400);
+    expect(h.handle.db.select().from(assetPlacement).all()).toHaveLength(0);
+  });
+});
+
+describe("other object attachment", () => {
+  it.each(["s-o-l-door-reveal", "s-o-l-door-leaf", "s-e-l-step"])("round-trips a free attachment to %s", async (surfaceId) => {
+    const mount = { kind: "free", surfaceId, height: 2.123 };
+    const created = await bodyOf<{ placement: PersistedPlacement }>(await put({ position: [1.013, 2.123, 0.517], mount }));
+    expect(created.placement.mount).toEqual(mount);
+    expect(created.placement.surfaceId).toBe(surfaceId);
+    const loaded = await bodyOf<{ placements: Placement[] }>(await list());
+    expect(loaded.placements[0]?.mount).toEqual(mount);
+    expect(loaded.placements[0]?.position).toEqual([1.013, 2.123, 0.517]);
+  });
+
+  it.each(["missing-surface", "s-e-scan-fx"])("rejects attachment to %s", async (surfaceId) => {
+    const response = await put({ position: [1, 1, 1], mount: { kind: "free", surfaceId, height: 1 } });
+    expect(response.status).toBeGreaterThanOrEqual(400);
     expect(h.handle.db.select().from(assetPlacement).all()).toHaveLength(0);
   });
 });

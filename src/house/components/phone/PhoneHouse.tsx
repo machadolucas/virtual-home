@@ -36,7 +36,8 @@ export function PhoneHouse() {
   );
   const isolateFloor = useHouseStore((s) => s.isolateFloor);
 
-  const floors = index?.floorOrder ?? [];
+  const setProjection = useHouseStore((s) => s.setProjection);
+  const setViewMode = useHouseStore((s) => s.setViewMode);
   const equipmentId = selection?.kind === "equipment" ? selection.id : null;
   const floorEquipment = placements.filter(
     (p) => !activeFloorId || p.floorId === activeFloorId,
@@ -55,16 +56,21 @@ export function PhoneHouse() {
 
       <nav aria-label="Floors" className="flex flex-wrap gap-1">
         <FloorChip label="All" active={activeFloorId === null} onClick={() => isolateFloor(null)} />
-        {floors.map((floorId) => (
-          <FloorChip
-            key={floorId}
-            label={index?.floors.get(floorId)?.name ?? floorId}
-            active={activeFloorId === floorId}
-            onClick={() => {
-              isolateFloor(floorId);
-              void runtime.camera?.frameFloor(floorId);
-            }}
-          />
+        {[...(index?.buildings.values() ?? [])].map((building) => (
+          <fieldset key={building.id} className="min-w-0">
+            <legend className="px-1 text-[11px] text-ink-3">{building.name}</legend>
+            <div className="flex flex-wrap gap-1">
+              {(index?.floorsByBuilding.get(building.id) ?? []).map((floor) => (
+                <FloorChip key={floor.id} label={floor.name} active={activeFloorId === floor.id}
+                  onClick={() => {
+                    setProjection("ortho");
+                    isolateFloor(floor.id);
+                    setViewMode("plan");
+                    void runtime.camera?.planFor(floor.id);
+                  }} />
+              ))}
+            </div>
+          </fieldset>
         ))}
       </nav>
 

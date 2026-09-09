@@ -67,7 +67,7 @@ test.describe("desktop scenes", () => {
     const { context, page } = await openHouseSession(browser);
     try {
       // 2. Dollhouse, lower floor (the fixture's analogue of the ground floor).
-      await page.getByRole("button", { name: "Dollhouse (D)" }).click();
+      await page.getByRole("button", { name: "Show inside (D)" }).click();
       await page.getByRole("button", { name: "Lower floor", exact: true }).click();
       await capture(page, "02-dollhouse-lower-floor");
 
@@ -200,7 +200,7 @@ test.describe("desktop scenes", () => {
     try {
       // The one opt-in asset the fixture does have: `fixture-scan`, `loadByDefault: false`.
     await page.getByRole("tab", { name: "Layers", exact: true }).click();
-      await page.getByRole("checkbox", { name: "Scan reference" }).check();
+      await page.getByRole("switch", { name: "Scan reference" }).click();
       await expect
         .poll(() => vh(page).status().then((s) => s.loadedAssetIds.includes("fixture-scan")), {
           timeout: 30_000,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aimFromTarget,
+  DEFAULT_LIGHT_COLOR_KELVIN,
   defaultLightAim,
   directionFromAim,
   isLightEntity,
@@ -22,10 +23,15 @@ describe("Home Assistant light appearance", () => {
     expect(isLightEntity("light.")).toBe(false);
 
     expect(lightAppearance({ entityId: "switch.lamp", state: "on" })).toBeNull();
-    expect(lightAppearance({ entityId: "light.lamp", state: "on" })).toEqual({
-      intensity: 1,
-      color: [1, 1, 1],
+    const uncoloured = lightAppearance({ entityId: "light.lamp", state: "on" });
+    const explicitWarm = lightAppearance({
+      entityId: "light.lamp",
+      state: "on",
+      colorTempKelvin: DEFAULT_LIGHT_COLOR_KELVIN,
     });
+    expect(uncoloured).toEqual(explicitWarm);
+    expect(uncoloured?.color[0]).toBe(1);
+    expect(uncoloured?.color[2]).toBeLessThan(uncoloured?.color[1] ?? 0);
   });
 
   it.each(["off", "unknown", "unavailable"])("does not emit for %s", (state) => {

@@ -33,9 +33,13 @@ test("equipment label stays live, expands linked readings, and preserves its sav
     photoId: null,
     entityId: "sensor.live_temperature",
     linkedEntities: [
-      { entityId: "sensor.live_temperature", role: "primary", name: "Temperature", deviceClass: "temperature", unit: "°C" },
-      { entityId: "sensor.live_humidity", role: "status", name: "Humidity", deviceClass: "humidity", unit: "%" },
-      { entityId: "sensor.live_battery", role: "battery_level", name: "Battery", deviceClass: "battery", unit: "%" },
+      { entityId: "sensor.live_temperature", role: "primary", source: "entity", name: "Temperature", deviceClass: "temperature", unit: "°C" },
+      { entityId: "sensor.live_humidity", role: "status", source: "entity", name: "Humidity", deviceClass: "humidity", unit: "%" },
+      { entityId: "binary_sensor.live_occupancy", role: "status", source: "entity", name: "Occupancy", deviceClass: "occupancy", unit: null },
+      { entityId: "binary_sensor.live_contact", role: "status", source: "entity", name: "Contact", deviceClass: "door", unit: null },
+      { entityId: "sensor.live_battery", role: "battery_level", source: "entity", name: "Battery", deviceClass: "battery", unit: "%" },
+      { entityId: "update.live_firmware", role: "primary", source: "device", name: "Firmware", deviceClass: null, unit: null },
+      { entityId: "button.live_identify", role: "primary", source: "device", name: "Identify", deviceClass: null, unit: null },
     ],
     symbol: "lamp_post",
     category: "sensor",
@@ -63,6 +67,10 @@ test("equipment label stays live, expands linked readings, and preserves its sav
       { topic: "ha.state", key: "sensor.live_temperature", payload: { state: "21.4", attributes: { unit_of_measurement: "°C", device_class: "temperature" }, lastUpdated: Date.now() } },
       { topic: "ha.state", key: "sensor.live_humidity", payload: { state: "45", attributes: { unit_of_measurement: "%", device_class: "humidity" }, lastUpdated: Date.now() } },
       { topic: "ha.state", key: "sensor.live_battery", payload: { state: "68", attributes: { unit_of_measurement: "%", device_class: "battery" }, lastUpdated: Date.now() } },
+      { topic: "ha.state", key: "binary_sensor.live_occupancy", payload: { state: "off", attributes: { device_class: "occupancy" }, lastUpdated: Date.now() } },
+      { topic: "ha.state", key: "binary_sensor.live_contact", payload: { state: "off", attributes: { device_class: "door" }, lastUpdated: Date.now() } },
+      { topic: "ha.state", key: "update.live_firmware", payload: { state: "on", attributes: {}, lastUpdated: Date.now() } },
+      { topic: "ha.state", key: "button.live_identify", payload: { state: "unknown", attributes: {}, lastUpdated: Date.now() } },
     ]);
 
     await vh(page).select({ kind: "equipment", id: placement.id });
@@ -78,9 +86,22 @@ test("equipment label stays live, expands linked readings, and preserves its sav
     ], 2);
     await expect(label).toContainText(/22\.1 °C.*68%/);
     await label.click();
-    await expect(label).toContainText(/Temperature: 22\.1 °C · Humidity: 45 %.*68%/);
+    await expect(label.locator(".vh-label-reading")).toHaveCount(4);
+    await expect(label).toContainText("Temperature22.1 °C");
+    await expect(label).toContainText("Humidity45 %");
+    await expect(label).toContainText("OccupancyUnoccupied");
+    await expect(label).toContainText("ContactClosed");
+    await expect(label).not.toContainText(/Firmware|Identify/);
+    await expect(label).toContainText("68%");
     await expect(label).toHaveAttribute("aria-expanded", "true");
     await testInfo.attach("expanded-live-label.png", { body: await page.screenshot(), contentType: "image/png" });
+    const downloaded = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download image", exact: true }).click();
+    const image = await downloaded;
+    expect(image.suggestedFilename()).toMatch(/^house-view-.*\.png$/);
+    const exportPath = testInfo.outputPath("expanded-label-export.png");
+    await image.saveAs(exportPath);
+    await testInfo.attach("expanded-label-export.png", { path: exportPath, contentType: "image/png" });
 
     await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
     await page.getByRole("button", { name: "Save placement", exact: true }).click();

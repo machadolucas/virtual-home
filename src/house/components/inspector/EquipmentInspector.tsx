@@ -8,6 +8,7 @@
  * recovering after a battery change is not evidence of maintenance.
  */
 import { useStore } from "zustand";
+import { explicitUsefulLinks } from "@/house/model/equipmentLabel";
 import type { PlacementId, PlacementLinkedEntity } from "@/house/model/types";
 import {
   classifyBattery,
@@ -35,6 +36,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
   const connection = useStore(haStore, (s) => s.connection);
 
   if (!index || !placement) return null;
+  const readings = explicitUsefulLinks(placement.linkedEntities ?? []);
   const room = placement.roomId ? index.rooms.get(placement.roomId) : undefined;
   const buildingIssues = room?.buildingId ? index.issuesByAffected.get(room.buildingId) ?? [] : [];
 
@@ -47,12 +49,12 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
         </p>
       </header>
 
-      <HaState entity={entity} connection={connection} separateBattery={placement.linkedEntities?.some((link) => link.role === "battery_level" || link.deviceClass === "battery") ?? false} />
-      {(placement.linkedEntities?.length ?? 0) > 0 ? (
+      <HaState entity={entity} connection={connection} separateBattery={readings.some((link) => link.role === "battery_level" || link.deviceClass === "battery")} />
+      {readings.length > 0 ? (
         <section aria-label="Sensor readings" className="rounded-md border border-line p-2">
           <h3 className="mb-2 text-xs font-medium text-ink-2">Sensor readings</h3>
           <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 text-xs">
-            {placement.linkedEntities!.map((link) => <LinkedReading key={link.entityId} link={link} connected={connection === "open"} />)}
+            {readings.map((link) => <LinkedReading key={link.entityId} link={link} connected={connection === "open"} />)}
           </dl>
         </section>
       ) : null}

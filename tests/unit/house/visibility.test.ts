@@ -63,7 +63,7 @@ describe("computeVisibility (fixture)", () => {
     }
   });
 
-  it("isolates a floor across every asset that carries a copy of the floor node", () => {
+  it("focuses a building floor while retaining its lower support", () => {
     const plan = computeVisibility(
       index,
       baseInput({ viewMode: "floor", activeFloorId: "f-upper" }, inventory, loadedAssetIds),
@@ -71,11 +71,10 @@ describe("computeVisibility (fixture)", () => {
     // `f-upper` lives in both the upper asset and the roof asset (the dormer)
     expect(plan.nodes.get(nodeKey("fixture-upper", "f-upper"))).toBe(true);
     expect(plan.nodes.get(nodeKey("fixture-roof", "f-upper"))).toBe(true);
-    // the lower floor is hidden wherever it appears, including in the scan asset
-    expect(plan.nodes.get(nodeKey("fixture-lower", "f-lower"))).toBe(false);
-    expect(plan.nodes.get(nodeKey("fixture-scan", "f-lower"))).toBe(false);
-    // assets that belong to a hidden floor are hidden at the root too
-    expect(plan.assets.get("fixture-lower")).toBe(false);
+    // lower floors in the same building remain as visual support
+    expect(plan.nodes.get(nodeKey("fixture-lower", "f-lower"))).toBe(true);
+    expect(plan.nodes.get(nodeKey("fixture-scan", "f-lower"))).toBe(true);
+    expect(plan.assets.get("fixture-lower")).toBe(true);
     expect(plan.assets.get("fixture-upper")).toBe(true);
     // the roof asset stays loaded because it also owns the dormer
     expect(plan.assets.get("fixture-roof")).toBe(true);
@@ -98,6 +97,8 @@ describe("computeVisibility (fixture)", () => {
     expect(off.nodes.get(nodeKey("fixture-roof", "e-roof-fx"))).toBe(false);
     // the dormer node is under f-upper, so it follows the floor, not the roof toggle
     expect(off.nodes.get(nodeKey("fixture-roof", "f-upper"))).toBe(true);
+    expect(off.nodes.get(nodeKey("fixture-roof", "s-e-dormer-fx-ceiling"))).toBe(false);
+    expect(off.nodes.get(nodeKey("fixture-roof", "s-e-dormer-fx-wall"))).not.toBe(false);
   });
 
   it("hides ceilings by surface node, including the dormer ceiling", () => {
@@ -186,7 +187,7 @@ describe("computeVisibility (fixture)", () => {
         loadedAssetIds,
       ),
     );
-    expect(restored.nodes.get(nodeKey("fixture-lower", "f-lower"))).toBe(false);
+    expect(restored.nodes.get(nodeKey("fixture-lower", "f-lower"))).toBe(true);
     expect(restored.nodes.get(nodeKey("fixture-upper", "f-upper"))).toBe(true);
   });
 
@@ -200,6 +201,16 @@ describe("computeVisibility (fixture)", () => {
     expect(plan.nodes.get(nodeKey("fixture-upper", "f-upper"))).toBe(true);
     expect(plan.nodes.get(nodeKey("fixture-roof", "e-roof-fx"))).toBe(false);
     expect(plan.nodes.get(nodeKey("fixture-upper", "s-r-u-a-ceiling"))).toBe(false);
+  });
+
+  it("keeps a manually closed shell closed while room focus persists", () => {
+    const focus = focusContextFor(index, { kind: "room", id: "r-u-a" });
+    const plan = computeVisibility(
+      index,
+      baseInput({ wallMode: "closed", focus }, inventory, loadedAssetIds),
+    );
+    expect(plan.nodes.get(nodeKey("fixture-roof", "e-roof-fx"))).toBe(true);
+    expect(plan.nodes.get(nodeKey("fixture-upper", "s-r-u-a-ceiling"))).toBe(true);
   });
 
   it("frames floors transiently and restores all floors when a building is focused", () => {

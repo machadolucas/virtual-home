@@ -128,7 +128,7 @@ export function SnapReadout({ state }: { state: SnapIndicatorState | null }) {
   if (!state) return null;
   const [x, y, z] = state.point;
   return (
-    <p className="pointer-events-none absolute bottom-3 left-3 rounded-md border border-line bg-surface/85 text-ink shadow-pop backdrop-blur-sm px-2 py-1 font-mono text-[11px]">
+    <p aria-label="Placement preview" className="pointer-events-none absolute top-3 left-14 z-20 max-w-[calc(100%-4.25rem)] rounded-md border border-line bg-surface/95 text-ink shadow-pop backdrop-blur-sm px-2 py-1 font-mono text-[11px]">
       {state.kind === "wall" && state.u !== undefined && state.v !== undefined
         ? `along wall ${state.u.toFixed(3)} m · height ${state.v.toFixed(3)} m`
         : `x ${x.toFixed(3)} · y ${y.toFixed(3)} · z ${z.toFixed(3)}`}

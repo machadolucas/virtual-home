@@ -70,6 +70,8 @@ export type PlacementEntityRole =
 export interface PlacementLinkedEntity {
   entityId: string;
   role: PlacementEntityRole;
+  /** Whether this was linked directly or merely discovered through a whole-device link. */
+  source?: "entity" | "device";
   name: string | null;
   deviceClass: string | null;
   unit: string | null;
@@ -169,7 +171,7 @@ export type PlacementMount =
   | { kind: "floor"; height: number }
   | { kind: "wall"; surfaceId: SurfaceId; height: number; offset: number }
   | { kind: "ceiling"; surfaceId: SurfaceId; height: number; offset: number }
-  | { kind: "free"; height: number };
+  | { kind: "free"; height: number; surfaceId?: SurfaceId };
 
 export type RouteSystem =
   | "ventilation"
@@ -227,6 +229,8 @@ export interface Route {
 
 export type ViewMode = "overview" | "floor" | "plan" | "section";
 export type Projection = "perspective" | "ortho";
+/** Sims-style shell presentation, kept separate from camera and floor focus. */
+export type WallMode = "cut" | "contextual" | "up" | "closed";
 
 export interface VerticalCut {
   axis: "x" | "z";

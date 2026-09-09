@@ -87,7 +87,11 @@ export function SceneRoot() {
       }
       const state = runtime.store.getState();
       state.setSelection(selection);
-      if (selection === null || opts?.frame || opts?.focus) state.setFocusSelection(selection);
+      if (selection === null || opts?.frame || opts?.focus) {
+        state.setFocusSelection(selection);
+        if (selection && !state.wallModeExplicit)
+          state.setWallMode(selection.kind === "building" ? "closed" : "contextual", false);
+      }
       if (opts?.frame) void runtime.camera?.frameSelection();
     };
     return () => {
@@ -244,7 +248,7 @@ export function SceneRoot() {
             runtime.materialAudits.push(auditMaterials(entry));
             for (const mesh of entry.meshes) {
               const sid = index.meshSurfaceId.get(mesh);
-              if (sid) clip.attach(mesh, index.clipGroupOf.get(sid) ?? "site");
+              if (sid) clip.attach(mesh, index.clipGroupOf.get(sid) ?? "site", sid);
             }
             if (entry.edges) clip.attach(entry.edges, index.clipGroupOf.get(assetId) ?? "site");
             if (manifest.assets.get(assetId)?.kind === "scan-reference") makeNonPickable(entry);

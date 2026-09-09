@@ -97,14 +97,13 @@ test("the fixture package loads clean, with no cloned materials", async ({ brows
     ).length;
 
     // One geometry per mesh-backed surface plus one edges overlay per loaded asset, and nothing
-    // else: no instancing, no render targets, no duplicated scene.
+    // else: shadows reuse the same geometry, with no duplicated scene.
     expect(render.geometries).toBe(Object.keys(hexes).length + edgeNodes);
-    // §13.2 asks for `textures === 0`. The *package* ships none — no image-based lighting, no maps
-    // in the GLBs — but three allocates one internal empty texture for unassigned sampler slots,
-    // so 1 is the floor here and 2 would mean something started loading an image.
-    expect(render.textures).toBeLessThanOrEqual(1);
-    // MeshStandardMaterial + LineBasicMaterial (the edges overlays) is the whole shader inventory.
-    expect(render.programs).toBeLessThanOrEqual(4);
+    // The package remains texture-free. The fixed 4 point / 4 spot shadow pool allocates bounded
+    // depth targets (including Three's internal shadow sampler resources), plus an empty sampler.
+    expect(render.textures).toBeLessThanOrEqual(13);
+    // Surface, edge and shadow-depth/distance programs are a fixed inventory.
+    expect(render.programs).toBeLessThanOrEqual(8);
 
     await testInfo.attach("load-timing.json", {
       body: JSON.stringify({ timing, render, audit, edgeNodes }, null, 2),
@@ -202,7 +201,7 @@ test("clicking a room's floor anchor picks that room's floor at its own datum", 
     // anchor resolves to the floor directly beneath it — the datum this test is about. The
     // workspace's own "Plan view (P)" would be the natural way to get there and does not work; see
     // the `test.fixme` below.
-    await page.getByRole("button", { name: "Dollhouse (D)" }).click();
+    await page.getByRole("button", { name: "Show inside (D)" }).click();
     await page.getByRole("button", { name: "Lower floor", exact: true }).click();
     await waitForStableFrames(page, 1_000);
     await orbitOverhead(page);
@@ -327,7 +326,7 @@ test("selecting a room changes no material and compiles no new shader", async ({
 // visibility and views
 // ---------------------------------------------------------------------------
 
-test("isolating a floor hides the other floor and keeps the dormer with its own", async ({
+test("floor focus keeps lower support and hides only higher floors in that building", async ({
   browser,
 }) => {
   const { context, page } = await openHouseSession(browser);
@@ -337,12 +336,12 @@ test("isolating a floor hides the other floor and keeps the dormer with its own"
     expect(await api.visible("fixture-upper", "f-upper")).toBe(true);
 
     await page.getByRole("button", { name: "Upper floor", exact: true }).click();
-    await expect.poll(() => api.visible("fixture-lower", "f-lower")).toBe(false);
+    await expect.poll(() => api.visible("fixture-lower", "f-lower")).toBe(true);
     expect(await api.visible("fixture-upper", "f-upper")).toBe(true);
     // The dormer lives in the roof asset but under the upper floor's node: it follows the floor.
     expect(await api.visible("fixture-roof", "f-upper")).toBe(true);
-    // The roof planes themselves are floor-less roof geometry, so isolation does not show them.
-    expect(await api.visible("fixture-roof", "e-roof-fx")).toBe(true);
+    // Floor focus opens the shell for a readable top-down view.
+    expect(await api.visible("fixture-roof", "e-roof-fx")).toBe(false);
 
     await page.getByRole("button", { name: "Lower floor", exact: true }).click();
     await expect.poll(() => api.visible("fixture-upper", "f-upper")).toBe(false);
@@ -356,6 +355,35 @@ test("isolating a floor hides the other floor and keeps the dormer with its own"
   }
 });
 
+test("wall modes open the shell, cut context without a selection, and fully close it again", async ({
+  browser,
+}) => {
+  const { context, page } = await openHouseSession(browser);
+  try {
+    const api = vh(page);
+    const walls = ["s-e-l-ext--r-l-a", "s-w-l-ab--r-l-a", "s-w-l-bc--r-l-b"];
+    const cutWalls = async () => {
+      const rows = await Promise.all(walls.map(async (id) => ({ id, planes: await api.clipPlanes(id) })));
+      return rows.filter((row) => (row.planes[2]?.constant ?? 10_000) < 1_000).map((row) => row.id);
+    };
+
+    await page.getByRole("button", { name: "Show inside (D)" }).click();
+    await expect.poll(cutWalls).not.toEqual([]);
+    expect(await api.visible("fixture-roof", "s-e-dormer-fx-ceiling")).toBe(false);
+    expect(await api.visible("fixture-roof", "s-e-dormer-fx-wall")).toBe(true);
+
+    await page.getByRole("radio", { name: "All cut" }).click();
+    await expect.poll(cutWalls).toEqual(walls);
+
+    await page.getByRole("radio", { name: "All up + roof/ceiling" }).click();
+    await expect.poll(cutWalls).toEqual([]);
+    expect(await api.visible("fixture-roof", "e-roof-fx")).toBe(true);
+    expect(await api.visible("fixture-roof", "s-e-dormer-fx-ceiling")).toBe(true);
+  } finally {
+    await context.close();
+  }
+});
+
 test("turning the ceilings off removes exactly the ceiling surfaces from the pick set", async ({
   browser,
 }) => {
@@ -364,20 +392,22 @@ test("turning the ceilings off removes exactly the ceiling surfaces from the pic
     const status = await vh(page).status();
     const manifest = await fetchManifest(page, status.modelId!, status.fingerprint!);
     const loaded = new Set(status.loadedAssetIds);
-    const ceilings = manifest.surfaces.filter(
-      (s) => s.kind === "ceiling" && s.nodeRefs.some((ref) => loaded.has(ref.assetId)),
+    const hiddenShell = manifest.surfaces.filter(
+      (s) =>
+        s.kind === "ceiling" &&
+        s.nodeRefs.some((ref) => loaded.has(ref.assetId)),
     );
-    expect(ceilings.length).toBeGreaterThan(0);
+    expect(hiddenShell.length).toBeGreaterThan(0);
 
     const before = await vh(page).pickables();
     await page.getByRole("tab", { name: "Layers", exact: true }).click();
-    await page.getByRole("checkbox", { name: "Ceilings (G)" }).uncheck();
-    await expect.poll(() => vh(page).pickables()).toBe(before - ceilings.length);
+    await page.getByRole("switch", { name: "Ceilings (G)" }).click();
+    await expect.poll(() => vh(page).pickables()).toBe(before - hiddenShell.length);
 
     await page.getByRole("tab", { name: "Layers", exact: true }).click();
-    await page.getByRole("checkbox", { name: "Ceilings (G)" }).check();
+    await page.getByRole("switch", { name: "Ceilings (G)" }).click();
     await expect.poll(() => vh(page).pickables()).toBe(before);
-    console.log(`[house] pickables ${before} → ${before - ceilings.length} with ceilings off`);
+    console.log(`[house] pickables ${before} → ${before - hiddenShell.length} with the shell open`);
   } finally {
     await context.close();
   }
@@ -394,11 +424,10 @@ test("the orthographic and plan views switch the projection", async ({ browser }
     await page.getByRole("button", { name: "Orthographic" }).click();
     await expect.poll(() => vh(page).camera().then((c) => c.projection)).toBe("perspective");
 
-    // A floor's plan view is ortho + isolation in one action.
+    // A floor shortcut is an orthographic top-down focus in one action.
     await page.getByRole("button", { name: "Upper floor", exact: true }).click();
-    await page.getByRole("button", { name: "Plan view (P)" }).click();
     await expect.poll(() => vh(page).camera().then((c) => c.projection)).toBe("ortho");
-    expect(await vh(page).visible("fixture-lower", "f-lower")).toBe(false);
+    expect(await vh(page).visible("fixture-lower", "f-lower")).toBe(true);
   } finally {
     await context.close();
   }
@@ -437,7 +466,6 @@ test("the plan view looks straight down at the active floor", async ({ browser }
   const { context, page } = await openHouseSession(browser);
   try {
     await page.getByRole("button", { name: "Upper floor", exact: true }).click();
-    await page.getByRole("button", { name: "Plan view (P)" }).click();
     await waitForStableFrames(page, 1_000);
 
     const camera = await vh(page).camera();
@@ -639,7 +667,7 @@ test("aiming shows the position on hover, before anything is clicked", async ({ 
     // way to find out where a click would land was to click.
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 
-    const readout = page.locator("p.font-mono", { hasText: /x -?\d/ }).first();
+    const readout = page.getByLabel("Placement preview", { exact: true });
     await expect(readout).toBeVisible();
   } finally {
     await context.close();

@@ -279,7 +279,7 @@ test("every mesh-backed surface of the nine default assets carries its defaultCo
     // The structure assets sit behind their layer (1.5 MB of trusses and footings, off by default),
     // so the layer has to be on before the full 403-surface set is in the scene.
     await page.getByRole("tab", { name: "Layers", exact: true }).click();
-    await page.getByRole("checkbox", { name: "Structure (trusses, footings)" }).check();
+    await page.getByRole("switch", { name: "Structure (trusses, footings)" }).click();
     await expect
       .poll(() => vh(page).status().then((s) => s.loadedAssetIds.length), { timeout: 60_000 })
       .toBe(9);
@@ -327,7 +327,7 @@ test("the living room picks at its own floor datum", async ({ browser }) => {
     // Then look straight down — from an oblique pose the ray through a room's anchor leaves through
     // a wall face, which is a correct pick of a different surface (see the `test.fixme` in
     // house.spec.ts about the plan view's camera).
-    await page.getByRole("button", { name: "Dollhouse (D)" }).click();
+    await page.getByRole("button", { name: "Show inside (D)" }).click();
     await page.getByRole("button", { name: "Ground floor", exact: true }).click();
     await waitForStableFrames(page, 1_000);
     await orbitOverhead(page);
@@ -490,13 +490,13 @@ test("a saved colour comes back on the next page load", async ({ browser }) => {
   }
 });
 
-test("the dormer follows the upper floor's isolation", async ({ browser }) => {
+test("the dormer follows floor focus while lower floors remain visible", async ({ browser }) => {
   const { context, page } = await openHouseSession(browser);
   try {
     const api = vh(page);
     await page.getByRole("button", { name: "Upper floor", exact: true }).click();
 
-    await expect.poll(() => api.visible("house-ground", "f-ground")).toBe(false);
+    await expect.poll(() => api.visible("house-ground", "f-ground")).toBe(true);
     expect(await api.visible("house-upper", "f-upper")).toBe(true);
     // The dormer geometry lives in `house-roof` but under that asset's own `f-upper` node.
     expect(await api.visible("house-roof", "f-upper")).toBe(true);
@@ -514,7 +514,7 @@ test("the structure asset's edges are hidden while the floors are exploded", asy
   try {
     const api = vh(page);
     await page.getByRole("tab", { name: "Layers", exact: true }).click();
-    await page.getByRole("checkbox", { name: "Structure (trusses, footings)" }).check();
+    await page.getByRole("switch", { name: "Structure (trusses, footings)" }).click();
     await expect
       .poll(() => vh(page).status().then((s) => s.loadedAssetIds.includes(STRUCTURE.asset)), {
         timeout: 60_000,

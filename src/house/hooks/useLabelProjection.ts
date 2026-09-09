@@ -15,6 +15,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { RefObject } from "react";
 import type { ExplodeGroup, PlacementLinkedEntity, Selection } from "@/house/model/types";
+import type { EquipmentLabelReading } from "@/house/model/equipmentLabel";
 import type { HouseRuntime } from "../runtime";
 
 export type LabelKind = "building" | "room" | "equipment" | "route";
@@ -84,11 +85,13 @@ export interface LabelPoolSizes {
 
 export const DESKTOP_POOL: LabelPoolSizes = { labels: 28, badges: 20 };
 export const PHONE_POOL: LabelPoolSizes = { labels: 16, badges: 8 };
+export const LABEL_DETAILS_EVENT = "vh-show-label-details";
 
 interface PooledLabel {
   el: HTMLButtonElement;
   anchorId: string | null;
   badgeEnabled: boolean;
+  expandable: boolean;
 }
 
 export class LabelPool {
@@ -111,7 +114,7 @@ export class LabelPool {
         if (entry?.anchorId) onActivate(entry.anchorId);
       });
       host.appendChild(el);
-      this.labels.push({ el, anchorId: null, badgeEnabled: false });
+      this.labels.push({ el, anchorId: null, badgeEnabled: false, expandable: false });
     }
     for (let i = 0; i < sizes.badges; i++) {
       const el = document.createElement("div");
@@ -127,6 +130,7 @@ export class LabelPool {
       entry.el.hidden = true;
       entry.anchorId = null;
       entry.badgeEnabled = false;
+      entry.expandable = false;
     }
     for (const badge of this.badges) badge.hidden = true;
   }
@@ -150,11 +154,7 @@ interface Candidate {
 
 export interface LabelProjectionOptions {
   sizes?: LabelPoolSizes;
-  badgeText?: (anchor: LabelAnchor, expanded: boolean) => {
-    text: string;
-    className: string;
-    batteryPercent?: number;
-  } | null;
+  badgeText?: (anchor: LabelAnchor, expanded: boolean) => EquipmentLabelReading | null;
   subscribeBadgeChanges?: (refresh: () => void) => () => void;
 }
 
@@ -182,7 +182,8 @@ export function useLabelProjection(
     const pool = new LabelPool(host, sizes, (anchorId) => {
       const anchor = anchorsRef.current?.find((a) => a.id === anchorId);
       if (!anchor) return;
-      if (anchor.kind === "equipment" && (anchor.linkedEntities?.length ?? 0) > 1) {
+      const reading = badgeTextRef.current?.(anchor, expandedRef.current.has(anchorId));
+      if (anchor.kind === "equipment" && reading?.expandable) {
         const expanded = expandedRef.current;
         if (expanded.has(anchorId)) expanded.delete(anchorId);
         else expanded.add(anchorId);
@@ -190,8 +191,25 @@ export function useLabelProjection(
       }
       runtime.select(anchor.selection);
     });
+    const showAccessibleDetails = (event: Event) => {
+      const anchorId = (event as CustomEvent<{ anchorId?: string }>).detail?.anchorId;
+      if (!anchorId) return;
+      const anchor = anchorsRef.current?.find((candidate) => candidate.id === anchorId);
+      const reading = anchor && badgeTextRef.current?.(anchor, false);
+      if (!anchor || !reading?.expandable) return;
+      expandedRef.current.add(anchorId);
+      refreshVisibleLabels(
+        pool,
+        anchorsRef.current ?? [],
+        tierRef.current,
+        badgeTextRef.current,
+        expandedRef.current,
+      );
+    };
+    host.addEventListener(LABEL_DETAILS_EVENT, showAccessibleDetails);
     poolRef.current = pool;
     return () => {
+      host.removeEventListener(LABEL_DETAILS_EVENT, showAccessibleDetails);
       pool.dispose();
       poolRef.current = null;
     };
@@ -290,7 +308,6 @@ function write(
     slot.el.style.transform = `translate3d(${Math.round(candidate.x)}px, ${Math.round(candidate.y)}px, 0)`;
     writeLabelText(slot, anchor, tier, badgeText, expanded.has(anchor.id));
     slot.el.setAttribute("data-anchor", anchor.id);
-    slot.el.setAttribute("aria-label", anchor.secondary ? `${anchor.text} (${anchor.secondary})` : anchor.text);
   }
 
   for (let i = labelIndex; i < pool.labels.length; i++) {
@@ -299,6 +316,7 @@ function write(
       slot.el.hidden = true;
       slot.anchorId = null;
       slot.badgeEnabled = false;
+      slot.expandable = false;
   }
   for (let i = badgeIndex; i < pool.badges.length; i++) {
     const badge = pool.badges[i];
@@ -313,48 +331,121 @@ function writeLabelText(
   badgeText: LabelProjectionOptions["badgeText"],
   expanded: boolean,
 ): void {
-  slot.el.style.maxWidth = "calc(100% - 16px)";
-  slot.el.style.whiteSpace = expanded ? "normal" : "nowrap";
-  slot.el.style.overflowWrap = "anywhere";
-  slot.el.style.width = expanded ? "min(22rem, calc(100% - 16px))" : "";
-  slot.el.style.borderRadius = expanded ? "0.5rem" : "";
   const badge = slot.badgeEnabled && badgeText ? badgeText(anchor, expanded) : null;
+  const showExpanded = expanded && (badge?.expandable ?? false);
+  slot.el.style.maxWidth = "calc(100% - 16px)";
+  slot.el.style.whiteSpace = showExpanded ? "normal" : "nowrap";
+  slot.el.style.overflowWrap = showExpanded ? "normal" : "anywhere";
+  slot.el.style.width = showExpanded ? "min(18rem, calc(100% - 16px))" : "";
+  slot.el.style.borderRadius = showExpanded ? "0.5rem" : "";
+  slot.el.style.padding = showExpanded ? ".5rem .625rem" : "";
+  slot.expandable = badge?.expandable ?? false;
   const prefix = badge?.text ? `${anchor.text} · ${badge.text}` : anchor.text;
   const battery = badge?.batteryPercent;
-  const contentKey = `${prefix}\0${battery ?? ""}`;
+  const contentKey = `${prefix}\0${battery ?? ""}\0${expanded}\0${JSON.stringify(badge?.details ?? [])}`;
   if (slot.el.dataset.contentKey !== contentKey) {
     slot.el.dataset.contentKey = contentKey;
-    if (battery === undefined) {
-      slot.el.textContent = prefix;
-      delete slot.el.dataset.batteryLevel;
-      delete slot.el.dataset.captureText;
-    } else {
-      const level = Math.round(Math.min(100, Math.max(0, battery)));
-      const icon = document.createElement("span");
-      icon.className = "vh-battery-icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.style.cssText = "display:inline-flex;align-items:center;gap:1px;margin-left:.35rem;vertical-align:middle";
-      const body = document.createElement("span");
-      body.style.cssText = "display:inline-flex;width:.75rem;height:.45rem;padding:1px;border:1px solid currentColor;border-radius:2px";
-      const fill = document.createElement("span");
-      fill.style.cssText = `display:block;width:${level}%;height:100%;background:currentColor`;
-      const cap = document.createElement("span");
-      cap.style.cssText = "display:block;width:2px;height:.22rem;border-radius:0 1px 1px 0;background:currentColor";
-      body.append(fill);
-      icon.append(body, cap);
-      slot.el.replaceChildren(document.createTextNode(`${prefix} · `), icon, document.createTextNode(` ${level}%`));
-      slot.el.dataset.batteryLevel = String(level);
-      const filled = Math.round(level / 25);
-      slot.el.dataset.captureText = `${prefix} · [${"█".repeat(filled)}${"░".repeat(4 - filled)}] ${level}%`;
-    }
+    writeLabelContent(slot.el, anchor.text, badge, expanded);
   }
   const className = `vh-label vh-label-${anchor.kind}${tier.compact ? " vh-label-compact" : ""}${
     badge ? ` ${badge.className}` : ""
-  }`;
+  }${showExpanded ? " vh-label-expanded" : ""}`;
   if (slot.el.className !== className) slot.el.className = className;
-  if (anchor.kind === "equipment" && (anchor.linkedEntities?.length ?? 0) > 1)
-    slot.el.setAttribute("aria-expanded", String(expanded));
+  if (anchor.kind === "equipment" && slot.expandable)
+    slot.el.setAttribute("aria-expanded", String(showExpanded));
   else slot.el.removeAttribute("aria-expanded");
+  const accessibleReading = badge?.text ? `, ${badge.text}` : "";
+  const action = slot.expandable ? `, ${showExpanded ? "hide" : "show"} linked readings` : "";
+  slot.el.setAttribute("aria-label", `${anchor.text}${accessibleReading}${action}`);
+}
+
+const ICON_GLYPH: Record<NonNullable<EquipmentLabelReading["details"]>[number]["icon"], string> = {
+  temperature: "°",
+  humidity: "◒",
+  illuminance: "☼",
+  occupancy: "●",
+  contact: "□",
+  light: "✦",
+  power: "ϟ",
+  reading: "•",
+};
+
+const TONE_COLOR: Record<NonNullable<EquipmentLabelReading["details"]>[number]["tone"], string> = {
+  live: "var(--vh-ok)",
+  inactive: "var(--vh-ink-3)",
+  unknown: "var(--vh-unknown)",
+  stale: "var(--vh-stale)",
+};
+
+function batteryNode(level: number): HTMLSpanElement {
+  const icon = document.createElement("span");
+  icon.className = "vh-battery-icon";
+  icon.setAttribute("aria-hidden", "true");
+  const color = level <= 10 ? "var(--vh-overdue)" : level <= 20 ? "var(--vh-due)" : "var(--vh-ink-2)";
+  icon.style.cssText = `display:inline-flex;align-items:center;gap:1px;vertical-align:middle;color:${color}`;
+  const body = document.createElement("span");
+  body.style.cssText = "display:inline-flex;width:.75rem;height:.45rem;padding:1px;border:1px solid currentColor;border-radius:2px";
+  const fill = document.createElement("span");
+  fill.style.cssText = `display:block;width:${level}%;height:100%;background:currentColor`;
+  const cap = document.createElement("span");
+  cap.style.cssText = "display:block;width:2px;height:.22rem;border-radius:0 1px 1px 0;background:currentColor";
+  body.append(fill);
+  icon.append(body, cap);
+  return icon;
+}
+
+function writeLabelContent(
+  el: HTMLButtonElement,
+  title: string,
+  reading: EquipmentLabelReading | null,
+  expanded: boolean,
+): void {
+  const battery = reading?.batteryPercent;
+  const level = battery === undefined ? undefined : Math.round(Math.min(100, Math.max(0, battery)));
+  if (!expanded || !reading?.expandable) {
+    const parts: Node[] = [document.createTextNode(reading?.text ? `${title} · ${reading.text}` : title)];
+    if (level !== undefined) parts.push(document.createTextNode(" · "), batteryNode(level), document.createTextNode(` ${level}%`));
+    el.replaceChildren(...parts);
+    el.dataset.captureText = `${reading?.text ? `${title} · ${reading.text}` : title}${level === undefined ? "" : ` · [${"█".repeat(Math.round(level / 25))}${"░".repeat(4 - Math.round(level / 25))}] ${level}%`}`;
+  } else {
+    const header = document.createElement("span");
+    header.className = "vh-label-header";
+    header.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:.75rem;text-align:left";
+    const name = document.createElement("span");
+    name.style.cssText = "min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:650";
+    name.textContent = title;
+    header.append(name);
+    if (level !== undefined) {
+      const batteryBadge = document.createElement("span");
+      batteryBadge.style.cssText = "display:inline-flex;flex:none;align-items:center;gap:.25rem;color:var(--vh-ink-2);font-size:.6875rem";
+      batteryBadge.append(batteryNode(level), document.createTextNode(`${level}%`));
+      header.append(batteryBadge);
+    }
+    const list = document.createElement("span");
+    list.className = "vh-label-readings";
+    list.style.cssText = "display:grid;margin-top:.35rem;padding-top:.25rem;border-top:1px solid var(--vh-line);gap:.125rem";
+    for (const detail of reading.details) {
+      const row = document.createElement("span");
+      row.className = "vh-label-reading";
+      row.style.cssText = "display:grid;grid-template-columns:1rem minmax(0,1fr) auto;align-items:center;gap:.375rem;min-height:1.35rem;text-align:left";
+      const icon = document.createElement("span");
+      icon.setAttribute("aria-hidden", "true");
+      icon.style.cssText = `color:${TONE_COLOR[detail.tone]};font-size:.75rem;text-align:center`;
+      icon.textContent = ICON_GLYPH[detail.icon];
+      const label = document.createElement("span");
+      label.style.cssText = "min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--vh-ink-3);font-size:.6875rem;font-weight:500";
+      label.textContent = detail.label;
+      const value = document.createElement("span");
+      value.style.cssText = `white-space:nowrap;color:${TONE_COLOR[detail.tone]};font-size:.75rem;font-weight:650`;
+      value.textContent = detail.value;
+      row.append(icon, label, value);
+      list.append(row);
+    }
+    el.replaceChildren(header, list);
+    el.dataset.captureText = [title, ...reading.details.map((detail) => `${detail.label}: ${detail.value}`), ...(level === undefined ? [] : [`Battery: ${level}%`])].join("\n");
+  }
+  if (level === undefined) delete el.dataset.batteryLevel;
+  else el.dataset.batteryLevel = String(level);
 }
 
 function refreshVisibleLabels(

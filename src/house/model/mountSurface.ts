@@ -18,3 +18,11 @@ export function canMountSurface(index: ManifestIndex, surfaceId: string, mount: 
   const element = surface.elementId ? index.elements.get(surface.elementId) : undefined;
   return surface.kind === "other" && surface.role === "exterior" && element?.kind === "exterior-wall";
 }
+
+/** Free attachment may reference any physical package surface, never a scan overlay. */
+export function canAttachSurface(index: ManifestIndex, surfaceId: string): boolean {
+  const surface = index.surfaces.get(surfaceId);
+  if (!surface) return false;
+  const element = surface.elementId ? index.elements.get(surface.elementId) : undefined;
+  return surface.role !== "scan" && element?.kind !== "scan-reference";
+}

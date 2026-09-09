@@ -372,6 +372,8 @@ must call `invalidate()`:
 - a marker `instanceColor` change from Home Assistant — **only** when a colour actually changed;
 - a canvas resize or dpr change;
 - an edit-draft change (including the snap indicator).
+- each frame of a rapid live-equipment-light fade; shadow maps refresh only when a source or model
+  occluder changes, then demand rendering returns idle;
 
 Everything else — label text, badge classes, inspector renders, tooltips — is a DOM write and must
 **not** invalidate. A temperature reading must not wake the GPU. `__vh.invalidateCount()` exists so
@@ -381,7 +383,8 @@ Other fixed choices: `localClippingEnabled = true` (per-material clipping planes
 shared clipping planes allocated per explode group plus a fixed third plane per surface material
 for focus wall cuts (edges retain the shared pair). "Off" is a constant beyond the model bounds,
 so focus changes never change shader plane counts; `NoToneMapping`, so a persisted hex
-matches what the user picked; no shadows; no `three-mesh-bvh`; scan references are non-pickable.
+matches what the user picked; bounded local equipment-light shadows (never broad directional
+shadows); no `three-mesh-bvh`; scan references are non-pickable and do not cast shadows.
 
 The context is **`alpha: true`** with `scene.background = null` and `setClearAlpha(0)` — it was
 `alpha: false` with an opaque `0xf4f4f2` clear colour until D-024. The background is now CSS on the
@@ -455,6 +458,10 @@ is a decision rather than an oversight:
 - **Exploded + cutaway composition** relies on per-group clipping-plane pairs tracking each group's
   offset. If it ever misbehaves, the fallback is one line of UI logic: make the two mutually
   exclusive.
+- **Floor focus is per building.** Higher floors in the focused building are hidden while its lower
+  supporting floors and other buildings remain visible. Roof-role surfaces are resolved by semantic
+  surface metadata as well as element groups, so roof faces nested inside a floor-bound dormer do
+  not remain when the roof is hidden.
 - **The performance budgets in the design note are budgets**, computed from the package and the
   producer's reference run — not results this implementation has already demonstrated on the target
   machine.
@@ -506,13 +513,22 @@ controls. No package geometry or physical placement coordinates are changed.
 
 Linked `light.*` entities illuminate nearby model surfaces while Home Assistant is connected and the
 state is `on`. Brightness scales the illumination; RGB, hue/saturation and colour-temperature values
-supply its colour. Unknown/unavailable values emit no light. Light state is event-driven: an unchanged
-`on` state remains valid while the stream stays connected. Downlight and spike-spot symbols use a
-narrow cone; other fixtures use a local point light. Sources follow the placement's explode offset
-and floor visibility. The rendering is illustrative, with bounded distance and no shadow maps; it is
-not a photometric simulation. A fixed pool of eight point lights and eight spotlights prioritizes the
-selected equipment and nearby visible fixtures (two of each in performance mode). Fixed slots avoid
-shader recompilation when a light changes state. Unchanged sensor updates do not request a frame.
+supply its colour. A light with no colour attribute uses a warm 2,700 K default. Unknown/unavailable
+values emit no light. Light state is event-driven: an unchanged `on` state remains valid while the
+stream stays connected. State, brightness and colour changes fade over 160 ms; demand rendering asks
+for frames only until the fade settles. Downlight and spike-spot symbols use a narrow cone; other
+fixtures use a local point light. Sources follow the placement's explode offset and floor visibility.
+
+The rendering is illustrative rather than photometric. Every emitting source casts a shadow so walls
+and closed door geometry stop light leaking into adjacent rooms. Cutaway/focus clipping is excluded
+from the shadow pass, leaving the model's full wall and door geometry as occluders even when the
+camera sees a low wall stub. Shadow cost is bounded to four point lights and four spotlights (one of
+each in performance mode), prioritizing selected and nearby visible fixtures. Point-light cube faces
+are 128 px and spotlight maps are 256 px. Four fixed slots of each kind remain allocated, and the
+budgeted shadow slots stay enabled at zero intensity to avoid shader churn when HA state changes.
+Model surfaces use at least 0.94 roughness, and local intensities plus the architectural fill are
+restrained to avoid clipped highlights under `NoToneMapping`. Unchanged sensor updates do not request
+a frame.
 
 `asset_placement.light_aim_yaw_deg` and `light_aim_pitch_deg` are nullable physical beam angles,
 added by migration 0007 without rebuilding the table. `lightAim` in the placement API uses degrees:
@@ -521,3 +537,17 @@ fixture's default. They are independent of body yaw and mounting coordinates. Om
 older API clients preserve an existing direction; explicit null resets it. Beam angles participate in
 normal placement save, undo and cancellation. Mouse aiming picks model surfaces in physical space;
 hover previews never mutate the draft. The aiming arrow is excluded from PNG downloads.
+
+### Attachment to general model objects
+
+Placement picking includes all visible physical package surfaces, including door leaves, opening
+reveals, frames, trim and terrain. Scans, equipment markers and editing overlays are excluded.
+Walls/ceilings keep their specialized mount semantics; other faces produce a `free` mount with an
+optional `surfaceId`. The existing `mount_surface_id` column holds that reference, so this adds no
+schema migration. Server validation checks that the surface belongs to the active package and is
+not a scan; it does not misclassify a door frame as a wall.
+
+General attachment uses the actual picked face and normal with a 2 cm standoff. Its coordinates
+are rounded to millimetres, without snapping a narrow frame off its face onto the global grid.
+Height remains relative to the resolved room floor or floor datum. Numeric edits and save/reload
+retain the reference and facing direction; choosing an unattached free mount removes the reference.

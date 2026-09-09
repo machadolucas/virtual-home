@@ -12,7 +12,7 @@
 import { assetEdgesSpanGroups, explodeGroupOf, isRoofGroup, nodeLayer } from "./explodeGroups";
 import { isAboveFocus, type FocusContext } from "./focusContext";
 import { nodeKey, type ManifestIndex } from "./manifestIndex";
-import type { Asset, AssetId, FloorId, LayerId, Projection, ViewMode } from "./types";
+import type { Asset, AssetId, FloorId, LayerId, Projection, ViewMode, WallMode } from "./types";
 import { SITE_GROUP } from "./types";
 
 /** Structural element kinds; a `detail` asset made only of these is gated by the structure layer. */
@@ -39,6 +39,7 @@ export interface AssetNodeInventory {
 export interface VisibilityInput {
   viewMode: ViewMode;
   projection?: Projection;
+  wallMode?: WallMode;
   activeFloorId: FloorId | null;
   roofVisible: boolean;
   ceilingsVisible: boolean;
@@ -82,16 +83,19 @@ export function computeVisibility(index: ManifestIndex, v: VisibilityInput): Vis
   const isolating = ISOLATING.has(v.viewMode) && v.activeFloorId !== null;
   const exploded = (v.explode?.enabled ?? false) && (v.explode?.gap ?? 0) > 0;
   const focus = v.focus ?? null;
+  const focusOpensShell = v.wallMode !== "closed";
   // Focus temporarily supersedes manual isolation so a room on another floor can always reveal
   // itself. Clearing focus re-applies the unchanged manual mode.
   const manualIsolating = isolating && focus === null;
 
-  // 1. asset roots: loaded ∩ layer gating ∩ (floor isolation, where the asset belongs to a floor)
+  // 1. asset roots. A floor shortcut focuses one building storey while retaining the rest of the
+  //    property and the lower floors that visually support it.
   for (const asset of index.manifest.assets) {
     let visible = loaded.has(asset.id);
     const layer = assetLayer(index, asset);
     if (visible && layer && !v.layers[layer]) visible = false;
-    if (visible && manualIsolating && asset.floorId && asset.floorId !== v.activeFloorId) visible = false;
+    if (visible && manualIsolating && asset.floorId && aboveActiveFloor(index, asset.floorId, v.activeFloorId))
+      visible = false;
     if (visible && focus && asset.floorId && isAboveFocus(index, asset.floorId, focus)) visible = false;
     assets.set(asset.id, visible);
   }
@@ -99,11 +103,12 @@ export function computeVisibility(index: ManifestIndex, v: VisibilityInput): Vis
   for (const inv of v.inventory) {
     const assetVisible = assets.get(inv.assetId) ?? false;
 
-    // 2. floor isolation, across all assets that carry a copy of the floor node
+    // 2. Per-building floor focus, across all assets that carry a copy of the floor node.
     for (const fname of inv.floorNodes) {
       nodes.set(
         nodeKey(inv.assetId, fname),
-        (!manualIsolating || fname === v.activeFloorId) && (!focus || !isAboveFocus(index, fname, focus)),
+        (!manualIsolating || !aboveActiveFloor(index, fname, v.activeFloorId)) &&
+          (!focus || !isAboveFocus(index, fname, focus)),
       );
     }
 
@@ -116,11 +121,15 @@ export function computeVisibility(index: ManifestIndex, v: VisibilityInput): Vis
       else if (isRoofGroup(group))
         visible =
           v.roofVisible &&
-          (!focus || focus.floorId === null || focus.keepRoof || group !== `roof:${focus.buildingId}`);
+          (!focusOpensShell ||
+            !focus ||
+            focus.floorId === null ||
+            focus.keepRoof ||
+            group !== `roof:${focus.buildingId}`);
       else if (group === SITE_GROUP) visible = true; // grade-level: isolation does not apply
       else
         visible =
-          (!manualIsolating || group === v.activeFloorId) &&
+          (!manualIsolating || !aboveActiveFloor(index, group, v.activeFloorId)) &&
           (!focus || !isAboveFocus(index, group, focus));
       nodes.set(nodeKey(inv.assetId, ename), visible);
     }
@@ -147,14 +156,43 @@ export function computeVisibility(index: ManifestIndex, v: VisibilityInput): Vis
     const floorId = index.floorOfSurface.get(sid) ?? null;
     const hide =
       (!v.ceilingsVisible && (!manualIsolating || floorId === null || floorId === v.activeFloorId)) ||
-      (focus !== null &&
+      (focusOpensShell &&
+        focus !== null &&
         focus.floorId !== null &&
         floorId === focus.floorId &&
         sid !== focus.preserveSurfaceId);
     for (const nr of s.nodeRefs) nodes.set(nodeKey(nr.assetId, nr.nodeName), !hide);
   }
 
+  // 5. Roof-role faces can live below a floor-bound dormer group. Hiding only the outer roof
+  // element therefore leaves those faces floating above the room. Resolve them by semantic
+  // surface role while leaving the dormer's wall faces and openings with their floor.
+  if (!v.roofVisible) {
+    for (const surface of index.surfaces.values()) {
+      const element = surface.elementId ? index.elements.get(surface.elementId) : undefined;
+      const roofFace =
+        element?.kind === "roof" ||
+        /^roof(?:-|$)/i.test(surface.role ?? "") ||
+        /^dormer-ceiling/i.test(surface.role ?? "");
+      if (!roofFace) continue;
+      for (const nr of surface.nodeRefs) nodes.set(nodeKey(nr.assetId, nr.nodeName), false);
+    }
+  }
+
   return { assets, nodes };
+}
+
+function aboveActiveFloor(
+  index: ManifestIndex,
+  floorId: FloorId,
+  activeFloorId: FloorId | null,
+): boolean {
+  if (!activeFloorId) return false;
+  const floor = index.floors.get(floorId);
+  const active = index.floors.get(activeFloorId);
+  return Boolean(
+    floor && active && floor.buildingId === active.buildingId && floor.elevation > active.elevation,
+  );
 }
 
 /** Whether an explode group is currently on screen — used by the label overlay. */
@@ -167,7 +205,7 @@ export function isGroupVisible(
   if (isRoofGroup(group)) return input.roofVisible;
   if (group === SITE_GROUP) return true;
   if (!ISOLATING.has(input.viewMode) || input.activeFloorId === null) return true;
-  return group === input.activeFloorId;
+  return !aboveActiveFloor(index, group, input.activeFloorId);
 }
 
 /** The dollhouse preset: a *store write*, not a mode, so the checkboxes stay in sync. */

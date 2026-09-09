@@ -16,7 +16,7 @@ import { snapValue } from "@/house/model/geometry2d";
 import { roomAt, type ManifestIndex } from "@/house/model/manifestIndex";
 import type { FloorId, PlacementMount, RoomId, SurfaceId, Vec3 } from "@/house/model/types";
 import type { PickResult } from "./picker";
-import { canMountSurface } from "../model/mountSurface";
+import { canMountSurface, canAttachSurface } from "../model/mountSurface";
 import type { GroundReference } from "./groundProjection";
 export { isSoffitSurface } from "../model/mountSurface";
 import { wallFrame, type WallFrame } from "./wallFrame";
@@ -165,6 +165,27 @@ export function resolveSnap(input: SnapInput): SnapSolution {
     }
   }
 
+  // Other physical surfaces use a free mount with an exact attachment reference. Do not flatten
+  // a door reveal to its surrounding wall, or grid-round a narrow frame off its actual face.
+  if (hit?.surfaceId && canAttachSurface(manifest, hit.surfaceId)) {
+    const floorId = manifest.floorOfSurface.get(hit.surfaceId) ?? hit.floorId ?? draft.floorId;
+    const roomId = hit.roomId ?? roomAt(manifest, floorId, hit.point.x, hit.point.z);
+    const base = (roomId ? manifest.rooms.get(roomId)?.floorElevation : undefined)
+      ?? manifest.floors.get(floorId)?.elevation ?? 0;
+    const normal = hit.normal?.clone().normalize();
+    const point = hit.point.clone();
+    if (normal) point.addScaledVector(normal, WALL_STANDOFF);
+    const physical: Vec3 = [snapValue(point.x, 0), snapValue(point.y, 0), snapValue(point.z, 0)];
+    return {
+      physical,
+      rotationYDeg: normal && Math.hypot(normal.x, normal.z) > 0.01
+        ? snapValue(THREE.MathUtils.radToDeg(Math.atan2(normal.x, normal.z)), 0) : draft.rotationYDeg,
+      mount: { kind: "free", surfaceId: hit.surfaceId, height: snapValue(physical[1] - base, 0) },
+      floorId, roomId, surfaceId: hit.surfaceId,
+      indicator: { kind: "free", point: physical },
+    };
+  }
+
   // 4. FREE — a horizontal plane at the drafted floor's elevation.
   const floor = manifest.floors.get(draft.floorId);
   const planeY = floor?.elevation ?? draft.physical[1];
@@ -211,10 +232,12 @@ export function resolveNumeric(
   const grid = config.enabled ? config.grid : 0;
   let x = snapValue(draft.physical[0], grid);
   let z = snapValue(draft.physical[2], grid);
-  const surfaceId = draft.mount.kind === "wall" || draft.mount.kind === "ceiling" ? draft.mount.surfaceId : null;
+  const surfaceId = "surfaceId" in draft.mount ? draft.mount.surfaceId ?? null : null;
   const surface = surfaceId ? manifest.surfaces.get(surfaceId) : undefined;
   const floorId = (surfaceId ? manifest.floorOfSurface.get(surfaceId) : null) ?? draft.floorId;
-  const roomId = surface ? surface.roomId ?? null : roomAt(manifest, floorId, x, z);
+  const roomId = surface
+    ? surface.roomId ?? (draft.mount.kind === "free" ? roomAt(manifest, floorId, x, z) : null)
+    : roomAt(manifest, floorId, x, z);
   const room = roomId ? manifest.rooms.get(roomId) : undefined;
 
   /**
@@ -228,7 +251,13 @@ export function resolveNumeric(
   let y = snapValue(draft.physical[1], 0);
   const mount = draft.mount;
 
-  if (mount.kind === "floor" || mount.kind === "free") {
+  if (mount.kind === "free" && mount.surfaceId) {
+    // Small frames and angled faces must not jump onto the global grid during an unrelated edit.
+    x = snapValue(draft.physical[0], 0);
+    z = snapValue(draft.physical[2], 0);
+    const base = room?.floorElevation ?? manifest.floors.get(floorId)?.elevation ?? 0;
+    y = snapValue(base + mount.height, 0);
+  } else if (mount.kind === "floor" || mount.kind === "free") {
     const base = room?.floorElevation ?? manifest.floors.get(floorId)?.elevation ?? 0;
     y = snapValue(base + mount.height, 0);
   } else if (mount.kind === "wall") {
@@ -267,8 +296,7 @@ export function resolveNumeric(
     mount: draft.mount,
     floorId,
     roomId,
-    surfaceId:
-      mount.kind === "wall" || mount.kind === "ceiling" ? mount.surfaceId : null,
+    surfaceId,
     indicator: { kind: "free", point: [x, y, z] },
   };
 }

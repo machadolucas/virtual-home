@@ -2,7 +2,7 @@ import type { StateCreator } from "zustand";
 import { DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from "@/house/model/background";
 import { DEFAULT_EXPLODE_GAP } from "@/house/model/explodeGroups";
 import { DOLLHOUSE_PRESET, OVERVIEW_PRESET } from "@/house/model/visibilityPlan";
-import type { FloorId, Projection, VerticalCut, ViewMode } from "@/house/model/types";
+import type { FloorId, Projection, VerticalCut, ViewMode, WallMode } from "@/house/model/types";
 import type { HouseStore, Mutators } from "../createHouseStore";
 
 /**
@@ -30,6 +30,8 @@ export interface ViewSlice {
   cameraOverride: boolean;
   activeFloorId: FloorId | null;
   projection: Projection;
+  wallMode: WallMode;
+  wallModeExplicit: boolean;
   cut: { enabled: boolean; y: number; vertical: VerticalCut | null };
   explode: { enabled: boolean; gap: number; locked: boolean };
   roofVisible: boolean;
@@ -47,6 +49,7 @@ export interface ViewSlice {
   setCameraOverride(held: boolean): void;
   isolateFloor(floorId: FloorId | null): void;
   setProjection(projection: Projection): void;
+  setWallMode(mode: WallMode, explicit?: boolean): void;
   setCut(cut: Partial<ViewSlice["cut"]>): void;
   nudgeCut(delta: number): void;
   setExplode(explode: Partial<ViewSlice["explode"]>): void;
@@ -66,6 +69,8 @@ export const initialView = {
   cameraOverride: false,
   activeFloorId: null,
   projection: "perspective" as Projection,
+  wallMode: "closed" as WallMode,
+  wallModeExplicit: false,
   cut: { enabled: false, y: 1.5, vertical: null as VerticalCut | null },
   explode: { enabled: false, gap: DEFAULT_EXPLODE_GAP, locked: false },
   roofVisible: true,
@@ -87,11 +92,26 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
   isolateFloor: (activeFloorId) =>
     set(() =>
       activeFloorId
-        ? { activeFloorId, viewMode: "floor" as ViewMode }
+        ? {
+            activeFloorId,
+            viewMode: "floor" as ViewMode,
+            wallMode: "contextual" as WallMode,
+            wallModeExplicit: false,
+            roofVisible: false,
+            ceilingsVisible: false,
+          }
         : { activeFloorId: null, viewMode: "overview" as ViewMode },
     ),
 
   setProjection: (projection) => set({ projection }),
+
+  setWallMode: (wallMode, wallModeExplicit = true) =>
+    set({
+      wallMode,
+      wallModeExplicit,
+      roofVisible: wallMode === "closed",
+      ceilingsVisible: wallMode === "closed",
+    }),
 
   setCut: (cut) => set((s) => ({ cut: { ...s.cut, ...cut } })),
 
@@ -103,17 +123,29 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
   setExplode: (explode) =>
     set((s) => (s.explode.locked && explode.gap !== 0 ? {} : { explode: { ...s.explode, ...explode } })),
 
-  setRoofVisible: (roofVisible) => set({ roofVisible }),
-  setCeilingsVisible: (ceilingsVisible) => set({ ceilingsVisible }),
+  setRoofVisible: (visible) =>
+    set((s) => ({
+      roofVisible: visible,
+      wallMode: visible && s.ceilingsVisible ? "closed" : s.wallMode === "closed" ? "up" : s.wallMode,
+      wallModeExplicit: true,
+    })),
+  setCeilingsVisible: (visible) =>
+    set((s) => ({
+      ceilingsVisible: visible,
+      wallMode: visible && s.roofVisible ? "closed" : s.wallMode === "closed" ? "up" : s.wallMode,
+      wallModeExplicit: true,
+    })),
   setEdgesVisible: (edgesVisible) => set({ edgesVisible }),
   setPerformanceMode: (performanceMode) => set({ performanceMode }),
   setBackground: (background) => set({ background }),
 
-  applyDollhouse: () => set({ ...DOLLHOUSE_PRESET, activeFloorId: null }),
+  applyDollhouse: () => set({ ...DOLLHOUSE_PRESET, wallMode: "contextual", wallModeExplicit: true, activeFloorId: null }),
 
   applyOverview: () =>
     set((s) => ({
       ...OVERVIEW_PRESET,
+      wallMode: "closed",
+      wallModeExplicit: false,
       focusSelection: null,
       cut: { ...s.cut, enabled: false, vertical: null },
       explode: { ...s.explode, enabled: false },

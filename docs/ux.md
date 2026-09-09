@@ -70,10 +70,14 @@ missing.
 ### House workspace controls
 
 The desktop right panel has one scroll region for details, equipment placement or route editing.
-The bottom View controls panel contains View (floors, cutaway, explode), Layers (visibility and
-route legend), and Rendering (performance and background) tabs. Camera presets and Download image
-remain available when the bottom panel is collapsed. Controls use compact desktop spacing and
-retain larger phone touch targets.
+Floor shortcuts float at the bottom-left of the canvas, grouped by building. Choosing a floor gives
+it a top-down focus while retaining lower supporting floors in that building and every other
+building. The bottom View controls panel contains View (Sims-style wall mode, cutaway, explode),
+Layers (visibility and route legend), and Rendering (performance and background) tabs. Wall mode is
+one of All cut, Contextual, All up, or All up + roof/ceiling; Show inside is the quick contextual
+preset. Camera presets and Download image remain available when the bottom panel is collapsed.
+Immediate visibility settings use switches. Controls use compact desktop spacing and retain larger
+phone touch targets.
 
 Starting an edit opens the right panel. Collapsing it discards the unsaved placement or route draft
 without confirmation, restores the existing route when applicable, and returns focus to the canvas.
@@ -660,3 +664,8 @@ For downlights and ground spike spots, placement editing includes **Spotlight di
 **Aim in 3D view**, point at a surface and click to set the beam direction. The preview arrow does not
 move the equipment. Yaw/pitch fields provide the same operation on phones and for keyboard users.
 **Reset direction** restores the fixture default; normal Save/Cancel and Undo apply.
+
+Placement also accepts door frames, door leaves and other visible model objects. Click the actual
+face to attach with a **Free / other surface** mount. The height and X/Y/Z fields allow fine
+adjustment; editing Y now updates the mounting height too. Model scans and equipment markers are
+not attachment surfaces.

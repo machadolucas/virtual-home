@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
-import { captureHouseView, gradientEndpoints } from "@/house/capture";
+import { captureHouseView, gradientEndpoints, wrapCaptureText } from "@/house/capture";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -9,6 +9,14 @@ describe("image capture", () => {
     gradientEndpoints(800, 400, 180).forEach((value, i) => expect(value).toBeCloseTo([400, 0, 400, 400][i]!));
     gradientEndpoints(800, 400, 90).forEach((value, i) => expect(value).toBeCloseTo([0, 200, 800, 200][i]!));
     expect(gradientEndpoints(800, 400, 45)[3]).toBeLessThan(0);
+  });
+
+  it("keeps structured reading rows separate and wraps long rows", () => {
+    const measure = (text: string) => text.length;
+    expect(wrapCaptureText("Sensor\nTemperature: 21.4 °C\nDoor: Closed", 40, measure, true))
+      .toEqual(["Sensor", "Temperature: 21.4 °C", "Door: Closed"]);
+    expect(wrapCaptureText("Sensor\nVery long friendly reading: 21.4 °C", 20, measure, true))
+      .toEqual(["Sensor", "Very long friendly", "reading: 21.4 °C"]);
   });
 
   it.each([false, true])("restores guides and renderer state when capture throws: %s", async (fail) => {

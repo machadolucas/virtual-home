@@ -11,6 +11,7 @@
  * with no visible way back is the kind of thing that makes a 3D view feel broken rather than modal.
  */
 import { Hand, MousePointer2, MapPin } from "lucide-react";
+import { Tooltip } from "@/ui";
 import { cn } from "@/ui/cn";
 import { CANVAS_TOOLS, type CanvasTool } from "@/house/store/slices/view";
 import { useHouseStore, useShallow } from "../hooks/useHouseStore";
@@ -33,7 +34,7 @@ const TOOL_META: {
   place: {
     label: "Place",
     key: "M",
-    hint: "Move the pointer to aim, click to set the position. The camera is locked while you place.",
+    hint: "Click to place. Wheel zoom and right-drag pan stay available; hold Space to orbit.",
     icon: <MapPin aria-hidden="true" className="size-4" />,
   },
 };
@@ -58,42 +59,30 @@ export function ToolPalette() {
         const meta = TOOL_META[value];
         const active = tool === value;
         return (
-          <button
-            key={value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            aria-label={`${meta.label} (${meta.key})`}
-            title={`${meta.label} — ${meta.key}. ${meta.hint}`}
-            onClick={() => setTool(value)}
-            className={cn(
-              "flex size-8 items-center justify-center rounded-md border",
-              active
-                ? "border-accent bg-accent-soft text-accent-text"
-                : "border-transparent text-ink-2 hover:bg-surface-3",
-            )}
-          >
-            {meta.icon}
-            <span className="sr-only">{meta.label}</span>
-          </button>
+          <Tooltip key={value} side="right" align="start" shortcut={meta.key} content={meta.hint}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={active}
+              aria-label={`${meta.label} (${meta.key})`}
+              onClick={() => setTool(value)}
+              className={cn(
+                "flex size-8 items-center justify-center rounded-md border",
+                active
+                  ? "border-accent bg-accent-soft text-accent-text"
+                  : "border-transparent text-ink-2 hover:bg-surface-3",
+              )}
+            >
+              {meta.icon}
+            </button>
+          </Tooltip>
         );
       })}
 
-      <p className="max-w-24 px-1 pb-0.5 text-[10px] leading-3 text-ink-3">
-        {cameraOverride ? (
-          <span className="text-accent-text">Camera (Space)</span>
-        ) : tool === "orbit" ? (
-          "Drag to orbit"
-        ) : (
-          <>Space for camera</>
-        )}
-      </p>
-
       {editing ? (
-        <p className="max-w-24 border-t border-line px-1 pt-1 text-[10px] leading-3 text-ink-3">
-          Placing — click in the view
-        </p>
+        <span className="mx-auto size-1.5 rounded-full bg-accent" aria-label="Placement active" />
       ) : null}
+      {cameraOverride ? <span className="sr-only">Camera temporarily active</span> : null}
     </div>
   );
 }

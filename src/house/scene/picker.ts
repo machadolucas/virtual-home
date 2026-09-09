@@ -20,7 +20,7 @@ import type {
 import type { ClipGroups } from "./clipGroups";
 import type { SceneIndex } from "./SceneIndex";
 import { isVisibleUp } from "./applyVisibility";
-import { canMountSurface } from "../model/mountSurface";
+import { canAttachSurface } from "../model/mountSurface";
 
 export interface PickResult {
   surfaceId: SurfaceId | null;
@@ -133,25 +133,11 @@ export function resolveOwnership(
   };
 }
 
-/** Ray candidates during a placement drag: the active floor's floor and wall faces only. */
-export function dragCandidates(index: SceneIndex, floorId: FloorId | null): THREE.Object3D[] {
+/** Visible physical package meshes, including doors, frames, trim and furniture. */
+export function dragCandidates(index: SceneIndex, _floorId: FloorId | null): THREE.Object3D[] {
   const out: THREE.Object3D[] = [];
   for (const [sid, mesh] of index.surfaceMesh) {
-    const s = index.manifest.surfaces.get(sid);
-    if (!s) continue;
-    if (!isVisibleUp(mesh)) continue;
-
-    // Roof undersides and other soffits belong to no floor — an eave is above the ground floor's
-    // ceiling and below the roof — so they are admitted regardless of the isolated floor. Without
-    // this an eave spot could not be aimed at all, which is the case that motivated it.
-    if (canMountSurface(index.manifest, sid, "ceiling")) {
-      out.push(mesh);
-      continue;
-    }
-
-    if (s.kind !== "floor" && !canMountSurface(index.manifest, sid, "wall")) continue;
-    if (floorId && index.manifest.floorOfSurface.get(sid) !== floorId) continue;
-    out.push(mesh);
+    if (canAttachSurface(index.manifest, sid) && isVisibleUp(mesh)) out.push(mesh);
   }
   return out;
 }

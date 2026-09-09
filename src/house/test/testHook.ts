@@ -53,10 +53,18 @@ export interface VhHook {
     geometries: number;
     textures: number;
     programs: number;
+    shadowMapEnabled: boolean;
   };
   frameStats(): VhFrameStats;
   invalidateCount(): number;
   lights(): import("../scene/equipmentLights").EquipmentLightSpec[];
+  renderedLights(): import("../scene/equipmentLights").RenderedEquipmentLight[];
+  shadowSurface(surfaceId: string): {
+    castShadow: boolean;
+    receiveShadow: boolean;
+    clipShadows: boolean;
+    roughness: number | null;
+  } | null;
   lastSavePayload(): unknown;
   disposedInfo(): { geometries: number; textures: number } | null;
 }
@@ -221,13 +229,21 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
 
     renderInfo() {
       const gl = rendererOf(runtime);
-      if (!gl) return { calls: 0, triangles: 0, geometries: 0, textures: 0, programs: 0 };
+      if (!gl) return {
+        calls: 0,
+        triangles: 0,
+        geometries: 0,
+        textures: 0,
+        programs: 0,
+        shadowMapEnabled: false,
+      };
       return {
         calls: gl.info.render.calls,
         triangles: gl.info.render.triangles,
         geometries: gl.info.memory.geometries,
         textures: gl.info.memory.textures,
         programs: gl.info.programs?.length ?? 0,
+        shadowMapEnabled: gl.shadowMap.enabled,
       };
     },
 
@@ -247,6 +263,20 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
     },
 
     lights() { return runtime.equipmentLights?.snapshot() ?? []; },
+
+    renderedLights() { return runtime.equipmentLights?.renderedSnapshot() ?? []; },
+
+    shadowSurface(surfaceId) {
+      const mesh = runtime.index?.surfaceMesh.get(surfaceId);
+      if (!mesh || Array.isArray(mesh.material)) return null;
+      const material = mesh.material as THREE.MeshStandardMaterial;
+      return {
+        castShadow: mesh.castShadow,
+        receiveShadow: mesh.receiveShadow,
+        clipShadows: material.clipShadows,
+        roughness: "roughness" in material ? material.roughness : null,
+      };
+    },
 
     invalidateCount() {
       return runtime.invalidateCount;

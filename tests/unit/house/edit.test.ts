@@ -786,3 +786,30 @@ describe("outdoor mounts", () => {
     expect(store.getState().editing).toBeNull();
   });
 });
+
+describe("attachment to other physical objects", () => {
+  it("picks door leaves and frames, excluding scan overlays", () => {
+    const built = buildScene(FIXTURE_DIR);
+    const names = dragCandidates(built.index, "f-lower").map((mesh) => mesh.name);
+    expect(names).toContain("s-o-l-door-reveal");
+    expect(names).toContain("s-o-l-door-leaf");
+    expect(names).not.toContain("s-e-scan-fx");
+  });
+
+  it("attaches to a frame's picked face without grid drift and preserves it through numeric edits", () => {
+    const built = buildScene(FIXTURE_DIR);
+    const hit = hitOn(built, "s-o-l-door-reveal", "r-l-a", new THREE.Vector3(1.013, 2.123, 0.517));
+    hit.normal = new THREE.Vector3(0, 0, -1);
+    const source = draftAt([0, 0, 0], "f-lower", { kind: "wall", surfaceId: "s-w-l-ab--r-l-a", height: 1, offset: 0.02 });
+    const before = JSON.stringify(source);
+    const result = resolveSnap({ hit, config: SNAP, manifest: built.manifestIndex, draft: source });
+    expect(JSON.stringify(source)).toBe(before);
+    expect(result.physical).toEqual([1.013, 2.123, 0.497]);
+    expect(result.mount).toEqual({ kind: "free", surfaceId: hit.surfaceId, height: 2.123 });
+    expect(Math.abs(result.rotationYDeg)).toBe(180);
+    const numeric = resolveNumeric(built.manifestIndex, { ...result, rotationYDeg: 45 }, SNAP);
+    expect(numeric.physical).toEqual(result.physical);
+    expect(numeric.surfaceId).toBe(hit.surfaceId);
+    expect(numeric.mount).toEqual(result.mount);
+  });
+});

@@ -15,11 +15,11 @@ import { cn } from "@/ui/cn";
 import { roomBox } from "@/house/model/framingBoxes";
 import { clipGroupOf } from "@/house/model/explodeGroups";
 import type { LabelAnchor } from "../hooks/useLabelProjection";
-import { DESKTOP_POOL, PHONE_POOL, useLabelProjection } from "../hooks/useLabelProjection";
+import { DESKTOP_POOL, LABEL_DETAILS_EVENT, PHONE_POOL, useLabelProjection } from "../hooks/useLabelProjection";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { useIsPhone } from "../hooks/useReducedMotion";
 import { haStore } from "@/house/store/haStore";
-import { equipmentLabelReading } from "@/house/model/equipmentLabel";
+import { equipmentLabelReading, explicitUsefulLinks } from "@/house/model/equipmentLabel";
 
 /**
  * The pooled label chip, as arbitrary variants on the host (the buttons are created
@@ -37,6 +37,10 @@ const LABEL_CHIP = [
   "[&>.vh-label]:px-2 [&>.vh-label]:py-1",
   "[&>.vh-label]:text-xs [&>.vh-label]:font-medium [&>.vh-label]:text-ink",
   "[&>.vh-label]:shadow-pop",
+  "[&>.vh-label-ok]:border-ok/45 [&>.vh-label-low]:border-due/55",
+  "[&>.vh-label-critical]:border-overdue/60 [&>.vh-label-stale]:border-stale/50",
+  "[&>.vh-label-unavailable]:border-unknown/50 [&>.vh-label-disconnected]:border-unknown/50",
+  "[&>.vh-label-expanded]:px-2.5 [&>.vh-label-expanded]:py-2",
 ].join(" ");
 
 /** The "+N" badge that stands in for a cluster of labels too dense to draw. */
@@ -144,6 +148,12 @@ export interface LabelHostProps {
 /** The DOM host plus the accessible mirror list. */
 export function LabelHost({ hostRef, anchors }: LabelHostProps) {
   const runtime = useHouseRuntime();
+  const activateFromKeyboard = (anchor: LabelAnchor) => {
+    hostRef.current?.dispatchEvent(new CustomEvent(LABEL_DETAILS_EVENT, {
+      detail: { anchorId: anchor.id },
+    }));
+    runtime.select(anchor.selection, { frame: true });
+  };
   return (
     <>
       <div
@@ -160,8 +170,12 @@ export function LabelHost({ hostRef, anchors }: LabelHostProps) {
       <ul className="sr-only">
         {anchors.map((anchor) => (
           <li key={anchor.id}>
-            <button type="button" onClick={() => runtime.select(anchor.selection, { frame: true })}>
-              {anchor.secondary ? `${anchor.text} (${anchor.secondary})` : anchor.text}
+            <button type="button" onClick={() => activateFromKeyboard(anchor)}>
+              {anchor.secondary
+                ? `${anchor.text} (${anchor.secondary})`
+              : anchor.kind === "equipment" && explicitUsefulLinks(anchor.linkedEntities ?? []).filter((link) => link.role !== "battery_level").length > 1
+                  ? `Open ${anchor.text} and show linked readings`
+                  : anchor.text}
             </button>
           </li>
         ))}

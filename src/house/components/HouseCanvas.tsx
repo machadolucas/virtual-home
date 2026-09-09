@@ -65,6 +65,7 @@ export function HouseCanvas({ background = DEFAULT_HOUSE_BACKGROUND }: HouseCanv
     >
       <Canvas
         frameloop="demand"
+        shadows={{ enabled: true, type: THREE.PCFShadowMap, autoUpdate: false }}
         dpr={dpr}
         gl={{
           antialias: true,
