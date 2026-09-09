@@ -35,6 +35,7 @@ export interface VhHook {
   materialAudit(): Array<{ assetId: string; materialCount: number; cloned: number }>;
   visible(assetId: string, nodeName: string): boolean;
   worldY(assetId: string, nodeName: string): number | null;
+  clipPlanes(surfaceId: string): Array<{ normal: [number, number, number]; constant: number }>;
   pickables(): number;
   select(selection: Selection | null): void;
   selection(): Selection | null;
@@ -144,6 +145,13 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
 
     worldY(assetId, nodeName) {
       return runtime.index ? worldY(runtime.index, assetId, nodeName) : null;
+    },
+
+    clipPlanes(surfaceId) {
+      return (runtime.clip?.planesFor(surfaceId) ?? []).map((plane) => ({
+        normal: [plane.normal.x, plane.normal.y, plane.normal.z],
+        constant: plane.constant,
+      }));
     },
 
     pickables() {

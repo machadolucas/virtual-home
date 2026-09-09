@@ -76,7 +76,7 @@ export class Picker {
       for (const hit of hits) {
         const sid = index.meshSurfaceId.get(hit.object) ?? (hit.object.userData.surfaceId as string | undefined);
         const group = (sid && index.clipGroupOf.get(sid)) || "site";
-        if (!clip.keeps(group, hit.point)) continue;
+        if (!clip.keepsSurface(group, sid ?? null, hit.point)) continue;
         const result = resolveOwnership(hit, index);
         if (result.normal && result.normal.dot(this.ray.ray.direction) > 0) result.normal.negate();
         return result;

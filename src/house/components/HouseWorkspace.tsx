@@ -14,7 +14,6 @@
  * `window`, so the rest of the app is unaffected when the workspace is not focused.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { boxForSelection, floorBox3 } from "@/house/scene/framing";
 import { MAX_EXPLODE_GAP } from "@/house/model/explodeGroups";
 import { cutRange } from "@/house/model/framingBoxes";
 import { DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from "@/house/model/background";
@@ -1005,24 +1004,11 @@ function SearchBox({
       const s = runtime.store.getState();
       const manifest = s.index;
       if (!manifest) return;
-      const floorId = floorOf(s, selection);
-      if (floorId) {
-        s.isolateFloor(floorId);
-        s.setViewMode("floor");
-      }
-      runtime.select(selection);
-      // The visibility resolver runs in a store subscription, so isolation has already landed;
-      // one frame still gives the camera the applied matrices before it fits.
+      runtime.select(selection, { focus: true });
+      // The visibility resolver runs in a store subscription. One frame lets its transient focus
+      // context reach the scene before the camera fits, without changing the manual floor mode.
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      const scene = runtime.index;
-      const box = scene
-        ? boxForSelection(scene, selection, {
-            placement: (id) => runtime.store.getState().placements.find((p) => p.id === id),
-            route: (id) => runtime.store.getState().routes.find((r) => r.id === id),
-          })
-        : null;
-      if (box) await runtime.camera?.fitBox(box, { padding: 0.6, clampPolar: true });
-      else if (floorId) await runtime.camera?.fitBox(floorBox3(manifest, floorId));
+      await runtime.camera?.frameSelection();
       const text = describeSelection(runtime.store.getState(), selection);
       if (text) runtime.store.getState().announce(text);
     },
@@ -1134,29 +1120,6 @@ function PanelRail({
       />
     </div>
   );
-}
-
-function floorOf(
-  s: ReturnType<HouseRuntime["store"]["getState"]>,
-  selection: Selection,
-): FloorId | null {
-  const index = s.index;
-  if (!index) return null;
-  switch (selection.kind) {
-    case "room":
-      return index.rooms.get(selection.id)?.floorId ?? null;
-    case "floor":
-      return selection.id;
-    case "surface": {
-      const surface = index.surfaces.get(selection.id);
-      const roomId = surface?.roomId;
-      return roomId ? (index.rooms.get(roomId)?.floorId ?? null) : null;
-    }
-    case "equipment":
-      return s.placements.find((p) => p.id === selection.id)?.floorId ?? null;
-    default:
-      return null;
-  }
 }
 
 function ShortcutHelp({ onClose }: { onClose: () => void }) {

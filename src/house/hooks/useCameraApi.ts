@@ -17,6 +17,8 @@ export const OVERVIEW_OFFSET: [number, number, number] = [16, 14, 18];
 const PAD = 0.6;
 const MIN_POLAR_DEG = 15;
 const MAX_POLAR_DEG = 70;
+const ROOM_FOCUS_POLAR_DEG = 0;
+const EQUIPMENT_FOCUS_POLAR_DEG = 48;
 
 export function useCameraApi(
   controlsRef: RefObject<CameraControlsImpl | null>,
@@ -94,8 +96,12 @@ export function makeCameraApi(
         if (opts.clampPolar) {
           const polar = THREE.MathUtils.radToDeg(controls.polarAngle);
           const clamped = THREE.MathUtils.clamp(polar, MIN_POLAR_DEG, MAX_POLAR_DEG);
-          if (Math.abs(clamped - polar) > 0.5)
-            await controls.rotatePolarTo(THREE.MathUtils.degToRad(clamped), transition);
+          if (Math.abs(clamped - polar) > 0.5) {
+            // Snap before the animated fit. Awaiting a second animation here creates a quiet gap
+            // in which stable-frame observers can mistake the preceding focus for the final pose.
+            await controls.rotatePolarTo(THREE.MathUtils.degToRad(clamped), false);
+            controls.update(0);
+          }
         }
         // `fitToBox` fits along the CURRENT view direction, which satisfies "preserve
         // orientation" for free — no azimuth bookkeeping.
@@ -111,7 +117,22 @@ export function makeCameraApi(
 
     async frameRoom(roomId) {
       if (!runtime.manifest) return;
-      await api.fitBox(roomBox3(runtime.manifest, roomId), { clampPolar: true });
+      const box = roomBox3(runtime.manifest, roomId);
+      if (box.isEmpty()) return;
+      await withControls(async (controls) => {
+        // Snap the direction before fitting. Keeping rotation and fit in one controls operation
+        // also makes a rapid floor → room tree click deterministic: the room fit supersedes the
+        // in-flight floor transition instead of waiting behind it.
+        await controls.rotatePolarTo(THREE.MathUtils.degToRad(ROOM_FOCUS_POLAR_DEG), false);
+        controls.update(0);
+        await controls.fitToBox(box, transition, {
+          cover: false,
+          paddingLeft: PAD,
+          paddingRight: PAD,
+          paddingTop: PAD,
+          paddingBottom: PAD,
+        });
+      });
     },
 
     async frameFloor(floorId) {
@@ -128,6 +149,14 @@ export function makeCameraApi(
       const index = runtime.index;
       if (!index) return;
       const state = runtime.store.getState();
+      if (state.selection?.kind === "room") {
+        await api.frameRoom(state.selection.id);
+        return;
+      }
+      if (state.selection?.kind === "equipment") {
+        await api.frameEquipment(state.selection.id);
+        return;
+      }
       const box = boxForSelection(index, state.selection, {
         placement: (id) => state.placements.find((p) => p.id === id),
         route: (id) => state.routes.find((r) => r.id === id),
@@ -137,7 +166,19 @@ export function makeCameraApi(
 
     async frameEquipment(placementId) {
       const placement = runtime.store.getState().placements.find((p) => p.id === placementId);
-      if (placement) await api.fitBox(equipmentBox3(placement));
+      if (!placement) return;
+      const box = equipmentBox3(placement);
+      await withControls(async (controls) => {
+        await controls.rotatePolarTo(THREE.MathUtils.degToRad(EQUIPMENT_FOCUS_POLAR_DEG), false);
+        controls.update(0);
+        await controls.fitToBox(box, transition, {
+          cover: false,
+          paddingLeft: PAD,
+          paddingRight: PAD,
+          paddingTop: PAD,
+          paddingBottom: PAD,
+        });
+      });
     },
 
     async planFor(floorId) {

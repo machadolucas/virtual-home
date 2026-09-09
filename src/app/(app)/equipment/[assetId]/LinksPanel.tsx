@@ -353,7 +353,7 @@ function AddLinkDialog({
             <Field
               label="Entity"
               required
-              help="Only entities that are live in the registry are listed. Diagnostic and disabled ones are left out."
+              help="Diagnostic entities, including battery readings, are listed. Entities disabled or hidden in Home Assistant are left out."
             >
               {({ id, describedBy }) => (
                 <Select

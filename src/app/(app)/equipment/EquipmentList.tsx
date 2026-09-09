@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { EquipmentGroup, EquipmentListRow } from "@/server/queries/assets/list";
 import { bulkRemoveEquipment } from "@/server/actions/assets/bulk";
+import { permanentlyDeleteEquipment } from "@/server/actions/assets/trash";
 import { useAction } from "@/features/settings/actionClient";
 import {
   ASSET_STATUS_LABEL,
@@ -18,6 +19,8 @@ import { Badge, Button, Checkbox, Dialog, Input, Panel, StatusDot, cn } from "@/
 interface EquipmentListProps {
   groups: EquipmentGroup[];
   total: number;
+  mode?: "active" | "trash";
+  blockers?: Record<string, string>;
 }
 
 const BULK_REMOVE_LIMIT = 1000;
@@ -36,7 +39,12 @@ function matches(row: EquipmentListRow, query: string): boolean {
     .some((value) => value.toLocaleLowerCase().includes(query));
 }
 
-export function EquipmentList({ groups, total }: EquipmentListProps) {
+export function EquipmentList({
+  groups,
+  total,
+  mode = "active",
+  blockers = {},
+}: EquipmentListProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -50,7 +58,9 @@ export function EquipmentList({ groups, total }: EquipmentListProps) {
       }),
     [groups, normalizedQuery],
   );
-  const visibleRows = filteredGroups.flatMap((group) => group.rows);
+  const visibleRows = filteredGroups
+    .flatMap((group) => group.rows)
+    .filter((row) => mode === "active" || blockers[row.id] === undefined);
   const everyVisibleSelected =
     visibleRows.length > 0 && visibleRows.every((row) => selected.has(row.id));
   const someVisibleSelected = visibleRows.some((row) => selected.has(row.id));
@@ -60,7 +70,10 @@ export function EquipmentList({ groups, total }: EquipmentListProps) {
   );
   const selectedRows = [...selected]
     .map((id) => rowsById.get(id))
-    .filter((row): row is EquipmentListRow => row !== undefined)
+    .filter(
+      (row): row is EquipmentListRow =>
+        row !== undefined && (mode === "active" || blockers[row.id] === undefined),
+    )
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const remove = useAction(bulkRemoveEquipment, {
@@ -77,9 +90,24 @@ export function EquipmentList({ groups, total }: EquipmentListProps) {
       router.refresh();
     },
   });
+  const permanentlyDelete = useAction(permanentlyDeleteEquipment, {
+    successTitle: "Equipment permanently deleted",
+    successDescription: (data) => `${data.deletedCount} unused record(s) were deleted.`,
+    messages: {
+      equipment_not_deletable:
+        "The trash changed or one of these records now has history. Nothing was deleted; refresh and choose again.",
+    },
+    onSuccess: () => {
+      setConfirmOpen(false);
+      setSelected(new Set());
+      router.refresh();
+    },
+  });
+  const pending = remove.pending || permanentlyDelete.pending;
+  const activeCall = mode === "trash" ? permanentlyDelete : remove;
 
   function setRowSelected(id: string, checked: boolean | "indeterminate"): void {
-    if (remove.pending) return;
+    if (pending || (mode === "trash" && blockers[id] !== undefined)) return;
     setSelected((current) => {
       const next = new Set(current);
       if (checked === true && next.size < BULK_REMOVE_LIMIT) next.add(id);
@@ -89,7 +117,7 @@ export function EquipmentList({ groups, total }: EquipmentListProps) {
   }
 
   function setVisibleSelected(checked: boolean | "indeterminate"): void {
-    if (remove.pending) return;
+    if (pending) return;
     setSelected((current) => {
       const next = new Set(current);
       for (const row of visibleRows) {
@@ -104,17 +132,17 @@ export function EquipmentList({ groups, total }: EquipmentListProps) {
   }
 
   return (
-    <div className="flex flex-col gap-4" aria-busy={remove.pending || undefined}>
-      <div className="sticky top-0 z-10 flex flex-col gap-3 rounded-lg border border-line bg-surface/95 p-3 shadow-panel backdrop-blur sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-4" aria-busy={pending || undefined}>
+      <div className="sticky top-0 z-10 grid gap-3 rounded-lg border border-line bg-surface/95 p-3 shadow-panel backdrop-blur lg:grid-cols-[minmax(12rem,20rem)_minmax(12rem,1fr)_auto] lg:items-center">
         <Input
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          disabled={remove.pending}
+          disabled={pending}
           placeholder="Filter equipment"
           aria-label="Filter equipment"
           icon={<Search />}
-          className="sm:w-80"
+          className="w-full"
         />
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
           <Checkbox
@@ -122,20 +150,20 @@ export function EquipmentList({ groups, total }: EquipmentListProps) {
               everyVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false
             }
             onCheckedChange={setVisibleSelected}
-            disabled={remove.pending || visibleRows.length === 0}
+            disabled={pending || visibleRows.length === 0}
             label={normalizedQuery === "" ? "Select all" : "Select all filtered"}
           />
-          <span className="text-xs text-ink-3">
-            {visibleRows.length} shown · {selected.size} selected · up to {BULK_REMOVE_LIMIT.toLocaleString()} per removal
+          <span className="min-w-48 flex-1 text-xs leading-5 text-ink-3">
+            {filteredGroups.reduce((count, group) => count + group.rows.length, 0)} shown · {selectedRows.length} selected · up to {BULK_REMOVE_LIMIT.toLocaleString()} per removal
           </span>
         </div>
         <Button
           variant="danger"
           icon={<Trash2 aria-hidden="true" />}
-          disabled={selected.size === 0 || remove.pending}
+          disabled={selectedRows.length === 0 || pending}
           onClick={() => setConfirmOpen(true)}
         >
-          Remove selected
+          {mode === "trash" ? "Delete permanently" : "Remove selected"}
         </Button>
       </div>
 
@@ -165,20 +193,20 @@ export function EquipmentList({ groups, total }: EquipmentListProps) {
                     <Checkbox
                       checked={selected.has(row.id)}
                       onCheckedChange={(checked) => setRowSelected(row.id, checked)}
-                      disabled={remove.pending}
+                      disabled={pending || blockers[row.id] !== undefined}
                       ariaLabel={`Select ${row.name}`}
                     />
                   </div>
                   <Link
                     href={`/equipment/${row.id}`}
-                    aria-disabled={remove.pending || undefined}
-                    tabIndex={remove.pending ? -1 : undefined}
+                    aria-disabled={pending || undefined}
+                    tabIndex={pending ? -1 : undefined}
                     className={cn(
                       "flex min-w-0 flex-1 flex-col gap-1.5 px-3 py-3 transition-colors duration-100",
                       "hover:bg-surface-2 sm:flex-row sm:items-center sm:gap-4",
                       "outline-none focus-visible:bg-surface-2 focus-visible:outline-2",
                       "focus-visible:-outline-offset-2 focus-visible:outline-ring",
-                      remove.pending && "pointer-events-none opacity-60",
+                      pending && "pointer-events-none opacity-60",
                     )}
                   >
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -201,6 +229,9 @@ export function EquipmentList({ groups, total }: EquipmentListProps) {
                           "No manufacturer or model recorded."}
                       </span>
                     </span>
+                    {blockers[row.id] === undefined ? null : (
+                      <span className="text-xs text-ink-3">Kept: {blockers[row.id]}</span>
+                    )}
 
                     <span className="flex shrink-0 flex-wrap items-center gap-3 sm:w-80 sm:justify-end">
                       {row.openTaskCount === 0 ? null : (
@@ -235,51 +266,65 @@ export function EquipmentList({ groups, total }: EquipmentListProps) {
       )}
 
       <p className="text-xs leading-5 text-ink-3">
-        {total} unit(s) in service or planned. A battery shown as “unknown” means no reading has
-        arrived — never that the battery is empty. A link marked “Renamed in HA” still works: the
-        binding is to the registry id, and only the label we cached is out of date.
+        {mode === "trash"
+          ? `${total} out-of-service record(s). Records with history or external references are kept and explain why.`
+          : `${total} unit(s) in service or planned. A battery shown as “unknown” means no reading has arrived — never that the battery is empty. A link marked “Renamed in HA” still works: the binding is to the registry id, and only the label we cached is out of date.`}
       </p>
 
       <Dialog
         open={confirmOpen}
         onOpenChange={(open) => {
-          if (!remove.pending) setConfirmOpen(open);
+          if (!pending) setConfirmOpen(open);
         }}
         hideClose
-        title={`Remove ${selectedRows.length} equipment unit(s)?`}
-        description="They leave the active equipment list. Their service history and old Home Assistant links stay in the record."
+        title={
+          mode === "trash"
+            ? `Permanently delete ${selectedRows.length} equipment record(s)?`
+            : `Remove ${selectedRows.length} equipment unit(s)?`
+        }
+        description={
+          mode === "trash"
+            ? "This cannot be undone. Only unused out-of-service records without history or external references can be deleted."
+            : "They leave the active equipment list. Their service history and old Home Assistant links stay in the record."
+        }
         footer={
           <>
-            <Button variant="ghost" disabled={remove.pending} onClick={() => setConfirmOpen(false)}>
+            <Button variant="ghost" disabled={pending} onClick={() => setConfirmOpen(false)}>
               Cancel
             </Button>
             <Button
               variant="danger"
-              loading={remove.pending}
+              loading={pending}
               disabled={selectedRows.length === 0}
-              onClick={() =>
-                remove.run({
-                  assetIds: selectedRows.map((row) => row.id),
-                  idempotencyKey: remove.idempotencyKey,
-                })
-              }
+              onClick={() => {
+                const assetIds = selectedRows.map((row) => row.id);
+                if (mode === "trash") {
+                  permanentlyDelete.run({
+                    assetIds,
+                    idempotencyKey: permanentlyDelete.idempotencyKey,
+                  });
+                } else {
+                  remove.run({ assetIds, idempotencyKey: remove.idempotencyKey });
+                }
+              }}
             >
-              Remove {selectedRows.length}
+              {mode === "trash" ? "Delete permanently" : `Remove ${selectedRows.length}`}
             </Button>
           </>
         }
       >
         <p>
-          Removed equipment can be imported from Home Assistant again later. Importing creates a
-          current equipment record; it does not erase this one.
+          {mode === "trash"
+            ? "Its Home Assistant links, placements, consumables and system memberships will also be deleted. Any record with service history or another dependency is locked outside this selection."
+            : "Removed equipment can be imported from Home Assistant again later. Importing creates a current equipment record; it does not erase this one."}
         </p>
         <ul className="mt-3 max-h-56 list-disc overflow-y-auto pl-5 text-ink">
           {selectedRows.map((row) => (
             <li key={row.id}>{row.name}</li>
           ))}
         </ul>
-        {remove.error === null ? null : (
-          <p role="alert" className="mt-3 font-medium text-overdue">{remove.error}</p>
+        {activeCall.error === null ? null : (
+          <p role="alert" className="mt-3 font-medium text-overdue">{activeCall.error}</p>
         )}
       </Dialog>
     </div>

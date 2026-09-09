@@ -139,7 +139,7 @@ export function buildScene(
     const entry = indexAsset(index, id, root);
     for (const mesh of entry.meshes) {
       const sid = index.meshSurfaceId.get(mesh);
-      if (sid) clip.attach(mesh, index.clipGroupOf.get(sid) ?? "site");
+      if (sid) clip.attach(mesh, index.clipGroupOf.get(sid) ?? "site", sid);
     }
     if (entry.edges) clip.attach(entry.edges, "site");
   }

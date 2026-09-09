@@ -378,8 +378,9 @@ Everything else — label text, badge classes, inspector renders, tooltips — i
 the idle test can assert that.
 
 Other fixed choices: `localClippingEnabled = true` (per-material clipping planes); exactly two
-clipping planes allocated per explode group for the life of the scene, "off" being a constant
-beyond the model bounds, so the shader never recompiles; `NoToneMapping`, so a persisted hex
+shared clipping planes allocated per explode group plus a fixed third plane per surface material
+for focus wall cuts (edges retain the shared pair). "Off" is a constant beyond the model bounds,
+so focus changes never change shader plane counts; `NoToneMapping`, so a persisted hex
 matches what the user picked; no shadows; no `three-mesh-bvh`; scan references are non-pickable.
 
 The context is **`alpha: true`** with `scene.background = null` and `setClearAlpha(0)` — it was
@@ -466,3 +467,33 @@ Canvas 2D surface. CSS theme/solid/gradient backgrounds and visible label chips 
 the image; panels, snap guides and route handles are excluded. The output uses the current drawing
 buffer dimensions, including the pixel-ratio cap. `preserveDrawingBuffer` stays false. Capture is
 client-only and temporary object URLs are released after download.
+
+
+### Equipment lifecycle and viewer lists
+
+The placement resource shows only current physical equipment: `planned` or `installed`, with no
+replacement successor, and not virtual. Both placed markers and `?options=placeable` use this
+policy. Removed, retired, lost and replaced units retain their records and historical placement
+coordinates, but do not appear as markers or “Not placed yet” candidates. Reimporting a device
+therefore produces one current candidate rather than a duplicate old candidate. Placement writes
+recheck this policy inside the write transaction so a stale viewer cannot place an archived unit.
+
+
+### Contextual focus
+
+Property tree selections frame buildings, floors, rooms, outdoor areas and equipment. Rooms use an
+overhead camera; equipment uses an angled view. Focus is transient presentation state separate
+from the selection and the user's layer toggles. It reveals the selected floor by hiding that
+building's roof, upper floors and floor ceilings, while retaining lower/site context. Selected
+surfaces and equipment mounting surfaces are preserved; roof/eave equipment keeps its roof context.
+
+For angled room/equipment views, camera-side and intervening walls are cut to a low stub (up to
+0.9 m above the room floor). All faces of the affected wall assembly and associated openings share
+that cut, avoiding floating wall caps/windows; back and side walls remain full height. Clipped
+fragments are excluded from picking and highlight outlines. Camera movement updates only the
+focus cuts; idle demand rendering remains idle. Cuts use loaded geometry centres, so geometry-less
+surfaces cannot contribute their own occlusion bounds.
+
+Focus reveal is suspended while placement or route editing is active, restoring normal mount
+picking. Ending the edit restores focus. Clearing focus or choosing Overview restores normal view
+controls. No package geometry or physical placement coordinates are changed.

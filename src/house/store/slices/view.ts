@@ -114,6 +114,7 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
   applyOverview: () =>
     set((s) => ({
       ...OVERVIEW_PRESET,
+      focusSelection: null,
       cut: { ...s.cut, enabled: false, vertical: null },
       explode: { ...s.explode, enabled: false },
     })),

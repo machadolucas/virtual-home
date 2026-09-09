@@ -19,7 +19,7 @@ export interface SystemDraft {
   locationIds: string[];
 }
 
-export function emptySystem(): SystemDraft {
+function emptySystem(): SystemDraft {
   return {
     name: "",
     kind: "ventilation",
@@ -45,14 +45,14 @@ export interface PickerOption {
  * to sit in the same corridor.
  */
 export function SystemDialog({
-  initial,
+  initial = emptySystem(),
   assets,
   locations,
   triggerLabel,
   triggerAriaLabel,
   triggerVariant = "secondary",
 }: {
-  initial: SystemDraft;
+  initial?: SystemDraft;
   assets: readonly PickerOption[];
   locations: readonly PickerOption[];
   triggerLabel: string;

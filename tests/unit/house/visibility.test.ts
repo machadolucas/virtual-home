@@ -6,6 +6,11 @@
  */
 import { describe, expect, it } from "vitest";
 import { checkExplodePolicy, explodeGroupOf, isRoofGroup } from "@/house/model/explodeGroups";
+import {
+  cameraFacingRoomWalls,
+  focusContextFor,
+  focusCutSurfaceIds,
+} from "@/house/model/focusContext";
 import { buildManifestIndex, nodeKey } from "@/house/model/manifestIndex";
 import { DEFAULT_LAYERS, type LayerId } from "@/house/model/types";
 import {
@@ -151,6 +156,125 @@ describe("computeVisibility (fixture)", () => {
     expect(layers["fixture-terrain"]).toBe("yard");
     expect(layers["fixture-scan"]).toBe("scanReferences");
     expect(layers["fixture-lower"]).toBeUndefined();
+  });
+
+  it("reveals a focused lower-floor room while keeping lower context and hiding its roof, ceiling and upper floors", () => {
+    const focus = focusContextFor(index, { kind: "room", id: "r-l-a" });
+    const plan = computeVisibility(
+      index,
+      baseInput(
+        {
+          // Focus must temporarily supersede a stale manual isolation without mutating it.
+          viewMode: "floor",
+          activeFloorId: "f-upper",
+          focus,
+        },
+        inventory,
+        loadedAssetIds,
+      ),
+    );
+    expect(plan.nodes.get(nodeKey("fixture-lower", "f-lower"))).toBe(true);
+    expect(plan.nodes.get(nodeKey("fixture-upper", "f-upper"))).toBe(false);
+    expect(plan.nodes.get(nodeKey("fixture-roof", "e-roof-fx"))).toBe(false);
+    expect(plan.nodes.get(nodeKey("fixture-lower", "s-r-l-a-ceiling"))).toBe(false);
+
+    const restored = computeVisibility(
+      index,
+      baseInput(
+        { viewMode: "floor", activeFloorId: "f-upper", focus: null },
+        inventory,
+        loadedAssetIds,
+      ),
+    );
+    expect(restored.nodes.get(nodeKey("fixture-lower", "f-lower"))).toBe(false);
+    expect(restored.nodes.get(nodeKey("fixture-upper", "f-upper"))).toBe(true);
+  });
+
+  it("keeps lower floors as context when focusing the upper floor", () => {
+    const focus = focusContextFor(index, { kind: "room", id: "r-u-a" });
+    const plan = computeVisibility(
+      index,
+      baseInput({ focus }, inventory, loadedAssetIds),
+    );
+    expect(plan.nodes.get(nodeKey("fixture-lower", "f-lower"))).toBe(true);
+    expect(plan.nodes.get(nodeKey("fixture-upper", "f-upper"))).toBe(true);
+    expect(plan.nodes.get(nodeKey("fixture-roof", "e-roof-fx"))).toBe(false);
+    expect(plan.nodes.get(nodeKey("fixture-upper", "s-r-u-a-ceiling"))).toBe(false);
+  });
+
+  it("frames floors transiently and restores all floors when a building is focused", () => {
+    const floorFocus = focusContextFor(index, { kind: "floor", id: "f-lower" });
+    const floorPlan = computeVisibility(
+      index,
+      baseInput({ focus: floorFocus }, inventory, loadedAssetIds),
+    );
+    expect(floorPlan.nodes.get(nodeKey("fixture-upper", "f-upper"))).toBe(false);
+
+    const buildingFocus = focusContextFor(index, { kind: "building", id: "b-fx" });
+    const buildingPlan = computeVisibility(
+      index,
+      baseInput(
+        { viewMode: "floor", activeFloorId: "f-lower", focus: buildingFocus },
+        inventory,
+        loadedAssetIds,
+      ),
+    );
+    expect(buildingPlan.nodes.get(nodeKey("fixture-upper", "f-upper"))).toBe(true);
+    expect(buildingPlan.nodes.get(nodeKey("fixture-roof", "e-roof-fx"))).toBe(true);
+  });
+
+  it("preserves a specifically focused ceiling surface", () => {
+    const focus = focusContextFor(index, { kind: "surface", id: "s-r-l-a-ceiling" });
+    const plan = computeVisibility(index, baseInput({ focus }, inventory, loadedAssetIds));
+    expect(plan.nodes.get(nodeKey("fixture-lower", "s-r-l-a-ceiling"))).toBe(true);
+    expect(plan.nodes.get(nodeKey("fixture-lower", "s-r-l-b-ceiling"))).toBe(false);
+  });
+
+  it("suspends contextual reveal while an editor owns scene visibility", () => {
+    expect(focusContextFor(index, { kind: "room", id: "r-l-a" }, undefined, false)).toBeNull();
+    expect(focusContextFor(index, { kind: "room", id: "r-l-a" })).not.toBeNull();
+  });
+
+  it("classifies only camera-facing room walls for a low cut", () => {
+    const centres = new Map([
+      ["s-e-l-ext--r-l-a", [0.2, 1.2, 2] as [number, number, number]],
+      ["s-w-l-ab--r-l-a", [3, 1.2, 2] as [number, number, number]],
+      // A wall owned by the next room still blocks the view corridor to the target.
+      ["s-w-l-bc--r-l-b", [4, 1.2, 2] as [number, number, number]],
+    ]);
+    expect(cameraFacingRoomWalls(index, "r-l-a", [8, 5, 2], centres)).toEqual([
+      "s-w-l-ab--r-l-a",
+      "s-w-l-bc--r-l-b",
+    ]);
+    expect(cameraFacingRoomWalls(index, "r-l-a", [-5, 5, 2], centres)).toEqual([
+      "s-e-l-ext--r-l-a",
+    ]);
+  });
+
+  it("cuts the whole wall assembly and attached openings without touching unrelated elements", () => {
+    const local = buildManifestIndex(loadManifest(FIXTURE_DIR));
+    const wallFace = local.surfaces.get("s-w-l-ab--r-l-a")!;
+    local.surfaces.set("synthetic-wall-top", {
+      ...wallFace,
+      id: "synthetic-wall-top",
+      kind: "other",
+      role: "wall-top",
+      roomId: undefined,
+      nodeRefs: [{ ...wallFace.nodeRefs[0]!, nodeName: "synthetic-wall-top" }],
+    });
+    local.surfacesByElement.get("e-w-l-ab")!.push("synthetic-wall-top");
+
+    const cuts = focusCutSurfaceIds(local, ["s-w-l-ab--r-l-a"]);
+    expect(cuts).toEqual(
+      expect.arrayContaining([
+        "s-w-l-ab--r-l-a",
+        "s-w-l-ab--r-l-b",
+        "synthetic-wall-top",
+        "s-o-l-door-reveal",
+        "s-o-l-door-leaf",
+      ]),
+    );
+    expect(cuts).not.toContain("s-w-l-bc--r-l-b");
   });
 });
 

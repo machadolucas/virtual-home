@@ -65,6 +65,16 @@ export function Rig() {
     runtime.controls = controlsRef.current;
   });
 
+  // The focused room's low wall cuts follow the camera. Re-resolving writes plane constants only
+  // when the set of near-side walls changes, so an idle demand-rendered scene stays idle.
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    const refresh = () => runtime.refreshFocusClipping?.();
+    controls.addEventListener("update", refresh);
+    return () => controls.removeEventListener("update", refresh);
+  }, [runtime, projection]);
+
   // Remember the outgoing pose so the projection switch is seamless. The controls instance is
   // captured on mount rather than read in the cleanup, because by cleanup time `<CameraControls>`
   // (keyed on the projection) has already been unmounted and the ref cleared.

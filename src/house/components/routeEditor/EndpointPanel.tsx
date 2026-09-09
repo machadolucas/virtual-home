@@ -32,6 +32,7 @@ import type { Vec3 } from "@/house/model/types";
 import { useHouseStore, useShallow } from "../../hooks/useHouseStore";
 import { defaultPositionIn } from "./startRouteDraft";
 import { searchEquipment, useEndpoints, type EquipmentHit } from "./useEndpoints";
+import { Select } from "@/ui/Select";
 
 /** How the endpoint is placed. "Room only" is a real answer, not a missing one. */
 type Placing = "point" | "room";
@@ -39,7 +40,6 @@ type Placing = "point" | "room";
 type Attach = "none" | "existing" | "new";
 
 const INPUT = "min-h-8 rounded-md border border-line px-2 text-xs";
-const SELECT = "min-h-8 rounded-md border border-line px-1 text-xs";
 const BUTTON =
   "min-h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3 disabled:opacity-50";
 
@@ -271,30 +271,29 @@ export function EndpointPanel() {
 
           <label className="flex flex-col gap-1 text-xs">
             <span className="text-ink-2">What it is</span>
-            <select
+            <Select
+              selectSize="sm"
               value={kind}
-              onChange={(e) => setKind(e.target.value as InfraEndpointKind)}
-              className={SELECT}
-            >
-              {ENDPOINT_KIND_ORDER.map((k) => (
-                <option key={k} value={k}>
-                  {ENDPOINT_KIND_LABEL[k]}
-                </option>
-              ))}
-            </select>
+              onValueChange={(value) => setKind(value as InfraEndpointKind)}
+              options={ENDPOINT_KIND_ORDER.map((value) => ({
+                value,
+                label: ENDPOINT_KIND_LABEL[value],
+              }))}
+            />
             <span className="text-[11px] text-ink-2">{ENDPOINT_KIND_HELP[kind]}</span>
           </label>
 
           <fieldset className="flex flex-col gap-1">
             <legend className="text-xs text-ink-2">Where it is</legend>
-            <select
+            <Select
+              selectSize="sm"
               value={placing}
-              onChange={(e) => setPlacing(e.target.value as Placing)}
-              className={SELECT}
-            >
-              <option value="point">At a point (metres)</option>
-              <option value="room">In a room, without a point</option>
-            </select>
+              onValueChange={(value) => setPlacing(value as Placing)}
+              options={[
+                { value: "point", label: "At a point (metres)" },
+                { value: "room", label: "In a room, without a point" },
+              ]}
+            />
             {placing === "point" ? (
               <>
                 <div className="grid grid-cols-3 gap-2">
@@ -330,15 +329,16 @@ export function EndpointPanel() {
 
           <fieldset className="flex flex-col gap-1">
             <legend className="text-xs text-ink-2">Equipment</legend>
-            <select
+            <Select
+              selectSize="sm"
               value={attach}
-              onChange={(e) => setAttach(e.target.value as Attach)}
-              className={SELECT}
-            >
-              <option value="none">No equipment</option>
-              <option value="new">Create a unit for it</option>
-              <option value="existing">Link a unit that already exists</option>
-            </select>
+              onValueChange={(value) => setAttach(value as Attach)}
+              options={[
+                { value: "none", label: "No equipment" },
+                { value: "new", label: "Create a unit for it" },
+                { value: "existing", label: "Link a unit that already exists" },
+              ]}
+            />
             <p className="text-[11px] text-ink-2">
               Maintenance is scheduled against equipment, not against a place. Give this endpoint a
               unit and “clean the vents” can be a plan with a due date; leave it without one and the
@@ -359,17 +359,15 @@ export function EndpointPanel() {
                 </label>
                 <label className="flex flex-col gap-1 text-[11px]">
                   <span className="text-ink-3">Category</span>
-                  <select
+                  <Select
+                    selectSize="sm"
                     value={newAssetCategory}
-                    onChange={(e) => setNewAssetCategory(e.target.value as AssetCategory)}
-                    className={SELECT}
-                  >
-                    {ASSET_CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {ASSET_CATEGORY_LABEL[c]}
-                      </option>
-                    ))}
-                  </select>
+                    onValueChange={(value) => setNewAssetCategory(value as AssetCategory)}
+                    options={ASSET_CATEGORIES.map((value) => ({
+                      value,
+                      label: ASSET_CATEGORY_LABEL[value],
+                    }))}
+                  />
                 </label>
               </div>
             ) : null}

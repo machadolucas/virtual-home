@@ -21,7 +21,9 @@ vi.mock("@/server/auth/session", () => ({
   },
 }));
 
-import { assetPlacement } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { writeTx } from "@/db/client";
+import { asset, assetPlacement } from "@/db/schema";
 import { GET, PARTIAL_FIELDS, PUT } from "@/app/api/house-model/[modelId]/placements/route";
 import type { Placement } from "@/house/model/types";
 import { bodyOf, ctx, jsonRequest, seedAsset, setupHarness, teardownHarness, type Harness } from "./harness";
@@ -389,5 +391,43 @@ describe("surface policy round trips", () => {
       mount: { kind, surfaceId: "s-e-terrain-fx", height: 0, offset: 0 } });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: "mount_surface_kind_mismatch" });
+  });
+});
+
+
+describe("equipment lifecycle in the viewer", () => {
+  const available = async () => bodyOf<{ placeable: { assetId: string; name: string }[] }>(
+    await GET(jsonRequest(`/api/house-model/${h.modelId}/placements?options=placeable`, "GET"), ctx({ modelId: h.modelId })),
+  );
+
+  it.each(["removed", "retired", "lost"] as const)("excludes %s equipment before and after reimport without deleting history", async (status) => {
+    writeTx(h.handle.db, (tx) => {
+      tx.update(asset).set({ status }).where(eq(asset.id, equipmentId)).run();
+    });
+    const reimportedId = seedAsset(h.handle, "Humidity sensor");
+    const result = await available();
+    expect(result.placeable.filter((row) => row.name === "Humidity sensor").map((row) => row.assetId)).toEqual([reimportedId]);
+    expect(h.handle.db.select().from(asset).where(eq(asset.id, equipmentId)).get()).toBeDefined();
+    const refused = await put({ position: [1, 0, 1] });
+    expect(refused.status).toBe(409);
+    expect(await bodyOf<{ error: string }>(refused)).toMatchObject({ error: "equipment_not_current" });
+  });
+
+  it("hides old placed markers while preserving their historical coordinates", async () => {
+    await put({ position: [1, 0, 1] });
+    writeTx(h.handle.db, (tx) => tx.update(asset).set({ status: "removed" }).where(eq(asset.id, equipmentId)).run());
+    expect((await bodyOf<{ placements: Placement[] }>(await list())).placements).toEqual([]);
+    expect(h.handle.db.select().from(assetPlacement).all()).toHaveLength(1);
+  });
+
+  it("excludes replaced and software units, and still offers planned physical equipment", async () => {
+    const successor = seedAsset(h.handle, "Successor");
+    const software = seedAsset(h.handle, "Software");
+    writeTx(h.handle.db, (tx) => {
+      tx.update(asset).set({ replacedByAssetId: successor }).where(eq(asset.id, equipmentId)).run();
+      tx.update(asset).set({ isVirtual: true }).where(eq(asset.id, software)).run();
+      tx.update(asset).set({ status: "planned" }).where(eq(asset.id, successor)).run();
+    });
+    expect((await available()).placeable.map((row) => row.assetId)).toEqual([successor]);
   });
 });

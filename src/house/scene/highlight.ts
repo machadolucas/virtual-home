@@ -99,7 +99,10 @@ export class Highlighter {
     this.outline.visible = true;
     // The outline must be clipped by the same planes as its surface, or it survives the cutaway.
     const group: ExplodeGroup = index.clipGroupOf.get(primary as SurfaceId) ?? "site";
-    this.outlineMaterial.clippingPlanes = clip.ensure(group);
+    const surfacePlanes = clip.planesFor(primary as SurfaceId);
+    this.outlineMaterial.clippingPlanes = surfacePlanes.length
+      ? [...surfacePlanes]
+      : clip.ensure(group);
     this.outlineMaterial.clipIntersection = false;
     mesh.updateWorldMatrix(true, false);
     this.outline.matrixAutoUpdate = false;

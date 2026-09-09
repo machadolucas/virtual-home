@@ -106,9 +106,9 @@ export interface Choice {
  * socket (§7.1). So this page works while HA is down, and what it shows is exactly as fresh as the
  * last sync — which the connection block above states rather than hides.
  *
- * Diagnostic and config entities, and disabled or hidden ones, are out by default. A modern HA
- * instance has thousands of them (signal strength, update entities, restart buttons) and none of
- * them is a piece of equipment. The toggle says how many are being hidden.
+ * Diagnostic entities are included because useful readings such as battery level commonly use that
+ * category. Disabled or hidden entities remain out by default; the toggle says how many devices
+ * that hides.
  */
 export function RegistryBrowser({
   groups,
@@ -286,11 +286,11 @@ export function RegistryBrowser({
             checked={includeHidden}
             disabled={bulkBusy}
             onCheckedChange={(checked) => push({ hidden: checked })}
-            label="Show diagnostic and disabled things"
+            label="Show disabled and hidden things"
             hint={
               hiddenDeviceCount === 0
                 ? "Nothing is being hidden right now."
-                : `${hiddenDeviceCount} device(s) are hidden because everything they expose is diagnostic, config, disabled or hidden.`
+                : `${hiddenDeviceCount} device(s) are hidden because the device, or everything it exposes, is disabled or hidden in Home Assistant.`
             }
           />
           <Switch
@@ -334,7 +334,7 @@ export function RegistryBrowser({
 
       {deviceCount === 0 ? (
         <p className="text-sm text-ink-3">
-          No device matches. Clear the search, or turn on diagnostic and disabled things.
+          No device matches. Clear the search, or turn on disabled and hidden things.
         </p>
       ) : (
         groups.map((floor) => (
@@ -880,8 +880,8 @@ function ImportDialog({
           </h3>
           {entities.length === 0 ? (
             <p className="text-sm text-ink-3">
-              This device exposes nothing worth linking (everything it has is diagnostic, config,
-              disabled or hidden).
+              This device exposes nothing worth linking because everything it has is disabled or
+              hidden in Home Assistant.
             </p>
           ) : (
             <ul className="flex list-none flex-col divide-y divide-line rounded-md border border-line">
@@ -962,16 +962,17 @@ function ImportDialog({
 /**
  * Pre-select the obvious roles and nothing else.
  *
- * A `battery` device class is unambiguous, so it is pre-set. Everything else is left at "do not
- * link", because a guessed role is worse than an unset one: a rule pointed at the wrong sensor
- * fails quietly, and quietly is the problem.
+ * An unlinked `battery` device class is unambiguous, so it is pre-set. An existing link stays at
+ * "do not link" when this dialog is opened through "Link more"; submitting the same entity again
+ * would only produce a duplicate-link refusal. Everything else is left unset because a guessed
+ * role can quietly point a rule at the wrong sensor.
  */
 function defaultRoles(entities: readonly BrowserEntity[]): Record<string, string> {
   const out: Record<string, string> = {};
   let batteryTaken = false;
   for (const entity of entities) {
     if (!batteryTaken && entity.deviceClass === "battery" && entity.domain === "sensor") {
-      out[entity.registryId] = "battery_level";
+      out[entity.registryId] = entity.linkedAssetName === null ? "battery_level" : NO_ROLE;
       batteryTaken = true;
       continue;
     }

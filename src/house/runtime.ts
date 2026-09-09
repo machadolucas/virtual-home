@@ -65,6 +65,8 @@ export interface HouseRuntime {
   /** The R3F renderer, published by `SceneRoot` for the test hook's render-info assertions. */
   gl: THREE.WebGLRenderer | null;
   invalidate(): void;
+  /** Re-resolve transient, camera-facing focus visibility after the camera moves. */
+  refreshFocusClipping: (() => void) | null;
   /** Number of `invalidate()` calls — the idle test asserts this stays flat. */
   invalidateCount: number;
   offsets: Map<ExplodeGroup, number>;
@@ -73,7 +75,7 @@ export interface HouseRuntime {
    * synchronously before writing the store; the baseline below still writes the store, so the
    * tree, the search box and the inspector keep working when the canvas is absent or has crashed.
    */
-  select(selection: Selection | null, opts?: { frame?: boolean }): void;
+  select(selection: Selection | null, opts?: { frame?: boolean; focus?: boolean }): void;
   lastPick: PickResult | null;
   lastSavePayload: unknown;
   materialAudits: Array<{ assetId: string; materialCount: number; cloned: number }>;
@@ -115,6 +117,7 @@ export function createRuntime(init: {
     canvasEl: null,
     gl: null,
     invalidate() {},
+    refreshFocusClipping: null,
     invalidateCount: 0,
     offsets: new Map(),
     select() {},
@@ -143,9 +146,11 @@ export function createRuntime(init: {
  */
 export function baseSelect(
   runtime: HouseRuntime,
-): (selection: Selection | null, opts?: { frame?: boolean }) => void {
+): (selection: Selection | null, opts?: { frame?: boolean; focus?: boolean }) => void {
   return (selection, opts) => {
-    runtime.store.getState().setSelection(selection);
+    const state = runtime.store.getState();
+    state.setSelection(selection);
+    if (selection === null || opts?.frame || opts?.focus) state.setFocusSelection(selection);
     if (opts?.frame) void runtime.camera?.frameSelection();
   };
 }

@@ -20,6 +20,7 @@ import type { AnnotationDto } from "@/features/projects/wire";
 import { NotPersistedError } from "@/house/store/dataApi";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
 import { Row } from "./RoomInspector";
+import { Select } from "@/ui/Select";
 
 type Kind = AnnotationDto["kind"];
 
@@ -191,17 +192,15 @@ export function AnnotationInspector({ annotationId }: { annotationId: string }) 
       <div className="flex flex-col gap-2 border-t border-line pt-3">
         <label className="flex flex-col gap-1 text-xs">
           <span className="text-ink-2">Kind</span>
-          <select
+          <Select
+            selectSize="sm"
             value={draft.kind}
-            onChange={(e) => setDraft({ ...draft, kind: e.target.value as Kind })}
-            className="min-h-8 rounded-md border border-line px-1 text-xs"
-          >
-            {ANNOTATION_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {KIND_LABEL[k]}
-              </option>
-            ))}
-          </select>
+            onValueChange={(kind) => setDraft({ ...draft, kind: kind as Kind })}
+            options={ANNOTATION_KINDS.map((kind) => ({
+              value: kind,
+              label: KIND_LABEL[kind],
+            }))}
+          />
           <span className="text-[11px] text-ink-3">{KIND_HELP[draft.kind]}</span>
         </label>
 

@@ -254,11 +254,13 @@ async function seedHaImportDevices(handle: DbHandle): Promise<void> {
     for (const viewport of ["desktop", "phone"]) {
       const deviceId = `e2e-${viewport}-motion`;
       tx.insert(haDevice).values({ deviceId, name: `E2E ${viewport} motion`, manufacturer: "Synthetic", model: "Test sensor", firstSeenMs: at, lastSeenMs: at }).run();
-      for (const kind of ["occupancy", "temperature", "humidity", "illuminance"]) {
+      for (const kind of ["occupancy", "temperature", "humidity", "illuminance", "battery", "signal"]) {
         tx.insert(haEntity).values({ registryId: `${deviceId}-${kind}`, deviceId,
           entityId: `${kind === "occupancy" ? "binary_sensor" : "sensor"}.e2e_${viewport}_${kind}`,
           domain: kind === "occupancy" ? "binary_sensor" : "sensor", deviceClass: kind,
-          unitOfMeasurement: ({ temperature: "°C", humidity: "%", illuminance: "lx" } as Record<string, string>)[kind] ?? null,
+          entityCategory: kind === "battery" || kind === "signal" ? "diagnostic" : null,
+          disabledBy: kind === "signal" ? "user" : null,
+          unitOfMeasurement: ({ temperature: "°C", humidity: "%", illuminance: "lx", battery: "%" } as Record<string, string>)[kind] ?? null,
           liveState: kind === "occupancy" ? "off" : "23", liveRestored: false, liveAtMs: at,
           firstSeenMs: at, lastSeenMs: at }).run();
       }

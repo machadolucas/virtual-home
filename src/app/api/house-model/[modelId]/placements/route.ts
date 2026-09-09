@@ -232,7 +232,11 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
       })
       .from(asset)
       .leftJoin(location, eq(location.id, asset.locationId))
-      .where(eq(asset.isVirtual, false))
+      .where(and(
+        eq(asset.isVirtual, false),
+        inArray(asset.status, ["planned", "installed"]),
+        isNull(asset.replacedByAssetId),
+      ))
       .orderBy(asc(asset.name))
       .all();
 
@@ -286,7 +290,12 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
     })
     .from(assetPlacement)
     .innerJoin(asset, eq(asset.id, assetPlacement.assetId))
-    .where(inArray(assetPlacement.modelRevisionId, revisionIds))
+    .where(and(
+      inArray(assetPlacement.modelRevisionId, revisionIds),
+      eq(asset.isVirtual, false),
+      inArray(asset.status, ["planned", "installed"]),
+      isNull(asset.replacedByAssetId),
+    ))
     .all();
 
   const entityIds = entityIdsByAsset(db, [...new Set(rows.map((row) => row.assetId))]);
@@ -481,6 +490,15 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
   };
 
   writeTx(db, (tx) => {
+    // A stale viewer must not create or move a marker for an archived/replaced unit. Keep its
+    // historical placement row, but use the same current-equipment policy as both GET lists.
+    const currentEquipment = tx.select({ id: asset.id }).from(asset).where(and(
+      eq(asset.id, p.equipmentId),
+      eq(asset.isVirtual, false),
+      inArray(asset.status, ["planned", "installed"]),
+      isNull(asset.replacedByAssetId),
+    )).get();
+    if (!currentEquipment) throw conflict("equipment_not_current");
     if (existing) {
       tx.update(assetPlacement).set(shared).where(eq(assetPlacement.id, existing.id)).run();
       return;

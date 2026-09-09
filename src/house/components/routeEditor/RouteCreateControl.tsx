@@ -32,9 +32,9 @@ import { CERTAINTY_LEGEND } from "./RouteFields";
 import { EndpointPanel } from "./EndpointPanel";
 import { startRouteDraft } from "./startRouteDraft";
 import { useEndpoints } from "./useEndpoints";
+import { Select } from "@/ui/Select";
 
 const INPUT = "min-h-8 rounded-md border border-line px-2 text-xs";
-const SELECT = "min-h-8 rounded-md border border-line px-1 text-xs";
 const BUTTON =
   "min-h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3 disabled:opacity-50";
 
@@ -193,17 +193,12 @@ export function RouteCreateControl() {
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-ink-2">Carries</span>
-              <select
+              <Select
+                selectSize="sm"
                 value={medium}
-                onChange={(e) => setMedium(e.target.value as InfraMedium)}
-                className={SELECT}
-              >
-                {MEDIA.map((m) => (
-                  <option key={m} value={m}>
-                    {MEDIUM_LABELS[m]}
-                  </option>
-                ))}
-              </select>
+                onValueChange={(value) => setMedium(value as InfraMedium)}
+                options={MEDIA.map((value) => ({ value, label: MEDIUM_LABELS[value] }))}
+              />
               <span className="text-[11px] text-ink-3">
                 Drawn as a {kindOfMedium(medium)} in the {systemOfMedium(medium)} system.
               </span>
@@ -224,33 +219,25 @@ export function RouteCreateControl() {
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-ink-2">Confidence</span>
-              <select
+              <Select
+                selectSize="sm"
                 value={certainty}
-                onChange={(e) => setCertainty(e.target.value as InfraCertainty)}
-                className={SELECT}
-              >
-                {CERTAINTIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+                onValueChange={(value) => setCertainty(value as InfraCertainty)}
+                options={CERTAINTIES.map((value) => ({ value, label: value }))}
+              />
             </label>
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-ink-2">Lifecycle</span>
-              <select
+              <Select
+                selectSize="sm"
                 value={lifecycle}
-                onChange={(e) => setLifecycle(e.target.value as InfraLifecycle)}
-                className={SELECT}
-              >
-                {/* `removed` is not offered: a run being drawn for the first time is either
-                    there or planned, and marking it removed is the inspector's job afterwards. */}
-                {LIFECYCLES.filter((l) => l !== "removed").map((l) => (
-                  <option key={l} value={l}>
-                    {l}
-                  </option>
-                ))}
-              </select>
+                onValueChange={(value) => setLifecycle(value as InfraLifecycle)}
+                /* `removed` is not offered: a newly drawn run is installed or planned. */
+                options={LIFECYCLES.filter((value) => value !== "removed").map((value) => ({
+                  value,
+                  label: value,
+                }))}
+              />
             </label>
           </div>
 
@@ -426,33 +413,33 @@ function DraftPath({
       <div className="grid grid-cols-2 gap-2">
         <label className="flex flex-col gap-1 text-xs">
           <span className="text-ink-2">Runs from</span>
-          <select
+          <Select
+            selectSize="sm"
             value={extras.fromEndpointId}
-            onChange={(e) => setExtras({ ...extras, fromEndpointId: e.target.value })}
-            className={SELECT}
-          >
-            <option value="">Not recorded</option>
-            {catalog.endpoints.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name} ({ENDPOINT_KIND_SHORT[e.kind]})
-              </option>
-            ))}
-          </select>
+            onValueChange={(value) => setExtras({ ...extras, fromEndpointId: value })}
+            options={[
+              { value: "", label: "Not recorded" },
+              ...catalog.endpoints.map((endpoint) => ({
+                value: endpoint.id,
+                label: `${endpoint.name} (${ENDPOINT_KIND_SHORT[endpoint.kind]})`,
+              })),
+            ]}
+          />
         </label>
         <label className="flex flex-col gap-1 text-xs">
           <span className="text-ink-2">Runs to</span>
-          <select
+          <Select
+            selectSize="sm"
             value={extras.toEndpointId}
-            onChange={(e) => setExtras({ ...extras, toEndpointId: e.target.value })}
-            className={SELECT}
-          >
-            <option value="">Not recorded</option>
-            {catalog.endpoints.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name} ({ENDPOINT_KIND_SHORT[e.kind]})
-              </option>
-            ))}
-          </select>
+            onValueChange={(value) => setExtras({ ...extras, toEndpointId: value })}
+            options={[
+              { value: "", label: "Not recorded" },
+              ...catalog.endpoints.map((endpoint) => ({
+                value: endpoint.id,
+                label: `${endpoint.name} (${ENDPOINT_KIND_SHORT[endpoint.kind]})`,
+              })),
+            ]}
+          />
         </label>
       </div>
       {catalog.endpoints.length === 0 ? (

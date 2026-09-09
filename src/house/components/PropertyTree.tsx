@@ -41,7 +41,6 @@ export function PropertyTree() {
   const { index, placements, selection } = useHouseStore(
     useShallow((s) => ({ index: s.index, placements: s.placements, selection: s.selection })),
   );
-  const isolateFloor = useHouseStore((s) => s.isolateFloor);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["property"]));
   const [focusId, setFocusId] = useState<string>("property");
   const typeahead = useRef({ text: "", at: 0 });
@@ -215,10 +214,12 @@ export function PropertyTree() {
 
   const activate = useCallback(
     (node: TreeNode) => {
-      if (node.selection?.kind === "floor" && node.floorId) isolateFloor(node.floorId);
-      runtime.select(node.selection, { frame: node.selection?.kind === "room" });
+      if (node.id === "property" || node.id === "outside") {
+        runtime.select(null);
+        void runtime.camera?.overview();
+      } else runtime.select(node.selection, { frame: node.selection !== null });
     },
-    [runtime, isolateFloor],
+    [runtime],
   );
 
   const toggle = useCallback((id: string, open?: boolean) => {

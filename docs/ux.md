@@ -160,7 +160,7 @@ animations that come from Radix rather than from our classes.
 | `IconButton` | Icon-only; `label` is **required** and becomes the accessible name and title. 44 px below `md:`, 28–36 px above. |
 | `Input`, `Textarea` | Shared `fieldSurface` chrome; `icon` / `trailing` slots; `aria-invalid` restyles the field. |
 | `Field` | Label + control + help + error with real ids, via a **render callback** (`{ id, describedBy, invalid, errorId }`) — no `cloneElement` magic. Help text is never replaced by the error; both are announced. |
-| `Select` | Radix; options carry an optional `hint` line. Keyboard and typeahead from Radix. |
+| `Select` | Searchable combobox for all lists, including viewer fields; typing filters labels and hints, arrows and Enter choose, Escape cancels. Options retain optional `hint` lines. |
 | `Checkbox`, `Switch`, `RadioGroup` | 18 px controls inside ≥44 px rows on phones. `Switch` means "applies immediately"; `Checkbox` belongs in submitted forms. |
 | `SegmentedControl` | Radix ToggleGroup, single mode; one tab stop, arrow keys between segments. Ignores deselection — a segmented control always has a selection. |
 | `Dialog` | Centred modal for short decisions. Focus trap/restore, Escape, scroll lock from Radix. More than a couple of fields belongs on a page. |
@@ -622,8 +622,8 @@ House page must not break on a hand-edited row.
 ### HA entity selection and bulk import
 
 Entities belonging to equipment's active HA device links appear first in the entity picker, before
-its result limit is applied. Hidden/disabled and diagnostic/config entries are filtered before
-limiting. Associated entries are marked “This equipment’s device”.
+its result limit is applied. Disabled and hidden entries are filtered before limiting; enabled diagnostic and config
+entities, including battery sensors, remain available. Associated entries are marked “This equipment’s device”.
 
 Primary identifies the main function: occupancy for a motion sensor, or the light entity for a
 lamp. Adding a primary entity moves a whole-device primary association to Status / reading;
@@ -631,3 +631,19 @@ it never silently replaces another primary entity. Status / reading also holds a
 measurements such as temperature, humidity and illuminance. These are measurement types already
 provided by HA, not separate link roles. Power and battery level retain their specialized roles.
 Selected rows in the HA bulk importer expose entity role controls before import.
+
+
+### Equipment trash and focus
+
+The equipment page has an **Active equipment / Trash** switch. Trash offers permanent multiselect
+deletion for unused out-of-service records. Rows with service history, tasks, replacement chains,
+projects, infrastructure, documents or other dependencies are locked with a reason. The server
+rechecks eligibility inside the same transaction as deletion and records an audit entry; the
+confirmation lists the records and explains that their owned HA links and placement setup also
+get deleted. The toolbar stacks on narrower screens so selection counts cannot overlap actions.
+
+Property-tree focus consistently frames buildings and outdoor areas as well as rooms/equipment.
+Rooms open from directly above with roofs, floor ceilings and upper floors out of the way. Angled
+equipment focus cuts camera-side and intervening wall assemblies low, preserving back walls and
+mount surfaces for context. The reveal is temporary, resets with Overview and pauses during
+editing. The layer controls keep their saved settings.

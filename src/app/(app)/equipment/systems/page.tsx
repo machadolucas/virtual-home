@@ -9,7 +9,7 @@ import { listLocationOptions } from "@/server/queries/assets/list";
 import { listSystems } from "@/server/queries/assets/systems";
 import { listAssetOptions } from "@/server/queries/inventory/detail";
 import { SYSTEM_KIND_LABEL, SYSTEM_STATUS_LABEL } from "@/features/assets/labels";
-import { DeleteSystemButton, SystemDialog, emptySystem } from "./SystemsEditor";
+import { DeleteSystemButton, SystemDialog } from "./SystemsEditor";
 
 export const metadata: Metadata = { title: "Systems" };
 
@@ -49,7 +49,6 @@ export default async function SystemsPage() {
               All equipment
             </Link>
             <SystemDialog
-              initial={emptySystem()}
               assets={assets}
               locations={locations}
               triggerLabel="New system"
@@ -71,7 +70,6 @@ export default async function SystemsPage() {
           ]}
           actions={
             <SystemDialog
-              initial={emptySystem()}
               assets={assets}
               locations={locations}
               triggerLabel="Create the first system"

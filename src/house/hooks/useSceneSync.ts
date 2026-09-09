@@ -14,10 +14,16 @@
  * is where the "model is in a weird state" bugs live.
  */
 import { useEffect } from "react";
+import * as THREE from "three";
 
 import { shallow } from "zustand/vanilla/shallow";
 import { planAllSurfaces } from "@/house/model/colorPlan";
 import { buildGroupOrder, clipGroupOf, explodeOffset } from "@/house/model/explodeGroups";
+import {
+  cameraFacingRoomWalls,
+  focusContextFor,
+  focusCutSurfaceIds,
+} from "@/house/model/focusContext";
 import { computeVisibility } from "@/house/model/visibilityPlan";
 import type { Placement } from "@/house/model/types";
 import { applyColors } from "@/house/scene/applyColors";
@@ -40,9 +46,69 @@ export function useSceneSync(): void {
 
   // ---- visibility -------------------------------------------------------
   useEffect(() => {
+    const wallCentresByFloor = new Map<string, Map<string, [number, number, number]>>();
+
+    const resolveFocus = (s: HouseStore) =>
+      runtime.manifest
+        ? focusContextFor(
+            runtime.manifest,
+            s.focusSelection,
+            (id) => s.placements.find((p) => p.id === id),
+            !s.editing && !s.routeDraft,
+          )
+        : null;
+
+    const wallCentres = (floorId: string): Map<string, [number, number, number]> => {
+      const index = runtime.index;
+      const manifest = runtime.manifest;
+      const cached = wallCentresByFloor.get(floorId);
+      if (cached || !index || !manifest) return cached ?? new Map();
+      const centres = new Map<string, [number, number, number]>();
+      for (const [sid, surface] of manifest.surfaces) {
+        if (surface.kind !== "wall" || manifest.floorOfSurface.get(sid) !== floorId) continue;
+        const mesh = index.surfaceMesh.get(sid);
+        if (!mesh) continue;
+        const centre = new THREE.Box3().setFromObject(mesh).getCenter(new THREE.Vector3());
+        centres.set(sid, [centre.x, centre.y, centre.z]);
+      }
+      wallCentresByFloor.set(floorId, centres);
+      return centres;
+    };
+
+    const applyFocusCuts = (s: HouseStore, clearWhenInactive: boolean) => {
+      const manifest = runtime.manifest;
+      const focus = resolveFocus(s);
+      if (!manifest || !runtime.clip) return;
+      if (!focus?.roomId || !focus.floorId || !runtime.camera3d) {
+        if (clearWhenInactive && runtime.clip.setFocusCuts(new Map())) runtime.invalidate();
+        return;
+      }
+      const cuts = new Map<string, number>();
+      const camera = runtime.camera3d.getWorldPosition(new THREE.Vector3());
+      const room = manifest.rooms.get(focus.roomId);
+      if (room) {
+        const groupOffset = runtime.offsets.get(focus.floorId) ?? 0;
+        const cap =
+          room.floorElevation +
+          Math.min(0.9, (room.ceilingHeight ?? 2.5) * 0.4) +
+          groupOffset;
+        const facing = cameraFacingRoomWalls(
+          manifest,
+          focus.roomId,
+          [camera.x, camera.y, camera.z],
+          wallCentres(focus.floorId),
+        );
+        for (const sid of focusCutSurfaceIds(manifest, facing)) {
+          if (sid !== focus.preserveSurfaceId) cuts.set(sid, cap);
+        }
+      }
+      if (runtime.clip.setFocusCuts(cuts)) runtime.invalidate();
+    };
+
     const apply = (s: HouseStore) => {
       const index = runtime.index;
       if (!index || !runtime.manifest) return;
+      const focus = resolveFocus(s);
       const plan = computeVisibility(runtime.manifest, {
         viewMode: s.viewMode,
         projection: s.projection,
@@ -54,11 +120,14 @@ export function useSceneSync(): void {
         loadedAssetIds: [...index.assets.keys()],
         explode: s.explode,
         inventory: inventoryOf(index),
+        focus,
       });
       applyVisibility(plan, index, runtime.invalidate);
+      applyFocusCuts(s, true);
     };
+    runtime.refreshFocusClipping = () => applyFocusCuts(store.getState(), false);
     apply(store.getState());
-    return store.subscribe(
+    const unsubscribe = store.subscribe(
       (s: HouseStore) => ({
         viewMode: s.viewMode,
         projection: s.projection,
@@ -69,10 +138,21 @@ export function useSceneSync(): void {
         layers: s.layers,
         explode: s.explode,
         loaded: s.loadedAssetIds,
+        focusSelection: s.focusSelection,
+        placements: s.placements,
+        editing: s.editing,
+        routeDraft: s.routeDraft,
       }),
-      () => apply(store.getState()),
+      () => {
+        wallCentresByFloor.clear();
+        apply(store.getState());
+      },
       { equalityFn: shallow },
     );
+    return () => {
+      unsubscribe();
+      runtime.refreshFocusClipping = null;
+    };
   }, [runtime, store]);
 
   // ---- colours ----------------------------------------------------------

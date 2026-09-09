@@ -337,6 +337,20 @@ pnpm exec vitest run tests/unit/ha
 ```
 
 
+## Registry browsing and entity links
+
+The settings import browser and equipment entity picker include every enabled, visible registry
+entity by default, including entities whose `entity_category` is `diagnostic` or `config`. Home
+Assistant commonly marks useful equipment readings such as battery percentage as diagnostic, so
+category is not a reason to hide an entity or its device. A device that exposes only a diagnostic
+battery entity therefore remains available for import.
+
+Entities with `disabled_by` or `hidden_by` set, and devices with `disabled_by` set, stay hidden by
+default. The **Show disabled and hidden things** switch is the explicit escape hatch in the import
+browser. `browseRegistry()`, `readDeviceEntities()` and `listLinkableEntities()` use this same
+boundary so the device count, import choices, condition-rule picker and equipment link modal cannot
+disagree about whether an entity is available.
+
 ## Equipment link roles
 
 A link role describes the entity's purpose for equipment, separately from HA's sensor device class.

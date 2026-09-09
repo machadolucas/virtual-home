@@ -11,7 +11,8 @@ import { DEFAULT_LAYERS } from "@/house/model/types";
 import { computeVisibility, type VisibilityInput } from "@/house/model/visibilityPlan";
 import { allMaterialHex, applyColors, materialHex } from "@/house/scene/applyColors";
 import { applyVisibility } from "@/house/scene/applyVisibility";
-import { OFF } from "@/house/scene/clipGroups";
+import { ClipGroups, OFF } from "@/house/scene/clipGroups";
+import { boxForSelection } from "@/house/scene/framing";
 import { disposeViewer } from "@/house/scene/dispose";
 import { applyExplode, worldY } from "@/house/scene/explode";
 import { Highlighter, highlightTargets } from "@/house/scene/highlight";
@@ -74,6 +75,27 @@ describe("SceneIndex (fixture)", () => {
       expect(audit.cloned, entry.id).toBe(0);
       expect(audit.materialCount, entry.id).toBe(audit.meshCount);
     }
+  });
+
+  it("frames an area element from its own loaded surfaces", () => {
+    const built = buildScene(FIXTURE_DIR);
+    const box = boxForSelection(built.index, { kind: "element", id: "e-terrain-fx" });
+    expect(box).not.toBeNull();
+    const asset = new THREE.Box3().setFromObject(built.index.assets.get("fixture-terrain")!.root);
+    expect(box!.min.x).toBeCloseTo(asset.min.x - 0.3, 6);
+    expect(box!.max.z).toBeCloseTo(asset.max.z + 0.3, 6);
+  });
+
+  it("uses a fixed per-surface focus plane to leave a low wall stub and reject clipped picks", () => {
+    const clip = new ClipGroups(["f-lower"]);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 2.5, 0.1), new THREE.MeshBasicMaterial());
+    clip.attach(mesh, "f-lower", "wall-a");
+    expect(clip.planesFor("wall-a")).toHaveLength(3);
+    expect(clip.setFocusCuts(new Map([["wall-a", 0.9]]))).toBe(true);
+    expect(clip.keepsSurface("f-lower", "wall-a", new THREE.Vector3(0, 0.5, 0))).toBe(true);
+    expect(clip.keepsSurface("f-lower", "wall-a", new THREE.Vector3(0, 1.5, 0))).toBe(false);
+    expect(clip.setFocusCuts(new Map())).toBe(true);
+    expect(clip.keepsSurface("f-lower", "wall-a", new THREE.Vector3(0, 1.5, 0))).toBe(true);
   });
 });
 
@@ -187,18 +209,18 @@ describe("applyVisibility (fixture)", () => {
 });
 
 describe("clipping planes (fixture)", () => {
-  it("always allocates exactly two planes per group, so the shader never recompiles", () => {
+  it("keeps two shared group planes and one fixed focus plane per surface", () => {
     const built = buildScene(FIXTURE_DIR);
     for (const pair of built.clip.planes.values()) expect(pair.length).toBe(2);
     const mesh = built.index.surfaceMesh.get("s-r-l-a-floor")!;
     const material = mesh.material as THREE.Material;
-    expect(material.clippingPlanes?.length).toBe(2);
+    expect(material.clippingPlanes?.length).toBe(3);
     expect(material.clipIntersection).toBe(false);
 
     built.clip.setCutAll({ enabled: true, y: 1.2, vertical: null }, () => 0);
-    expect(material.clippingPlanes?.length).toBe(2);
+    expect(material.clippingPlanes?.length).toBe(3);
     built.clip.setCutAll({ enabled: false, y: 1.2, vertical: null }, () => 0);
-    expect(material.clippingPlanes?.length).toBe(2);
+    expect(material.clippingPlanes?.length).toBe(3);
     expect(built.clip.planes.get("f-lower")![0]!.constant).toBe(OFF);
   });
 
@@ -321,7 +343,7 @@ describe("highlighting (fixture)", () => {
     expect((floor.material as THREE.MeshStandardMaterial).emissiveIntensity).toBeGreaterThan(0);
     expect(highlighter.outlineNode).not.toBeNull();
     const outlineMaterial = highlighter.outlineNode!.material as THREE.LineBasicMaterial;
-    expect(outlineMaterial.clippingPlanes?.length).toBe(2);
+    expect(outlineMaterial.clippingPlanes?.length).toBe(3);
 
     highlighter.clear(built.index, built.clip);
     expect((floor.material as THREE.MeshStandardMaterial).emissiveIntensity).toBe(0);

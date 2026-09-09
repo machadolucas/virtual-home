@@ -16,6 +16,7 @@ import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouse
 
 /** Sentinel for "let the view infer it", which is `null` in the draft and in the database. */
 import { canMountSurface } from "@/house/model/mountSurface";
+import { Select } from "@/ui/Select";
 
 const INFERRED = "__inferred";
 
@@ -188,23 +189,23 @@ export function NumericPlacementFields() {
       {/* Appearance, not geometry: which silhouette the 3D view draws for this thing. */}
       <label className="flex flex-col gap-0.5 text-xs">
         <span className="text-ink-3">Shown as</span>
-        <select
+        <Select
+          selectSize="sm"
           value={editing.symbol ?? INFERRED}
-          onChange={(event) => {
-            const value = event.currentTarget.value;
+          onValueChange={(value) => {
             updateDraft({ symbol: value === INFERRED ? null : value });
           }}
-          className="min-h-9 rounded-md border border-line px-2 text-xs"
-        >
-          <option value={INFERRED}>
-            Automatic ({SYMBOL_LABEL[inferredSymbol].toLowerCase()})
-          </option>
-          {PLACEMENT_SYMBOLS.map((symbol) => (
-            <option key={symbol} value={symbol}>
-              {SYMBOL_LABEL[symbol]}
-            </option>
-          ))}
-        </select>
+          options={[
+            {
+              value: INFERRED,
+              label: `Automatic (${SYMBOL_LABEL[inferredSymbol].toLowerCase()})`,
+            },
+            ...PLACEMENT_SYMBOLS.map((symbol) => ({
+              value: symbol,
+              label: SYMBOL_LABEL[symbol],
+            })),
+          ]}
+        />
       </label>
 
       <label className="flex flex-col gap-0.5 text-xs">

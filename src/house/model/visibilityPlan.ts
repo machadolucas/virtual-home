@@ -10,6 +10,7 @@
  * and `f-ground` in three, and each copy is a different object.
  */
 import { assetEdgesSpanGroups, explodeGroupOf, isRoofGroup, nodeLayer } from "./explodeGroups";
+import { isAboveFocus, type FocusContext } from "./focusContext";
 import { nodeKey, type ManifestIndex } from "./manifestIndex";
 import type { Asset, AssetId, FloorId, LayerId, Projection, ViewMode } from "./types";
 import { SITE_GROUP } from "./types";
@@ -46,6 +47,8 @@ export interface VisibilityInput {
   loadedAssetIds: readonly AssetId[];
   explode?: { enabled: boolean; gap: number };
   inventory: readonly AssetNodeInventory[];
+  /** Transient selection context. It never changes the stored view controls. */
+  focus?: FocusContext | null;
 }
 
 export interface VisibilityPlan {
@@ -78,13 +81,18 @@ export function computeVisibility(index: ManifestIndex, v: VisibilityInput): Vis
   const loaded = new Set(v.loadedAssetIds);
   const isolating = ISOLATING.has(v.viewMode) && v.activeFloorId !== null;
   const exploded = (v.explode?.enabled ?? false) && (v.explode?.gap ?? 0) > 0;
+  const focus = v.focus ?? null;
+  // Focus temporarily supersedes manual isolation so a room on another floor can always reveal
+  // itself. Clearing focus re-applies the unchanged manual mode.
+  const manualIsolating = isolating && focus === null;
 
   // 1. asset roots: loaded ∩ layer gating ∩ (floor isolation, where the asset belongs to a floor)
   for (const asset of index.manifest.assets) {
     let visible = loaded.has(asset.id);
     const layer = assetLayer(index, asset);
     if (visible && layer && !v.layers[layer]) visible = false;
-    if (visible && isolating && asset.floorId && asset.floorId !== v.activeFloorId) visible = false;
+    if (visible && manualIsolating && asset.floorId && asset.floorId !== v.activeFloorId) visible = false;
+    if (visible && focus && asset.floorId && isAboveFocus(index, asset.floorId, focus)) visible = false;
     assets.set(asset.id, visible);
   }
 
@@ -93,7 +101,10 @@ export function computeVisibility(index: ManifestIndex, v: VisibilityInput): Vis
 
     // 2. floor isolation, across all assets that carry a copy of the floor node
     for (const fname of inv.floorNodes) {
-      nodes.set(nodeKey(inv.assetId, fname), !isolating || fname === v.activeFloorId);
+      nodes.set(
+        nodeKey(inv.assetId, fname),
+        (!manualIsolating || fname === v.activeFloorId) && (!focus || !isAboveFocus(index, fname, focus)),
+      );
     }
 
     // 3. floor-less element nodes: the static policy table decides
@@ -102,9 +113,15 @@ export function computeVisibility(index: ManifestIndex, v: VisibilityInput): Vis
       const layer = nodeLayer(index, inv.assetId, ename);
       let visible = true;
       if (layer && !v.layers[layer]) visible = false;
-      else if (isRoofGroup(group)) visible = v.roofVisible;
+      else if (isRoofGroup(group))
+        visible =
+          v.roofVisible &&
+          (!focus || focus.floorId === null || focus.keepRoof || group !== `roof:${focus.buildingId}`);
       else if (group === SITE_GROUP) visible = true; // grade-level: isolation does not apply
-      else visible = !isolating || group === v.activeFloorId;
+      else
+        visible =
+          (!manualIsolating || group === v.activeFloorId) &&
+          (!focus || !isAboveFocus(index, group, focus));
       nodes.set(nodeKey(inv.assetId, ename), visible);
     }
 
@@ -129,7 +146,11 @@ export function computeVisibility(index: ManifestIndex, v: VisibilityInput): Vis
     if (!s) continue;
     const floorId = index.floorOfSurface.get(sid) ?? null;
     const hide =
-      !v.ceilingsVisible && (!isolating || floorId === null || floorId === v.activeFloorId);
+      (!v.ceilingsVisible && (!manualIsolating || floorId === null || floorId === v.activeFloorId)) ||
+      (focus !== null &&
+        focus.floorId !== null &&
+        floorId === focus.floorId &&
+        sid !== focus.preserveSurfaceId);
     for (const nr of s.nodeRefs) nodes.set(nodeKey(nr.assetId, nr.nodeName), !hide);
   }
 

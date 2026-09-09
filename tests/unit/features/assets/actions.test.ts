@@ -49,14 +49,18 @@ import {
   assetHaLink,
   assetReplacement,
   auditLog,
+  conditionEpisode,
+  conditionRule,
   haDevice,
   haEntity,
   maintenancePlan,
   systemAsset,
 } from "@/db/schema";
 import { listLinkableEntities } from "@/server/queries/ha/registry";
+import { listTrashEquipment } from "@/server/queries/assets/trash";
 import { replacementChain } from "@/domain/assets";
 import { bulkRemoveEquipment } from "@/server/actions/assets/bulk";
+import { permanentlyDeleteEquipment } from "@/server/actions/assets/trash";
 import {
   createEquipment,
   replaceEquipment,
@@ -810,5 +814,145 @@ describe("equipment entity picker", () => {
     expect(result.entities.map((row) => row.registryId)).toEqual([own.registryId]);
     expect(result.entities[0]?.belongsToDevice).toBe(true);
     expect(listLinkableEntities(world.handle.db, { limit: 1 }).entities[0]?.registryId).toBe(unrelated.registryId);
+  });
+});
+
+describe("equipment trash", () => {
+  it("permanently deletes an unused out-of-service record and its owned setup rows", async () => {
+    const assetId = seedAsset(world, { name: "Accidental import" });
+    const partId = seedPart(world);
+    const { registryId } = seedHaDevice();
+    const { systemId } = unwrap(
+      await upsertSystem({ name: "Temporary", kind: "other", members: [{ assetId }] }),
+    );
+    unwrap(await linkHaEntity({ assetId, registryId, role: "battery_level" }));
+    unwrap(
+      await setConsumables({
+        assetId,
+        consumables: [{ partId, role: "battery", qtyMilli: 1000 }],
+      }),
+    );
+    unwrap(
+      await bulkRemoveEquipment({
+        assetIds: [assetId],
+        idempotencyKey: "remove-before-delete",
+      }),
+    );
+
+    unwrap(
+      await permanentlyDeleteEquipment({
+        assetIds: [assetId],
+        idempotencyKey: "permanent-delete-unused",
+      }),
+    );
+
+    expect(world.handle.db.select().from(asset).where(eq(asset.id, assetId)).all()).toEqual([]);
+    expect(
+      world.handle.db.select().from(assetHaLink).where(eq(assetHaLink.assetId, assetId)).all(),
+    ).toEqual([]);
+    expect(
+      world.handle.db.select().from(assetConsumable).where(eq(assetConsumable.assetId, assetId)).all(),
+    ).toEqual([]);
+    expect(
+      world.handle.db.select().from(systemAsset).where(eq(systemAsset.systemId, systemId)).all(),
+    ).toEqual([]);
+    expect(
+      world.handle.db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.entityId, assetId), eq(auditLog.action, "permanently_deleted")))
+        .all(),
+    ).toHaveLength(1);
+    expect(mocks.freshSessionCalls.current).toBeGreaterThan(0);
+  });
+
+  it("refuses permanent deletion when maintenance history depends on the record", async () => {
+    const assetId = seedAsset(world, { name: "Serviced unit" });
+    unwrap(
+      await bulkRemoveEquipment({
+        assetIds: [assetId],
+        idempotencyKey: "remove-serviced-unit",
+      }),
+    );
+    writeTx(world.handle.db, (tx) => {
+      tx.insert(maintenancePlan)
+        .values({
+          id: newId(),
+          title: "Keep this history",
+          assetId,
+          scheduleKind: "one_off",
+          recurrenceJson: '{"v":1,"kind":"one_off"}',
+          assignmentMode: "shared",
+          status: "cancelled",
+          createdAtMs: nowMs(),
+          updatedAtMs: nowMs(),
+        })
+        .run();
+    });
+
+    const trash = listTrashEquipment(world.handle.db, {
+      nowMs: nowMs(),
+      batteryThresholdPct: 20,
+      batteryStaleHours: 24,
+    });
+    expect(trash.blockers[assetId]).toBe("Has a maintenance plan");
+
+    expect(
+      expectRefusal(
+        await permanentlyDeleteEquipment({
+          assetIds: [assetId],
+          idempotencyKey: "refuse-delete-history",
+        }),
+      ),
+    ).toBe("equipment_not_deletable");
+    expect(world.handle.db.select().from(asset).where(eq(asset.id, assetId)).all()).toHaveLength(1);
+  });
+
+  it("preserves an asset referenced only by condition episode history", async () => {
+    const assetId = seedAsset(world, { name: "Battery history" });
+    const { registryId } = seedHaDevice();
+    const ruleId = newId();
+    const at = nowMs();
+    unwrap(
+      await bulkRemoveEquipment({
+        assetIds: [assetId],
+        idempotencyKey: "remove-condition-history",
+      }),
+    );
+    writeTx(world.handle.db, (tx) => {
+      tx.insert(conditionRule)
+        .values({
+          id: ruleId,
+          kind: "low_battery",
+          name: "Battery rule",
+          scope: "entity",
+          haEntityRegistryId: registryId,
+          titleTemplate: "Replace battery",
+          createdAtMs: at,
+          updatedAtMs: at,
+        })
+        .run();
+      tx.insert(conditionEpisode)
+        .values({
+          id: newId(),
+          ruleId,
+          haEntityRegistryId: registryId,
+          assetId,
+          openedAtMs: at,
+          openLocalDate: "2026-09-09",
+          createdAtMs: at,
+        })
+        .run();
+    });
+
+    expect(
+      expectRefusal(
+        await permanentlyDeleteEquipment({
+          assetIds: [assetId],
+          idempotencyKey: "refuse-condition-history",
+        }),
+      ),
+    ).toBe("equipment_not_deletable");
+    expect(world.handle.db.select().from(asset).where(eq(asset.id, assetId)).all()).toHaveLength(1);
   });
 });

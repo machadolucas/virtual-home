@@ -110,6 +110,7 @@ export interface HouseDataApi {
  * endpoint's own `error` code, which is at least a name rather than an HTTP verb and a number.
  */
 const REQUEST_ERRORS: Record<string, string> = {
+  equipment_not_current: "This equipment is no longer available to place. Reload the house view to refresh the equipment list.",
   mount_surface_kind_mismatch: "That surface cannot take this kind of mount",
   unknown_surface: "The model does not have that surface any more",
   unknown_room: "The model does not have that room any more",

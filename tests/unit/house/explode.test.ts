@@ -8,6 +8,7 @@ import {
 } from "@/house/model/explodeGroups";
 import {
   boxUnion,
+  buildingBox,
   cutRange,
   equipmentBox,
   floorBox,
@@ -102,6 +103,12 @@ describe("framing boxes (fixture)", () => {
     const range = cutRange(index);
     expect(range.min).toBeLessThan(-1);
     expect(range.max).toBeGreaterThan(7);
+  });
+
+  it("frames a building from all of its non-scan asset bounds", () => {
+    const b = buildingBox(index, "b-fx");
+    expect(b.min).toEqual([-0.3, -0.2, -0.3]);
+    expect(b.max).toEqual([6.6, 6.2, 4.4]);
   });
 
   it("builds context boxes for equipment and routes", () => {

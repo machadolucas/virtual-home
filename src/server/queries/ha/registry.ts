@@ -53,7 +53,7 @@ export interface RegistryDeviceRow {
   disabledBy: string | null;
   canonicalBatteryEntityId: string | null;
   entityCount: number;
-  /** Entities of this device that are neither diagnostic/config nor disabled/hidden. */
+  /** Entities of this device that are not disabled or hidden in Home Assistant. */
   visibleEntityCount: number;
   /** Of the visible ones, how many Home Assistant is actually providing right now. */
   liveEntityCount: number;
@@ -81,7 +81,7 @@ export interface RegistryAreaGroup {
 }
 
 export interface RegistryBrowseOptions {
-  /** Include `entity_category IN ('diagnostic','config')` and disabled/hidden entities. */
+  /** Include entities and devices disabled or hidden in Home Assistant. */
   includeHidden: boolean;
   /** Case-insensitive substring across device and entity names/ids. */
   query: string;
@@ -158,7 +158,6 @@ export function browseRegistry(
   for (const row of tx
     .select({
       deviceId: haEntity.deviceId,
-      entityCategory: haEntity.entityCategory,
       disabledBy: haEntity.disabledBy,
       hiddenBy: haEntity.hiddenBy,
       liveState: haEntity.liveState,
@@ -174,8 +173,9 @@ export function browseRegistry(
     current.total += 1;
     if (isVisibleEntity(row)) {
       current.visible += 1;
-      // Liveness is counted over the *visible* entities only: a disabled or diagnostic entity
-      // being dead says nothing about whether the device is worth importing.
+      // Liveness is counted over the *visible* entities only: a disabled or hidden entity being
+      // dead says nothing about whether the device is worth importing. Diagnostic readings are
+      // visible because useful equipment signals such as battery level commonly use that category.
       const liveness = livenessOf(row);
       if (liveness === null) current.unmeasured += 1;
       else if (liveness === "live") current.live += 1;
@@ -231,7 +231,7 @@ export function browseRegistry(
       continue;
     }
     if (!options.includeHidden && counts.visible === 0 && counts.total > 0) {
-      // Every entity is diagnostic/config or disabled: nothing here maps to equipment.
+      // Every entity is disabled or hidden: nothing here maps to equipment by default.
       hiddenDeviceCount += 1;
       continue;
     }
@@ -239,10 +239,9 @@ export function browseRegistry(
     // remedy is different: these are stale registry entries to clean up in Home Assistant, or
     // hardware that is currently offline — not entities someone chose to hide.
     if (hideDead && counts.visible > 0 && counts.live === 0 && counts.dead > 0) {
-      // Only `deadDeviceCount`. Adding it to `hiddenDeviceCount` too made the "diagnostic and
-      // disabled" toggle claim these devices as its own, so the hint read "43 device(s) are hidden
-      // because everything they expose is diagnostic, config, disabled or hidden" when 40 of them
-      // were stale registry entries instead — and the remedy for the two is different.
+      // Only `deadDeviceCount`. Adding it to `hiddenDeviceCount` too makes the disabled/hidden
+      // toggle claim these devices as its own, even though stale registry entries have a different
+      // remedy.
       deadDeviceCount += 1;
       continue;
     }
@@ -367,12 +366,10 @@ export function isDeadLiveness(liveness: EntityLiveness): boolean {
 }
 
 function isVisibleEntity(row: {
-  entityCategory: string | null;
   disabledBy: string | null;
   hiddenBy: string | null;
 }): boolean {
-  if (row.disabledBy !== null || row.hiddenBy !== null) return false;
-  return row.entityCategory !== "diagnostic" && row.entityCategory !== "config";
+  return row.disabledBy === null && row.hiddenBy === null;
 }
 
 /**
@@ -408,8 +405,15 @@ export function readDeviceEntities(
       liveAtMs: haEntity.liveAtMs,
     })
     .from(haEntity)
+    .innerJoin(haDevice, eq(haDevice.deviceId, haEntity.deviceId))
     .leftJoin(haEntityState, eq(haEntityState.registryId, haEntity.registryId))
-    .where(and(eq(haEntity.deviceId, deviceId), isNull(haEntity.removedAtMs)))
+    .where(
+      and(
+        eq(haEntity.deviceId, deviceId),
+        isNull(haEntity.removedAtMs),
+        options.includeHidden ? undefined : isNull(haDevice.disabledBy),
+      ),
+    )
     .orderBy(asc(haEntity.domain), asc(haEntity.entityId))
     .all();
 
@@ -563,7 +567,8 @@ export interface LinkableEntity {
 }
 
 /**
- * Live, non-diagnostic entities a person could sensibly link to a piece of equipment.
+ * Registry entities a person could sensibly link to a piece of equipment. Diagnostic entities are
+ * included because Home Assistant categorises useful readings such as battery level as diagnostic.
  *
  * Capped, because a household instance has thousands of entities and this feeds a `Select`. The
  * cap is generous enough to cover every instance we expect and the caller says when it bites, so
@@ -589,7 +594,6 @@ export function listLinkableEntities(
       domain: haEntity.domain,
       deviceClass: haEntity.deviceClass,
       unitOfMeasurement: haEntity.unitOfMeasurement,
-      entityCategory: haEntity.entityCategory,
       disabledBy: haEntity.disabledBy,
       hiddenBy: haEntity.hiddenBy,
       deviceName: haDevice.name,
@@ -601,10 +605,18 @@ export function listLinkableEntities(
     .leftJoin(haDevice, eq(haDevice.deviceId, haEntity.deviceId))
     .leftJoin(haArea, eq(haArea.areaId, haDevice.areaId))
     .leftJoin(haEntityState, eq(haEntityState.registryId, haEntity.registryId))
-    .where(and(isNull(haEntity.removedAtMs), options.includeHidden ? undefined : and(
-      isNull(haEntity.disabledBy), isNull(haEntity.hiddenBy),
-      sql`(${haEntity.entityCategory} IS NULL OR ${haEntity.entityCategory} NOT IN ('diagnostic', 'config'))`,
-    )))
+    .where(
+      and(
+        isNull(haEntity.removedAtMs),
+        options.includeHidden
+          ? undefined
+          : and(
+              isNull(haDevice.disabledBy),
+              isNull(haEntity.disabledBy),
+              isNull(haEntity.hiddenBy),
+            ),
+      ),
+    )
     .orderBy(preferred, asc(haEntity.entityId))
     .limit(limit + 1)
     .all();

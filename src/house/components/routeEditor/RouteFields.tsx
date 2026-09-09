@@ -23,6 +23,7 @@ import { ENDPOINT_KIND_SHORT } from "@/features/projects/infraEndpoint";
 import type { Route, RouteId } from "@/house/model/types";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
 import { useEndpoints } from "./useEndpoints";
+import { Select } from "@/ui/Select";
 
 /**
  * The legend, spelled out. Referenced by name from the tests so it cannot be quietly softened.
@@ -249,21 +250,16 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
       <div className="grid grid-cols-2 gap-2">
         <label className="flex flex-col gap-1 text-xs">
           <span className="text-ink-2">Carries</span>
-          <select
+          <Select
+            selectSize="sm"
             value={draft.medium}
-            onChange={(e) => {
-              const medium = e.target.value as InfraMedium;
+            onValueChange={(value) => {
+              const medium = value as InfraMedium;
               set("medium", medium);
               void save({ medium });
             }}
-            className="min-h-8 rounded-md border border-line px-1 text-xs"
-          >
-            {MEDIA.map((m) => (
-              <option key={m} value={m}>
-                {MEDIUM_LABELS[m]}
-              </option>
-            ))}
-          </select>
+            options={MEDIA.map((value) => ({ value, label: MEDIUM_LABELS[value] }))}
+          />
           <span className="text-[11px] text-ink-3">
             Drawn as a {kindOfMedium(draft.medium)} in the {systemOfMedium(draft.medium)} system.
           </span>
@@ -292,21 +288,16 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
 
       <fieldset className="flex flex-col gap-1">
         <legend className="text-xs text-ink-2">Confidence</legend>
-        <select
+        <Select
+          selectSize="sm"
           value={draft.certainty}
-          onChange={(e) => {
-            const certainty = e.target.value as InfraCertainty;
+          onValueChange={(value) => {
+            const certainty = value as InfraCertainty;
             set("certainty", certainty);
             void save({ certainty });
           }}
-          className="min-h-8 rounded-md border border-line px-1 text-xs"
-        >
-          {CERTAINTIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+          options={CERTAINTIES.map((value) => ({ value, label: value }))}
+        />
         <p className="text-[11px] text-ink-2">{CERTAINTY_HELP[draft.certainty]}</p>
         <p className="rounded-md border border-line bg-surface-2 p-2 text-[11px] text-ink-2">
           {CERTAINTY_LEGEND}
@@ -315,21 +306,16 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
 
       <fieldset className="flex flex-col gap-1">
         <legend className="text-xs text-ink-2">Lifecycle</legend>
-        <select
+        <Select
+          selectSize="sm"
           value={draft.lifecycle}
-          onChange={(e) => {
-            const lifecycle = e.target.value as InfraLifecycle;
+          onValueChange={(value) => {
+            const lifecycle = value as InfraLifecycle;
             set("lifecycle", lifecycle);
             void save({ lifecycle });
           }}
-          className="min-h-8 rounded-md border border-line px-1 text-xs"
-        >
-          {LIFECYCLES.map((l) => (
-            <option key={l} value={l}>
-              {l}
-            </option>
-          ))}
-        </select>
+          options={LIFECYCLES.map((value) => ({ value, label: value }))}
+        />
         <p className="text-[11px] text-ink-2">{LIFECYCLE_HELP[draft.lifecycle]}</p>
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1 text-xs">
@@ -421,22 +407,21 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
 
       <label className="flex flex-col gap-1 text-xs">
         <span className="text-ink-2">Renovation project</span>
-        <select
+        <Select
+          selectSize="sm"
           value={draft.projectId}
-          onChange={(e) => {
-            const projectId = e.target.value;
+          onValueChange={(projectId) => {
             set("projectId", projectId);
             void save({ projectId });
           }}
-          className="min-h-8 rounded-md border border-line px-1 text-xs"
-        >
-          <option value="">Not attributed</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} ({p.status})
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: "", label: "Not attributed" },
+            ...projects.map((project) => ({
+              value: project.id,
+              label: `${project.name} (${project.status})`,
+            })),
+          ]}
+        />
       </label>
 
       <fieldset className="flex flex-col gap-1">
@@ -445,10 +430,10 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
           {(["fromEndpointId", "toEndpointId"] as const).map((field) => (
             <label key={field} className="flex flex-col gap-1 text-xs">
               <span className="text-ink-2">{field === "fromEndpointId" ? "From" : "To"}</span>
-              <select
+              <Select
+                selectSize="sm"
                 value={draft[field]}
-                onChange={(e) => {
-                  const value = e.target.value;
+                onValueChange={(value) => {
                   set(field, value);
                   void save(
                     field === "fromEndpointId"
@@ -456,15 +441,14 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
                       : { toEndpointId: value },
                   );
                 }}
-                className="min-h-8 rounded-md border border-line px-1 text-xs"
-              >
-                <option value="">Not recorded</option>
-                {endpointCatalog.endpoints.map((endpoint) => (
-                  <option key={endpoint.id} value={endpoint.id}>
-                    {endpoint.name} ({ENDPOINT_KIND_SHORT[endpoint.kind]})
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "", label: "Not recorded" },
+                  ...endpointCatalog.endpoints.map((endpoint) => ({
+                    value: endpoint.id,
+                    label: `${endpoint.name} (${ENDPOINT_KIND_SHORT[endpoint.kind]})`,
+                  })),
+                ]}
+              />
             </label>
           ))}
         </div>

@@ -2,20 +2,25 @@
  * The two counters the import browser's toggles describe themselves with.
  *
  * They are separate numbers because the remedies are different: a device hidden for exposing only
- * diagnostic/config/disabled entities is a filter preference, while a device hidden for exposing
+ * disabled/hidden entities is a filter preference, while a device hidden for exposing
  * nothing live is a stale registry entry to clean up in Home Assistant, or hardware that is
  * currently offline. Counting a dead device as both made the first toggle claim the second one's
- * devices — "43 device(s) are hidden because everything they expose is diagnostic, config,
- * disabled or hidden" when 40 of them were stale instead.
+ * devices when most of them were stale instead.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { eq } from "drizzle-orm";
 
 // `src/server/queries/**` carries the `server-only` guard, which throws outside a server component.
 vi.mock("server-only", () => ({}));
 
-import type { DbHandle } from "@/db/client";
+import { writeTx, type DbHandle } from "@/db/client";
+import { haDevice, haEntity } from "@/db/schema";
 import { applyRegistryList, applySnapshot } from "@/server/ha/registryCache";
-import { browseRegistry } from "@/server/queries/ha/registry";
+import {
+  browseRegistry,
+  listLinkableEntities,
+  readDeviceEntities,
+} from "@/server/queries/ha/registry";
 import { buildSampleRegistry, type FakeRegistry } from "../../helpers/fakeHa";
 import { testDb } from "../../helpers/db";
 import { T0, snapshotOf } from "./fixtures";
@@ -56,7 +61,7 @@ describe("browseRegistry counters", () => {
     });
 
     expect(withDeadHidden.deadDeviceCount).toBeGreaterThan(0);
-    // The number the "diagnostic and disabled" toggle reports must not move when the *other*
+    // The number the disabled/hidden toggle reports must not move when the *other*
     // filter hides something: it is the same set of devices either way.
     expect(withDeadHidden.hiddenDeviceCount).toBe(withDeadShown.hiddenDeviceCount);
   });
@@ -84,5 +89,75 @@ describe("browseRegistry counters", () => {
     const result = browseRegistry(handle.db, { includeHidden: false, query: "" });
     expect(result.cacheEmpty).toBe(true);
     expect(result.livenessUnmeasured).toBe(true);
+  });
+
+  it("shows a device whose only entities are diagnostic and offers those entities for linking", () => {
+    applySnapshot(handle, snapshotOf(registry), T0);
+
+    const result = browseRegistry(handle.db, { includeHidden: false, query: "Lucas iPhone" });
+    const devices = result.groups.flatMap((floor) =>
+      floor.areas.flatMap((area) => area.devices),
+    );
+
+    expect(devices.map((device) => device.deviceId)).toContain("dev_lucas_iphone");
+    expect(
+      readDeviceEntities(handle.db, "dev_lucas_iphone", { includeHidden: false }).map(
+        (entity) => entity.registryId,
+      ),
+    ).toContain("reg_lucas_battery_level");
+    expect(listLinkableEntities(handle.db).entities.map((entity) => entity.registryId)).toContain(
+      "reg_lucas_battery_level",
+    );
+  });
+
+  it("still excludes disabled diagnostic entities by default", () => {
+    applySnapshot(handle, snapshotOf(registry), T0);
+    writeTx(handle.db, (tx) => {
+      tx.update(haEntity)
+        .set({ disabledBy: "integration" })
+        .where(eq(haEntity.registryId, "reg_lucas_battery_level"))
+        .run();
+    });
+
+    expect(
+      readDeviceEntities(handle.db, "dev_lucas_iphone", { includeHidden: false }).map(
+        (entity) => entity.registryId,
+      ),
+    ).not.toContain("reg_lucas_battery_level");
+    expect(
+      readDeviceEntities(handle.db, "dev_lucas_iphone", { includeHidden: true }).map(
+        (entity) => entity.registryId,
+      ),
+    ).toContain("reg_lucas_battery_level");
+    expect(
+      listLinkableEntities(handle.db).entities.map((entity) => entity.registryId),
+    ).not.toContain("reg_lucas_battery_level");
+  });
+
+  it("excludes enabled entities of a disabled device by default", () => {
+    applySnapshot(handle, snapshotOf(registry), T0);
+    writeTx(handle.db, (tx) => {
+      tx.update(haDevice)
+        .set({ disabledBy: "user" })
+        .where(eq(haDevice.deviceId, "dev_lucas_iphone"))
+        .run();
+    });
+
+    expect(
+      readDeviceEntities(handle.db, "dev_lucas_iphone", { includeHidden: false }),
+    ).toEqual([]);
+    expect(
+      readDeviceEntities(handle.db, "dev_lucas_iphone", { includeHidden: true }).map(
+        (entity) => entity.registryId,
+      ),
+    ).toContain("reg_lucas_battery_level");
+    expect(
+      listLinkableEntities(handle.db).entities.map((entity) => entity.registryId),
+    ).not.toContain("reg_lucas_battery_level");
+    expect(
+      listLinkableEntities(handle.db, { includeHidden: true }).entities.map(
+        (entity) => entity.registryId,
+      ),
+    ).toContain("reg_lucas_battery_level");
   });
 });
