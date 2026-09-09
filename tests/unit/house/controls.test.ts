@@ -99,3 +99,31 @@ describe("wall display presets", () => {
     });
   });
 });
+
+describe("viewer rendering defaults", () => {
+  it("starts with occlusion enabled and a conservative device-capped light budget", () => {
+    const store = createHouseStore();
+    expect(store.getState()).toMatchObject({
+      equipmentOcclusion: true,
+      detailedLightLimit: 16,
+      detailedLightHardwareMax: 12,
+    });
+  });
+
+  it("rounds and clamps requested and hardware light counts", () => {
+    const store = createHouseStore();
+    store.getState().setDetailedLightLimit(8.6);
+    store.getState().setDetailedLightHardwareMax(100);
+    expect(store.getState()).toMatchObject({
+      detailedLightLimit: 9,
+      detailedLightHardwareMax: 64,
+    });
+
+    store.getState().setDetailedLightLimit(Number.NaN);
+    store.getState().setDetailedLightHardwareMax(-4);
+    expect(store.getState()).toMatchObject({
+      detailedLightLimit: 0,
+      detailedLightHardwareMax: 0,
+    });
+  });
+});

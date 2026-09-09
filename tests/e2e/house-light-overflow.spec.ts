@@ -8,9 +8,9 @@ test("all active lights remain represented without camera-dependent slot swappin
   const errors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   await installSyntheticHa(page);
-  const placements = Array.from({ length: 20 }, (_, i) => ({
+  const placements = Array.from({ length: 40 }, (_, i) => ({
     id: `lamp-${i}`, modelId: "fixture-house", equipmentId: `lamp-${i}`, name: `Test lamp ${i}`,
-    position: [0.6 + (i % 4) * 0.5, 2.25, 0.5 + Math.floor(i / 4) * 0.4], rotationYDeg: 0,
+    position: [0.6 + (i % 4) * 0.5, 2.25, 0.5 + Math.floor(i / 4) * 0.2], rotationYDeg: 0,
     lightAim: null, mount: { kind: "free", height: 2.25 }, floorId: "f-lower", roomId: "r-l-a", surfaceId: null,
     locationNote: "", photoId: null, entityId: `light.test_${i}`, symbol: i % 2 === 0 ? "ceiling_lamp" : "downlight", category: "electrical", linkedEntities: [],
   }));
@@ -20,10 +20,13 @@ test("all active lights remain represented without camera-dependent slot swappin
   await openHouse(page, { sel: "room:r-l-a" });
   await openSyntheticHa(page);
   await emitHaBatch(page, placements.map((p) => ({ topic: "ha.state", key: p.entityId, payload: { state: "on", attributes: { brightness: 180 }, lastUpdated: Date.now() } })));
-  await expect.poll(() => page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.intensity > 0).length)).toBe(20);
+  await expect.poll(() => page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.intensity > 0).length)).toBe(40);
   await waitForStableFrames(page, 900);
   const before = await page.evaluate(() => window.__vh!.renderedLights());
-  expect(before.filter((l) => l.castShadow).length).toBe(12);
+  await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  const limit = page.getByRole("slider", { name: "Detailed lights", exact: true });
+  const maximum = Number(await limit.getAttribute("max"));
+  expect(before.filter((l) => l.castShadow).length).toBe(Math.min(16, maximum));
   const canvas = page.locator("canvas").first();
   const box = (await canvas.boundingBox())!;
   await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.55);
@@ -35,6 +38,12 @@ test("all active lights remain represented without camera-dependent slot swappin
   expect(after.map((l) => l.id).sort()).toEqual(before.map((l) => l.id).sort());
   expect(after.filter((l) => l.castShadow).map((l) => l.id).sort()).toEqual(before.filter((l) => l.castShadow).map((l) => l.id).sort());
   expect(after.every((l) => l.intensity > 0)).toBe(true);
+  await limit.fill("0");
+  await waitForStableFrames(page, 900);
+  expect(await page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.castShadow).length)).toBe(0);
+  await page.getByRole("button", { name: "Device maximum", exact: true }).click();
+  await waitForStableFrames(page, 900);
+  expect(await page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.castShadow).length)).toBe(Math.min(40, maximum));
   expect(errors.filter((error) => /THREE|shader|WebGL/i.test(error))).toEqual([]);
   await testInfo.attach("all-lights-on.png", { body: await page.screenshot(), contentType: "image/png" });
   await expect(page.getByTestId("viewer-frame-rate")).toHaveText("idle");
@@ -54,6 +63,7 @@ test("an overflow wall lamp visibly illuminates several surfaces at night", asyn
   });
   await openHouse(page, { sel: "room:r-l-a" });
   await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  await page.getByRole("slider", { name: "Detailed lights", exact: true }).fill("6");
   const controls = page.getByRole("group", { name: "Daylight and shadows", exact: true });
   await controls.getByText("Location and north", { exact: true }).click();
   await controls.getByLabel("Latitude", { exact: true }).fill("45");

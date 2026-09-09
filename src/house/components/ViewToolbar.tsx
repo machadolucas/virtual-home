@@ -32,6 +32,7 @@ import { displayNameForNode } from "@/house/model/labelPreferences";
 import { Switch } from "@/ui";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { DaylightControl } from "./DaylightControl";
+import { DetailedLightControl } from "./DetailedLightControl";
 
 const LAYER_LABELS: Record<LayerId, string> = {
   structure: "Structure (trusses, footings)",
@@ -191,6 +192,7 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
           Rendering
         </legend>
         <Toggle icon={Gauge} checked={state.performanceMode} onChange={setPerformanceMode} label="Performance mode (pixel ratio 1)" />
+        <DetailedLightControl />
         <div className="min-w-0">
           <p className="mb-2 text-xs font-medium text-ink-2">Background</p>
           <HouseBackgroundControl value={state.background} onPreview={setBackground} />

@@ -137,18 +137,28 @@ export class EquipmentLightLayer {
 
   constructor(scene: THREE.Scene) {
     this.root.name = "vh-equipment-lights";
-    for (let i = 0; i < LIGHT_SLOTS_PER_KIND; i++) {
-      const point = new THREE.PointLight(0xffffff, 0, 5, 2);
-      const spot = new THREE.SpotLight(0xffffff, 0, 8, Math.PI / 7, 0.45, 2);
-      point.name = `vh-live-point-${i}`;
-      spot.name = `vh-live-spot-${i}`;
-      configureShadow(point, 128);
-      configureShadow(spot, 256);
-      this.points.push(point);
-      this.spots.push(spot);
-      this.root.add(point, spot, spot.target);
-    }
+    this.resizePool(this.points, LIGHT_SLOTS_PER_KIND, false);
+    this.resizePool(this.spots, LIGHT_SLOTS_PER_KIND, true);
     scene.add(this.root);
+  }
+
+  private resizePool(lights: Array<THREE.PointLight | THREE.SpotLight>, size: number, spot: boolean): void {
+    while (lights.length > size) {
+      const light = lights.pop()!;
+      this.fades.delete(light);
+      this.assignments.delete(light);
+      light.removeFromParent();
+      if (light instanceof THREE.SpotLight) light.target.removeFromParent();
+      light.dispose();
+    }
+    while (lights.length < size) {
+      const light = spot ? new THREE.SpotLight(0xffffff, 0, 8, Math.PI / 7, 0.45, 2) : new THREE.PointLight(0xffffff, 0, 5, 2);
+      light.name = `vh-live-${spot ? "spot" : "point"}-${lights.length}`;
+      configureShadow(light, spot ? 256 : 128);
+      lights.push(light);
+      this.root.add(light);
+      if (light instanceof THREE.SpotLight) this.root.add(light.target);
+    }
   }
 
   /** Caller orders candidates by selection and stable identity. Returns true only for a target change. */
@@ -180,6 +190,9 @@ export class EquipmentLightLayer {
     const signature = JSON.stringify([specs, budget.point, budget.spot, projectionSignature]);
     if (signature === this.signature) return false;
     this.signature = signature;
+    // Changing the user budget may compile a new shader; ordinary HA changes keep these pools.
+    this.resizePool(this.points, budget.point, false);
+    this.resizePool(this.spots, budget.spot, true);
     this.active = [...specs];
     this.emitters.set(specs);
     this.reconcile(this.points, points, budget.point);
@@ -258,7 +271,7 @@ export class EquipmentLightLayer {
       this.apply(light, spec);
     }
 
-    for (let i = 0; i < LIGHT_SLOTS_PER_KIND; i++) {
+    for (let i = 0; i < lights.length; i++) {
       const light = lights[i]!;
       if (!light.castShadow && i < budget) light.shadow.needsUpdate = true;
       light.castShadow = i < budget;

@@ -50,6 +50,7 @@ test("compact controls are separate and collapsing placement cancels it", async 
     await expect(controls.getByRole("switch", { name: "Roof (H)" })).toBeVisible();
     await controls.getByRole("tab", { name: "Rendering", exact: true }).click();
     await expect(controls.getByRole("radiogroup", { name: "3D background" })).toBeVisible();
+    await expect(controls.getByRole("slider", { name: "Detailed lights" })).toBeVisible();
     await page.getByRole("button", { name: "Collapse the view controls", exact: true }).click();
     await expect(controls.getByRole("button", { name: "Download image", exact: true })).toBeVisible();
     await expect(controls.getByRole("button", { name: "Overview (R)" })).toBeVisible();
@@ -140,10 +141,15 @@ test("rendering controls share the available desktop width", async ({ browser },
     await controls.getByRole("tab", { name: "Rendering", exact: true }).click();
     const performance = controls.getByRole("switch", { name: "Performance mode (pixel ratio 1)", exact: true });
     const background = controls.getByRole("radiogroup", { name: "3D background", exact: true });
+    const detailedLights = controls.getByRole("slider", { name: "Detailed lights", exact: true });
     await expect(performance).toBeVisible();
     await expect(background).toBeVisible();
+    await expect(detailedLights).toBeVisible();
+    expect(Number(await detailedLights.inputValue())).toBeLessThanOrEqual(
+      Number(await detailedLights.getAttribute("max")),
+    );
     const p = (await performance.boundingBox())!;
-    const b = (await background.boundingBox())!;
+    const b = (await detailedLights.boundingBox())!;
     expect(b.x).toBeGreaterThan(p.x + p.width);
     const palette = (await page.getByRole("radiogroup", { name: "Pointer tool", exact: true }).boundingBox())!;
     expect(palette.width).toBeLessThan(60);
@@ -151,16 +157,23 @@ test("rendering controls share the available desktop width", async ({ browser },
   } finally { await context.close(); }
 });
 
-test("phone keeps daylight overrides available in a collapsed lighting disclosure", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name !== "phone", "Phone-only lighting controls.");
+test("phone keeps light detail and daylight overrides in a collapsed rendering disclosure", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== "phone", "Phone-only rendering controls.");
   const { context, page } = await openHouseSession(browser);
   try {
-    const lighting = page.getByText("Lighting", { exact: true });
+    const lighting = page.getByText("Rendering", { exact: true });
     const shadows = page.getByRole("switch", { name: "Soft shadows", exact: true });
+    const detail = page.getByRole("slider", { name: "Detailed lights", exact: true });
     await expect(lighting).toBeVisible();
     await expect(shadows).toBeHidden();
+    await expect(detail).toBeHidden();
     await lighting.click();
     await expect(shadows).toBeVisible();
+    await expect(detail).toBeVisible();
+    await detail.fill("2");
+    await expect(detail).toHaveValue("2");
+    await page.getByRole("button", { name: "Device maximum", exact: true }).click();
+    await expect(detail).toHaveValue((await detail.getAttribute("max"))!);
     await expect(page.getByRole("button", { name: "Live time", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "All", exact: true }).locator("svg")).toHaveCount(1);
   } finally {
@@ -171,7 +184,7 @@ test("phone keeps daylight overrides available in a collapsed lighting disclosur
 test("global illumination intensity scales scene lighting and settles back to idle", async ({ browser }, testInfo) => {
   const { context, page } = await openHouseSession(browser);
   try {
-    if (testInfo.project.name === "phone") await page.getByText("Lighting", { exact: true }).click();
+    if (testInfo.project.name === "phone") await page.getByText("Rendering", { exact: true }).click();
     else await page.getByRole("tab", { name: "Rendering", exact: true }).click();
     await page.getByRole("button", { name: "Studio", exact: true }).click();
     const intensity = page.getByRole("slider", { name: "Global illumination intensity", exact: true });

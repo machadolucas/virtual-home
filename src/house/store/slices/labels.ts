@@ -23,7 +23,7 @@ export interface LabelSlice {
 export const createLabelSlice: StateCreator<HouseStore, Mutators, [], LabelSlice> = (set) => ({
   labelPreferences: EMPTY_LABEL_PREFERENCES,
   areaLabelsVisible: true,
-  equipmentOcclusion: false,
+  equipmentOcclusion: true,
   setEquipmentOcclusion: (equipmentOcclusion) => set({ equipmentOcclusion }),
 
   hydrateLabelPreferences: (labelPreferences) => set({ labelPreferences }),

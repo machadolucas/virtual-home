@@ -675,8 +675,11 @@ battery-linked equipment includes its percentage. The placement's chosen silhoue
 and reload. Live lights tint nearby model surfaces with their Home Assistant brightness and colour.
 Rotating the camera does not swap which lights illuminate the scene. When many lights are on,
 additional fixtures illuminate several nearby surfaces with simpler glows to keep shadow-rendering
-cost bounded. Every active light also has a luminous source core. Up to twelve lights use detailed
-shadows; performance mode retains two. Brightness and colour changes reuse existing shadows.
+cost bounded. Every active light also has a luminous source core. Rendering offers a session-only
+detailed-light limit up to the WebGL device's safe hardware maximum; performance mode retains two.
+Lights beyond the detailed budget keep their source and simpler surface glows. Brightness and colour
+changes reuse existing shadows. Occluded equipment markers and labels start hidden and can be shown
+from Layers.
 
 For downlights and ground spike spots, placement editing includes **Spotlight direction**. Choose
 **Aim in 3D view**, point at a surface and click to set the beam direction. The preview arrow does not
@@ -695,7 +698,7 @@ Soft shadows can be switched to crisp shadows. Performance mode reduces the site
 Expanded sensor labels use font-independent SVG icons, including a complete thermometer for
 temperature, with their text readings retained for screen readers.
 
-Global illumination intensity in Rendering → Daylight and shadows (phone: Lighting)
+Global illumination intensity in Rendering → Daylight and shadows (phone: Rendering)
 scales sunlight, moonlit fill and ambient/studio light from 0–300%, with 100% as the
 default. It is a view-only override independent of time; equipment light brightness
 is unchanged. PNG captures use the adjusted illumination.

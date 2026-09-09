@@ -26,6 +26,7 @@ import {
 import { displayNameForNode } from "@/house/model/labelPreferences";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
 import { DaylightControl } from "../DaylightControl";
+import { DetailedLightControl } from "../DetailedLightControl";
 import { HouseCanvasLazy } from "../HouseCanvasLazy";
 import { HouseErrorBoundary } from "../HouseErrorBoundary";
 import { PlacementEditor } from "../edit/PlacementEditor";
@@ -146,9 +147,10 @@ export function PhoneHouse() {
       <details className="rounded-lg border border-line bg-surface">
         <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-sm font-medium text-ink">
           <Sun aria-hidden="true" className="size-4 text-ink-3" />
-          Lighting
+          Rendering
         </summary>
-        <div className="border-t border-line p-3">
+        <div className="flex flex-col gap-4 border-t border-line p-3">
+          <DetailedLightControl />
           <DaylightControl />
         </div>
       </details>

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
+import { detailedLightBudget, detailedLightHardwareLimit } from "../model/detailedLightBudget";
 import { clipGroupOf } from "../model/explodeGroups";
 import {
   isLightEntity,
@@ -16,8 +17,6 @@ import { defaultSymbol, isPlacementSymbol } from "../scene/symbols";
 import { isVisibleUp } from "../scene/applyVisibility";
 import {
   EquipmentLightLayer,
-  LIGHT_BUDGET,
-  PERFORMANCE_LIGHT_BUDGET,
   prepareEquipmentLightSurfaces,
   type EquipmentLightSpec,
 } from "../scene/equipmentLights";
@@ -56,13 +55,30 @@ export function useEquipmentLights() {
     gl.shadowMap.autoUpdate = false;
     gl.shadowMap.type = THREE.PCFShadowMap;
     runtime.equipmentLights = layer;
+    let requestedLimit = runtime.store.getState().detailedLightLimit;
+    let budgetTimer: ReturnType<typeof setTimeout> | null = null;
     let shadowInputs: unknown[] = [];
+    let hardwareIndex: typeof runtime.index = null;
+    let hardwareAssets = -1;
+    let hardwareLimit = detailedLightHardwareLimit(gl.capabilities.maxTextures, gl.capabilities.maxVaryings);
     const update = () => {
       const state = runtime.store.getState();
       layer.root.traverse((object) => {
         if (object instanceof THREE.PointLight || object instanceof THREE.SpotLight) object.shadow.radius = state.illumination.softShadows ? 2 : 0;
       });
       const index = runtime.index;
+      if (hardwareIndex !== index || hardwareAssets !== (index?.assets.size ?? 0)) {
+        hardwareIndex = index;
+        hardwareAssets = index?.assets.size ?? 0;
+        let textureSlots = 3;
+        for (const asset of index?.assets.values() ?? []) for (const mesh of asset.meshes) {
+          for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+            textureSlots = Math.max(textureSlots, Object.values(material).filter((value) => value instanceof THREE.Texture).length);
+          }
+        }
+        hardwareLimit = detailedLightHardwareLimit(gl.capabilities.maxTextures, gl.capabilities.maxVaryings, textureSlots);
+        if (state.detailedLightHardwareMax !== hardwareLimit) state.setDetailedLightHardwareMax(hardwareLimit);
+      }
       const nextShadowInputs = [index, index?.assets.size, [...(index?.hiddenGroups ?? [])].sort().join(","),
         state.placements, state.editing, state.explode, state.layers, state.roofVisible, state.ceilingsVisible];
       const refreshOccluders = nextShadowInputs.some((value, i) => value !== shadowInputs[i]);
@@ -76,16 +92,13 @@ export function useEquipmentLights() {
       const ha = haStore.getState();
       const candidates: EquipmentLightSpec[] = [];
       const now = Date.now();
+      let pointCount = 0, spotCount = 0;
       if (index && manifest && state.layers.equipment) {
         for (const saved of state.placements) {
           const draft = state.editing?.placementId === saved.id ? state.editing : null;
           const p = draft ? { ...saved, position: draft.physical, rotationYDeg: draft.rotationYDeg, ledLengthM: draft.ledLengthM, lightAim: draft.lightAim, symbol: draft.symbol, floorId: draft.floorId, roomId: draft.roomId, surfaceId: draft.surfaceId, mount: draft.mount } : saved;
           const entityId = [p.entityId, ...(p.linkedEntities ?? []).map((e) => e.entityId)].find(isLightEntity);
           if (!entityId) continue;
-          const entity = ha.entities[entityId];
-          if (!entity) continue;
-          const appearance = lightAppearance({ ...entity, live: classifyState(entity, ha.connection, now) === "live" });
-          if (!appearance || appearance.intensity <= 0) continue;
           const group = p.surfaceId ? clipGroupOf(manifest, p.surfaceId) : p.floorId;
           if (index.hiddenGroups.has(group)) continue;
           const nodes = index.floorNodes.get(group);
@@ -93,6 +106,11 @@ export function useEquipmentLights() {
           const position: [number, number, number] = [p.position[0], p.position[1] + (runtime.offsets.get(group) ?? 0), p.position[2]];
           if (runtime.clip && !runtime.clip.keeps(group, new THREE.Vector3(...position))) continue;
           const symbol = isPlacementSymbol(p.symbol) ? p.symbol : defaultSymbol({ category: p.category, entityId: p.entityId, mountKind: p.mount.kind, isOutdoor: !p.roomId });
+          if (isSpotlightSymbol(symbol)) spotCount++; else pointCount++;
+          const entity = ha.entities[entityId];
+          if (!entity) continue;
+          const appearance = lightAppearance({ ...entity, live: classifyState(entity, ha.connection, now) === "live" });
+          if (!appearance || appearance.intensity <= 0) continue;
           const direction = lightDirection(symbol, p.lightAim, p.rotationYDeg);
           // Source follows the visible emitter, while the persisted coordinate remains its mount.
           const source = isLedBar(symbol) ? ledSource(p.position, symbol, ledLength(p.ledLengthM), runtime.offsets.get(group) ?? 0) : lightSourcePosition(p.position, symbol, p.rotationYDeg, runtime.offsets.get(group) ?? 0);
@@ -102,7 +120,10 @@ export function useEquipmentLights() {
       const selected = state.selection?.kind === "equipment" ? state.selection.id : null;
       candidates.sort((a, b) =>
         Number(b.id === selected) - Number(a.id === selected) || a.id.localeCompare(b.id));
-      const budget = state.performanceMode ? PERFORMANCE_LIGHT_BUDGET : LIGHT_BUDGET;
+      const budget = detailedLightBudget(
+        Math.min(requestedLimit, hardwareLimit, state.performanceMode ? 2 : Infinity),
+        pointCount, spotCount,
+      );
       const detailedIds = new Set([
         ...candidates.filter((candidate) => !candidate.spot).slice(0, budget.point),
         ...candidates.filter((candidate) => candidate.spot).slice(0, budget.spot),
@@ -149,12 +170,19 @@ export function useEquipmentLights() {
     };
     refresh.current = update;
     update();
-    const offStore = runtime.store.subscribe(update);
+    const offStore = runtime.store.subscribe((next, previous) => {
+      if (next.detailedLightLimit !== previous.detailedLightLimit) {
+        // Keep slider feedback immediate, but compile only the settled budget during a drag.
+        if (budgetTimer !== null) clearTimeout(budgetTimer);
+        budgetTimer = setTimeout(() => { budgetTimer = null; requestedLimit = runtime.store.getState().detailedLightLimit; update(); }, 180);
+      } else update();
+    });
     const offHa = haStore.subscribe((s) => [s.entities, s.connection] as const, () => update());
     // Expire readings even when no HA message arrives, without rendering unchanged frames.
     const timer = setInterval(update, 30_000);
     return () => {
       clearInterval(timer);
+      if (budgetTimer !== null) clearTimeout(budgetTimer);
       offStore(); offHa();
       refresh.current = null;
       runtime.equipmentLights = null;

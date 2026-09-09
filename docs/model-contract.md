@@ -529,8 +529,11 @@ fixtures use a local point light. Sources follow the placement's explode offset 
 The rendering is illustrative rather than photometric. Detailed lights cast shadows so walls and
 closed door geometry stop light leaking into adjacent rooms. Cutaway/focus clipping is excluded
 from the shadow pass, leaving the model's full wall and door geometry as occluders even when the
-camera sees a low wall stub. Shadow cost is bounded to six point lights and six spotlights (one of
-each in performance mode), prioritizing selection and then stable equipment IDs. Camera movement
+camera sees a low wall stub. Rendering's Detailed lights slider chooses a total budget (default 16,
+performance mode caps it at 2). The device maximum reserves texture samplers for daylight and model
+maps, and varying vectors for standard-material inputs; it is also bounded to 64. Installed visible
+fixture types, including off fixtures, divide that total, so a view with only point fixtures can use
+all slots for point lights. Selection and then stable equipment IDs determine priority. Camera movement
 does not reassign lights. Additional sources use brighter, wider surface illumination: point lights
 sample the floor and four surrounding directions; spots sample the centre and six rays within the
 cone. Each probe stops at its first physical face, even if hidden or clipped. At most one patch is
@@ -538,8 +541,9 @@ rendered per receiving surface (five per point source, seven per spot). This rem
 local lighting method; it does not calculate global illumination or pixel-perfect secondary shadows.
 Raw ray hits are cached across camera and cutaway changes, and rebuilt for source motion, asset loads
 or exploded geometry. Visibility and clipping are checked separately against the cached hits.
-Point-light cube faces are 128 px and spotlight maps are 256 px. Six fixed slots of each kind remain
-allocated, and budgeted shadow slots stay enabled at zero intensity to avoid shader churn. Individual
+Point-light cube faces are 128 px and spotlight maps are 256 px. Pools resize only when their allocated budgets change, disposing removed lights and shadow maps.
+Budget changes settle for 180 ms before application so dragging the slider does not compile every
+intermediate shader. Ordinary HA on/off changes keep each pool and its zero-intensity slots stable. Individual
 shadow maps disable auto-update: moving/aiming a source dirties that source, and changed scene geometry
 dirties all sources. Colour/brightness changes reuse depth maps, as does rotating a settled view.
 All active fixtures also have small luminous source cores in one instanced draw call, independent of
@@ -630,7 +634,7 @@ around corners or bays. The picked triangle selects the mounting plane, and only
 supply the guide extents. Numeric adjustments recover that plane from the saved physical position,
 retaining the picked side and wall standoff instead of averaging the whole surface into a diagonal.
 
-Equipment overlay occlusion is an optional session view setting. When enabled, label and marker
+Equipment overlay occlusion is a session view setting, enabled by default. When enabled, label and marker
 projection checks camera-to-mount rays against visible physical model geometry, respecting surface
 clipping and exploded transforms. Perspective and orthographic cameras use their respective rays.
 Equipment, routes and editing guides never become blockers. Checks run only with rendered frames,

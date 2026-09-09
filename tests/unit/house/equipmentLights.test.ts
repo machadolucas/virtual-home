@@ -169,6 +169,24 @@ describe("live equipment lights", () => {
     layer.dispose();
   });
 
+  it("grows and releases detailed slots when the user changes the total budget", () => {
+    const layer = new EquipmentLightLayer(new THREE.Scene());
+    const specs = Array.from({ length: 24 }, (_, i) => ({ ...spec, id: `lamp-${i}`, spot: false }));
+    layer.set(specs, { point: 24, spot: 0 });
+    layer.tick(LIGHT_FADE_SECONDS);
+    expect(layer.renderedSnapshot().filter((light) => light.castShadow)).toHaveLength(24);
+    const removed = layer.root.getObjectByName("vh-live-point-23") as THREE.PointLight;
+    let disposed = false;
+    removed.addEventListener("dispose", () => { disposed = true; });
+    layer.set(specs, { point: 4, spot: 0 });
+    expect(layer.renderedSnapshot().filter((light) => light.castShadow)).toHaveLength(4);
+    expect(removed.parent).toBeNull();
+    expect(disposed).toBe(true);
+    layer.set(specs, { point: 0, spot: 0 });
+    expect(layer.renderedSnapshot()).toHaveLength(0);
+    layer.dispose();
+  });
+
   it("makes surfaces matte shadow receivers while leaving cutaway out of shadow clipping", () => {
     const material = new THREE.MeshStandardMaterial({ roughness: 0.4 });
     material.clipShadows = true;

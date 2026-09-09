@@ -50,6 +50,10 @@ export interface ViewSlice {
   ceilingsVisible: boolean;
   edgesVisible: boolean;
   performanceMode: boolean;
+  /** Requested detailed equipment-light budget for this viewer session. */
+  detailedLightLimit: number;
+  /** Renderer-reported safe ceiling; initialized conservatively until WebGL is ready. */
+  detailedLightHardwareMax: number;
   /**
    * The 3D background. Household-level and persisted, but held here so the control can be
    * optimistic: the canvas host repaints on the keystroke and the write reverts it on failure.
@@ -69,6 +73,8 @@ export interface ViewSlice {
   setCeilingsVisible(v: boolean): void;
   setEdgesVisible(v: boolean): void;
   setPerformanceMode(v: boolean): void;
+  setDetailedLightLimit(limit: number): void;
+  setDetailedLightHardwareMax(limit: number): void;
   setBackground(background: HouseBackground): void;
   /** Presets are *store writes*, so the toolbar checkboxes stay in sync by construction. */
   applyDollhouse(): void;
@@ -90,6 +96,8 @@ export const initialView = {
   ceilingsVisible: true,
   edgesVisible: true,
   performanceMode: false,
+  detailedLightLimit: 16,
+  detailedLightHardwareMax: 12,
   background: DEFAULT_HOUSE_BACKGROUND as HouseBackground,
 };
 
@@ -164,6 +172,10 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
     })),
   setEdgesVisible: (edgesVisible) => set({ edgesVisible }),
   setPerformanceMode: (performanceMode) => set({ performanceMode }),
+  setDetailedLightLimit: (detailedLightLimit) =>
+    set({ detailedLightLimit: boundedLightCount(detailedLightLimit) }),
+  setDetailedLightHardwareMax: (detailedLightHardwareMax) =>
+    set({ detailedLightHardwareMax: boundedLightCount(detailedLightHardwareMax) }),
   setBackground: (background) => set({ background }),
 
   applyDollhouse: () => set({ ...DOLLHOUSE_PRESET, wallMode: "contextual", wallModeExplicit: true, activeFloorId: null }),
@@ -178,3 +190,9 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
       explode: { ...s.explode, enabled: false },
     })),
 });
+
+/** Keep renderer-facing counts integral and bounded even when a DOM/test caller supplies junk. */
+export function boundedLightCount(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(64, Math.max(0, Math.round(value)));
+}
