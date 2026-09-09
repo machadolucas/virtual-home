@@ -148,6 +148,7 @@ export function useLabelAnchors(): LabelAnchor[] {
         kind: "equipment",
         // Physical coordinate; the group's explode offset is added at projection time.
         world: [p.position[0], p.position[1] + 0.12, p.position[2]],
+        occlusionWorld: p.position,
         group: p.surfaceId ? clipGroupOf(manifest, p.surfaceId) : p.floorId,
         text: p.name,
         selection: { kind: "equipment", id: p.id },

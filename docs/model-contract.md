@@ -618,3 +618,10 @@ Wall snapping treats a semantic surface as potentially multi-planar: exterior su
 around corners or bays. The picked triangle selects the mounting plane, and only coplanar triangles
 supply the guide extents. Numeric adjustments recover that plane from the saved physical position,
 retaining the picked side and wall standoff instead of averaging the whole surface into a diagonal.
+
+Equipment overlay occlusion is an optional session view setting. When enabled, label and marker
+projection checks camera-to-mount rays against visible physical model geometry, respecting surface
+clipping and exploded transforms. Perspective and orthographic cameras use their respective rays.
+Equipment, routes and editing guides never become blockers. Checks run only with rendered frames,
+so enabling the setting does not create an idle render loop; the 3D equipment itself already uses
+normal depth testing. Hidden floor groups suppress their DOM markers even with occlusion disabled.

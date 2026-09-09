@@ -5,8 +5,8 @@
  * Why a single custom overlay and not drei `<Html>`: ≤ 25 room labels is fine as portals, but the
  * requirement is those *plus* up to ~200 equipment markers with clustering and HA badges. That
  * would be 200 React subtrees to reconcile on any change, 200 CSS3D matrices, and per-label
- * raycasts or a depth read for occlusion. Here the hot path is pure DOM writes on nodes that
- * already exist: no React work, no allocation, and the transform is compositor-only.
+ * always-on raycasts or depth reads. Equipment occlusion is optional and runs only on rendered
+ * frames; label projection writes into existing DOM nodes without React reconciliation.
  *
  * The pool size is the hard cap on labels, so a label cloud is structurally impossible.
  */
@@ -16,6 +16,8 @@ import * as THREE from "three";
 import type { RefObject } from "react";
 import type { ExplodeGroup, PlacementLinkedEntity, Selection } from "@/house/model/types";
 import type { EquipmentLabelReading } from "@/house/model/equipmentLabel";
+import { EquipmentOcclusion } from "@/house/scene/equipmentOcclusion";
+import { isVisibleUp } from "@/house/scene/applyVisibility";
 import type { HouseRuntime } from "../runtime";
 
 export type LabelKind = "building" | "room" | "equipment" | "route";
@@ -25,6 +27,8 @@ export interface LabelAnchor {
   kind: LabelKind;
   /** Physical site coordinates; the group's explode offset is added at projection time. */
   world: [number, number, number];
+  /** Physical equipment mount, independent of the label offset above it. */
+  occlusionWorld?: [number, number, number];
   group: ExplodeGroup;
   text: string;
   secondary?: string;
@@ -167,6 +171,7 @@ export function useLabelProjection(
   const poolRef = useRef<LabelPool | null>(null);
   const tierRef = useRef<LabelTier["name"] | null>(null);
   const expandedRef = useRef<Set<string>>(new Set());
+  const occlusion = useRef(new EquipmentOcclusion()).current;
   const badgeTextRef = useRef(opts.badgeText);
   const badgeText = opts.badgeText;
   const subscribeBadgeChanges = opts.subscribeBadgeChanges;
@@ -243,7 +248,8 @@ export function useLabelProjection(
 
     const cells = new Map<number, Candidate>();
     const v = new THREE.Vector3();
-    const selection = runtime.store.getState().selection;
+    const { selection, equipmentOcclusion } = runtime.store.getState();
+    if (equipmentOcclusion && runtime.index) occlusion.beginFrame(runtime.index, runtime.clip, camera);
 
     for (const anchor of anchors) {
       const selected =
@@ -259,7 +265,10 @@ export function useLabelProjection(
       v.set(anchor.world[0], anchor.world[1] + offset, anchor.world[2]);
       // Clipped away by the cutaway? Then its label is gone too.
       if (runtime.clip && !runtime.clip.keeps(anchor.group, v)) continue;
-      if (!selected && isBehindEnvelope(runtime, anchor, camera)) continue;
+      if (anchor.kind === "equipment" && equipmentOcclusion) {
+        const target = anchor.occlusionWorld ?? anchor.world;
+        if (occlusion.isOccluded(new THREE.Vector3(target[0], target[1] + offset, target[2]))) continue;
+      } else if (!selected && isBehindEnvelope(runtime, anchor, camera)) continue;
 
       v.project(camera);
       if (v.z < -1 || v.z > 1) continue;
@@ -522,13 +531,13 @@ function isGroupOnScreen(runtime: HouseRuntime, group: ExplodeGroup): boolean {
   if (!index) return true;
   const nodes = index.floorNodes.get(group);
   if (!nodes || nodes.length === 0) return true;
-  return nodes.some((n) => n.visible && n.parent?.visible !== false);
+  return nodes.some(isVisibleUp);
 }
 
 /**
  * Rule 4 of the occlusion policy: an interior anchor, an exterior camera and an intact envelope
  * means the label is behind a wall. This single logical rule removes the "labels floating over the
- * closed exterior" problem, so no per-label raycast is needed in v1.
+ * closed exterior" problem when precise equipment occlusion is disabled.
  */
 function isBehindEnvelope(
   runtime: HouseRuntime,

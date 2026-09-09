@@ -52,8 +52,10 @@ describe("equipment optics", () => {
     expect(isLedBar("led_bar_vertical")).toBe(true);
     expect(isLedBar("led_bar_horizontal")).toBe(true);
     expect(isLedBar("floor_lamp")).toBe(false);
+    expect(isDirectionalSymbol("sensor")).toBe(false);
+    expect(isAimableSymbol("sensor")).toBe(false);
 
-    for (const symbol of ["sensor", "motion_sensor", "security_camera"]) {
+    for (const symbol of ["motion_sensor", "security_camera"]) {
       expect(isDirectionalSymbol(symbol), symbol).toBe(true);
       expect(isAimableSymbol(symbol), symbol).toBe(true);
     }
@@ -76,15 +78,15 @@ describe("equipment optics", () => {
     }
   });
 
-  it("shows detection guides only when the symbol or linked HA class supports one", () => {
+  it("shows detection guides only for motion sensors and cameras", () => {
     expect(showDetectionGuide(placement("camera", "security_camera"))).toBe(true);
     expect(showDetectionGuide(placement("pir", "motion_sensor"))).toBe(true);
-    expect(showDetectionGuide(placement("aimed", "sensor", { lightAim: { yawDeg: 10, pitchDeg: -5 } }))).toBe(true);
+    expect(showDetectionGuide(placement("aimed", "sensor", { lightAim: { yawDeg: 10, pitchDeg: -5 } }))).toBe(false);
     for (const deviceClass of ["motion", "occupancy", "presence"]) {
       expect(
         showDetectionGuide(placement(deviceClass, "sensor", { linkedEntities: [link(deviceClass)] })),
         deviceClass,
-      ).toBe(true);
+      ).toBe(false);
     }
     expect(showDetectionGuide(placement("temperature", "sensor", { linkedEntities: [link("temperature")] }))).toBe(false);
     expect(showDetectionGuide(placement("plain", "sensor"))).toBe(false);
@@ -142,7 +144,7 @@ describe("equipment marker optical transforms", () => {
     const markers = new MarkerLayer(built.index, built.clip);
     const aim = { yawDeg: 55, pitchDeg: 24 };
     try {
-      for (const symbol of ["sensor", "motion_sensor", "security_camera"] as const) {
+      for (const symbol of ["motion_sensor", "security_camera"] as const) {
         markers.set(
           [placement(symbol, symbol, { rotationYDeg: -80, lightAim: aim })],
           () => "live",

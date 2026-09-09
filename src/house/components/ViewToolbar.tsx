@@ -23,6 +23,7 @@ import {
   ScanLine,
   StickyNote,
   Tags,
+  EyeOff,
   Trees,
   type LucideIcon,
 } from "lucide-react";
@@ -66,6 +67,7 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
       explodeGap: s.explode.gap,
       wallMode: s.wallMode,
       areaLabelsVisible: s.areaLabelsVisible,
+      equipmentOcclusion: s.equipmentOcclusion,
     })),
   );
   const setRoofVisible = useHouseStore((s) => s.setRoofVisible);
@@ -78,6 +80,7 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
   const applyOverview = useHouseStore((s) => s.applyOverview);
   const setProjection = useHouseStore((s) => s.setProjection);
   const setWallMode = useHouseStore((s) => s.setWallMode);
+  const setEquipmentOcclusion = useHouseStore((s) => s.setEquipmentOcclusion);
   const setAreaLabelsVisible = useHouseStore((s) => s.setAreaLabelsVisible);
 
   return (
@@ -167,6 +170,7 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
           Layers
         </legend>
         <div className="grid grid-cols-1 gap-x-4 lg:grid-cols-2">
+        <Toggle icon={EyeOff} checked={state.equipmentOcclusion} onChange={setEquipmentOcclusion} label="Hide occluded equipment" />
         {ALL_LAYERS.map((layer) => (
           <Toggle
             key={layer}

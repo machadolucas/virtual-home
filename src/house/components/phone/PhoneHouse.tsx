@@ -16,6 +16,7 @@ import {
   House,
   Box,
   Layers3,
+  EyeOff,
   PanelBottom,
   PanelTop,
   Sun,
@@ -50,6 +51,8 @@ export function PhoneHouse() {
     })),
   );
   const isolateFloor = useHouseStore((s) => s.isolateFloor);
+  const equipmentOcclusion = useHouseStore((s) => s.equipmentOcclusion);
+  const setEquipmentOcclusion = useHouseStore((s) => s.setEquipmentOcclusion);
   const equipmentVisible = useHouseStore((s) => s.layers.equipment);
   const setLayer = useHouseStore((s) => s.setLayer);
   const setAreaLabelsVisible = useHouseStore((s) => s.setAreaLabelsVisible);
@@ -124,6 +127,8 @@ export function PhoneHouse() {
       <div className="flex justify-end"><DownloadImageButton /></div>
 
       <Switch checked={equipmentVisible} onCheckedChange={(on) => setLayer("equipment", on)} controlPosition="start" label={<span className="inline-flex items-center gap-1.5"><Box className="size-4" aria-hidden="true" />Show equipment</span>} />
+
+      <Switch checked={equipmentOcclusion} onCheckedChange={setEquipmentOcclusion} controlPosition="start" label={<span className="inline-flex items-center gap-1.5"><EyeOff className="size-4" aria-hidden="true" />Hide occluded equipment</span>} />
 
       <Switch
         checked={areaLabelsVisible}

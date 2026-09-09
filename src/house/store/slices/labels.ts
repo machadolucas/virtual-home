@@ -9,6 +9,8 @@ export interface LabelSlice {
   labelPreferences: HouseLabelPreferences;
   /** A view choice, intentionally session-scoped like the other layer switches. */
   areaLabelsVisible: boolean;
+  equipmentOcclusion: boolean;
+  setEquipmentOcclusion(enabled: boolean): void;
 
   hydrateLabelPreferences(preferences: HouseLabelPreferences): void;
   setAreaLabelsVisible(visible: boolean): void;
@@ -21,6 +23,8 @@ export interface LabelSlice {
 export const createLabelSlice: StateCreator<HouseStore, Mutators, [], LabelSlice> = (set) => ({
   labelPreferences: EMPTY_LABEL_PREFERENCES,
   areaLabelsVisible: true,
+  equipmentOcclusion: false,
+  setEquipmentOcclusion: (equipmentOcclusion) => set({ equipmentOcclusion }),
 
   hydrateLabelPreferences: (labelPreferences) => set({ labelPreferences }),
   setAreaLabelsVisible: (areaLabelsVisible) => set({ areaLabelsVisible }),

@@ -41,6 +41,14 @@ test("LED length and sensor aim survive saves; selection guides and equipment ca
     expect(direction[1]).toBeCloseTo(-Math.sin(20 * Math.PI / 180));
     await waitForStableFrames(page);
     await testInfo.attach("motion-sensor-guide.png", { body: await page.screenshot(), contentType: "image/png" });
+    await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
+    await page.getByRole("combobox", { name: "Shown as", exact: true }).click();
+    await page.getByRole("option", { name: "Sensor", exact: true }).click();
+    await expect(page.getByLabel("Yaw (°)", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Aim in 3D view", exact: true })).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => window.__vh!.detectionGuide().visible)).toBe(false);
+    await page.getByRole("button", { name: "Cancel (Esc)", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.__vh!.detectionGuide().visible)).toBe(true);
     await page.evaluate(() => window.__vh!.select(null));
     await expect.poll(() => page.evaluate(() => window.__vh!.detectionGuide().visible)).toBe(false);
     await page.evaluate((id) => window.__vh!.select({ kind: "equipment", id: id! }), placementId);

@@ -718,7 +718,14 @@ Vertical and horizontal LED bars have a saved **LED bar length (m)** (0.05–20 
 Their cross-section stays fixed and total light output scales with length at the same HA brightness.
 Lighting uses a bounded, illustrative point source at the bar's centre, not a photometric strip model.
 Motion sensors and security cameras expose saved yaw/pitch and **Detection / viewing range (m)**
-(0.1–30 m, default 5 m). Selecting one shows an illustrative 60° cone; generic sensors show it when
-linked to motion/occupancy or explicitly aimed. It does not configure HA detection coverage.
+(0.1–30 m, default 5 m). Selecting one shows an illustrative 60° cone. Regular sensors have no
+aiming controls or cone, even if an older placement stored aim settings. The cone does not
+configure HA detection coverage.
 **Show equipment** in Layers (or below the phone viewer) hides markers, equipment labels, lights and
 selection cones together. Cones are excluded from PNG downloads and do not keep an idle viewer rendering.
+
+**Hide occluded equipment** in Layers (also below the phone viewer) hides equipment labels and
+click targets behind visible floors, walls, doors and other model surfaces. Turn it on when viewing
+upstairs to stop downstairs sensors showing through the floor. It follows the camera, hidden layers,
+wall cuts and exploded floors; selected equipment obeys the same occlusion. Turn it off to see
+through the model again. Like the other layer switches, this is a session-only view preference.
