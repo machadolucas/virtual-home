@@ -14,16 +14,17 @@ import {
 import { isLedBar, ledLength, ledSource } from "../model/equipmentOptics";
 import { defaultSymbol, isPlacementSymbol } from "../scene/symbols";
 import { isVisibleUp } from "../scene/applyVisibility";
-import type { ClipGroups } from "../scene/clipGroups";
 import {
   EquipmentLightLayer,
   LIGHT_BUDGET,
   PERFORMANCE_LIGHT_BUDGET,
   prepareEquipmentLightSurfaces,
   type EquipmentLightSpec,
-  type EquipmentLightProjectionSpec,
 } from "../scene/equipmentLights";
-import type { SceneIndex } from "../scene/SceneIndex";
+import {
+  createEquipmentLightProjectionCache,
+  projectOverflowLight,
+} from "../scene/equipmentLightProjection";
 import { classifyState, haStore } from "../store/haStore";
 import { useHouseRuntime } from "./useHouseStore";
 
@@ -39,9 +40,10 @@ export function useEquipmentLights() {
   });
   const projectionCache = useRef<{
     index: typeof runtime.index;
-    occlusionRevision: number;
-    entries: Map<string, EquipmentLightProjectionSpec | null>;
-  }>({ index: null, occlusionRevision: -1, entries: new Map() });
+    assetCount: number;
+    offsetSignature: string;
+    rays: ReturnType<typeof createEquipmentLightProjectionCache>;
+  }>({ index: null, assetCount: -1, offsetSignature: "", rays: createEquipmentLightProjectionCache() });
 
   useEffect(() => {
     const layer = new EquipmentLightLayer(scene);
@@ -54,12 +56,22 @@ export function useEquipmentLights() {
     gl.shadowMap.autoUpdate = false;
     gl.shadowMap.type = THREE.PCFShadowMap;
     runtime.equipmentLights = layer;
-    const update = (refreshOccluders = false) => {
+    let shadowInputs: unknown[] = [];
+    const update = () => {
       const state = runtime.store.getState();
       layer.root.traverse((object) => {
         if (object instanceof THREE.PointLight || object instanceof THREE.SpotLight) object.shadow.radius = state.illumination.softShadows ? 2 : 0;
       });
       const index = runtime.index;
+      const nextShadowInputs = [index, index?.assets.size, [...(index?.hiddenGroups ?? [])].sort().join(","),
+        state.placements, state.editing, state.explode, state.layers, state.roofVisible, state.ceilingsVisible];
+      const refreshOccluders = nextShadowInputs.some((value, i) => value !== shadowInputs[i]);
+      shadowInputs = nextShadowInputs;
+      if (refreshOccluders) {
+        layer.invalidateShadows();
+        const sun = scene.getObjectByName("vh-daylight") as THREE.DirectionalLight | undefined;
+        if (sun?.shadow) sun.shadow.needsUpdate = true;
+      }
       const manifest = runtime.manifest;
       const ha = haStore.getState();
       const candidates: EquipmentLightSpec[] = [];
@@ -95,14 +107,15 @@ export function useEquipmentLights() {
         ...candidates.filter((candidate) => !candidate.spot).slice(0, budget.point),
         ...candidates.filter((candidate) => candidate.spot).slice(0, budget.spot),
       ].map((candidate) => candidate.id));
-      if (
-        projectionCache.current.index !== index ||
-        projectionCache.current.occlusionRevision !== runtime.occlusionRevision
-      ) {
+      const offsetSignature = JSON.stringify([...runtime.offsets].sort(([a], [b]) => a.localeCompare(b)));
+      if (projectionCache.current.index !== index ||
+          projectionCache.current.assetCount !== (index?.assets.size ?? -1) ||
+          projectionCache.current.offsetSignature !== offsetSignature) {
         projectionCache.current = {
           index,
-          occlusionRevision: runtime.occlusionRevision,
-          entries: new Map(),
+          assetCount: index?.assets.size ?? -1,
+          offsetSignature,
+          rays: createEquipmentLightProjectionCache(),
         };
       }
       const activeClip = runtime.clip;
@@ -110,20 +123,17 @@ export function useEquipmentLights() {
         ? candidates
             .filter((candidate) => !detailedIds.has(candidate.id))
             .flatMap((candidate) => {
-              const cacheKey = JSON.stringify([
-                candidate.id,
-                candidate.spot,
-                candidate.position,
-                candidate.direction,
-              ]);
-              let projection = projectionCache.current.entries.get(cacheKey);
-              if (projection === undefined) {
-                projection = projectOverflowLight(candidate, index, activeClip);
-                projectionCache.current.entries.set(cacheKey, projection);
-              }
-              return projection
-                ? [{ ...projection, color: candidate.color, brightness: candidate.brightness }]
-                : [];
+              const patches = projectOverflowLight(
+                candidate,
+                index,
+                activeClip,
+                projectionCache.current.rays,
+              );
+              return patches.map((patch) => ({
+                ...patch,
+                color: candidate.color,
+                brightness: candidate.brightness,
+              }));
             })
         : [];
       const changed = layer.set(
@@ -132,14 +142,14 @@ export function useEquipmentLights() {
         projections,
       );
       const surfacesChanged = index ? prepareEquipmentLightSurfaces(index) : false;
+      if (layer.shadowsDirty || surfacesChanged || refreshOccluders) gl.shadowMap.needsUpdate = true;
       if (changed || surfacesChanged || refreshOccluders) {
-        gl.shadowMap.needsUpdate = true;
         runtime.invalidate();
       }
     };
     refresh.current = update;
     update();
-    const offStore = runtime.store.subscribe(() => update(true));
+    const offStore = runtime.store.subscribe(update);
     const offHa = haStore.subscribe((s) => [s.entities, s.connection] as const, () => update());
     // Expire readings even when no HA message arrives, without rendering unchanged frames.
     const timer = setInterval(update, 30_000);
@@ -167,6 +177,7 @@ export function useEquipmentLights() {
       // so those meshes always become shadow receivers/occluders and the new maps render once.
       preparedIndex.current = { index, assetCount: index.assets.size };
       prepareEquipmentLightSurfaces(index);
+      runtime.equipmentLights?.invalidateShadows();
       gl.shadowMap.needsUpdate = true;
       runtime.invalidate();
       sceneChanged = true;
@@ -180,46 +191,4 @@ export function useEquipmentLights() {
     // so a light event after a quiet second cannot complete its 160 ms fade in one frame.
     if (runtime.equipmentLights?.tick(Math.min(delta, 1 / 30))) runtime.invalidate();
   });
-}
-
-function projectOverflowLight(
-  spec: EquipmentLightSpec,
-  index: SceneIndex,
-  clip: ClipGroups,
-): EquipmentLightProjectionSpec | null {
-  const direction = new THREE.Vector3(...(spec.spot ? spec.direction : [0, -1, 0] as const));
-  if (direction.lengthSq() < 0.0001) return null;
-  direction.normalize();
-  // Hidden or clipped faces still block light. Test the nearest physical face first, then decide
-  // whether that receiver itself may be shown; skipping it would leak into the room beyond.
-  const targets = [...index.surfaceMesh.values()];
-  for (const surface of targets) surface.updateWorldMatrix(true, false);
-  const raycaster = new THREE.Raycaster(
-    new THREE.Vector3(...spec.position),
-    direction,
-    0.03,
-    spec.spot ? 8 : 5,
-  );
-  const hit = raycaster.intersectObjects(targets, false)[0];
-  if (!hit || !(hit.object instanceof THREE.Mesh)) return null;
-  const surfaceId = index.meshSurfaceId.get(hit.object) ?? null;
-  const group = surfaceId ? index.clipGroupOf.get(surfaceId) ?? "site" : "site";
-  if (index.hiddenGroups.has(group) || !isVisibleUp(hit.object) || !clip.keepsSurface(group, surfaceId, hit.point)) return null;
-  const sourceMaterial = Array.isArray(hit.object.material)
-    ? hit.object.material[0]
-    : hit.object.material;
-  const distance = hit.distance;
-  return {
-    id: spec.id,
-    geometry: hit.object.geometry,
-    matrixWorld: hit.object.matrixWorld.clone(),
-    hitPoint: hit.point.toArray(),
-    radius: spec.spot
-      ? THREE.MathUtils.clamp(distance * Math.tan(Math.PI / 7), 0.15, 1.5)
-      : THREE.MathUtils.clamp(0.45 + distance * 0.22, 0.45, 1.5),
-    color: spec.color,
-    brightness: spec.brightness,
-    clippingPlanes: sourceMaterial?.clippingPlanes ?? [],
-    clipIntersection: sourceMaterial?.clipIntersection ?? false,
-  };
 }

@@ -130,9 +130,12 @@ test("HA lights fade, settle idle, and illuminate through bounded wall-occluded 
   for (let i = 0; i < off.length; i += 3) if (Math.abs(off[i]! - on[i]!) + Math.abs(off[i + 1]! - on[i + 1]!) + Math.abs(off[i + 2]! - on[i + 2]!) > 15) changed++;
   expect(changed).toBeGreaterThan(100);
   await testInfo.attach("live-downlight.png", { body: litImage, contentType: "image/png" });
+  const shadowPasses = await page.evaluate(() => window.__vh!.shadowPassCount());
   await emit("on", 64, [20, 80, 255]);
   await expect.poll(() => page.evaluate(() => window.__vh!.lights()[0]?.brightness)).toBeCloseTo(64 / 255);
   expect(await page.evaluate(() => window.__vh!.lights()[0]?.color)).toEqual([20 / 255, 80 / 255, 1]);
+  await waitForStableFrames(page);
+  expect(await page.evaluate(() => window.__vh!.shadowPassCount())).toBe(shadowPasses);
   const fadingOff = await page.evaluate(() => {
     (window as unknown as { __vhSyntheticHa: { emit(type: string, data: unknown): void } })
       .__vhSyntheticHa.emit("batch", {

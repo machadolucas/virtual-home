@@ -529,13 +529,21 @@ fixtures use a local point light. Sources follow the placement's explode offset 
 The rendering is illustrative rather than photometric. Detailed lights cast shadows so walls and
 closed door geometry stop light leaking into adjacent rooms. Cutaway/focus clipping is excluded
 from the shadow pass, leaving the model's full wall and door geometry as occluders even when the
-camera sees a low wall stub. Shadow cost is bounded to four point lights and four spotlights (one of
+camera sees a low wall stub. Shadow cost is bounded to six point lights and six spotlights (one of
 each in performance mode), prioritizing selection and then stable equipment IDs. Camera movement
-does not reassign lights. Additional sources use a fading radial glow on the first physical surface
-hit below a point light or along a spotlight's aim. These inexpensive projections are approximate
-single-surface illumination, bounded by the receiving mesh, rather than additional shadowed lights. Point-light cube faces
-are 128 px and spotlight maps are 256 px. Four fixed slots of each kind remain allocated, and the
-budgeted shadow slots stay enabled at zero intensity to avoid shader churn when HA state changes.
+does not reassign lights. Additional sources use brighter, wider surface illumination: point lights
+sample the floor and four surrounding directions; spots sample the centre and six rays within the
+cone. Each probe stops at its first physical face, even if hidden or clipped. At most one patch is
+rendered per receiving surface (five per point source, seven per spot). This remains an approximate
+local lighting method; it does not calculate global illumination or pixel-perfect secondary shadows.
+Raw ray hits are cached across camera and cutaway changes, and rebuilt for source motion, asset loads
+or exploded geometry. Visibility and clipping are checked separately against the cached hits.
+Point-light cube faces are 128 px and spotlight maps are 256 px. Six fixed slots of each kind remain
+allocated, and budgeted shadow slots stay enabled at zero intensity to avoid shader churn. Individual
+shadow maps disable auto-update: moving/aiming a source dirties that source, and changed scene geometry
+dirties all sources. Colour/brightness changes reuse depth maps, as does rotating a settled view.
+All active fixtures also have small luminous source cores in one instanced draw call, independent of
+shadow capacity; these follow HA colour/brightness and fade to off without an idle render loop.
 Model surfaces use at least 0.94 roughness, and local intensities plus the architectural fill are
 restrained to avoid clipped highlights under `NoToneMapping`. Unchanged sensor updates do not request
 a frame.

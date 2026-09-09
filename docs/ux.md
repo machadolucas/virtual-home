@@ -674,7 +674,9 @@ Equipment labels show their main linked reading. Clicking a label expands its ot
 battery-linked equipment includes its percentage. The placement's chosen silhouette survives save
 and reload. Live lights tint nearby model surfaces with their Home Assistant brightness and colour.
 Rotating the camera does not swap which lights illuminate the scene. When many lights are on,
-additional fixtures use simpler surface glows to keep shadow-rendering cost bounded.
+additional fixtures illuminate several nearby surfaces with simpler glows to keep shadow-rendering
+cost bounded. Every active light also has a luminous source core. Up to twelve lights use detailed
+shadows; performance mode retains two. Brightness and colour changes reuse existing shadows.
 
 For downlights and ground spike spots, placement editing includes **Spotlight direction**. Choose
 **Aim in 3D view**, point at a surface and click to set the beam direction. The preview arrow does not

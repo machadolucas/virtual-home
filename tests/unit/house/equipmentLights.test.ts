@@ -19,6 +19,8 @@ const projection = (
   over: Partial<EquipmentLightProjectionSpec> = {},
 ): EquipmentLightProjectionSpec => ({
   id,
+  sourceId: id,
+  surfaceId: null,
   geometry: new THREE.PlaneGeometry(4, 4),
   matrixWorld: new THREE.Matrix4(),
   hitPoint: [0, 0, 0],
@@ -92,18 +94,18 @@ describe("live equipment lights", () => {
 
   it("renders one clipped, non-shadow projection for each overflow source and fades it", () => {
     const layer = new EquipmentLightLayer(new THREE.Scene());
-    const specs = Array.from({ length: 6 }, (_, index) => ({
+    const specs = Array.from({ length: 8 }, (_, index) => ({
       ...spec,
       id: `lamp-${index}`,
       spot: false,
     }));
-    const overflow = specs.slice(4).map((entry) => projection(entry.id));
+    const overflow = specs.slice(6).map((entry) => projection(entry.id));
 
     layer.set(specs, LIGHT_BUDGET, overflow);
-    expect(layer.projectedSnapshot().map((entry) => entry.id)).toEqual(["lamp-4", "lamp-5"]);
+    expect(layer.projectedSnapshot().map((entry) => entry.id)).toEqual(["lamp-6", "lamp-7"]);
     expect(layer.renderedSnapshot().filter((entry) => entry.kind === "projection")).toEqual([
-      expect.objectContaining({ id: "lamp-4", castShadow: false, intensity: 0, fading: true }),
-      expect.objectContaining({ id: "lamp-5", castShadow: false, intensity: 0, fading: true }),
+      expect.objectContaining({ id: "lamp-6", castShadow: false, intensity: 0, fading: true }),
+      expect.objectContaining({ id: "lamp-7", castShadow: false, intensity: 0, fading: true }),
     ]);
 
     layer.tick(LIGHT_FADE_SECONDS);
@@ -116,7 +118,7 @@ describe("live equipment lights", () => {
 
     layer.set(specs, LIGHT_BUDGET, [overflow[1]!]);
     layer.tick(LIGHT_FADE_SECONDS);
-    expect(layer.projectedSnapshot().map((entry) => entry.id)).toEqual(["lamp-5"]);
+    expect(layer.projectedSnapshot().map((entry) => entry.id)).toEqual(["lamp-7"]);
     layer.dispose();
   });
 
@@ -144,6 +146,26 @@ describe("live equipment lights", () => {
       clippingPlanes: [plane],
       clipIntersection: true,
     })])).toBe(true);
+    layer.dispose();
+  });
+
+  it("reuses shadow depth for brightness/colour and invalidates moved lights independently", () => {
+    const layer = new EquipmentLightLayer(new THREE.Scene());
+    const a = { ...spec, id: "a" }, b = { ...spec, id: "b", position: [2, 2, 2] as [number, number, number] };
+    layer.set([a, b]);
+    const lights = layer.root.children.filter((child): child is THREE.SpotLight => child instanceof THREE.SpotLight);
+    for (const light of lights) {
+      expect(light.shadow.autoUpdate).toBe(false);
+      light.shadow.map = new THREE.WebGLRenderTarget(1, 1);
+      light.shadow.needsUpdate = false; // Simulate the completed first shadow pass.
+    }
+    layer.set([{ ...a, brightness: 0.9, color: [0.1, 1, 0.2] }, b]);
+    expect(lights.every((l) => !l.shadow.needsUpdate)).toBe(true);
+    layer.set([{ ...a, position: [1.5, 2.4, 1] }, b]);
+    expect(lights[0]!.shadow.needsUpdate).toBe(true);
+    expect(lights[1]!.shadow.needsUpdate).toBe(false);
+    layer.invalidateShadows();
+    expect(lights.every((l) => l.shadow.needsUpdate)).toBe(true);
     layer.dispose();
   });
 

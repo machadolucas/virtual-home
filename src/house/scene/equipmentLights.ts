@@ -1,11 +1,12 @@
 import * as THREE from "three";
 import type { Vec3 } from "../model/types";
 import type { SceneIndex } from "./SceneIndex";
+import { LightEmitters } from "./lightEmitters";
 
 /** Fixed light slots keep shader programs stable when HA lights switch on and off. */
-export const LIGHT_SLOTS_PER_KIND = 4;
-/** Every emitting source casts a shadow; these caps bound the shadow passes. */
-export const LIGHT_BUDGET = { point: 4, spot: 4 } as const;
+export const LIGHT_SLOTS_PER_KIND = 6;
+/** Twelve detailed sources plus daylight leave texture units for the model materials. */
+export const LIGHT_BUDGET = { point: 6, spot: 6 } as const;
 export const PERFORMANCE_LIGHT_BUDGET = { point: 1, spot: 1 } as const;
 /** Short enough to feel live, long enough to avoid a hard flash on an HA event. */
 export const LIGHT_FADE_SECONDS = 0.16;
@@ -40,7 +41,10 @@ export interface RenderedEquipmentLight {
 
 /** One cheap, source-specific illumination patch for an active light outside the shadow pool. */
 export interface EquipmentLightProjectionSpec {
+  /** Unique patch id; one source can illuminate several receiving faces. */
   id: string;
+  sourceId: string;
+  surfaceId: string | null;
   geometry: THREE.BufferGeometry;
   matrixWorld: THREE.Matrix4;
   hitPoint: Vec3;
@@ -53,6 +57,8 @@ export interface EquipmentLightProjectionSpec {
 
 export interface RenderedEquipmentLightProjection {
   id: string;
+  sourceId: string;
+  surfaceId: string | null;
   opacity: number;
   radius: number;
   fading: boolean;
@@ -80,6 +86,8 @@ interface ProjectionEntry {
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   material: THREE.ShaderMaterial;
   radius: number;
+  sourceId: string;
+  surfaceId: string | null;
 }
 
 /**
@@ -117,6 +125,7 @@ export function prepareEquipmentLightSurfaces(index: SceneIndex): boolean {
 /** Local illustrative illumination with a fixed pool and a bounded shadow budget. */
 export class EquipmentLightLayer {
   readonly root = new THREE.Group();
+  private readonly emitters = new LightEmitters(this.root);
   private readonly points: THREE.PointLight[] = [];
   private readonly spots: THREE.SpotLight[] = [];
   private readonly fades = new Map<THREE.Light, Fade>();
@@ -142,7 +151,7 @@ export class EquipmentLightLayer {
     scene.add(this.root);
   }
 
-  /** Caller orders candidates by relevance/distance. Returns true only for a target change. */
+  /** Caller orders candidates by selection and stable identity. Returns true only for a target change. */
   set(
     specs: readonly EquipmentLightSpec[],
     budget: EquipmentLightBudget = LIGHT_BUDGET,
@@ -152,6 +161,8 @@ export class EquipmentLightLayer {
     const spots = specs.filter((spec) => spec.spot).slice(0, budget.spot);
     const projectionSignature = projections.map((projection) => [
       projection.id,
+      projection.sourceId,
+      projection.surfaceId,
       projection.geometry.uuid,
       projection.matrixWorld.elements,
       projection.hitPoint,
@@ -166,10 +177,11 @@ export class EquipmentLightLayer {
       ]),
       projection.clipIntersection,
     ]);
-    const signature = JSON.stringify([points, spots, budget.point, budget.spot, projectionSignature]);
+    const signature = JSON.stringify([specs, budget.point, budget.spot, projectionSignature]);
     if (signature === this.signature) return false;
     this.signature = signature;
     this.active = [...specs];
+    this.emitters.set(specs);
     this.reconcile(this.points, points, budget.point);
     this.reconcile(this.spots, spots, budget.spot);
     this.reconcileProjections(projections);
@@ -194,7 +206,13 @@ export class EquipmentLightLayer {
       mesh.matrixAutoUpdate = false;
       mesh.matrix.copy(spec.matrixWorld);
       mesh.renderOrder = 2;
-      const entry = { mesh, material, radius: spec.radius };
+      const entry = {
+        mesh,
+        material,
+        radius: spec.radius,
+        sourceId: spec.sourceId,
+        surfaceId: spec.surfaceId,
+      };
       this.projections.set(id, entry);
       this.root.add(mesh);
       this.startProjectionFade(id, entry, projectionOpacity(spec), projectionTargetColor(spec));
@@ -215,6 +233,8 @@ export class EquipmentLightLayer {
     entry.material.uniforms.center!.value.fromArray(spec.hitPoint);
     entry.material.uniforms.radius!.value = spec.radius;
     entry.radius = spec.radius;
+    entry.sourceId = spec.sourceId;
+    entry.surfaceId = spec.surfaceId;
     this.startProjectionFade(spec.id, entry, projectionOpacity(spec), projectionTargetColor(spec));
   }
 
@@ -240,6 +260,7 @@ export class EquipmentLightLayer {
 
     for (let i = 0; i < LIGHT_SLOTS_PER_KIND; i++) {
       const light = lights[i]!;
+      if (!light.castShadow && i < budget) light.shadow.needsUpdate = true;
       light.castShadow = i < budget;
       if (i >= budget) this.apply(light, undefined);
       else if (!reserved.has(i) && this.assignments.has(light)) this.apply(light, undefined);
@@ -252,7 +273,7 @@ export class EquipmentLightLayer {
           !reserved.has(i) &&
           (!this.assignments.has(light) || (light.intensity === 0 && !this.fades.has(light))),
       );
-      // At a full budget a newly prioritized fixture must replace one old occupant. Camera-driven
+      // At a full budget a newly prioritized fixture must replace one old occupant. Selection-driven
       // priority replacement is allowed to be immediate; HA changes with spare capacity still fade.
       if (slot < 0) {
         for (let i = budget - 1; i >= 0; i--) {
@@ -267,8 +288,8 @@ export class EquipmentLightLayer {
 
   /** Advance active fades. Returning true asks demand rendering for one more frame. */
   tick(deltaSeconds: number): boolean {
-    if (!(deltaSeconds > 0) || (this.fades.size === 0 && this.projectionFades.size === 0)) return false;
-    let changed = false;
+    if (!(deltaSeconds > 0)) return false;
+    let changed = this.emitters.tick(deltaSeconds);
     for (const [light, fade] of this.fades) {
       fade.elapsed = Math.min(LIGHT_FADE_SECONDS, fade.elapsed + deltaSeconds);
       const t = fade.elapsed / LIGHT_FADE_SECONDS;
@@ -368,6 +389,13 @@ export class EquipmentLightLayer {
       light.color.copy(targetColor);
       this.assignments.set(light, spec.id);
     }
+    const moved = light.position.x !== spec.position[0] || light.position.y !== spec.position[1] || light.position.z !== spec.position[2];
+    const aimed = light instanceof THREE.SpotLight && (
+      light.target.position.x !== spec.position[0] + spec.direction[0] ||
+      light.target.position.y !== spec.position[1] + spec.direction[1] ||
+      light.target.position.z !== spec.position[2] + spec.direction[2]
+    );
+    if (moved || aimed || !light.shadow.map) light.shadow.needsUpdate = true;
     light.position.fromArray(spec.position);
     if (light instanceof THREE.SpotLight) {
       light.target.position.copy(light.position).add(new THREE.Vector3(...spec.direction));
@@ -396,6 +424,15 @@ export class EquipmentLightLayer {
     });
   }
 
+  /** Geometry changes invalidate depth; brightness/colour and camera movement do not. */
+  invalidateShadows(): void {
+    for (const light of [...this.points, ...this.spots]) light.shadow.needsUpdate = true;
+  }
+
+  get shadowsDirty(): boolean {
+    return [...this.points, ...this.spots].some((light) => light.castShadow && light.shadow.needsUpdate);
+  }
+
   snapshot(): EquipmentLightSpec[] {
     return this.active.map((spec) => ({ ...spec }));
   }
@@ -418,17 +455,25 @@ export class EquipmentLightLayer {
     };
     for (const light of this.points) append(light, "point");
     for (const light of this.spots) append(light, "spot");
+    const projectedSources = new Map<string, { intensity: number; fading: boolean }>();
     for (const [id, entry] of this.projections) {
       const opacity = entry.material.uniforms.opacity!.value as number;
       if (opacity === 0 && !this.projectionFades.has(id)) continue;
+      const current = projectedSources.get(entry.sourceId);
+      projectedSources.set(entry.sourceId, {
+        intensity: Math.max(current?.intensity ?? 0, opacity),
+        fading: (current?.fading ?? false) || this.projectionFades.has(id),
+      });
+    }
+    for (const [sourceId, projection] of projectedSources) {
       result.push({
-        id,
+        id: sourceId,
         kind: "projection",
-        intensity: opacity,
+        intensity: projection.intensity,
         castShadow: false,
         shadowMapSize: 0,
         shadowMapAllocated: false,
-        fading: this.projectionFades.has(id),
+        fading: projection.fading,
       });
     }
     return result;
@@ -437,6 +482,8 @@ export class EquipmentLightLayer {
   projectedSnapshot(): RenderedEquipmentLightProjection[] {
     return [...this.projections].map(([id, entry]) => ({
       id,
+      sourceId: entry.sourceId,
+      surfaceId: entry.surfaceId,
       opacity: entry.material.uniforms.opacity!.value as number,
       radius: entry.radius,
       fading: this.projectionFades.has(id),
@@ -446,6 +493,7 @@ export class EquipmentLightLayer {
   }
 
   dispose(): void {
+    this.emitters.dispose();
     this.root.removeFromParent();
     for (const light of [...this.points, ...this.spots]) light.dispose();
     this.root.clear();
@@ -459,7 +507,7 @@ export class EquipmentLightLayer {
 }
 
 function projectionOpacity(spec: EquipmentLightProjectionSpec): number {
-  return Math.min(0.42, Math.max(0, spec.brightness) * 0.28);
+  return Math.min(0.75, Math.max(0, spec.brightness) * 0.5);
 }
 
 function projectionTargetColor(spec: EquipmentLightProjectionSpec): THREE.Color {
@@ -502,6 +550,7 @@ function projectionMaterial(spec: EquipmentLightProjectionSpec): THREE.ShaderMat
         float alpha = opacity * radial * radial;
         if (alpha < 0.002) discard;
         gl_FragColor = vec4(glowColor, alpha);
+        #include <colorspace_fragment>
       }
     `,
     transparent: true,
@@ -521,6 +570,8 @@ function projectionMaterial(spec: EquipmentLightProjectionSpec): THREE.ShaderMat
 
 function configureShadow(light: THREE.PointLight | THREE.SpotLight, mapSize: number): void {
   light.castShadow = false;
+  light.shadow.autoUpdate = false;
+  light.shadow.needsUpdate = true;
   light.shadow.mapSize.set(mapSize, mapSize);
   light.shadow.camera.near = 0.05;
   light.shadow.camera.far = light.distance;

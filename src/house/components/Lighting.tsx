@@ -50,6 +50,7 @@ export function Lighting() {
     sun.intensity = intensity;
     sun.color.set(color);
     sun.castShadow = true;
+    sun.shadow.autoUpdate = false;
     const camera = sun.shadow.camera;
     camera.left = camera.bottom = -radius;
     camera.right = camera.top = radius;

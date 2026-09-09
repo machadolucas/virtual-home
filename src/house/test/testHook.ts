@@ -63,6 +63,8 @@ export interface VhHook {
   equipmentCount(): number;
   occlusionStats(): { queries: number; batches: number };
   daylight(): { position: number[]; intensity: number; shadowMapSize: number; shadowMapAllocated: boolean; radius: number } | null;
+  lightProjections(): import("../scene/equipmentLights").RenderedEquipmentLightProjection[];
+  shadowPassCount(): number;
   renderedLights(): import("../scene/equipmentLights").RenderedEquipmentLight[];
   shadowSurface(surfaceId: string): {
     castShadow: boolean;
@@ -87,6 +89,8 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
 
   const deferredReady = deferred();
   const deferredSettled = deferred();
+  let shadowPasses = 0;
+  const shadowObservers = new Map<THREE.Mesh, THREE.Mesh["onBeforeShadow"]>();
   let disposed: { geometries: number; textures: number } | null = null;
 
   const unsubscribe = runtime.store.subscribe(
@@ -287,6 +291,18 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
       return light ? { position: light.position.toArray(), intensity: light.intensity, shadowMapSize: light.shadow.mapSize.x, shadowMapAllocated: light.shadow.map !== null, radius: light.shadow.radius } : null;
     },
 
+    lightProjections() { return runtime.equipmentLights?.projectedSnapshot() ?? []; },
+
+    shadowPassCount() {
+      for (const asset of runtime.index?.assets.values() ?? []) for (const mesh of asset.meshes) {
+        if (shadowObservers.has(mesh)) continue;
+        const original = mesh.onBeforeShadow;
+        shadowObservers.set(mesh, original);
+        mesh.onBeforeShadow = function (...args) { shadowPasses++; original.apply(this, args); };
+      }
+      return shadowPasses;
+    },
+
     renderedLights() { return runtime.equipmentLights?.renderedSnapshot() ?? []; },
 
     shadowSurface(surfaceId) {
@@ -318,6 +334,8 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
 
   return () => {
     cancelAnimationFrame(rafHandle);
+    for (const [mesh, original] of shadowObservers) mesh.onBeforeShadow = original;
+    shadowObservers.clear();
     unsubscribe();
     const gl = rendererOf(runtime);
     disposed = gl ? { geometries: gl.info.memory.geometries, textures: gl.info.memory.textures } : { geometries: 0, textures: 0 };
