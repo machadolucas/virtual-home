@@ -22,10 +22,12 @@ import {
   RotateCcw,
   ScanLine,
   StickyNote,
+  Tags,
   Trees,
   type LucideIcon,
 } from "lucide-react";
 import { ALL_LAYERS, type LayerId, type WallMode } from "@/house/model/types";
+import { displayNameForNode } from "@/house/model/labelPreferences";
 import { Switch } from "@/ui";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { DaylightControl } from "./DaylightControl";
@@ -63,6 +65,7 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
       layers: s.layers,
       explodeGap: s.explode.gap,
       wallMode: s.wallMode,
+      areaLabelsVisible: s.areaLabelsVisible,
     })),
   );
   const setRoofVisible = useHouseStore((s) => s.setRoofVisible);
@@ -75,6 +78,7 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
   const applyOverview = useHouseStore((s) => s.applyOverview);
   const setProjection = useHouseStore((s) => s.setProjection);
   const setWallMode = useHouseStore((s) => s.setWallMode);
+  const setAreaLabelsVisible = useHouseStore((s) => s.setAreaLabelsVisible);
 
   return (
     <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
@@ -149,6 +153,7 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
         <Toggle icon={House} checked={state.roofVisible} onChange={setRoofVisible} label="Roof (H)" />
         <Toggle icon={PanelTop} checked={state.ceilingsVisible} onChange={setCeilingsVisible} label="Ceilings (G)" />
         <Toggle icon={PanelsTopLeft} checked={state.edgesVisible} onChange={setEdgesVisible} label="Architectural edges (B)" />
+        <Toggle icon={Tags} checked={state.areaLabelsVisible} onChange={setAreaLabelsVisible} label="Area labels" />
         {state.explodeGap > 0 ? (
           <p className="pl-6 text-[11px] text-ink-3">
             Edges are hidden on the structure assets while exploded — their overlay is one object
@@ -208,12 +213,13 @@ const WALL_MODES: ReadonlyArray<{
 /** Compact floor-by-building controls that stay on the model rather than in the bottom drawer. */
 export function FloorControls() {
   const runtime = useHouseRuntime();
-  const { index, activeFloorId, isolateFloor, setProjection } = useHouseStore(
+  const { index, activeFloorId, isolateFloor, setProjection, labelPreferences } = useHouseStore(
     useShallow((s) => ({
       index: s.index,
       activeFloorId: s.activeFloorId,
       isolateFloor: s.isolateFloor,
       setProjection: s.setProjection,
+      labelPreferences: s.labelPreferences,
     })),
   );
   if (!index) return null;
@@ -236,6 +242,7 @@ export function FloorControls() {
             icon={House}
             pressed={activeFloorId === null}
             onClick={() => {
+              setProjection("perspective");
               isolateFloor(null);
               void runtime.camera?.overview();
             }}
@@ -244,44 +251,50 @@ export function FloorControls() {
             Property
           </span>
         </div>
-        {[...index.buildings.values()].map((building) => (
-          <div
-            key={building.id}
-            role="group"
-            aria-label={building.name}
-            className="flex shrink-0 flex-col items-center gap-1"
-          >
+        {[...index.buildings.values()].map((building) => {
+          const buildingName = displayNameForNode(building.id, building.name, labelPreferences);
+          return (
+            <div
+              key={building.id}
+              role="group"
+              aria-label={buildingName}
+              className="flex shrink-0 flex-col items-center gap-1"
+            >
             <div className="flex flex-col gap-1">
               {(index.floorsByBuilding.get(building.id) ?? [])
                 .slice()
                 .sort((a, b) => b.elevation - a.elevation)
-                .map((floor, floorIndex, floors) => (
-                  <FloorIconButton
-                    key={floor.id}
-                    label={floor.name}
-                    icon={
-                      floors.length === 1
-                        ? Layers3
-                        : floorIndex === 0
-                          ? PanelTop
-                          : floorIndex === floors.length - 1
-                            ? PanelBottom
-                            : Layers3
-                    }
-                    pressed={activeFloorId === floor.id}
-                    title={`Focus ${floor.name} in 3D; other buildings and supporting floors remain visible`}
-                    onClick={() => focusFloor(floor.id)}
-                  />
-                ))}
+                .map((floor, floorIndex, floors) => {
+                  const floorName = displayNameForNode(floor.id, floor.name, labelPreferences);
+                  return (
+                    <FloorIconButton
+                      key={floor.id}
+                      label={floorName}
+                      icon={
+                        floors.length === 1
+                          ? Layers3
+                          : floorIndex === 0
+                            ? PanelTop
+                            : floorIndex === floors.length - 1
+                              ? PanelBottom
+                              : Layers3
+                      }
+                      pressed={activeFloorId === floor.id}
+                      title={`Focus ${floorName} in 3D; other buildings and supporting floors remain visible`}
+                      onClick={() => focusFloor(floor.id)}
+                    />
+                  );
+                })}
             </div>
             <span
               className="max-w-16 truncate px-0.5 text-[9px] font-medium uppercase tracking-wide text-ink-3"
-              title={building.name}
+              title={buildingName}
             >
-              {building.name}
+              {buildingName}
             </span>
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </section>
   );

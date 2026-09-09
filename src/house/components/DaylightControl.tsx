@@ -39,6 +39,11 @@ export function DaylightControl() {
           if (date && time) set({ mode: "manual", atMs: instantOf(date, time, zone) });
         }} />
       </label>
+      <label className="block text-xs">
+        <span className="flex items-center gap-1"><Sun className="size-4" aria-hidden="true" />Global illumination intensity <output className="ml-auto tabular-nums">{Math.round(settings.intensity * 100)}%</output></span>
+        <input type="range" aria-label="Global illumination intensity" min="0" max="300" step="5" value={Math.round(settings.intensity * 100)} onChange={(e) => set({ intensity: Number(e.target.value) / 100 })} className="mt-1 block min-h-9 w-full accent-accent max-sm:min-h-11" />
+        <span className="text-ink-3">100% is normal. Adjusts daylight and ambient light; equipment lights keep their own brightness.</span>
+      </label>
       <Switch checked={settings.softShadows} onCheckedChange={(softShadows) => set({ softShadows })} controlPosition="start" label={<span className="inline-flex items-center gap-1"><Moon className="size-4" aria-hidden="true" />Soft shadows</span>} className="min-h-9 py-0" />
       <details className="text-xs">
         <summary className="cursor-pointer py-1"><MapPin className="mr-1 inline size-3.5" aria-hidden="true" />Location and north</summary>

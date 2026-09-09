@@ -167,3 +167,24 @@ test("phone keeps daylight overrides available in a collapsed lighting disclosur
     await context.close();
   }
 });
+
+test("global illumination intensity scales scene lighting and settles back to idle", async ({ browser }, testInfo) => {
+  const { context, page } = await openHouseSession(browser);
+  try {
+    if (testInfo.project.name === "phone") await page.getByText("Lighting", { exact: true }).click();
+    else await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+    await page.getByRole("button", { name: "Studio", exact: true }).click();
+    const intensity = page.getByRole("slider", { name: "Global illumination intensity", exact: true });
+    await expect(intensity).toHaveValue("100");
+    await intensity.fill("50");
+    const sunlight = () => page.evaluate(() => (window as unknown as { __vh: import("@/house/test/testHook").VhHook }).__vh.daylight()?.intensity);
+    await expect.poll(sunlight).toBeCloseTo(0.55);
+    await intensity.fill("0");
+    await expect.poll(sunlight).toBe(0);
+    await intensity.fill("100");
+    await expect.poll(sunlight).toBeCloseTo(1.1);
+    await waitForStableFrames(page, 1000);
+    const idle = await idleFrames(page, 500);
+    expect(idle.invalidateAfter).toBe(idle.invalidateBefore);
+  } finally { await context.close(); }
+});

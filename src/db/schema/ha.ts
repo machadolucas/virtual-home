@@ -287,6 +287,58 @@ export const integrationStatus = sqliteTable(
   () => [check("ck_integration_status_state", oneOf("state", INTEGRATION_STATES))],
 );
 
+export const HA_CONTROL_COMMAND_STATES = [
+  "queued",
+  "sending",
+  "sent",
+  "failed",
+  "expired",
+] as const;
+export type HaControlCommandState = (typeof HA_CONTROL_COMMAND_STATES)[number];
+
+/**
+ * Short-lived web → worker commands for a linked light or switch.
+ *
+ * The row captures both durable registry identity and the entity_id resolved when the household
+ * asked for the change. The worker re-resolves the registry id before sending, so an HA rename
+ * between enqueue and delivery cannot control an unrelated entity. Commands expire quickly and
+ * are never retried after a send starts: a timed-out call has an uncertain outcome, and repeating
+ * it later would make a stale UI gesture surprising.
+ */
+export const haControlCommand = sqliteTable(
+  "ha_control_command",
+  {
+    id: text("id").primaryKey(),
+    requestId: text("request_id").notNull(),
+    assetId: text("asset_id")
+      .notNull()
+      .references(() => asset.id, { onDelete: "cascade" }),
+    entityRegistryId: text("entity_registry_id")
+      .notNull()
+      .references(() => haEntity.registryId, { onDelete: "restrict" }),
+    entityIdSnapshot: text("entity_id_snapshot").notNull(),
+    domain: text("domain").notNull(),
+    commandJson: text("command_json").notNull(),
+    state: text("state").$type<HaControlCommandState>().notNull().default("queued"),
+    requestedBy: text("requested_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAtMs: integer("created_at_ms").notNull(),
+    expiresAtMs: integer("expires_at_ms").notNull(),
+    sendingAtMs: integer("sending_at_ms"),
+    finishedAtMs: integer("finished_at_ms"),
+    lastError: text("last_error"),
+  },
+  (t) => [
+    check("ck_ha_control_command_state", oneOf("state", HA_CONTROL_COMMAND_STATES)),
+    check("ck_ha_control_command_domain", oneOf("domain", ["light", "switch"])),
+    check("ck_ha_control_command_expiry", sql`expires_at_ms > created_at_ms`),
+    uniqueIndex("ux_ha_control_command_request").on(t.requestedBy, t.requestId),
+    index("ix_ha_control_command_ready").on(t.state, t.expiresAtMs, t.createdAtMs),
+    index("ix_ha_control_command_asset").on(t.assetId, t.createdAtMs),
+  ],
+);
+
 export const CONDITION_RULE_KINDS = [
   "low_battery",
   "unavailable_device",

@@ -40,6 +40,9 @@ export const KEPT_ATTRIBUTES: readonly string[] = [
   "color_temp_kelvin",
   "color_temp_mireds",
   "color_temp",
+  "supported_color_modes",
+  "min_color_temp_kelvin",
+  "max_color_temp_kelvin",
 ];
 
 /** Link states that still mean "this link points at something real". */

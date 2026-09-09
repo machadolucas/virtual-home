@@ -36,7 +36,7 @@ export function Lighting() {
     direction.set(-direction.x, Math.max(0.3, -direction.y), -direction.z).normalize();
   }
   const dx = direction.x, dy = direction.y, dz = direction.z;
-  const intensity = studio ? 1.1 : appearance.sunIntensity + appearance.nightFillIntensity;
+  const intensity = (studio ? 1.1 : appearance.sunIntensity + appearance.nightFillIntensity) * settings.intensity;
   const color = studio ? "#ffffff" : solar.elevationDeg < 0 ? "#91a9e8" : appearance.sunColor;
 
   useEffect(() => {
@@ -73,10 +73,10 @@ export function Lighting() {
   useEffect(() => () => sun.dispose(), [sun]);
   return (
     <>
-      <hemisphereLight args={[studio ? "#ffffff" : appearance.skyColor, studio ? "#88806a" : appearance.groundColor, studio ? 0.8 : appearance.ambientIntensity]} />
+      <hemisphereLight args={[studio ? "#ffffff" : appearance.skyColor, studio ? "#88806a" : appearance.groundColor, (studio ? 0.8 : appearance.ambientIntensity) * settings.intensity]} />
       <primitive object={sun} />
       <primitive object={sun.target} />
-      {studio && <directionalLight position={[-10, 8, 12]} intensity={0.3} />}
+      {studio && <directionalLight position={[-10, 8, 12]} intensity={0.3 * settings.intensity} />}
     </>
   );
 }

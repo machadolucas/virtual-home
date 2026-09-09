@@ -19,7 +19,7 @@ const MIN_POLAR_DEG = 15;
 const MAX_POLAR_DEG = 70;
 const ROOM_FOCUS_POLAR_DEG = 0;
 const EQUIPMENT_FOCUS_POLAR_DEG = 48;
-const FLOOR_FOCUS_POLAR_DEG = 48;
+const FLOOR_FOCUS_POLAR_DEG = 0;
 
 export function useCameraApi(
   controlsRef: RefObject<CameraControlsImpl | null>,
@@ -138,8 +138,9 @@ export function makeCameraApi(
 
     async frameFloor(floorId) {
       if (!runtime.manifest) return;
-      // Floor shortcuts are an ordinary 3D focus. Wait out a possible projection remount, restore
-      // an oblique angle if the previous view was a locked plan, then fit without changing azimuth.
+      // A floor shortcut uses the same straight-down direction as room navigation, while retaining
+      // the perspective camera and ordinary `floor` view mode. The rig therefore starts as a
+      // readable plan-like view but remains free to orbit immediately.
       const controls = await settledControls();
       const box = floorBox3(runtime.manifest, floorId);
       if (!controls || box.isEmpty()) return;

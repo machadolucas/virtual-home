@@ -20,6 +20,8 @@ import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseSto
 import { useIsPhone } from "../hooks/useReducedMotion";
 import { haStore } from "@/house/store/haStore";
 import { equipmentLabelReading, explicitUsefulLinks } from "@/house/model/equipmentLabel";
+import { displayNameForNode, labelVisibleForNode } from "@/house/model/labelPreferences";
+import { focusContextFor } from "@/house/model/focusContext";
 
 /**
  * The pooled label chip, as arbitrary variants on the host (the buttons are created
@@ -56,11 +58,21 @@ const CLUSTER_CHIP = [
 
 export function useLabelAnchors(): LabelAnchor[] {
   const runtime = useHouseRuntime();
-  const { placements, routes, activeFloorId } = useHouseStore(
+  const {
+    placements,
+    routes,
+    activeFloorId,
+    focusSelection,
+    labelPreferences,
+    areaLabelsVisible,
+  } = useHouseStore(
     useShallow((s) => ({
       placements: s.placements,
       routes: s.routes,
       activeFloorId: s.activeFloorId,
+      focusSelection: s.focusSelection,
+      labelPreferences: s.labelPreferences,
+      areaLabelsVisible: s.areaLabelsVisible,
     })),
   );
 
@@ -70,6 +82,7 @@ export function useLabelAnchors(): LabelAnchor[] {
     const anchors: LabelAnchor[] = [];
 
     for (const building of manifest.buildings.values()) {
+      if (!areaLabelsVisible) continue;
       const floors = manifest.floorsByBuilding.get(building.id) ?? [];
       const boxes = floors
         .flatMap((f) => manifest.roomsByFloor.get(f.id) ?? [])
@@ -91,7 +104,30 @@ export function useLabelAnchors(): LabelAnchor[] {
       });
     }
 
+    const focus = focusContextFor(
+      manifest,
+      focusSelection,
+      (id) => placements.find((placement) => placement.id === id),
+    );
+    const focusedFloorId = focus?.floorId ?? activeFloorId;
+    const focusedBuildingId = focusedFloorId
+      ? manifest.floors.get(focusedFloorId)?.buildingId
+      : undefined;
     for (const room of manifest.rooms.values()) {
+      if (
+        !areaLabelsVisible ||
+        !labelVisibleForNode(
+          room.id,
+          labelPreferences,
+          room.kind !== "attic" && room.kind !== "void",
+        ) ||
+        !labelVisibleForNode(room.floorId, labelPreferences)
+      ) continue;
+      const roomBuildingId = manifest.floors.get(room.floorId)?.buildingId;
+      // A focused storey keeps the other buildings as context, while labels from hidden/supporting
+      // storeys of that same building stay out of the way.
+      if (focusedFloorId && focusedBuildingId === roomBuildingId && room.floorId !== focusedFloorId)
+        continue;
       const anchor = manifest.roomAnchors.get(room.id);
       if (!anchor) continue;
       anchors.push({
@@ -99,8 +135,7 @@ export function useLabelAnchors(): LabelAnchor[] {
         kind: "room",
         world: anchor.point,
         group: room.floorId,
-        text: room.name,
-        secondary: room.nameFi ?? undefined,
+        text: displayNameForNode(room.id, room.name, labelPreferences),
         selection: { kind: "room", id: room.id },
       });
     }
@@ -135,9 +170,16 @@ export function useLabelAnchors(): LabelAnchor[] {
       }
     }
 
-    void activeFloorId; // isolation is handled at projection time, per anchor group
     return anchors;
-  }, [runtime.manifest, placements, routes, activeFloorId]);
+  }, [
+    runtime.manifest,
+    placements,
+    routes,
+    activeFloorId,
+    focusSelection,
+    labelPreferences,
+    areaLabelsVisible,
+  ]);
 }
 
 export interface LabelHostProps {

@@ -198,6 +198,7 @@ them. `unknown`/`unavailable` is never a value — that is what `condition_signa
 | `notification_recipient_state` | One row per (occurrence, recipient), with the stable notification `tag`. |
 | `reminder_slot` | The scheduling truth: one slot per send, with its nonce and claim fields. |
 | `ha_notify_command` | Transport outbox, so a clear survives an HA outage. Clears drain before notifies. |
+| `ha_control_command` | Short-lived, idempotent light/switch commands from the web to the HA worker. Never retried after sending begins. |
 | `delivery_attempt` | Immutable attempt log. `accepted` means HA took the call, nothing more. |
 | `notification_action_event` | Every inbound HA action, accepted or not — forensics plus the replay guard. |
 | `worker_lease` | Named leases with a fence token (`notification_tick`, `ha_listener`, `outbox_drain`). |

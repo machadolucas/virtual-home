@@ -13,6 +13,7 @@
 import type { AnnotationDto, EndpointDto, EndpointWrite, RouteDto } from "@/features/projects/wire";
 import { mediumForSystem } from "@/features/projects/infraMedium";
 import type { Placement, Route, SurfaceId } from "@/house/model/types";
+import type { HouseLabelPreferences } from "@/house/model/labelPreferences";
 
 export interface ColorOverrideWrite {
   surfaceId: SurfaceId;
@@ -66,7 +67,22 @@ export interface PlaceableEquipment {
   locationName: string | null;
 }
 
+export interface LabelPreferenceWrite {
+  nodeId: string;
+  /** `null` restores the confirmed HA/location/model fallback. */
+  displayName: string | null;
+  /** `null` restores the semantic default. */
+  visible: boolean | null;
+}
+
 export interface HouseDataApi {
+  listLabelPreferences(modelId: string): Promise<HouseLabelPreferences>;
+  saveLabelPreference(
+    modelId: string,
+    fingerprint: string,
+    write: LabelPreferenceWrite,
+  ): Promise<HouseLabelPreferences>;
+
   listColorOverrides(modelId: string): Promise<Record<SurfaceId, string>>;
   saveColorOverrides(
     modelId: string,
@@ -113,6 +129,7 @@ const REQUEST_ERRORS: Record<string, string> = {
   equipment_not_current: "This equipment is no longer available to place. Reload the house view to refresh the equipment list.",
   mount_surface_kind_mismatch: "That surface cannot take this kind of mount",
   unknown_surface: "The model does not have that surface any more",
+  unknown_label_node: "The model does not have that room or floor any more",
   unknown_room: "The model does not have that room any more",
   unknown_floor: "The model does not have that floor any more",
   room_floor_mismatch: "That room is not on this floor",
@@ -146,6 +163,7 @@ export function createMemoryDataApi(
     annotations?: AnnotationDto[];
     projectOptions?: ProjectOption[];
     placeableEquipment?: PlaceableEquipment[];
+    labelPreferences?: HouseLabelPreferences;
   } = {},
 ): HouseDataApi {
   const overrides = new Map<SurfaceId, string>(Object.entries(seed.overrides ?? {}));
@@ -154,9 +172,42 @@ export function createMemoryDataApi(
   const endpoints = new Map<string, EndpointDto>((seed.endpoints ?? []).map((e) => [e.id, e]));
   const annotations = new Map<string, AnnotationDto>((seed.annotations ?? []).map((a) => [a.id, a]));
   let counter = 0;
+  let labelPreferences = seed.labelPreferences ?? {
+    names: {},
+    visibility: {},
+    customNames: {},
+    customVisibility: {},
+  };
   const localId = (prefix: string): string => `${prefix}-local-${++counter}`;
 
   return {
+    async listLabelPreferences() {
+      return labelPreferences;
+    },
+    async saveLabelPreference(_modelId, _fingerprint, write) {
+      const customNames = { ...labelPreferences.customNames };
+      const customVisibility = { ...labelPreferences.customVisibility };
+      const names = { ...labelPreferences.names };
+      const visibility = { ...labelPreferences.visibility };
+      if (write.displayName === null) {
+        delete customNames[write.nodeId];
+        delete names[write.nodeId];
+      }
+      else {
+        customNames[write.nodeId] = write.displayName;
+        names[write.nodeId] = write.displayName;
+      }
+      if (write.visible === null) {
+        delete customVisibility[write.nodeId];
+        delete visibility[write.nodeId];
+      }
+      else {
+        customVisibility[write.nodeId] = write.visible;
+        visibility[write.nodeId] = write.visible;
+      }
+      labelPreferences = { names, visibility, customNames, customVisibility };
+      return labelPreferences;
+    },
     async listColorOverrides() {
       return Object.fromEntries(overrides);
     },
@@ -300,6 +351,17 @@ export function createRestDataApi(opts: RestDataApiOptions = {}): HouseDataApi {
   const model = (modelId: string) => `/house-model/${encodeURIComponent(modelId)}`;
 
   return {
+    async listLabelPreferences(modelId) {
+      return request<HouseLabelPreferences>(`${model(modelId)}/labels`);
+    },
+
+    async saveLabelPreference(modelId, fingerprint, write) {
+      return request<HouseLabelPreferences>(`${model(modelId)}/labels`, {
+        method: "PATCH",
+        body: JSON.stringify({ fingerprint, write }),
+      });
+    },
+
     async listColorOverrides(modelId) {
       const body = await request<{ overrides: Record<SurfaceId, string> }>(`${model(modelId)}/colors`);
       return body.overrides ?? {};
@@ -494,6 +556,14 @@ export function createResilientDataApi(
     };
 
   return {
+    listLabelPreferences: wrap(
+      remote.listLabelPreferences.bind(remote),
+      local.listLabelPreferences.bind(local),
+    ),
+    saveLabelPreference: wrap(
+      remote.saveLabelPreference.bind(remote),
+      local.saveLabelPreference.bind(local),
+    ),
     listColorOverrides: wrap(
       remote.listColorOverrides.bind(remote),
       local.listColorOverrides.bind(local),

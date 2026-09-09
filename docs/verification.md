@@ -90,7 +90,7 @@ users, so `desktop`'s "sign out others" revokes the `phone` session that is mid-
 under one account). That is what `workers: 1` in `playwright.config.ts` exists to prevent.
 
 ## Not verified / limitations
-- Live Home Assistant delivery to phones: requires `HA_TOKEN` on the server; until then tests use the fake HA server.
+- Live Home Assistant delivery to phones and physical equipment control require `HA_TOKEN` on the server; tests use the fake HA server and never send commands to production devices.
 - Deployment on the Mac mini: scripts are tested locally; the first real install happens with the owner.
 - **Frame times above are a regression tripwire, not an acceptance result.** They come from a
   software rasteriser (SwiftShader) in headless Chromium, where the orbit p95 of 22.2 ms says more

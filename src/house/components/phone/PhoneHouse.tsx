@@ -18,8 +18,10 @@ import {
   PanelBottom,
   PanelTop,
   Sun,
+  Tags,
   type LucideIcon,
 } from "lucide-react";
+import { displayNameForNode } from "@/house/model/labelPreferences";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
 import { DaylightControl } from "../DaylightControl";
 import { HouseCanvasLazy } from "../HouseCanvasLazy";
@@ -28,10 +30,11 @@ import { PlacementEditor } from "../edit/PlacementEditor";
 import { Inspector } from "../inspector/Inspector";
 import { DownloadImageButton } from "../DownloadImageButton";
 import { LocateSheet } from "./LocateSheet";
+import { Switch } from "@/ui";
 
 export function PhoneHouse() {
   const runtime = useHouseRuntime();
-  const { index, activeFloorId, selection, background, placements, editing, announcement } =
+  const { index, activeFloorId, selection, background, placements, editing, announcement, labelPreferences, areaLabelsVisible } =
     useHouseStore(
     useShallow((s) => ({
       index: s.index,
@@ -41,9 +44,12 @@ export function PhoneHouse() {
       placements: s.placements,
       editing: s.editing !== null,
       announcement: s.announcement,
+      labelPreferences: s.labelPreferences,
+      areaLabelsVisible: s.areaLabelsVisible,
     })),
   );
   const isolateFloor = useHouseStore((s) => s.isolateFloor);
+  const setAreaLabelsVisible = useHouseStore((s) => s.setAreaLabelsVisible);
 
   const setProjection = useHouseStore((s) => s.setProjection);
   const setViewMode = useHouseStore((s) => s.setViewMode);
@@ -72,7 +78,9 @@ export function PhoneHouse() {
         />
         {[...(index?.buildings.values() ?? [])].map((building) => (
           <fieldset key={building.id} className="min-w-0">
-            <legend className="px-1 text-[11px] text-ink-3">{building.name}</legend>
+            <legend className="px-1 text-[11px] text-ink-3">
+              {displayNameForNode(building.id, building.name, labelPreferences)}
+            </legend>
             <div className="flex flex-wrap gap-1">
               {(index?.floorsByBuilding.get(building.id) ?? [])
                 .slice()
@@ -89,7 +97,7 @@ export function PhoneHouse() {
                           ? PanelTop
                           : Layers3
                   }
-                  label={floor.name}
+                  label={displayNameForNode(floor.id, floor.name, labelPreferences)}
                   active={activeFloorId === floor.id}
                   onClick={() => {
                     setProjection("perspective");
@@ -111,6 +119,19 @@ export function PhoneHouse() {
       </div>
 
       <div className="flex justify-end"><DownloadImageButton /></div>
+
+      <Switch
+        checked={areaLabelsVisible}
+        onCheckedChange={setAreaLabelsVisible}
+        controlPosition="start"
+        label={
+          <span className="inline-flex items-center gap-1.5">
+            <Tags aria-hidden="true" className="size-4 text-ink-3" />
+            Area labels
+          </span>
+        }
+        className="min-h-11 rounded-lg border border-line bg-surface px-3 text-sm"
+      />
 
       <details className="rounded-lg border border-line bg-surface">
         <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-sm font-medium text-ink">

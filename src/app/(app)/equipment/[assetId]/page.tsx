@@ -21,6 +21,7 @@ import {
   locateInHouseHref,
 } from "@/features/assets/labels";
 import { formatQuantity } from "@/features/inventory/units";
+import { EquipmentHaControls } from "@/features/assets/EquipmentHaControls";
 import { AssetCloseUpPhotos } from "@/features/assets/AssetCloseUpPhotos";
 import { AssetDocuments } from "@/features/assets/AssetDocuments";
 import { EquipmentForm, type EquipmentFormInitial } from "../EquipmentForm";
@@ -324,6 +325,7 @@ export default async function EquipmentDetailPage({
                 : "Bound by registry id, so a rename in Home Assistant changes nothing here."
             }
           >
+            <EquipmentHaControls key={asset.id} assetId={asset.id} />
             <LinksPanel
               assetId={asset.id}
               links={detail.haLinks.map((link) => ({

@@ -82,6 +82,7 @@ household files that are never in `public/`.
 | `GET /manifest?v=<fingerprint>` | `private, max-age=31536000, immutable`, `ETag`, `Vary: Cookie` | `409 stale_fingerprint` when `?v=` is not the installed fingerprint |
 | `GET /assets/<assetId>?v=<fingerprint>` | same | `assetId` is an allow-list lookup in the manifest; the resolved path must pass `safeJoin` (no traversal, no symlink, `assets/<name>.glb` only) |
 | `GET`/`PATCH /colors` | `private, no-store` | Surface colour overrides |
+| `GET`/`PATCH /labels` | `private, no-store` | Household room/floor display names and label visibility; automatic names follow confirmed HA mappings |
 | `GET`/`PUT /placements`, `DELETE /placements/<id>` | `private, no-store` | Equipment placements, **including the mount** (§3.1) |
 | `GET`/`PUT /routes`, `DELETE /routes/<id>` | `private, no-store` | Infrastructure runs with their polyline. `DELETE` is **soft** (§3.4); `?hard=1` erases a wrongly drawn line. `GET ?options=projects` serves the inspector's project picker |
 | `GET`/`PUT`/`DELETE /endpoints` | `private, no-store` | Manifolds, shutoffs, meters, panels, patch ports. `DELETE ?id=<endpointId>` |
@@ -118,6 +119,7 @@ millimetres. Exploded and cutaway views are presentation transforms and have no 
 | Data | Table | Coverage |
 |---|---|---|
 | Surface colour | `surface_color_override` | **Complete.** `(modelId, surfaceId) → #rrggbb`, plus the `model_revision_id` the choice was made against. Reset deletes the row, restoring the manifest's `defaultColor` |
+| Area label preference | `model_label_preference` | Optional display name and visibility keyed by `(modelId, modelNodeId)`. Confirmed HA area/floor mappings supply automatic names without changing package ids; explicit preferences win. |
 | Equipment placement | `asset_placement` | Physical coordinates and all four mount kinds (§3.1) |
 | Infrastructure routes | `infra_route`, `infra_route_point` | **Complete.** Polyline in physical metres with per-point floor/room, medium, certainty, lifecycle + dates, depth/offset, project, photos via `attachment_link` |
 | Infrastructure endpoints | `infra_endpoint` | **Complete.** A coordinate is optional: an endpoint may be location-only |
@@ -461,7 +463,9 @@ is a decision rather than an oversight:
 - **Floor focus is per building.** Higher floors in the focused building are hidden while its lower
   supporting floors and other buildings remain visible. Roof-role surfaces are resolved by semantic
   surface metadata as well as element groups, so roof faces nested inside a floor-bound dormer do
-  not remain when the roof is hidden.
+  not remain when the roof is hidden. A floor shortcut clears any older room/equipment focus and
+  frames the floor from directly above with a perspective camera; the ordinary orbit controls stay
+  available after framing.
 - **The performance budgets in the design note are budgets**, computed from the package and the
   producer's reference run — not results this implementation has already demonstrated on the target
   machine.
@@ -488,8 +492,11 @@ recheck this policy inside the write transaction so a stale viewer cannot place 
 
 ### Contextual focus
 
-Property tree selections frame buildings, floors, rooms, outdoor areas and equipment. Rooms use an
-overhead camera; equipment uses an angled view. Focus is transient presentation state separate
+The property tree starts at buildings rather than repeating the package/property address. Buildings
+and floors open by default so rooms are immediately available; a building with exactly one floor is
+represented by one building-named floor row. Room surfaces remain collapsible detail. Property tree
+selections frame buildings, floors, rooms, outdoor areas and equipment. Floors and rooms use an
+overhead perspective camera; equipment uses an angled view. Focus is transient presentation state separate
 from the selection and the user's layer toggles. It reveals the selected floor by hiding that
 building's roof, upper floors and floor ceilings, while retaining lower/site context. Selected
 surfaces and equipment mounting surfaces are preserved; roof/eave equipment keeps its roof context.

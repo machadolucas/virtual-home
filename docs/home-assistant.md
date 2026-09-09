@@ -372,3 +372,21 @@ device association and the single-primary constraint. An existing primary entity
 implicitly; duplicate entities and occupied unique roles return actionable errors. Selected devices
 in bulk import expose per-device entity choices. Equipment removal preserves its history and
 retires its active HA links so the device becomes available for reimport.
+
+## Equipment controls
+
+Signed-in household members can control linked `light` and `switch` entities from an equipment
+card. The web process never receives the HA token. `GET /api/equipment/:assetId/controls` resolves
+the current entity id from its registry id, reports the cached state and derives light controls
+from modern `supported_color_modes`. `POST` accepts only explicit `turn_on` and `turn_off` commands;
+light options are limited to supported brightness, `color_temp_kelvin` and RGB values. There is no
+arbitrary domain, service or entity-id input.
+
+The route verifies the entity is still linked to that equipment, enabled, available and that HA's
+worker heartbeat is fresh. It then writes a short-lived `ha_control_command`. The worker rechecks
+the registry identity, link, availability and capabilities immediately before calling HA. A rename
+therefore follows the same registry entry instead of the old entity id. Queued commands expire
+after 30 seconds. A command that reached `sending` is never retried after a timeout or worker crash,
+because HA may already have applied it; its terminal error is `result_unknown`. `sent` means HA
+accepted the service call. The following state event is the only observation of the resulting
+device state.

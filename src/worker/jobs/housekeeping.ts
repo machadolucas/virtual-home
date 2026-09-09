@@ -10,14 +10,16 @@
  *  - `event_outbox` older than 10 min — a transport, not a log. The cursor is deliberately left
  *    alone (`pruneOutbox`): rewinding it would make every connected browser resync.
  *  - `idempotency_key` older than 24 h — the replay window the client's per-form key needs.
+ *  - terminal `ha_control_command` rows older than 7 days — short-lived transport receipts.
  *  - `session` rows past `expiresAt` — Better Auth checks expiry on read, so these are dead
  *    weight, and a table full of them makes the security page unreadable.
  *  - `PRAGMA wal_checkpoint(PASSIVE)` — PASSIVE, not TRUNCATE: it never blocks the web process's
  *    readers, and a checkpoint that cannot run right now runs on the next pass.
  */
-import { lt } from "drizzle-orm";
+import { and, inArray, lt } from "drizzle-orm";
 import { writeTx, type DbHandle } from "@/db/client";
 import { session } from "@/db/schema/auth";
+import { haControlCommand } from "@/db/schema/ha";
 import { idempotencyKey } from "@/db/schema/system";
 import type { Clock } from "@/domain/time";
 import { pruneOutbox } from "@/server/events/outbox";
@@ -28,6 +30,7 @@ import { startIntervalJob, type Job } from "./interval";
 export const OUTBOX_RETENTION_MS = 600_000;
 /** §3.5: a stored server-action result is replayable for a day. */
 export const IDEMPOTENCY_RETENTION_MS = 86_400_000;
+export const HA_CONTROL_RETENTION_MS = 7 * 86_400_000;
 export const HOUSEKEEPING_INTERVAL_MS = 3_600_000;
 
 export interface HousekeepingInput {
@@ -35,6 +38,7 @@ export interface HousekeepingInput {
   clock: Clock;
   outboxRetentionMs?: number;
   idempotencyRetentionMs?: number;
+  haControlRetentionMs?: number;
   /** Skip the checkpoint (tests on `:memory:`, where there is no WAL). */
   checkpoint?: boolean;
 }
@@ -42,6 +46,7 @@ export interface HousekeepingInput {
 export interface HousekeepingResult {
   outboxDeleted: number;
   idempotencyDeleted: number;
+  haControlsDeleted: number;
   sessionsDeleted: number;
   /** `true` when the checkpoint ran without error. */
   checkpointed: boolean;
@@ -56,6 +61,7 @@ export function runHousekeeping(input: HousekeepingInput): HousekeepingResult {
   const now = clock.now();
   const outboxRetentionMs = input.outboxRetentionMs ?? OUTBOX_RETENTION_MS;
   const idempotencyRetentionMs = input.idempotencyRetentionMs ?? IDEMPOTENCY_RETENTION_MS;
+  const haControlRetentionMs = input.haControlRetentionMs ?? HA_CONTROL_RETENTION_MS;
 
   const outboxDeleted = writeTx(handle.db, (tx) => pruneOutbox(tx, now - outboxRetentionMs));
 
@@ -73,6 +79,19 @@ export function runHousekeeping(input: HousekeepingInput): HousekeepingResult {
     return Number(result.changes ?? 0);
   });
 
+  const haControlsDeleted = writeTx(handle.db, (tx) => {
+    const result = tx
+      .delete(haControlCommand)
+      .where(
+        and(
+          inArray(haControlCommand.state, ["sent", "failed", "expired"]),
+          lt(haControlCommand.createdAtMs, now - haControlRetentionMs),
+        ),
+      )
+      .run();
+    return Number(result.changes ?? 0);
+  });
+
   let checkpointed = false;
   if (input.checkpoint !== false) {
     try {
@@ -84,7 +103,7 @@ export function runHousekeeping(input: HousekeepingInput): HousekeepingResult {
     }
   }
 
-  return { outboxDeleted, idempotencyDeleted, sessionsDeleted, checkpointed };
+  return { outboxDeleted, idempotencyDeleted, haControlsDeleted, sessionsDeleted, checkpointed };
 }
 
 export interface HousekeepingJobOptions extends HousekeepingInput {
@@ -101,7 +120,13 @@ export function startHousekeepingJob(options: HousekeepingJobOptions): Job {
     intervalMs: options.intervalMs ?? HOUSEKEEPING_INTERVAL_MS,
     run: () => {
       const result = runHousekeeping(options);
-      if (result.outboxDeleted + result.idempotencyDeleted + result.sessionsDeleted > 0) {
+      if (
+        result.outboxDeleted +
+          result.idempotencyDeleted +
+          result.haControlsDeleted +
+          result.sessionsDeleted >
+        0
+      ) {
         logger.debug({ ...result }, "housekeeping");
       }
     },

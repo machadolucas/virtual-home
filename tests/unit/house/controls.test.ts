@@ -58,9 +58,12 @@ describe("wall display presets", () => {
 
   it("opens a floor focus after a closed shell, then honors a later close", () => {
     const automatic = createHouseStore();
+    automatic.getState().setFocusSelection({ kind: "room", id: "r-upper" });
     automatic.getState().isolateFloor("f-upper");
     expect(automatic.getState()).toMatchObject({
       activeFloorId: "f-upper",
+      selection: { kind: "floor", id: "f-upper" },
+      focusSelection: null,
       wallMode: "contextual",
       wallModeExplicit: false,
     });
@@ -80,6 +83,19 @@ describe("wall display presets", () => {
       wallModeExplicit: true,
       roofVisible: true,
       ceilingsVisible: true,
+    });
+  });
+
+  it("clears a stale framed selection when returning to all floors", () => {
+    const store = createHouseStore();
+    store.getState().setSelection({ kind: "equipment", id: "equipment-upstairs" });
+    store.getState().setFocusSelection({ kind: "equipment", id: "equipment-upstairs" });
+    store.getState().isolateFloor(null);
+    expect(store.getState()).toMatchObject({
+      activeFloorId: null,
+      selection: null,
+      focusSelection: null,
+      viewMode: "overview",
     });
   });
 });

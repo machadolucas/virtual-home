@@ -30,6 +30,7 @@ export interface IlluminationSettings {
   longitude: number | null;
   northDeg: number | null;
   softShadows: boolean;
+  intensity: number;
 }
 
 export interface ViewSlice {
@@ -75,7 +76,7 @@ export interface ViewSlice {
 }
 
 export const initialView = {
-  illumination: { mode: "live", atMs: null, latitude: null, longitude: null, northDeg: null, softShadows: true } as IlluminationSettings,
+  illumination: { mode: "live", atMs: null, latitude: null, longitude: null, northDeg: null, softShadows: true, intensity: 1 } as IlluminationSettings,
   viewMode: "overview" as ViewMode,
   tool: "orbit" as CanvasTool,
   cameraOverride: false,
@@ -108,13 +109,25 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
       activeFloorId
         ? {
             activeFloorId,
+            // A floor shortcut becomes the new reveal context. Keeping a previously framed room
+            // or piece of equipment here lets that older floor win in `focusContextFor`, so the
+            // requested storey can remain hidden even though its floor button is active.
+            focusSelection: null,
+            // Keep the inspector and shareable URL aligned with the shortcut too. Otherwise an
+            // upstairs room remains selected and a reload frames it again over this floor choice.
+            selection: { kind: "floor" as const, id: activeFloorId },
             viewMode: "floor" as ViewMode,
             wallMode: "contextual" as WallMode,
             wallModeExplicit: false,
             roofVisible: false,
             ceilingsVisible: false,
           }
-        : { activeFloorId: null, viewMode: "overview" as ViewMode },
+        : {
+            activeFloorId: null,
+            selection: null,
+            focusSelection: null,
+            viewMode: "overview" as ViewMode,
+          },
     ),
 
   setProjection: (projection) => set({ projection }),

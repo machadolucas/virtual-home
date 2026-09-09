@@ -41,6 +41,7 @@ import { log } from "@/server/log";
 import { createNotifySender, startNotificationActionListener } from "@/worker/actions";
 import { createBatterySignalHandler } from "@/worker/conditions";
 import { createHaSocketFromEnv, type HaSocket } from "@/worker/ha/socket";
+import { startHaControlJob } from "@/worker/haControls";
 import { startHaBridge, type HaBridge } from "@/worker/haBridge";
 import { startHeartbeatJob } from "@/worker/jobs/heartbeat";
 import { startHousekeepingJob } from "@/worker/jobs/housekeeping";
@@ -228,6 +229,7 @@ export function startWorker(options: StartWorkerOptions): WorkerRuntime {
   });
 
   const jobs: Job[] = [
+    startHaControlJob({ handle, socket: () => socket, now: clock.now }),
     startHeartbeatJob({
       handle,
       clock,

@@ -340,3 +340,28 @@ export const surfaceColorOverride = sqliteTable(
     index("ix_surface_color_override_room").on(t.modelId, t.roomId),
   ],
 );
+
+/**
+ * Household presentation preferences for semantic rooms and floors in the 3D workspace.
+ *
+ * These are deliberately separate from `model_node`: a package is immutable input, while a
+ * household display name and the choice to suppress an unused area's label are runtime choices.
+ * The semantic node id keeps a preference stable across compatible model revisions.
+ */
+export const modelLabelPreference = sqliteTable(
+  "model_label_preference",
+  {
+    id: text("id").primaryKey(),
+    modelId: text("model_id").notNull(),
+    modelNodeId: text("model_node_id").notNull(),
+    /** NULL follows a confirmed Home Assistant mapping, then the location/model name. */
+    displayName: text("display_name"),
+    /** NULL follows the semantic default (`attic`/`void` hidden, ordinary rooms shown). */
+    visible: integer("visible", { mode: "boolean" }),
+    ...auditQuad(),
+  },
+  (t) => [
+    uniqueIndex("ux_model_label_preference").on(t.modelId, t.modelNodeId),
+    index("ix_model_label_preference_model").on(t.modelId),
+  ],
+);

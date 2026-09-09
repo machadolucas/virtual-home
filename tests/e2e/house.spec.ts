@@ -100,8 +100,9 @@ test("the fixture package loads clean, with no cloned materials", async ({ brows
     // else: shadows reuse the same geometry, with no duplicated scene.
     expect(render.geometries).toBe(Object.keys(hexes).length + edgeNodes);
     // The package remains texture-free. The fixed 4 point / 4 spot shadow pool allocates bounded
-    // depth targets (including Three's internal shadow sampler resources), plus an empty sampler.
-    expect(render.textures).toBeLessThanOrEqual(13);
+    // depth targets (including Three's internal shadow sampler resources), the global daylight
+    // shadow target and its sampler, plus an empty sampler.
+    expect(render.textures).toBeLessThanOrEqual(15);
     // Surface, edge and shadow-depth/distance programs are a fixed inventory.
     expect(render.programs).toBeLessThanOrEqual(8);
 
@@ -431,10 +432,14 @@ test("floor shortcuts stay in perspective and keep camera orbit available", asyn
     expect(await vh(page).visible("fixture-lower", "f-lower")).toBe(true);
     await waitForStableFrames(page);
     const before = await vh(page).camera();
+    const dx = before.position[0] - before.target[0];
+    const dy = before.position[1] - before.target[1];
+    const dz = before.position[2] - before.target[2];
+    expect(Math.hypot(dx, dz) / dy).toBeLessThan(0.05);
     const canvas = (await page.locator("canvas").boundingBox())!;
-    await page.mouse.move(canvas.x + canvas.width * 0.6, canvas.y + 100);
+    await page.mouse.move(canvas.x + canvas.width * 0.6, canvas.y + 140);
     await page.mouse.down();
-    await page.mouse.move(canvas.x + canvas.width * 0.6 + 60, canvas.y + 140, { steps: 8 });
+    await page.mouse.move(canvas.x + canvas.width * 0.6 + 60, canvas.y + 80, { steps: 8 });
     await page.mouse.up();
     await expect.poll(async () => (await vh(page).camera()).position).not.toEqual(before.position);
     await waitForStableFrames(page);
@@ -443,6 +448,11 @@ test("floor shortcuts stay in perspective and keep camera orbit available", asyn
     await workspace.focus();
     await page.keyboard.press("ArrowLeft");
     await expect.poll(async () => (await vh(page).camera()).position).not.toEqual(afterDrag.position);
+
+    // A previous upper-room reveal cannot override a later lower-floor shortcut.
+    await vh(page).select({ kind: "room", id: "r-u-a" });
+    await page.getByRole("button", { name: "Lower floor", exact: true }).click();
+    await expect.poll(() => vh(page).visible("fixture-upper", "f-upper")).toBe(false);
   } finally {
     await context.close();
   }

@@ -11,6 +11,8 @@ import { planRoomColors } from "@/house/model/colorPlan";
 import type { RoomId, SurfaceKind } from "@/house/model/types";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
 import { IssueList } from "./IssueList";
+import { LabelPreferenceControl } from "./LabelPreferenceControl";
+import { displayNameForNode } from "@/house/model/labelPreferences";
 
 const KIND_LABELS: Record<SurfaceKind, string> = {
   floor: "Floor",
@@ -21,12 +23,13 @@ const KIND_LABELS: Record<SurfaceKind, string> = {
 
 export function RoomInspector({ roomId }: { roomId: RoomId }) {
   const runtime = useHouseRuntime();
-  const { index, overrides, saveState, saveError } = useHouseStore(
+  const { index, overrides, saveState, saveError, labelPreferences } = useHouseStore(
     useShallow((s) => ({
       index: s.index,
       overrides: s.overrides,
       saveState: s.saveState,
       saveError: s.saveError,
+      labelPreferences: s.labelPreferences,
     })),
   );
   const setOverride = useHouseStore((s) => s.setOverride);
@@ -45,7 +48,9 @@ export function RoomInspector({ roomId }: { roomId: RoomId }) {
   return (
     <div className="flex flex-col gap-4">
       <header>
-        <h2 className="text-base font-semibold text-ink">{room.name}</h2>
+        <h2 className="text-base font-semibold text-ink">
+          {displayNameForNode(room.id, room.name, labelPreferences)}
+        </h2>
         <p className="text-xs text-ink-3">
           {[room.nameFi, floor?.name, room.kind && room.kind !== "room" ? room.kind : null]
             .filter(Boolean)
@@ -62,6 +67,14 @@ export function RoomInspector({ roomId }: { roomId: RoomId }) {
         />
         <Row label="Certainty" value={room.certainty ?? "unknown"} />
       </dl>
+
+      <LabelPreferenceControl
+        key={`${room.id}:${labelPreferences.names[room.id] ?? ""}:${String(labelPreferences.visibility[room.id])}`}
+        nodeId={room.id}
+        modelName={room.name}
+        kind="room"
+        defaultVisible={room.kind !== "attic" && room.kind !== "void"}
+      />
 
       {room.note ? <p className="text-xs text-ink-2">{room.note}</p> : null}
       {room.aliases.length ? (

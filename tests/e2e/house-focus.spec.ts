@@ -6,11 +6,21 @@ test("property focus frames buildings and outdoor areas, and reveals rooms from 
   const { context, page } = await openHouseSession(browser);
   try {
     const tree = page.getByRole("tree", { name: "Property structure" });
+    // The address-only package root is omitted and the everyday hierarchy starts open at rooms.
+    await expect(tree.locator('[data-node="property"]')).toHaveCount(0);
+    await expect(tree.locator('[data-node="room:r-l-a"]')).toBeVisible();
     const building = tree.locator('[data-node="building:b-fx"]');
     await building.click();
     await waitForStableFrames(page);
     const buildingCamera = await page.evaluate(() => window.__vh!.camera());
     await tree.locator('[data-node="floor:f-lower"]').click();
+    await waitForStableFrames(page);
+    const floorCamera = await page.evaluate(() => window.__vh!.camera());
+    expect(floorCamera.projection).toBe("perspective");
+    const floorDx = floorCamera.position[0] - floorCamera.target[0];
+    const floorDy = floorCamera.position[1] - floorCamera.target[1];
+    const floorDz = floorCamera.position[2] - floorCamera.target[2];
+    expect(Math.hypot(floorDx, floorDz) / floorDy).toBeLessThan(0.05);
     await tree.locator('[data-node="room:r-l-a"]').click();
     await waitForStableFrames(page);
     const roomCamera = await page.evaluate(() => window.__vh!.camera());

@@ -1,6 +1,6 @@
 "use client";
 /**
- * The non-3D route to everything: property → buildings → floors → rooms → surfaces, plus the
+ * The non-3D route to everything: buildings → floors → rooms → surfaces, plus the
  * equipment placed on each floor and an `Outside` branch for the outdoor zones and anything
  * placed out there.
  *
@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Selection } from "@/house/model/types";
+import { displayNameForNode } from "@/house/model/labelPreferences";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 
 interface TreeNode {
@@ -38,11 +39,17 @@ const OUTDOOR_ZONES = [
 
 export function PropertyTree() {
   const runtime = useHouseRuntime();
-  const { index, placements, selection } = useHouseStore(
-    useShallow((s) => ({ index: s.index, placements: s.placements, selection: s.selection })),
+  const { index, placements, selection, labelPreferences } = useHouseStore(
+    useShallow((s) => ({
+      index: s.index,
+      placements: s.placements,
+      selection: s.selection,
+      labelPreferences: s.labelPreferences,
+    })),
   );
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(["property"]));
-  const [focusId, setFocusId] = useState<string>("property");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [focusId, setFocusId] = useState<string>("");
+  const initialisedModel = useRef<string | null>(null);
   const typeahead = useRef({ text: "", at: 0 });
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -52,90 +59,105 @@ export function PropertyTree() {
 
     const add = (node: TreeNode) => map.set(node.id, node);
 
-    add({
-      id: "property",
-      label: index.manifest.name ?? index.modelId,
-      depth: 0,
-      selection: null,
-      children: [],
-      parent: null,
-    });
+    const addFloorContents = (parentId: string, floorId: string, depth: number) => {
+      for (const room of index.roomsByFloor.get(floorId) ?? []) {
+        const rid = `room:${room.id}`;
+        map.get(parentId)!.children.push(rid);
+        add({
+          id: rid,
+          label: displayNameForNode(room.id, room.name, labelPreferences),
+          secondary: [displayNameForNode(room.id, room.name, labelPreferences) === room.name ? room.nameFi : null, room.kind && room.kind !== "room" ? room.kind : null]
+            .filter(Boolean)
+            .join(" · ") || undefined,
+          depth,
+          selection: { kind: "room", id: room.id },
+          children: [],
+          parent: parentId,
+          floorId,
+        });
+
+        for (const surfaceId of index.roomSurfaces.get(room.id) ?? []) {
+          const surface = index.surfaces.get(surfaceId);
+          if (!surface) continue;
+          const sid = `surface:${surfaceId}`;
+          map.get(rid)!.children.push(sid);
+          add({
+            id: sid,
+            label: `${surface.kind}${surface.role ? ` · ${surface.role}` : ""}`,
+            secondary: surfaceId,
+            depth: depth + 1,
+            selection: { kind: "surface", id: surfaceId },
+            children: [],
+            parent: rid,
+            floorId,
+          });
+        }
+      }
+
+      for (const placement of placements.filter((p) => p.floorId === floorId && p.roomId)) {
+        const pid = `equipment:${placement.id}`;
+        map.get(parentId)!.children.push(pid);
+        add({
+          id: pid,
+          label: placement.name,
+          secondary: placement.roomId ?? undefined,
+          depth,
+          selection: { kind: "equipment", id: placement.id },
+          children: [],
+          parent: parentId,
+          floorId,
+        });
+      }
+    };
 
     for (const building of index.buildings.values()) {
+      const floors = index.floorsByBuilding.get(building.id) ?? [];
       const bid = `building:${building.id}`;
-      map.get("property")!.children.push(bid);
+
+      // A one-storey building does not need both "Garage" and "Garage floor" rows. Keep the
+      // floor's semantic id and focus behaviour, but present it using the useful building name.
+      if (floors.length === 1) {
+        const floor = floors[0]!;
+        const fid = `floor:${floor.id}`;
+        add({
+          id: fid,
+          label: displayNameForNode(building.id, building.name, labelPreferences),
+          secondary: building.placementStatus === "verified" ? undefined : `placement ${building.placementStatus}`,
+          depth: 0,
+          selection: { kind: "floor", id: floor.id },
+          children: [],
+          parent: null,
+          floorId: floor.id,
+        });
+        addFloorContents(fid, floor.id, 1);
+        continue;
+      }
+
       add({
         id: bid,
-        label: building.name,
+        label: displayNameForNode(building.id, building.name, labelPreferences),
         secondary: building.placementStatus === "verified" ? undefined : `placement ${building.placementStatus}`,
-        depth: 1,
+        depth: 0,
         selection: { kind: "building", id: building.id },
         children: [],
-        parent: "property",
+        parent: null,
       });
 
-      for (const floor of index.floorsByBuilding.get(building.id) ?? []) {
+      for (const floor of floors) {
         const fid = `floor:${floor.id}`;
         map.get(bid)!.children.push(fid);
         add({
           id: fid,
-          label: floor.name,
-          secondary: floor.nameFi ?? undefined,
-          depth: 2,
+          label: displayNameForNode(floor.id, floor.name, labelPreferences),
+          secondary: displayNameForNode(floor.id, floor.name, labelPreferences) === floor.name ? floor.nameFi ?? undefined : undefined,
+          depth: 1,
           selection: { kind: "floor", id: floor.id },
           children: [],
           parent: bid,
           floorId: floor.id,
         });
 
-        for (const room of index.roomsByFloor.get(floor.id) ?? []) {
-          const rid = `room:${room.id}`;
-          map.get(fid)!.children.push(rid);
-          add({
-            id: rid,
-            label: room.name,
-            secondary: [room.nameFi, room.kind && room.kind !== "room" ? room.kind : null]
-              .filter(Boolean)
-              .join(" · ") || undefined,
-            depth: 3,
-            selection: { kind: "room", id: room.id },
-            children: [],
-            parent: fid,
-            floorId: floor.id,
-          });
-
-          for (const surfaceId of index.roomSurfaces.get(room.id) ?? []) {
-            const surface = index.surfaces.get(surfaceId);
-            if (!surface) continue;
-            const sid = `surface:${surfaceId}`;
-            map.get(rid)!.children.push(sid);
-            add({
-              id: sid,
-              label: `${surface.kind}${surface.role ? ` · ${surface.role}` : ""}`,
-              secondary: surfaceId,
-              depth: 4,
-              selection: { kind: "surface", id: surfaceId },
-              children: [],
-              parent: rid,
-              floorId: floor.id,
-            });
-          }
-        }
-
-        for (const placement of placements.filter((p) => p.floorId === floor.id && p.roomId)) {
-          const pid = `equipment:${placement.id}`;
-          map.get(fid)!.children.push(pid);
-          add({
-            id: pid,
-            label: placement.name,
-            secondary: placement.roomId ?? undefined,
-            depth: 3,
-            selection: { kind: "equipment", id: placement.id },
-            children: [],
-            parent: fid,
-            floorId: floor.id,
-          });
-        }
+        addFloorContents(fid, floor.id, 2);
       }
     }
 
@@ -150,15 +172,14 @@ export function PropertyTree() {
     }).filter((zone): zone is (typeof OUTDOOR_ZONES)[number] & { elementId: string } => zone !== null);
 
     if (zones.length > 0 || outdoorPlacements.length > 0) {
-      map.get("property")!.children.push("outside");
       add({
         id: "outside",
         label: "Outside",
         secondary: outdoorPlacements.length > 0 ? `${outdoorPlacements.length} placed` : undefined,
-        depth: 1,
+        depth: 0,
         selection: null,
         children: [],
-        parent: "property",
+        parent: null,
       });
 
       for (const zone of zones) {
@@ -168,7 +189,7 @@ export function PropertyTree() {
           id: zid,
           label: zone.name,
           secondary: zone.elementId,
-          depth: 2,
+          depth: 1,
           selection: { kind: "element", id: zone.elementId },
           children: [],
           parent: "outside",
@@ -182,7 +203,7 @@ export function PropertyTree() {
           id: pid,
           label: placement.name,
           secondary: "outside",
-          depth: 2,
+          depth: 1,
           selection: { kind: "equipment", id: placement.id },
           children: [],
           parent: "outside",
@@ -192,7 +213,7 @@ export function PropertyTree() {
     }
 
     return map;
-  }, [index, placements]);
+  }, [index, placements, labelPreferences]);
 
   const visible = useMemo(() => {
     const out: TreeNode[] = [];
@@ -203,9 +224,24 @@ export function PropertyTree() {
       if (!expanded.has(id)) return;
       for (const child of node.children) walk(child);
     };
-    if (nodes.has("property")) walk("property");
+    for (const node of nodes.values()) if (node.parent === null) walk(node.id);
     return out;
   }, [nodes, expanded]);
+
+  // On first load, expose the useful working level: buildings, their floors, and the rooms below
+  // them. Room surfaces remain collapsed because they are detail, not everyday navigation.
+  useEffect(() => {
+    if (!index || initialisedModel.current === index.modelId || nodes.size === 0) return;
+    initialisedModel.current = index.modelId;
+    setExpanded(
+      new Set(
+        [...nodes.values()]
+          .filter((node) => node.children.length > 0 && node.depth <= 1)
+          .map((node) => node.id),
+      ),
+    );
+    setFocusId([...nodes.values()].find((node) => node.parent === null)?.id ?? "");
+  }, [index, nodes]);
 
   const selectedId = useMemo(() => {
     if (!selection) return null;
@@ -214,10 +250,27 @@ export function PropertyTree() {
 
   const activate = useCallback(
     (node: TreeNode) => {
-      if (node.id === "property" || node.id === "outside") {
+      const state = runtime.store.getState();
+      if (node.id === "outside") {
+        state.isolateFloor(null);
         runtime.select(null);
         void runtime.camera?.overview();
-      } else runtime.select(node.selection, { frame: node.selection !== null });
+        return;
+      }
+      if (node.selection?.kind === "building") {
+        state.isolateFloor(null);
+        runtime.select(node.selection, { frame: true });
+        return;
+      }
+      if (node.selection?.kind === "floor") {
+        state.setProjection("perspective");
+        state.isolateFloor(node.selection.id);
+        runtime.select(node.selection, { focus: true });
+        void runtime.camera?.frameFloor(node.selection.id);
+        return;
+      }
+      if (node.floorId && state.activeFloorId !== node.floorId) state.isolateFloor(node.floorId);
+      runtime.select(node.selection, { frame: node.selection !== null });
     },
     [runtime],
   );
@@ -310,7 +363,6 @@ export function PropertyTree() {
             onFocus={() => setFocusId(node.id)}
             onClick={() => {
               setFocusId(node.id);
-              if (isExpandable) toggle(node.id);
               activate(node);
             }}
             style={{ paddingLeft: `${node.depth * 12 + 8}px` }}
@@ -318,9 +370,20 @@ export function PropertyTree() {
               isSelected ? "bg-accent-soft text-accent-text" : "hover:bg-surface-3"
             }`}
           >
-            <span aria-hidden="true" className="w-3 shrink-0 text-ink-3">
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={isExpandable ? `${isExpanded ? "Collapse" : "Expand"} ${node.label}` : undefined}
+              disabled={!isExpandable}
+              className="w-3 shrink-0 text-ink-3 disabled:pointer-events-none"
+              onClick={(event) => {
+                if (!isExpandable) return;
+                event.stopPropagation();
+                toggle(node.id);
+              }}
+            >
               {isExpandable ? (isExpanded ? "−" : "+") : ""}
-            </span>
+            </button>
             <span className="truncate">{node.label}</span>
             {node.secondary ? (
               <span className="truncate text-xs text-ink-3">{node.secondary}</span>

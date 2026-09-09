@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MAX_EXPLODE_GAP } from "@/house/model/explodeGroups";
 import { cutRange } from "@/house/model/framingBoxes";
 import { DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from "@/house/model/background";
+import { displayNameForNode } from "@/house/model/labelPreferences";
 import type { FloorId, Selection } from "@/house/model/types";
 import { createRuntime, type HouseRuntime } from "@/house/runtime";
 import type { CanvasTool } from "@/house/store/slices/view";
@@ -343,6 +344,13 @@ function useDataHydration(runtime: HouseRuntime): void {
     const store = runtime.store;
 
     void (async () => {
+      try {
+        const labelPreferences = await runtime.dataApi.listLabelPreferences(modelId);
+        if (!cancelled) store.getState().hydrateLabelPreferences(labelPreferences);
+      } catch (err) {
+        if (!cancelled && !(err instanceof NotPersistedError))
+          store.getState().setDataError(messageOf(err));
+      }
       try {
         const overrides = await runtime.dataApi.listColorOverrides(modelId);
         if (!cancelled) store.getState().hydrateOverrides(overrides);
@@ -961,8 +969,13 @@ function SearchBox({
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const [query, setQuery] = useState("");
-  const { index, placements, placeable } = useHouseStore(
-    useShallow((s) => ({ index: s.index, placements: s.placements, placeable: s.placeable })),
+  const { index, placements, placeable, labelPreferences } = useHouseStore(
+    useShallow((s) => ({
+      index: s.index,
+      placements: s.placements,
+      placeable: s.placeable,
+      labelPreferences: s.labelPreferences,
+    })),
   );
 
   const results = useMemo(() => {
@@ -977,12 +990,20 @@ function SearchBox({
       )
     > = [];
     for (const room of index.rooms.values()) {
-      const haystack = [room.name, room.nameFi ?? "", ...room.aliases].join(" ").toLowerCase();
+      const displayName = displayNameForNode(room.id, room.name, labelPreferences);
+      const haystack = [displayName, room.name, room.nameFi ?? "", ...room.aliases]
+        .join(" ")
+        .toLowerCase();
       if (haystack.includes(q))
         out.push({
           selection: { kind: "room", id: room.id },
-          label: room.name,
-          secondary: index.floors.get(room.floorId)?.name ?? room.floorId,
+          label: displayName,
+          secondary: (() => {
+            const floor = index.floors.get(room.floorId);
+            return floor
+              ? displayNameForNode(floor.id, floor.name, labelPreferences)
+              : room.floorId;
+          })(),
         });
     }
     for (const p of placements) {
@@ -990,7 +1011,14 @@ function SearchBox({
       out.push({
         selection: { kind: "equipment", id: p.id },
         label: p.name,
-        secondary: p.roomId ? (index.rooms.get(p.roomId)?.name ?? p.roomId) : "outside",
+        secondary: p.roomId
+          ? (() => {
+              const room = index.rooms.get(p.roomId);
+              return room
+                ? displayNameForNode(room.id, room.name, labelPreferences)
+                : p.roomId;
+            })()
+          : "outside",
       });
     }
     // Equipment with no placement yet. Without these, searching for something just imported from
@@ -1004,7 +1032,7 @@ function SearchBox({
       });
     }
     return out.slice(0, 8);
-  }, [query, index, placements, placeable]);
+  }, [query, index, placements, placeable, labelPreferences]);
 
   const focus = useCallback(
     async (selection: Selection) => {

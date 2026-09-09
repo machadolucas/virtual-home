@@ -648,13 +648,25 @@ rechecks eligibility inside the same transaction as deletion and records an audi
 confirmation lists the records and explains that their owned HA links and placement setup also
 get deleted. The toolbar stacks on narrower screens so selection counts cannot overlap actions.
 
-Property-tree focus consistently frames buildings and outdoor areas as well as rooms/equipment.
-Rooms open from directly above with roofs, floor ceilings and upper floors out of the way. Angled
+The property tree omits the redundant address root, opens buildings and floors to show rooms by
+default, and folds a single-floor building such as the garage into one row. Property-tree focus
+consistently frames buildings and outdoor areas as well as floors, rooms and equipment. Floors and
+rooms open in perspective from directly above with roofs, floor ceilings and upper floors out of
+the way. Angled
 equipment focus cuts camera-side and intervening wall assemblies low, preserving back walls and
 mount surfaces for context. The reveal is temporary, resets with Overview and pauses during
-editing. The layer controls keep their saved settings.
+editing. Choosing a floor clears an older room/equipment reveal so the requested floor always wins;
+orbit remains available immediately afterward. The layer controls keep their saved settings.
 Select and place reserve left-drag for their tool while wheel zoom and right-drag pan remain usable;
 holding Space temporarily returns left-drag to the camera.
+
+Room and floor names shown in the viewer prefer an explicit household label, then a confirmed Home
+Assistant area or floor name, then the app location/model name. When confirmed room mappings on one
+floor all point to the same HA floor, that HA floor name is used for display without creating a new
+mapping. The room/floor inspector can rename labels and hide one room or all area labels on a floor;
+resetting follows the automatic name again. Semantic `attic` and `void` rooms start hidden, without
+private-name rules. **Area labels** in Layers hides building and room labels together while leaving
+equipment labels visible; phones expose the same switch beside the model.
 
 ### Live fixtures
 
@@ -678,3 +690,8 @@ is shown beside the input. Location/north overrides are view-only and disclose m
 Soft shadows can be switched to crisp shadows. Performance mode reduces the site shadow map.
 Expanded sensor labels use font-independent SVG icons, including a complete thermometer for
 temperature, with their text readings retained for screen readers.
+
+Global illumination intensity in Rendering → Daylight and shadows (phone: Lighting)
+scales sunlight, moonlit fill and ambient/studio light from 0–300%, with 100% as the
+default. It is a view-only override independent of time; equipment light brightness
+is unchanged. PNG captures use the adjusted illumination.

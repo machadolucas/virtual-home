@@ -14,6 +14,7 @@ import type { HouseBackground } from "@/house/model/background";
 import { createColorSlice, type ColorSlice } from "./slices/color";
 import { createEditSlice, type EditSlice } from "./slices/edit";
 import { createLayerSlice, type LayerSlice } from "./slices/layer";
+import { createLabelSlice, type LabelSlice } from "./slices/labels";
 import { createModelSlice, type ModelSlice } from "./slices/model";
 import { createRouteSlice, type RouteSlice } from "./slices/route";
 import { createSelectionSlice, type SelectionSlice } from "./slices/selection";
@@ -25,6 +26,7 @@ export type HouseStore = ModelSlice &
   SelectionSlice &
   ViewSlice &
   LayerSlice &
+  LabelSlice &
   ColorSlice &
   EditSlice &
   RouteSlice;
@@ -58,6 +60,7 @@ export function createHouseStore(options: CreateHouseStoreOptions = {}): HouseSt
       ...createSelectionSlice(...a),
       ...createViewSlice(...a),
       ...createLayerSlice(...a),
+      ...createLabelSlice(...a),
       ...createColorSlice(...a),
       ...createEditSlice(...a),
       ...createRouteSlice(...a),

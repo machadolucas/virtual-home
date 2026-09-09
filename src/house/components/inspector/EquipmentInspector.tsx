@@ -8,7 +8,9 @@
  * recovering after a battery change is not evidence of maintenance.
  */
 import { useStore } from "zustand";
+import { EquipmentHaControls } from "@/features/assets/EquipmentHaControls";
 import { Focus, Move3d } from "lucide-react";
+import { displayNameForNode } from "@/house/model/labelPreferences";
 import { explicitUsefulLinks } from "@/house/model/equipmentLabel";
 import type { PlacementId, PlacementLinkedEntity } from "@/house/model/types";
 import {
@@ -24,8 +26,8 @@ import { Row } from "./RoomInspector";
 
 export function EquipmentInspector({ placementId }: { placementId: PlacementId }) {
   const runtime = useHouseRuntime();
-  const { index, placements } = useHouseStore(
-    useShallow((s) => ({ index: s.index, placements: s.placements })),
+  const { index, placements, labelPreferences } = useHouseStore(
+    useShallow((s) => ({ index: s.index, placements: s.placements, labelPreferences: s.labelPreferences })),
   );
   const beginEdit = useHouseStore((s) => s.beginEdit);
   const placement = placements.find((p) => p.id === placementId);
@@ -39,6 +41,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
   if (!index || !placement) return null;
   const readings = explicitUsefulLinks(placement.linkedEntities ?? []);
   const room = placement.roomId ? index.rooms.get(placement.roomId) : undefined;
+  const floor = index.floors.get(placement.floorId);
   const buildingIssues = room?.buildingId ? index.issuesByAffected.get(room.buildingId) ?? [] : [];
 
   return (
@@ -46,10 +49,11 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
       <header>
         <h2 className="text-base font-semibold text-ink">{placement.name}</h2>
         <p className="text-xs text-ink-3">
-          {[room?.name, index.floors.get(placement.floorId)?.name].filter(Boolean).join(" · ")}
+          {[room && displayNameForNode(room.id, room.name, labelPreferences), floor && displayNameForNode(floor.id, floor.name, labelPreferences)].filter(Boolean).join(" · ")}
         </p>
       </header>
 
+      <EquipmentHaControls key={placement.equipmentId} assetId={placement.equipmentId} />
       <HaState entity={entity} connection={connection} separateBattery={readings.some((link) => link.role === "battery_level" || link.deviceClass === "battery")} />
       {readings.length > 0 ? (
         <section aria-label="Sensor readings" className="rounded-md border border-line p-2">
