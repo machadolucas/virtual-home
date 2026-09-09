@@ -77,11 +77,12 @@ export default async function EquipmentDetailPage({
   // capped so a 3000-entity instance does not turn a `Select` into a scroll of despair. The
   // browser under Settings -> Home Assistant is the tool for finding something in a big instance;
   // this picker is for the handful a person already has in mind.
-  const linkable = listLinkableEntities(db, { limit: 400 });
+  const linkable = listLinkableEntities(db, { limit: 400, assetId });
   const entityOptions = linkable.entities.map((entity) => ({
     value: entity.registryId,
     label: entity.entityId,
     hint: [
+      entity.belongsToDevice ? "This equipment’s device" : null,
       entity.deviceName,
       entity.areaName,
       entity.state === null

@@ -67,7 +67,7 @@ import {
   decideLocationMapping,
   refreshMappingSuggestions,
 } from "@/server/actions/ha/mappings";
-import { importHaDevice } from "@/server/actions/ha/import";
+import { importHaDevice, importHaDevices } from "@/server/actions/ha/import";
 import {
   deleteConditionRule,
   setConditionRuleEnabled,
@@ -545,6 +545,61 @@ describe("importHaDevice", () => {
       .where(and(eq(assetHaLink.assetId, assetId), eq(assetHaLink.role, "primary")))
       .all();
     expect(primaries).toHaveLength(1);
+  });
+
+  it("bulk imports the entity roles explicitly selected for each device", async () => {
+    const first = seedDevice();
+    const second = seedDevice();
+    const result = unwrap(
+      await importHaDevices({
+        devices: [
+          {
+            deviceId: first.deviceId,
+            entities: [{ registryId: first.registryId, role: "status" }],
+          },
+          {
+            deviceId: second.deviceId,
+            entities: [{ registryId: second.registryId, role: "power" }],
+          },
+        ],
+        category: "hvac",
+        useMappedLocation: true,
+      }),
+    );
+
+    expect(result.createdCount).toBe(2);
+    expect(result.skipped).toEqual([]);
+    const entityLinks = world.handle.db
+      .select()
+      .from(assetHaLink)
+      .where(eq(assetHaLink.linkKind, "entity"))
+      .all();
+    expect(entityLinks.map((link) => link.role).sort()).toEqual(["power", "status"]);
+    expect(entityLinks.map((link) => link.haEntityRegistryId).sort()).toEqual(
+      [first.registryId, second.registryId].sort(),
+    );
+  });
+
+  it("refuses a bulk entity choice that belongs to another device and rolls back the batch", async () => {
+    const first = seedDevice();
+    const second = seedDevice();
+    const assetsBefore = world.handle.db.select().from(asset).all().length;
+
+    expect(
+      expectRefusal(
+        await importHaDevices({
+          devices: [
+            {
+              deviceId: first.deviceId,
+              entities: [{ registryId: second.registryId, role: "status" }],
+            },
+          ],
+          category: "hvac",
+          useMappedLocation: true,
+        }),
+      ),
+    ).toBe("entity_device_mismatch");
+    expect(world.handle.db.select().from(asset).all()).toHaveLength(assetsBefore);
   });
 
   it("refuses an unknown category", async () => {

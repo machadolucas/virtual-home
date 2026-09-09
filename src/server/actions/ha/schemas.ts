@@ -12,27 +12,67 @@ export const decideMappingInput = z.object({
   decision: z.enum(["confirm", "reject", "clear"]),
 });
 
+const entitySelections = z
+  .array(z.object({ registryId: z.string().min(1), role: z.enum(HA_LINK_ROLES) }))
+  .max(50)
+  .superRefine((entities, ctx) => {
+    const registryIds = new Set<string>();
+    const exclusiveRoles = new Set<string>();
+    for (const [index, entity] of entities.entries()) {
+      if (registryIds.has(entity.registryId)) {
+        ctx.addIssue({
+          code: "custom",
+          message: "an entity can only be selected once",
+          path: [index, "registryId"],
+        });
+      }
+      registryIds.add(entity.registryId);
+      if (entity.role !== "primary" && entity.role !== "battery_level") continue;
+      if (exclusiveRoles.has(entity.role)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `only one ${entity.role} entity may be selected`,
+          path: [index, "role"],
+        });
+      }
+      exclusiveRoles.add(entity.role);
+    }
+  });
+
 /**
- * Create equipment from a cached HA device and link its entities in one go.
+ * Bulk "import & link", for the case the single-device dialog cannot serve: a registry with
+ * hundreds of devices.
  *
  * The role per entity is explicit rather than guessed: `battery_level` decides what the
  * low-battery rule watches, and guessing that from a device class would quietly point a rule at
- * the wrong sensor.
- */
-/**
- * Bulk "import & link", for the case the single-device dialog cannot serve: a registry with
- * hundreds of devices, none of which is going to get individual attention today.
- *
- * Deliberately narrower than `importDeviceInput`: one category for the batch, the device row
- * linked, and **no entity role links** — which entity is the primary reading is a per-device
- * judgement, and guessing it for two hundred devices would be fabrication. The location comes from
- * the device's own confirmed area mapping, or nothing.
+ * the wrong sensor. The location comes from the device's own confirmed area mapping, or nothing.
  *
  * Capped at 50 per call because CLAUDE.md rule 3 asks for short transactions and chunked bulk
  * work; the caller sends chunks and reports progress.
  */
 export const importDevicesInput = z.object({
-  deviceIds: z.array(z.string().min(1)).min(1).max(50),
+  devices: z
+    .array(
+      z.object({
+        deviceId: z.string().min(1),
+        entities: entitySelections.default([]),
+      }),
+    )
+    .min(1)
+    .max(50)
+    .superRefine((devices, ctx) => {
+      const deviceIds = new Set<string>();
+      for (const [index, device] of devices.entries()) {
+        if (deviceIds.has(device.deviceId)) {
+          ctx.addIssue({
+            code: "custom",
+            message: "a device can only be selected once",
+            path: [index, "deviceId"],
+          });
+        }
+        deviceIds.add(device.deviceId);
+      }
+    }),
   category: z.string().min(1),
   /** Apply each device's confirmed area→room mapping as the equipment location. */
   useMappedLocation: z.boolean().default(true),
@@ -63,10 +103,7 @@ export const importDeviceInput = z.object({
   isVirtual: z.boolean().default(false),
   /** Link the device row itself, in addition to the entities. */
   linkDevice: z.boolean().default(true),
-  entities: z
-    .array(z.object({ registryId: z.string().min(1), role: z.enum(HA_LINK_ROLES) }))
-    .max(50)
-    .default([]),
+  entities: entitySelections.default([]),
   idempotencyKey: z.string().min(8).max(200).optional(),
 });
 

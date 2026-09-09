@@ -4,6 +4,11 @@ import {
   Building2,
   CalendarCheck,
   House,
+  Wrench,
+  FolderKanban,
+  ClipboardList,
+  BookOpen,
+  ShoppingCart,
   Package,
   Plug,
   ScrollText,
@@ -22,13 +27,10 @@ export interface NavItem {
   short?: string;
   /** Extra route prefixes this section owns (they highlight it) without being listed. */
   owns?: readonly string[];
-  /** Sub-links shown under the section in the sidebar while it is active. */
-  children?: readonly { href: string; label: string }[];
 }
 
 /**
- * The four sections. This order is the app's spine and is identical on the
- * sidebar and the phone tab bar, so muscle memory transfers between them.
+ * Flat navigation, shared by the sidebar and the scrollable phone navigation.
  */
 export const MAIN_NAV: readonly NavItem[] = [
   {
@@ -36,29 +38,25 @@ export const MAIN_NAV: readonly NavItem[] = [
     label: "Today",
     icon: CalendarCheck,
     blurb: "What needs doing now, and what you finished recently.",
-    owns: ["/tasks", "/plans", "/procedures"],
-    children: [
-      { href: "/plans", label: "Plans" },
-      { href: "/procedures", label: "Procedures" },
-    ],
+    owns: ["/tasks"],
   },
   {
     href: "/house",
     label: "House",
     icon: House,
     blurb: "The 3D house: rooms, surfaces, equipment and their history.",
-    owns: ["/equipment", "/projects"],
-    children: [
-      { href: "/equipment", label: "Equipment" },
-      { href: "/projects", label: "Projects" },
-    ],
+
   },
+  { href: "/equipment", label: "Equipment", icon: Wrench, blurb: "Equipment, Home Assistant links and service history." },
+  { href: "/projects", label: "Projects", icon: FolderKanban, blurb: "Plan and follow household projects." },
+  { href: "/plans", label: "Plans", icon: ClipboardList, blurb: "Recurring maintenance schedules." },
+  { href: "/procedures", label: "Procedures", icon: BookOpen, blurb: "Instructions for household work." },
+  { href: "/supplies/shopping", label: "Shopping list", short: "Shopping", icon: ShoppingCart, blurb: "Supplies to buy." },
   {
     href: "/supplies",
     label: "Supplies",
     icon: Package,
     blurb: "Filters, bulbs, salt and paint — what is in stock and what to buy.",
-    children: [{ href: "/supplies/shopping", label: "Shopping list" }],
   },
   {
     href: "/history",
@@ -132,7 +130,9 @@ export function isActive(href: string, pathname: string): boolean {
 
 /** A section is active for its own routes and for the routes it owns (e.g. Today owns /tasks). */
 export function sectionActive(item: NavItem, pathname: string): boolean {
-  if (isActive(item.href, pathname)) return true;
+  if (isActive(item.href, pathname)) {
+    return !MAIN_NAV.some((other) => other.href.length > item.href.length && isActive(other.href, pathname));
+  }
   return (item.owns ?? []).some((prefix) => isActive(prefix, pathname));
 }
 

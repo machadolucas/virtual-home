@@ -7,9 +7,12 @@
  * swap, and the box currently on the wall does not falsely claim eleven years of maintenance.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
-const mocks = vi.hoisted(() => ({ userId: { current: null as string | null } }));
+const mocks = vi.hoisted(() => ({
+  userId: { current: null as string | null },
+  freshSessionCalls: { current: 0 },
+}));
 
 // `server-only` is a build-time guard for the Next bundler; under Vitest its client entry throws.
 vi.mock("server-only", () => ({}));
@@ -29,6 +32,11 @@ vi.mock("@/server/auth/session", () => {
       if (mocks.userId.current === null) throw new UnauthorizedError();
       return { user: { id: mocks.userId.current }, session: { id: "test-session" } };
     },
+    requireFreshSession: async () => {
+      mocks.freshSessionCalls.current += 1;
+      if (mocks.userId.current === null) throw new UnauthorizedError();
+      return { user: { id: mocks.userId.current }, session: { id: "fresh-test-session" } };
+    },
   };
 });
 
@@ -40,12 +48,15 @@ import {
   assetConsumable,
   assetHaLink,
   assetReplacement,
+  auditLog,
   haDevice,
   haEntity,
   maintenancePlan,
   systemAsset,
 } from "@/db/schema";
+import { listLinkableEntities } from "@/server/queries/ha/registry";
 import { replacementChain } from "@/domain/assets";
+import { bulkRemoveEquipment } from "@/server/actions/assets/bulk";
 import {
   createEquipment,
   replaceEquipment,
@@ -75,6 +86,7 @@ let world: World;
 beforeEach(() => {
   world = makeWorld();
   mocks.userId.current = world.user.id;
+  mocks.freshSessionCalls.current = 0;
 });
 
 afterEach(() => {
@@ -463,6 +475,113 @@ describe("retireEquipment", () => {
   });
 });
 
+describe("bulkRemoveEquipment", () => {
+  it("atomically removes selected units, retires their HA links, and keeps audit history", async () => {
+    const firstLink = seedHaDevice();
+    const secondLink = seedHaDevice();
+    const firstId = seedAsset(world, { name: "Kitchen sensor" });
+    const secondId = seedAsset(world, { name: "Garage controller", status: "planned" });
+    const untouchedId = seedAsset(world, { name: "Heat pump" });
+    unwrap(await linkHaEntity({ assetId: firstId, registryId: firstLink.registryId, role: "primary" }));
+    const { linkId: secondLinkId } = unwrap(
+      await linkHaEntity({ assetId: secondId, registryId: secondLink.registryId, role: "primary" }),
+    );
+    writeTx(world.handle.db, (tx) => {
+      tx.update(assetHaLink)
+        .set({ linkState: "renamed" })
+        .where(eq(assetHaLink.id, secondLinkId))
+        .run();
+    });
+
+    const result = unwrap(
+      await bulkRemoveEquipment({
+        assetIds: [firstId, secondId],
+        idempotencyKey: "bulk-remove-request",
+      }),
+    );
+
+    expect(result.removedCount).toBe(2);
+    expect(result.removedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(mocks.freshSessionCalls.current).toBe(1);
+    const removed = world.handle.db
+      .select()
+      .from(asset)
+      .where(inArray(asset.id, [firstId, secondId]))
+      .all();
+    expect(removed.map((row) => row.status)).toEqual(["removed", "removed"]);
+    expect(removed.every((row) => row.removedOn === result.removedOn)).toBe(true);
+    expect(
+      world.handle.db
+        .select()
+        .from(assetHaLink)
+        .where(inArray(assetHaLink.assetId, [firstId, secondId]))
+        .all()
+        .map((row) => row.linkState),
+    ).toEqual(["retired", "retired"]);
+    expect(world.handle.db.select().from(asset).where(eq(asset.id, untouchedId)).get()?.status).toBe(
+      "installed",
+    );
+
+    const audits = world.handle.db
+      .select()
+      .from(auditLog)
+      .where(inArray(auditLog.entityId, [firstId, secondId]))
+      .all();
+    expect(audits).toHaveLength(2);
+    expect(audits.every((row) => row.requestId === "bulk-remove-request")).toBe(true);
+
+    // Retired bindings no longer reserve the registry entry, so the household can import it again.
+    expect(
+      listLinkableEntities(world.handle.db).entities.find(
+        (entity) => entity.registryId === firstLink.registryId,
+      )?.linkedAssetName,
+    ).toBeNull();
+  });
+
+  it("changes nothing when any selected unit is no longer removable", async () => {
+    const currentId = seedAsset(world, { name: "Current" });
+    const alreadyRemovedId = seedAsset(world, { name: "Gone", status: "removed" });
+    writeTx(world.handle.db, (tx) => {
+      tx.update(asset).set({ removedOn: "2026-09-01" }).where(eq(asset.id, alreadyRemovedId)).run();
+    });
+
+    expect(
+      expectRefusal(
+        await bulkRemoveEquipment({
+          assetIds: [currentId, alreadyRemovedId],
+          idempotencyKey: "bulk-remove-conflict",
+        }),
+      ),
+    ).toBe("equipment_changed");
+    expect(world.handle.db.select().from(asset).where(eq(asset.id, currentId)).get()?.status).toBe(
+      "installed",
+    );
+  });
+
+  it("rejects oversized and duplicate batches before opening a write", async () => {
+    const assetId = seedAsset(world);
+    expect(
+      expectRefusal(
+        await bulkRemoveEquipment({
+          assetIds: [assetId, assetId],
+          idempotencyKey: "bulk-remove-duplicate",
+        }),
+      ),
+    ).toBe("invalid_request");
+    expect(
+      expectRefusal(
+        await bulkRemoveEquipment({
+          assetIds: Array.from({ length: 1001 }, (_, index) => `asset-${index}`),
+          idempotencyKey: "bulk-remove-oversized",
+        }),
+      ),
+    ).toBe("invalid_request");
+    expect(world.handle.db.select().from(asset).where(eq(asset.id, assetId)).get()?.status).toBe(
+      "installed",
+    );
+  });
+});
+
 describe("Home Assistant links", () => {
   it("resolves the “link this unit” alert once a link exists", async () => {
     const { registryId } = seedHaDevice();
@@ -641,5 +760,55 @@ describe("systems", () => {
     );
     unwrap(await deleteSystem({ systemId }));
     expect(world.handle.db.select().from(asset).where(eq(asset.id, a)).all()).toHaveLength(1);
+  });
+});
+
+
+describe("device and entity role compatibility", () => {
+  it("lets a primary entity take over the imported device primary slot", async () => {
+    const { deviceId, registryId } = seedHaDevice();
+    const { assetId } = unwrap(await createEquipment({ name: "Motion sensor", category: "safety", haDeviceId: deviceId }));
+    unwrap(await linkHaEntity({ assetId, registryId, role: "primary" }));
+    const links = world.handle.db.select().from(assetHaLink).where(eq(assetHaLink.assetId, assetId)).all();
+    expect(links).toHaveLength(2);
+    expect(links.find((link) => link.linkKind === "device")?.role).toBe("status");
+    expect(links.find((link) => link.linkKind === "entity")?.role).toBe("primary");
+  });
+
+  it("creates equipment with both a device and primary entity in one transaction", async () => {
+    const { deviceId, registryId } = seedHaDevice();
+    const { assetId } = unwrap(await createEquipment({ name: "Motion sensor", category: "safety", haDeviceId: deviceId,
+      haEntityLinks: [{ registryId, role: "primary" }] }));
+    expect(world.handle.db.select().from(assetHaLink).where(eq(assetHaLink.assetId, assetId)).all()).toHaveLength(2);
+  });
+
+  it("reports duplicate entities and occupied roles without changing existing links", async () => {
+    const first = seedHaDevice();
+    const second = seedHaDevice();
+    const assetId = seedAsset(world);
+    unwrap(await linkHaEntity({ assetId, registryId: first.registryId, role: "primary" }));
+    expect(expectRefusal(await linkHaEntity({ assetId, registryId: first.registryId, role: "status" }))).toBe("entity_already_linked");
+    expect(expectRefusal(await linkHaEntity({ assetId, registryId: second.registryId, role: "primary" }))).toBe("ha_role_taken");
+    expect(world.handle.db.select().from(assetHaLink).where(eq(assetHaLink.assetId, assetId)).all()).toHaveLength(1);
+  });
+});
+
+
+describe("equipment entity picker", () => {
+  it("prioritizes the linked device before limiting and filters hidden rows before limiting", async () => {
+    const unrelated = seedHaDevice();
+    const own = seedHaDevice();
+    const hidden = seedHaDevice();
+    writeTx(world.handle.db, (tx) => {
+      tx.update(haEntity).set({ entityId: "sensor.aaa_hidden", hiddenBy: "user" }).where(eq(haEntity.registryId, hidden.registryId)).run();
+      tx.update(haEntity).set({ entityId: "sensor.bbb_unrelated" }).where(eq(haEntity.registryId, unrelated.registryId)).run();
+      tx.update(haEntity).set({ entityId: "sensor.zzz_own" }).where(eq(haEntity.registryId, own.registryId)).run();
+    });
+    const { assetId } = unwrap(await createEquipment({ name: "Own device", category: "other", haDeviceId: own.deviceId }));
+    const result = listLinkableEntities(world.handle.db, { assetId, limit: 1 });
+    expect(result.truncated).toBe(true);
+    expect(result.entities.map((row) => row.registryId)).toEqual([own.registryId]);
+    expect(result.entities[0]?.belongsToDevice).toBe(true);
+    expect(listLinkableEntities(world.handle.db, { limit: 1 }).entities[0]?.registryId).toBe(unrelated.registryId);
   });
 });

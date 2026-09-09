@@ -95,6 +95,15 @@ export const retireAssetInput = z.object({
   notes: optionalText,
 });
 
+/** One atomic list-page removal. Kept bounded so a browser cannot hold the write lock indefinitely. */
+export const bulkRemoveAssetsInput = z.object({
+  assetIds: z.array(z.string().min(1)).min(1).max(1000).refine(
+    (ids) => new Set(ids).size === ids.length,
+    "equipment ids must be unique",
+  ),
+  idempotencyKey: z.string().min(8).max(200),
+});
+
 /**
  * The replacement flow. Exactly one of `newAsset` / `existingAssetId` — the domain's
  * `NewAssetInput | ExistingAssetRef` union, expressed so a form can post either.

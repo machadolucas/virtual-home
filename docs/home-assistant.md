@@ -335,3 +335,18 @@ Run them with:
 ```sh
 pnpm exec vitest run tests/unit/ha
 ```
+
+
+## Equipment link roles
+
+A link role describes the entity's purpose for equipment, separately from HA's sensor device class.
+Use **Primary** for occupancy on a motion sensor or the light on a lamp. Use **Status / reading**
+for additional temperature, humidity, illuminance or binary readings; each entity has its own link,
+and HA supplies the unit and measurement type. Use **Power** for power measurements and
+**Battery level** for the battery percentage. Unknown/unavailable remains absence of a reading.
+
+A whole-device Primary link is moved to Status when a primary entity is added, preserving the
+device association and the single-primary constraint. An existing primary entity is never replaced
+implicitly; duplicate entities and occupied unique roles return actionable errors. Selected devices
+in bulk import expose per-device entity choices. Equipment removal preserves its history and
+retires its active HA links so the device becomes available for reimport.

@@ -88,6 +88,9 @@ const BASE_MESSAGES: Record<string, string> = {
   link_still_missing:
     "The Home Assistant entry is still gone. Repoint the link instead of marking it active.",
   link_asset_mismatch: "That link belongs to another piece of equipment.",
+  device_already_linked: "This equipment already has an inactive link to that device. Restore or remove that link first.",
+  entity_already_linked: "That entity is already linked to this equipment. Remove its existing link before changing its role.",
+  ha_role_taken: "This equipment already has an entity in that role. Remove the existing link first, or choose another role.",
   entity_removed: "That Home Assistant entry is itself gone.",
   device_removed: "That device is no longer in Home Assistant's registry.",
   system_has_plans: "Scheduled work points at this system. Retarget or cancel it first.",

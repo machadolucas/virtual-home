@@ -93,27 +93,7 @@ export function SidebarNav({ collapsed, onToggle, className }: SidebarNavProps) 
           {MAIN_NAV.map((item) => (
             <li key={item.href}>
               <NavRow item={item} collapsed={collapsed} />
-              {!collapsed && item.children && sectionActive(item, pathname) ? (
-                <ul className="mb-1 ml-6 flex list-none flex-col gap-0.5 border-l border-line pl-2">
-                  {item.children.map((child) => (
-                    <li key={child.href}>
-                      <Link
-                        href={child.href}
-                        aria-current={isActive(child.href, pathname) ? "page" : undefined}
-                        className={cn(
-                          "flex min-h-8 items-center rounded-md px-2 text-[13px] transition-colors duration-100",
-                          isActive(child.href, pathname)
-                            ? "font-medium text-accent-text"
-                            : "text-ink-2 hover:bg-surface-3 hover:text-ink",
-                          focusRingInset,
-                        )}
-                      >
-                        {child.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
+
             </li>
           ))}
         </ul>

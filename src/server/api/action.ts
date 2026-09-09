@@ -4,7 +4,12 @@ import { and, eq, gte } from "drizzle-orm";
 import { getDb, writeTx } from "@/db/client";
 import { idempotencyKey } from "@/db/schema";
 import { log } from "@/server/log";
-import { requireSession, UnauthorizedError, type Session } from "@/server/auth/session";
+import {
+  requireFreshSession,
+  requireSession,
+  UnauthorizedError,
+  type Session,
+} from "@/server/auth/session";
 import { HttpError } from "./handler";
 
 export type ActionResult<O> =
@@ -29,14 +34,15 @@ const REPLAY_WINDOW_MS = 86_400_000;
  * and reports a success for a write that never happened. Scoping does not make a badly chosen key
  * safe, but it stops one household member's key from answering another's request.
  */
-export function action<I extends z.ZodTypeAny, O>(
+function actionWithSession<I extends z.ZodTypeAny, O>(
+  authenticate: () => Promise<Session>,
   input: I,
   run: (value: z.infer<I>, session: Session) => Promise<O> | O,
 ): (raw: unknown) => Promise<ActionResult<O>> {
   return async (raw) => {
     let session: Session;
     try {
-      session = await requireSession();
+      session = await authenticate();
     } catch (err) {
       if (err instanceof UnauthorizedError) return { ok: false, error: "unauthorized" };
       throw err;
@@ -82,4 +88,19 @@ export function action<I extends z.ZodTypeAny, O>(
       return { ok: false, error: "internal" };
     }
   };
+}
+
+export function action<I extends z.ZodTypeAny, O>(
+  input: I,
+  run: (value: z.infer<I>, session: Session) => Promise<O> | O,
+): (raw: unknown) => Promise<ActionResult<O>> {
+  return actionWithSession(requireSession, input, run);
+}
+
+/** Destructive server action that bypasses Better Auth's short cookie cache. */
+export function freshAction<I extends z.ZodTypeAny, O>(
+  input: I,
+  run: (value: z.infer<I>, session: Session) => Promise<O> | O,
+): (raw: unknown) => Promise<ActionResult<O>> {
+  return actionWithSession(requireFreshSession, input, run);
 }

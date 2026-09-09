@@ -424,7 +424,7 @@ export function readDeviceEntities(
       })
       .from(assetHaLink)
       .innerJoin(asset, eq(asset.id, assetHaLink.assetId))
-      .where(inArray(assetHaLink.haEntityRegistryId, registryIds))
+      .where(and(inArray(assetHaLink.haEntityRegistryId, registryIds), inArray(assetHaLink.linkState, ["active", "renamed"])))
       .all()) {
       if (row.registryId === null) continue;
       linked.set(row.registryId, row);
@@ -559,6 +559,7 @@ export interface LinkableEntity {
   areaName: string | null;
   state: string | null;
   linkedAssetName: string | null;
+  belongsToDevice: boolean;
 }
 
 /**
@@ -570,12 +571,20 @@ export interface LinkableEntity {
  */
 export function listLinkableEntities(
   tx: Db,
-  options: { limit?: number; includeHidden?: boolean } = {},
+  options: { limit?: number; includeHidden?: boolean; assetId?: string } = {},
 ): { entities: LinkableEntity[]; truncated: boolean } {
   const limit = options.limit ?? 500;
+  const deviceIds = options.assetId === undefined ? [] : tx.select({
+    deviceId: sql<string | null>`coalesce(${assetHaLink.haDeviceId}, ${haEntity.deviceId})`,
+  }).from(assetHaLink).leftJoin(haEntity, eq(haEntity.registryId, assetHaLink.haEntityRegistryId))
+    .where(and(eq(assetHaLink.assetId, options.assetId), inArray(assetHaLink.linkState, ["active", "renamed"])))
+    .all().flatMap((row) => row.deviceId === null ? [] : [row.deviceId]);
+  const preferred = deviceIds.length === 0 ? asc(haEntity.entityId) : sql`case when ${inArray(haEntity.deviceId, deviceIds)} then 0 else 1 end`;
+
   const rows = tx
     .select({
       registryId: haEntity.registryId,
+      deviceId: haEntity.deviceId,
       entityId: haEntity.entityId,
       domain: haEntity.domain,
       deviceClass: haEntity.deviceClass,
@@ -592,24 +601,20 @@ export function listLinkableEntities(
     .leftJoin(haDevice, eq(haDevice.deviceId, haEntity.deviceId))
     .leftJoin(haArea, eq(haArea.areaId, haDevice.areaId))
     .leftJoin(haEntityState, eq(haEntityState.registryId, haEntity.registryId))
-    .where(isNull(haEntity.removedAtMs))
-    .orderBy(asc(haEntity.entityId))
+    .where(and(isNull(haEntity.removedAtMs), options.includeHidden ? undefined : and(
+      isNull(haEntity.disabledBy), isNull(haEntity.hiddenBy),
+      sql`(${haEntity.entityCategory} IS NULL OR ${haEntity.entityCategory} NOT IN ('diagnostic', 'config'))`,
+    )))
+    .orderBy(preferred, asc(haEntity.entityId))
     .limit(limit + 1)
-    .all()
-    .filter(
-      (row) =>
-        options.includeHidden === true ||
-        (row.disabledBy === null &&
-          row.hiddenBy === null &&
-          row.entityCategory !== "diagnostic" &&
-          row.entityCategory !== "config"),
-    );
+    .all();
 
   const linked = new Map<string, string>();
   for (const row of tx
     .select({ registryId: assetHaLink.haEntityRegistryId, name: asset.name })
     .from(assetHaLink)
     .innerJoin(asset, eq(asset.id, assetHaLink.assetId))
+    .where(inArray(assetHaLink.linkState, ["active", "renamed"]))
     .all()) {
     if (row.registryId !== null) linked.set(row.registryId, row.name);
   }
@@ -619,6 +624,7 @@ export function listLinkableEntities(
     truncated,
     entities: rows.slice(0, limit).map((row) => ({
       registryId: row.registryId,
+      belongsToDevice: row.deviceId !== null && deviceIds.includes(row.deviceId),
       entityId: row.entityId,
       domain: row.domain,
       deviceClass: row.deviceClass,

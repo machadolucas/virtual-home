@@ -11,16 +11,21 @@ Where this document and the code disagree, the code wins — but change both.
 
 ## 1. Navigation
 
-Four sections, in this order, everywhere:
+Flat top-level sections, shared by desktop and phone navigation:
 
 | Section | Route | What it answers |
 |---|---|---|
 | Today | `/today` | What needs doing now, and what was just finished. |
 | House | `/house` | The 3D house: rooms, surfaces, equipment, their history. |
+| Equipment | `/equipment` | Equipment records, links and bulk removal. |
+| Projects | `/projects` | Household projects. |
+| Plans | `/plans` | Recurring work. |
+| Procedures | `/procedures` | Instructions. |
+| Shopping list | `/supplies/shopping` | What to buy. |
 | Supplies | `/supplies` | What is in stock, what to buy. |
 | History | `/history` | What was actually done, by whom, with proof. |
 
-Plus **Settings** (`/settings`), which is not a fifth section: it sits at the bottom of the sidebar
+Plus **Settings** (`/settings`): it sits at the bottom of the sidebar
 on desktop and inside the account menu on phones. Its sub-navigation is
 `Security · Household · Users · Home Assistant · House model · System`, grouped as *Your account*,
 *Household*, *System*.
@@ -433,8 +438,7 @@ quantities, battery levels and health figures.
 | `/settings/{household,users,home-assistant,model,system}` | Configuration, with the consequence of each field spelled out. |
 | `/api/exports/{inventory,equipment}` | JSON, or `?format=csv&dataset=<name>`. Both carry the §8.4 envelope. |
 
-`/equipment` is **not** a fifth nav section — `src/ui/shell/nav.ts` still lists four. It is reached
-from `/house`, from a supply's "what it fits", and from Settings → Home Assistant after an import.
+`/equipment` and `/projects` have their own top-level navigation links. The phone bar scrolls horizontally to retain touch-sized targets. The equipment list supports filtered multi-selection and removal with confirmation; removal preserves history and retires HA links, allowing reimport. Its header links directly to HA import.
 
 ### 10.2 Quantities
 
@@ -613,3 +617,17 @@ It is **household-level**, and the copy says so: the model is the household's, a
 background would have the two of them describing different pictures over the phone. NULL in the
 column means "follow the theme", which is also what a malformed stored value falls back to — the
 House page must not break on a hand-edited row.
+
+
+### HA entity selection and bulk import
+
+Entities belonging to equipment's active HA device links appear first in the entity picker, before
+its result limit is applied. Hidden/disabled and diagnostic/config entries are filtered before
+limiting. Associated entries are marked “This equipment’s device”.
+
+Primary identifies the main function: occupancy for a motion sensor, or the light entity for a
+lamp. Adding a primary entity moves a whole-device primary association to Status / reading;
+it never silently replaces another primary entity. Status / reading also holds additional
+measurements such as temperature, humidity and illuminance. These are measurement types already
+provided by HA, not separate link roles. Power and battery level retain their specialized roles.
+Selected rows in the HA bulk importer expose entity role controls before import.

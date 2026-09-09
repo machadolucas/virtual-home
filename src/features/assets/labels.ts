@@ -63,17 +63,17 @@ export const HA_LINK_ROLE_LABEL: Record<HaLinkRole, string> = {
   primary: "Primary",
   battery_level: "Battery level",
   power: "Power",
-  status: "Status",
+  status: "Status / reading",
   control: "Control",
   diagnostic: "Diagnostic",
   other: "Other",
 };
 
 export const HA_LINK_ROLE_HELP: Record<HaLinkRole, string> = {
-  primary: "The entity that best represents this unit. One per unit.",
+  primary: "The main function: occupancy for a motion sensor, or the light entity for a lamp. One per unit; takes over from a whole-device primary link.",
   battery_level: "The battery percentage the low-battery rule watches. One per unit.",
   power: "Power draw or a switch that cuts power.",
-  status: "A binary or enumerated state: filter clogged, door open, error code.",
+  status: "Additional states and readings, including temperature, humidity and illuminance. Link each separately; Home Assistant supplies its sensor type and unit.",
   control: "Something the household actually operates from Home Assistant.",
   diagnostic: "Kept for reference; not shown as a headline figure.",
   other: "Anything that does not fit the roles above.",

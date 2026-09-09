@@ -155,10 +155,8 @@ export const importHaDevice = action(importDeviceInput, async (input, session) =
 /**
  * Bulk "import & link" for a registry with hundreds of devices.
  *
- * What it deliberately does not do: pick entity roles. Which entity is a device's primary reading
- * is a judgement per device, and inventing it two hundred times would be fabrication (CLAUDE.md
- * rule 6 in spirit). So each device becomes one piece of equipment with the **device row** linked;
- * entity links stay a per-device decision in the dialog.
+ * Entity roles come from explicit choices on each selected device. Nothing here infers a role from
+ * an entity name, domain or device class.
  *
  * Already-linked devices are skipped rather than duplicated, and the result reports the three
  * outcomes separately so the caller can state them instead of claiming "imported 50".
@@ -181,7 +179,8 @@ export const importHaDevices = action(importDevicesInput, async (input, session)
       const created: string[] = [];
       const skipped: { deviceId: string; reason: string }[] = [];
 
-      for (const deviceId of input.deviceIds) {
+      for (const selectedDevice of input.devices) {
+        const { deviceId } = selectedDevice;
         const device = tx.select().from(haDevice).where(eq(haDevice.deviceId, deviceId)).get();
         if (!device) {
           skipped.push({ deviceId, reason: "not_in_registry" });
@@ -229,6 +228,31 @@ export const importHaDevices = action(importDevicesInput, async (input, session)
           .run();
 
         insertDeviceLink(tx, ctx, { assetId, deviceId, role: "primary", atMs: at });
+        for (const selectedEntity of selectedDevice.entities) {
+          const entity = tx
+            .select({ deviceId: haEntity.deviceId, removedAtMs: haEntity.removedAtMs })
+            .from(haEntity)
+            .where(eq(haEntity.registryId, selectedEntity.registryId))
+            .get();
+          if (!entity || entity.removedAtMs !== null) {
+            throw new ValidationError(
+              "entity_not_linkable",
+              `entity ${selectedEntity.registryId} is no longer linkable`,
+            );
+          }
+          if (entity.deviceId !== deviceId) {
+            throw new ValidationError(
+              "entity_device_mismatch",
+              `entity ${selectedEntity.registryId} does not belong to device ${deviceId}`,
+            );
+          }
+          insertEntityLink(tx, ctx, {
+            assetId,
+            registryId: selectedEntity.registryId,
+            role: selectedEntity.role,
+            atMs: at,
+          });
+        }
         resolveAlert(tx, ctx, `ha_link_missing:asset:${assetId}`);
         writeAudit(tx, ctx, {
           entityTable: "asset",
@@ -236,7 +260,8 @@ export const importHaDevices = action(importDevicesInput, async (input, session)
           action: "created",
           summary:
             `created from Home Assistant device ${device.nameByUser ?? device.name ?? deviceId} ` +
-            `in a bulk import of ${input.deviceIds.length}`,
+            `with ${selectedDevice.entities.length} entity link(s) ` +
+            `in a bulk import of ${input.devices.length}`,
         });
         created.push(assetId);
       }

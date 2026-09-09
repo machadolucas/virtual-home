@@ -6,7 +6,7 @@ import { cn, focusRingInset } from "../cn";
 import { MAIN_NAV, sectionActive } from "./nav";
 
 /**
- * Phone navigation: the same four sections, in the same order, as thumb-sized
+ * Phone navigation: the same flat sections in a scrollable row of thumb-sized
  * targets at the bottom of the screen. In normal document flow (not fixed), so
  * the workspace above it gets exactly the space that is left and nothing needs
  * bottom padding to compensate.
@@ -17,18 +17,19 @@ export function MobileTabBar({ className }: { className?: string }) {
     <nav
       aria-label="Sections"
       className={cn(
-        "shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]",
+        "shrink-0 overflow-x-auto border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]",
         className,
       )}
     >
-      <ul className="flex list-none items-stretch">
+      <ul className="flex w-max min-w-full list-none items-stretch">
         {MAIN_NAV.map((item) => {
           const active = sectionActive(item, pathname);
           const Icon = item.icon;
           return (
-            <li key={item.href} className="flex-1">
+            <li key={item.href} className="min-w-20 flex-1">
               <Link
                 href={item.href}
+                aria-label={item.label}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex h-tabbar flex-col items-center justify-center gap-1 px-1",

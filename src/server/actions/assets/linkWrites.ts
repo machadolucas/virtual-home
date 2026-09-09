@@ -1,9 +1,9 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { newId } from "@/db/ids";
 import { assetHaLink, haDevice, haEntity, type HaLinkRole } from "@/db/schema";
-import { NotFoundError } from "@/domain/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/domain/errors";
 import { writeAudit, type DomainContext } from "@/domain/inventory";
 
 /**
@@ -38,6 +38,26 @@ export function insertEntityLink(
     .where(eq(haEntity.registryId, input.registryId))
     .get();
   if (!entity) throw new NotFoundError("ha_entity", input.registryId);
+  if (entity.removedAtMs !== null) throw new ValidationError("entity_removed", "entity removed");
+  const duplicate = tx.select().from(assetHaLink).where(and(
+    eq(assetHaLink.assetId, input.assetId), eq(assetHaLink.haEntityRegistryId, input.registryId),
+  )).get();
+  if (duplicate) throw new ConflictError("entity_already_linked", "entity already linked to this equipment");
+  if (input.role === "primary" || input.role === "battery_level") {
+    const occupied = tx.select().from(assetHaLink).where(and(
+      eq(assetHaLink.assetId, input.assetId), eq(assetHaLink.role, input.role),
+    )).get();
+    if (occupied) {
+      if (input.role === "primary" && occupied.linkKind === "device") {
+        tx.update(assetHaLink).set({ role: "status", updatedAtMs: input.atMs, updatedBy: ctx.actorUserId })
+          .where(eq(assetHaLink.id, occupied.id)).run();
+        writeAudit(tx, ctx, { entityTable: "asset_ha_link", entityId: occupied.id,
+          action: "updated", summary: "kept device association as status; primary now represents an entity" });
+      } else {
+        throw new ConflictError("ha_role_taken", "this equipment already has that unique entity role");
+      }
+    }
+  }
   const id = newId();
   tx.insert(assetHaLink)
     .values({
@@ -86,6 +106,19 @@ export function insertDeviceLink(
     .where(eq(haDevice.deviceId, input.deviceId))
     .get();
   if (!device) throw new NotFoundError("ha_device", input.deviceId);
+  if (device.removedAtMs !== null) throw new ValidationError("device_removed", "device removed");
+  const existing = tx.select().from(assetHaLink).where(and(
+    eq(assetHaLink.assetId, input.assetId), eq(assetHaLink.haDeviceId, input.deviceId),
+  )).get();
+  if (existing) {
+    if (existing.linkState === "active" || existing.linkState === "renamed") return existing.id;
+    throw new ConflictError("device_already_linked", "restore or remove the existing device link first");
+  }
+  const occupied = input.role === "primary" || input.role === "battery_level"
+    ? tx.select().from(assetHaLink).where(and(eq(assetHaLink.assetId, input.assetId), eq(assetHaLink.role, input.role))).get()
+    : undefined;
+  if (occupied && input.role === "battery_level") throw new ConflictError("ha_role_taken", "role already occupied");
+  const role = occupied && input.role === "primary" ? "status" : input.role;
   const id = newId();
   tx.insert(assetHaLink)
     .values({
@@ -94,7 +127,7 @@ export function insertDeviceLink(
       linkKind: "device",
       haDeviceId: input.deviceId,
       haEntityRegistryId: null,
-      role: input.role,
+      role,
       entityIdSnapshot: null,
       uniqueIdSnapshot: null,
       platformSnapshot: null,
@@ -111,7 +144,7 @@ export function insertDeviceLink(
     entityTable: "asset_ha_link",
     entityId: id,
     action: "created",
-    summary: `linked device ${device.nameByUser ?? device.name ?? input.deviceId} as ${input.role}`,
+    summary: `linked device ${device.nameByUser ?? device.name ?? input.deviceId} as ${role}`,
   });
   return id;
 }

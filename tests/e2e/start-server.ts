@@ -166,6 +166,7 @@ async function seed(env: NodeJS.ProcessEnv): Promise<void> {
     }
 
     await installFixtureModel(handle);
+    await seedHaImportDevices(handle);
   } finally {
     setDbForTests(null);
     handle.close();
@@ -242,6 +243,27 @@ async function seedPlaceableEquipment(handle: DbHandle): Promise<void> {
   });
   }
   log(`seeded placeable equipment: ${E2E_PLACEABLE_NAMES.join(", ")}`);
+}
+
+/** Synthetic registry rows only; no worker or real HA connection is used. */
+async function seedHaImportDevices(handle: DbHandle): Promise<void> {
+  const { haDevice, haEntity } = await import("@/db/schema");
+  const { writeTx } = await import("@/db/client");
+  const at = Date.now();
+  writeTx(handle.db, (tx) => {
+    for (const viewport of ["desktop", "phone"]) {
+      const deviceId = `e2e-${viewport}-motion`;
+      tx.insert(haDevice).values({ deviceId, name: `E2E ${viewport} motion`, manufacturer: "Synthetic", model: "Test sensor", firstSeenMs: at, lastSeenMs: at }).run();
+      for (const kind of ["occupancy", "temperature", "humidity", "illuminance"]) {
+        tx.insert(haEntity).values({ registryId: `${deviceId}-${kind}`, deviceId,
+          entityId: `${kind === "occupancy" ? "binary_sensor" : "sensor"}.e2e_${viewport}_${kind}`,
+          domain: kind === "occupancy" ? "binary_sensor" : "sensor", deviceClass: kind,
+          unitOfMeasurement: ({ temperature: "°C", humidity: "%", illuminance: "lx" } as Record<string, string>)[kind] ?? null,
+          liveState: kind === "occupancy" ? "off" : "23", liveRestored: false, liveAtMs: at,
+          firstSeenMs: at, lastSeenMs: at }).run();
+      }
+    }
+  });
 }
 
 function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {

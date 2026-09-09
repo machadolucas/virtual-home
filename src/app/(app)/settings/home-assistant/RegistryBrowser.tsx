@@ -142,6 +142,8 @@ export function RegistryBrowser({
   const router = useRouter();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  const [bulkRoles, setBulkRoles] = useState<Record<string, Record<string, string>>>({});
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [draftQuery, setDraftQuery] = useState(query);
   /**
    * The result of the last bulk import, held here rather than in the bar.
@@ -187,7 +189,26 @@ export function RegistryBrowser({
       else next.delete(deviceId);
       return next;
     });
+    if (checked) {
+      setBulkRoles((current) =>
+        current[deviceId] === undefined
+          ? { ...current, [deviceId]: emptyRoles(entitiesByDevice[deviceId] ?? []) }
+          : current,
+      );
+    }
+  }, [entitiesByDevice]);
+
+  const clearSelection = useCallback(() => {
+    setSelected(new Set());
+    setBulkRoles({});
   }, []);
+
+  const selectedDevices = [...selected].map((deviceId) => ({
+    deviceId,
+    entities: Object.entries(bulkRoles[deviceId] ?? {}).flatMap(([registryId, role]) =>
+      role === NO_ROLE ? [] : [{ registryId, role: role as HaLinkRole }],
+    ),
+  }));
 
   const push = useCallback(
     (next: { q?: string; hidden?: boolean; dead?: boolean }) => {
@@ -234,6 +255,7 @@ export function RegistryBrowser({
           <span className="sr-only">Search devices</span>
           <Input
             type="search"
+            disabled={bulkBusy}
             value={draftQuery}
             onChange={(event) => {
               setDraftQuery(event.target.value);
@@ -247,6 +269,7 @@ export function RegistryBrowser({
                   label="Clear search"
                   variant="ghost"
                   size="sm"
+                  disabled={bulkBusy}
                   icon={<X aria-hidden="true" />}
                   onClick={() => {
                     if (timer.current !== null) clearTimeout(timer.current);
@@ -261,6 +284,7 @@ export function RegistryBrowser({
         <div className="flex flex-col gap-3">
           <Switch
             checked={includeHidden}
+            disabled={bulkBusy}
             onCheckedChange={(checked) => push({ hidden: checked })}
             label="Show diagnostic and disabled things"
             hint={
@@ -271,6 +295,7 @@ export function RegistryBrowser({
           />
           <Switch
             checked={showDead}
+            disabled={bulkBusy}
             onCheckedChange={(checked) => push({ dead: checked })}
             label="Show things Home Assistant is not providing"
             hint={
@@ -289,14 +314,19 @@ export function RegistryBrowser({
 
       {selected.size > 0 ? (
         <BulkImportBar
-          deviceIds={[...selected]}
+          devices={selectedDevices}
           onStarted={() => setLastImport(null)}
+          busy={bulkBusy}
+          onBusyChange={(busy) => {
+            setBulkBusy(busy);
+            if (busy && timer.current !== null) clearTimeout(timer.current);
+          }}
           onFinished={(outcome) => {
             setLastImport(outcome);
-            setSelected(new Set());
+            clearSelection();
             router.refresh();
           }}
-          onClear={() => setSelected(new Set())}
+          onClear={clearSelection}
         />
       ) : null}
 
@@ -335,6 +365,7 @@ export function RegistryBrowser({
                           <Checkbox
                             id={`select-${device.deviceId}`}
                             checked={selected.has(device.deviceId)}
+                            disabled={bulkBusy}
                             onCheckedChange={(checked) =>
                               toggleSelected(device.deviceId, checked === true)
                             }
@@ -380,8 +411,27 @@ export function RegistryBrowser({
                           entities={entitiesByDevice[device.deviceId] ?? []}
                           locations={locations}
                           assets={assets}
+                          disabled={bulkBusy}
                         />
                       </span>
+                      {device.linkedAssetId === null && selected.has(device.deviceId) ? (
+                        <BulkEntityChoices
+                          deviceName={device.nameByUser ?? device.name ?? device.deviceId}
+                          entities={entitiesByDevice[device.deviceId] ?? []}
+                          roles={bulkRoles[device.deviceId] ?? {}}
+                          disabled={bulkBusy}
+                          onRoleChange={(registryId, role) =>
+                            setBulkRoles((current) => ({
+                              ...current,
+                              [device.deviceId]: setRole(
+                                current[device.deviceId] ?? {},
+                                registryId,
+                                role,
+                              ),
+                            }))
+                          }
+                        />
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -395,12 +445,11 @@ export function RegistryBrowser({
 }
 
 /**
- * Bulk import: one category for the batch, the device row linked, no entity roles.
+ * Bulk import: one category for the batch and explicit entity roles per selected device.
  *
- * With a registry of a few hundred devices the single-device dialog is the wrong tool — but
- * guessing which entity is each device's primary reading would be inventing data, so this
- * deliberately does less: equipment rows linked to their devices, ready for the dialog to refine
- * one at a time. It says exactly that on screen rather than implying a full import.
+ * With a registry of a few hundred devices the single-device dialog is the wrong tool. Entity
+ * choices are made on the selected rows. Nothing is preselected from names or device
+ * classes, so the server receives only choices the person actually made.
  *
  * Sent in chunks of 50 (the action's cap) to keep each write transaction short, with progress
  * across chunks and the three outcomes reported separately at the end.
@@ -426,23 +475,32 @@ export interface BulkOutcome {
 }
 
 function BulkImportBar({
-  deviceIds,
+  devices,
+  busy,
+  onBusyChange,
   onStarted,
   onFinished,
   onClear,
 }: {
-  deviceIds: readonly string[];
+  devices: readonly {
+    deviceId: string;
+    entities: readonly { registryId: string; role: HaLinkRole }[];
+  }[];
+  busy: boolean;
+  onBusyChange: (busy: boolean) => void;
   onStarted: () => void;
   onFinished: (outcome: BulkOutcome) => void;
   onClear: () => void;
 }) {
   const CHUNK = 50;
   const [category, setCategory] = useState<AssetCategory>("appliance");
-  const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(0);
+  const running = useRef(false);
 
   const run = async () => {
-    setBusy(true);
+    if (running.current) return;
+    running.current = true;
+    onBusyChange(true);
     setDone(0);
     onStarted();
     let created = 0;
@@ -457,10 +515,10 @@ function BulkImportBar({
       globalThis.crypto?.randomUUID?.() ??
       `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try {
-      for (let i = 0; i < deviceIds.length; i += CHUNK) {
-        const chunk = deviceIds.slice(i, i + CHUNK);
+      for (let i = 0; i < devices.length; i += CHUNK) {
+        const chunk = devices.slice(i, i + CHUNK);
         const result = await importHaDevices({
-          deviceIds: chunk,
+          devices: chunk,
           category,
           useMappedLocation: true,
           idempotencyKey: `bulk-${runId}-${i / CHUNK}`,
@@ -472,7 +530,7 @@ function BulkImportBar({
         created += result.data.createdCount;
         skipped += result.data.skipped.length;
         attempted += chunk.length;
-        setDone(Math.min(i + chunk.length, deviceIds.length));
+        setDone(Math.min(i + chunk.length, devices.length));
       }
     } catch (err) {
       // A rejected promise — the action never returned, so nothing is known about the last chunk.
@@ -482,18 +540,19 @@ function BulkImportBar({
           ? `The import stopped: ${err.message}`
           : "The import stopped before it could finish.";
     } finally {
-      setBusy(false);
+      running.current = false;
+      onBusyChange(false);
       // Always, on every path. The rows this run did create are real whether or not the run
       // finished, so the page has to be refreshed and the outcome stated — leaving the list stale
       // after a partial import is how somebody imports the same set twice.
-      onFinished({ total: deviceIds.length, attempted, created, skipped, error });
+      onFinished({ total: devices.length, attempted, created, skipped, error });
     }
   };
 
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-md border border-line bg-surface-2 p-3">
       <p className="text-sm text-ink">
-        <span className="font-medium">{deviceIds.length}</span> selected
+        <span className="font-medium">{devices.length}</span> selected
       </p>
       <Field label="Category for all of them" className="w-56">
         {({ id, describedBy }) => (
@@ -501,22 +560,81 @@ function BulkImportBar({
             id={id}
             describedBy={describedBy}
             value={category}
+            disabled={busy}
             onValueChange={(value) => setCategory(value as AssetCategory)}
             options={ASSET_CATEGORIES.map((value) => ({ value, label: CATEGORY_LABEL[value] }))}
           />
         )}
       </Field>
       <Button onClick={() => void run()} disabled={busy}>
-        {busy ? `Importing ${done} of ${deviceIds.length}…` : `Import ${deviceIds.length}`}
+        {busy ? `Importing ${done} of ${devices.length}…` : `Import ${devices.length}`}
       </Button>
       <Button variant="ghost" onClick={onClear} disabled={busy}>
         Clear
       </Button>
       <p className="basis-full text-xs leading-5 text-ink-3">
         Creates one piece of equipment per device, linked to the device row, with the room from a
-        <em> confirmed</em> area mapping only. It does not choose entity roles — open a device to
-        pick its primary reading.
+        <em> confirmed</em> area mapping only. Entity roles chosen on each selected row are imported
+        with it; unselected entities are left alone.
       </p>
+    </div>
+  );
+}
+
+function BulkEntityChoices({
+  deviceName,
+  entities,
+  roles,
+  disabled,
+  onRoleChange,
+}: {
+  deviceName: string;
+  entities: readonly BrowserEntity[];
+  roles: Readonly<Record<string, string>>;
+  disabled: boolean;
+  onRoleChange: (registryId: string, role: string) => void;
+}) {
+  return (
+    <div className="basis-full rounded-sm border border-line bg-surface-2 p-2.5">
+      <p className="mb-2 text-xs leading-5 text-ink-2">
+        Choose entities for {deviceName}. Primary and battery level are limited to one each; status
+        / reading may be used for temperature, humidity, illuminance and other readings.
+      </p>
+      {entities.length === 0 ? (
+        <p className="text-xs text-ink-3">No visible entities are available for this device.</p>
+      ) : (
+        <ul className="grid list-none gap-2 lg:grid-cols-2">
+          {entities.map((entity) => (
+            <li key={entity.registryId} className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-mono text-xs text-ink">{entity.entityId}</span>
+                <span className="block truncate text-xs text-ink-3">
+                  {[entity.name ?? entity.originalName, entity.deviceClass, entity.unitOfMeasurement]
+                    .filter(Boolean)
+                    .join(" · ") || entity.domain}
+                </span>
+              </span>
+              <span className="w-40 shrink-0">
+                <Select
+                  ariaLabel={`Role for ${entity.entityId}`}
+                  selectSize="sm"
+                  disabled={disabled}
+                  value={roles[entity.registryId] ?? NO_ROLE}
+                  onValueChange={(role) => onRoleChange(entity.registryId, role)}
+                  options={[
+                    { value: NO_ROLE, label: "Do not link" },
+                    ...HA_LINK_ROLES.map((role) => ({
+                      value: role,
+                      label: HA_LINK_ROLE_LABEL[role],
+                      hint: HA_LINK_ROLE_HELP[role],
+                    })),
+                  ]}
+                />
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -557,11 +675,13 @@ function ImportDialog({
   entities,
   locations,
   assets,
+  disabled,
 }: {
   device: BrowserDevice;
   entities: readonly BrowserEntity[];
   locations: readonly Choice[];
   assets: readonly Choice[];
+  disabled?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -599,6 +719,7 @@ function ImportDialog({
         <Button
           variant="secondary"
           size="sm"
+          disabled={disabled}
           iconTrailing={<ChevronRight aria-hidden="true" />}
           // The visible text stays two words; the accessible name names the row, so a list of 483
           // devices is not 483 buttons all called "Import".
@@ -804,7 +925,7 @@ function ImportDialog({
                       selectSize="sm"
                       value={roles[entity.registryId] ?? NO_ROLE}
                       onValueChange={(value) =>
-                        setRoles((current) => ({ ...current, [entity.registryId]: value }))
+                        setRoles((current) => setRole(current, entity.registryId, value))
                       }
                       options={[
                         { value: NO_ROLE, label: "Do not link" },
@@ -857,4 +978,25 @@ function defaultRoles(entities: readonly BrowserEntity[]): Record<string, string
     out[entity.registryId] = NO_ROLE;
   }
   return out;
+}
+
+/** Bulk selection starts empty: choosing an entity in a large batch must be a deliberate act. */
+function emptyRoles(entities: readonly BrowserEntity[]): Record<string, string> {
+  return Object.fromEntries(entities.map((entity) => [entity.registryId, NO_ROLE]));
+}
+
+/** Selecting a unique role moves it instead of leaving the form in a state the server must reject. */
+function setRole(
+  current: Readonly<Record<string, string>>,
+  registryId: string,
+  role: string,
+): Record<string, string> {
+  const next = { ...current };
+  if (role === "primary" || role === "battery_level") {
+    for (const [otherRegistryId, otherRole] of Object.entries(next)) {
+      if (otherRegistryId !== registryId && otherRole === role) next[otherRegistryId] = NO_ROLE;
+    }
+  }
+  next[registryId] = role;
+  return next;
 }
