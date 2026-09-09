@@ -58,6 +58,7 @@ export interface VhHook {
   frameStats(): VhFrameStats;
   invalidateCount(): number;
   lights(): import("../scene/equipmentLights").EquipmentLightSpec[];
+  daylight(): { position: number[]; intensity: number; shadowMapSize: number; shadowMapAllocated: boolean; radius: number } | null;
   renderedLights(): import("../scene/equipmentLights").RenderedEquipmentLight[];
   shadowSurface(surfaceId: string): {
     castShadow: boolean;
@@ -263,6 +264,11 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
     },
 
     lights() { return runtime.equipmentLights?.snapshot() ?? []; },
+
+    daylight() {
+      const light = runtime.scene?.getObjectByName("vh-daylight") as THREE.DirectionalLight | undefined;
+      return light ? { position: light.position.toArray(), intensity: light.intensity, shadowMapSize: light.shadow.mapSize.x, shadowMapAllocated: light.shadow.map !== null, radius: light.shadow.radius } : null;
+    },
 
     renderedLights() { return runtime.equipmentLights?.renderedSnapshot() ?? []; },
 

@@ -19,6 +19,7 @@ const MIN_POLAR_DEG = 15;
 const MAX_POLAR_DEG = 70;
 const ROOM_FOCUS_POLAR_DEG = 0;
 const EQUIPMENT_FOCUS_POLAR_DEG = 48;
+const FLOOR_FOCUS_POLAR_DEG = 48;
 
 export function useCameraApi(
   controlsRef: RefObject<CameraControlsImpl | null>,
@@ -137,7 +138,21 @@ export function makeCameraApi(
 
     async frameFloor(floorId) {
       if (!runtime.manifest) return;
-      await api.fitBox(floorBox3(runtime.manifest, floorId));
+      // Floor shortcuts are an ordinary 3D focus. Wait out a possible projection remount, restore
+      // an oblique angle if the previous view was a locked plan, then fit without changing azimuth.
+      const controls = await settledControls();
+      const box = floorBox3(runtime.manifest, floorId);
+      if (!controls || box.isEmpty()) return;
+      await controls.rotatePolarTo(THREE.MathUtils.degToRad(FLOOR_FOCUS_POLAR_DEG), false);
+      controls.update(0);
+      await controls.fitToBox(box, transition, {
+        cover: false,
+        paddingLeft: PAD,
+        paddingRight: PAD,
+        paddingTop: PAD,
+        paddingBottom: PAD,
+      });
+      runtime.invalidate();
     },
 
     async frameBuilding(buildingId) {

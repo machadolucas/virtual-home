@@ -8,6 +8,7 @@
  * `stencil: true` on the context, per-material stencil state and a second pass.
  */
 import { cutRange } from "@/house/model/framingBoxes";
+import { FlipHorizontal2, Minus, ScanLine, Split } from "lucide-react";
 import { useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { ToolbarButton } from "./ViewToolbar";
 
@@ -29,7 +30,10 @@ export function CutawayControl() {
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wide text-ink-3">Section</span>
         <ToolbarButton pressed={cut.enabled} onClick={() => setCut({ enabled: !cut.enabled })}>
-          {cut.enabled ? "On (S)" : "Off (S)"}
+          <span className="inline-flex items-center gap-1">
+            <ScanLine aria-hidden="true" className="size-3.5" />
+            {cut.enabled ? "On (S)" : "Off (S)"}
+          </span>
         </ToolbarButton>
       </div>
 
@@ -63,7 +67,9 @@ export function CutawayControl() {
             pressed={cut.vertical === null}
             onClick={() => setCut({ vertical: null })}
           >
-            No vertical cut
+            <span className="inline-flex items-center gap-1">
+              <Minus aria-hidden="true" className="size-3.5" /> No vertical cut
+            </span>
           </ToolbarButton>
           <ToolbarButton
             pressed={cut.vertical?.axis === "x"}
@@ -74,7 +80,9 @@ export function CutawayControl() {
               })
             }
           >
-            Cut along X
+            <span className="inline-flex items-center gap-1">
+              <Split aria-hidden="true" className="size-3.5 rotate-90" /> Cut along X
+            </span>
           </ToolbarButton>
           <ToolbarButton
             pressed={cut.vertical?.axis === "z"}
@@ -85,7 +93,9 @@ export function CutawayControl() {
               })
             }
           >
-            Cut along Z
+            <span className="inline-flex items-center gap-1">
+              <Split aria-hidden="true" className="size-3.5" /> Cut along Z
+            </span>
           </ToolbarButton>
         </div>
         {cut.vertical ? (
@@ -121,7 +131,9 @@ export function CutawayControl() {
                 })
               }
             >
-              Flip side
+              <span className="inline-flex items-center gap-1">
+                <FlipHorizontal2 aria-hidden="true" className="size-3.5" /> Flip side
+              </span>
             </ToolbarButton>
           </>
         ) : null}

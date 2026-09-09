@@ -359,16 +359,69 @@ function writeLabelText(
   slot.el.setAttribute("aria-label", `${anchor.text}${accessibleReading}${action}`);
 }
 
-const ICON_GLYPH: Record<NonNullable<EquipmentLabelReading["details"]>[number]["icon"], string> = {
-  temperature: "°",
-  humidity: "◒",
-  illuminance: "☼",
-  occupancy: "●",
-  contact: "□",
-  light: "✦",
-  power: "ϟ",
-  reading: "•",
+type LabelIcon = NonNullable<EquipmentLabelReading["details"]>[number]["icon"];
+
+/**
+ * Fixed, font-independent line icons for the imperative label pool. Unicode glyphs vary by font
+ * and platform (the former temperature "°" was especially easy to mistake for part of the value),
+ * while these SVG paths remain legible at the label's compact size.
+ */
+const ICON_PATHS: Record<LabelIcon, readonly string[]> = {
+  temperature: [
+    "M14 4a2 2 0 0 0-4 0v9.54a4 4 0 1 0 4 0V4",
+    "M12 9v7",
+  ],
+  humidity: [
+    "M12 2.7 6.35 8.35a8 8 0 1 0 11.3 0L12 2.7Z",
+    "M8.5 14.5a3.5 3.5 0 0 0 3.5 3.5",
+  ],
+  illuminance: [
+    "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z",
+    "M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41",
+  ],
+  occupancy: [
+    "M12 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
+    "M6.5 21v-2a5.5 5.5 0 0 1 11 0v2",
+    "M4.9 8.8a9 9 0 0 0 0 6.4M19.1 8.8a9 9 0 0 1 0 6.4",
+  ],
+  contact: [
+    "M4 21h16",
+    "M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16",
+    "M14 12h.01",
+  ],
+  light: [
+    "M9 18h6M10 22h4",
+    "M8.7 14.7A7 7 0 1 1 15.3 14.7c-.8.6-1.3 1.4-1.3 2.3h-4c0-.9-.5-1.7-1.3-2.3Z",
+  ],
+  power: ["m13 2-9 12h8l-1 8 9-12h-8l1-8Z"],
+  reading: [
+    "M4 19V9M10 19V5M16 19v-7M22 19V3",
+    "M2 19h22",
+  ],
 };
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function labelIconNode(kind: LabelIcon): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "14");
+  svg.setAttribute("height", "14");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("focusable", "false");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("data-label-icon", kind);
+  for (const data of ICON_PATHS[kind]) {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", data);
+    svg.append(path);
+  }
+  return svg;
+}
 
 const TONE_COLOR: Record<NonNullable<EquipmentLabelReading["details"]>[number]["tone"], string> = {
   live: "var(--vh-ok)",
@@ -430,8 +483,8 @@ function writeLabelContent(
       row.style.cssText = "display:grid;grid-template-columns:1rem minmax(0,1fr) auto;align-items:center;gap:.375rem;min-height:1.35rem;text-align:left";
       const icon = document.createElement("span");
       icon.setAttribute("aria-hidden", "true");
-      icon.style.cssText = `color:${TONE_COLOR[detail.tone]};font-size:.75rem;text-align:center`;
-      icon.textContent = ICON_GLYPH[detail.icon];
+      icon.style.cssText = `display:inline-flex;align-items:center;justify-content:center;color:${TONE_COLOR[detail.tone]}`;
+      icon.append(labelIconNode(detail.icon));
       const label = document.createElement("span");
       label.style.cssText = "min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--vh-ink-3);font-size:.6875rem;font-weight:500";
       label.textContent = detail.label;

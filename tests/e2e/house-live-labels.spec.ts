@@ -87,6 +87,12 @@ test("equipment label stays live, expands linked readings, and preserves its sav
     await expect(label).toContainText(/22\.1 °C.*68%/);
     await label.click();
     await expect(label.locator(".vh-label-reading")).toHaveCount(4);
+    await expect(label.locator("svg[data-label-icon]")).toHaveCount(4);
+    await expect(label.locator('svg[data-label-icon="temperature"]')).toHaveCount(1);
+    await expect(label.locator('svg[data-label-icon="humidity"]')).toHaveCount(1);
+    await expect(label.locator('svg[data-label-icon="occupancy"]')).toHaveCount(1);
+    await expect(label.locator('svg[data-label-icon="contact"]')).toHaveCount(1);
+    await expect(label.locator("svg[data-label-icon]").first()).toHaveAttribute("aria-hidden", "true");
     await expect(label).toContainText("Temperature22.1 °C");
     await expect(label).toContainText("Humidity45 %");
     await expect(label).toContainText("OccupancyUnoccupied");

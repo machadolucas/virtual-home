@@ -170,6 +170,8 @@ test("a lit room does not illuminate the neighbouring room through its wall", as
   });
   await openHouse(page, { sel: "room:r-l-a" });
   await page.getByRole("button", { name: "Lower floor", exact: true }).click();
+  await page.getByRole("application", { name: "House 3D view" }).focus();
+  await page.keyboard.press("p");
   await page.getByRole("radio", { name: "All cut", exact: true }).click();
   await openSyntheticHa(page);
   const emit = (state: string) => emitHaBatch(page, [{ topic: "ha.state", key: "light.occlusion_test", payload: { state, attributes: { brightness: 255 }, lastUpdated: Date.now() } }]);

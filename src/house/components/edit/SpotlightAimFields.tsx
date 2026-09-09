@@ -1,5 +1,6 @@
 "use client";
 
+import { Crosshair, RotateCcw, X } from "lucide-react";
 import type { EditDraft } from "@/house/store/slices/edit";
 import { defaultSymbol, isPlacementSymbol } from "@/house/scene/symbols";
 import { defaultLightAim } from "@/house/model/equipmentLight";
@@ -84,8 +85,9 @@ export function SpotlightAimFields({
             type="button"
             aria-pressed={aiming}
             onClick={() => onAimingChange(!aiming)}
-            className="min-h-11 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3 md:min-h-8"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3 md:min-h-8"
           >
+            {aiming ? <X aria-hidden="true" className="size-3.5" /> : <Crosshair aria-hidden="true" className="size-3.5" />}
             {aiming ? "Cancel aiming" : "Aim in 3D view"}
           </button>
         ) : null}
@@ -95,8 +97,9 @@ export function SpotlightAimFields({
             onAimingChange(false);
             updateDraft({ lightAim: null });
           }}
-          className="min-h-11 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3 md:min-h-8"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3 md:min-h-8"
         >
+          <RotateCcw aria-hidden="true" className="size-3.5" />
           Reset direction
         </button>
       </div>

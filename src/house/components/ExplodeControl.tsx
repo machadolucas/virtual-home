@@ -7,6 +7,7 @@
  * being inverted correctly on every save path.
  */
 import { MAX_EXPLODE_GAP } from "@/house/model/explodeGroups";
+import { Layers3 } from "lucide-react";
 import { useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { useIsPhone } from "../hooks/useReducedMotion";
 import { ToolbarButton } from "./ViewToolbar";
@@ -34,7 +35,10 @@ export function ExplodeControl() {
           title={disabled ? "Exploded view is off while placing equipment." : undefined}
           onClick={() => setExplode({ enabled: !explode.enabled })}
         >
-          {explode.enabled ? "On (X)" : "Off (X)"}
+          <span className="inline-flex items-center gap-1">
+            <Layers3 aria-hidden="true" className="size-3.5" />
+            {explode.enabled ? "On (X)" : "Off (X)"}
+          </span>
         </ToolbarButton>
       </div>
       <label className="flex flex-col gap-1 text-xs text-ink-2">

@@ -42,6 +42,9 @@ export function useEquipmentLights() {
     runtime.equipmentLights = layer;
     const update = (refreshOccluders = false) => {
       const state = runtime.store.getState();
+      layer.root.traverse((object) => {
+        if (object instanceof THREE.PointLight || object instanceof THREE.SpotLight) object.shadow.radius = state.illumination.softShadows ? 2 : 0;
+      });
       const index = runtime.index;
       const manifest = runtime.manifest;
       const ha = haStore.getState();

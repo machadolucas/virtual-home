@@ -8,6 +8,7 @@
  * recovering after a battery change is not evidence of maintenance.
  */
 import { useStore } from "zustand";
+import { Focus, Move3d } from "lucide-react";
 import { explicitUsefulLinks } from "@/house/model/equipmentLabel";
 import type { PlacementId, PlacementLinkedEntity } from "@/house/model/types";
 import {
@@ -84,8 +85,9 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
         <button
           type="button"
           onClick={() => runtime.select({ kind: "equipment", id: placement.id }, { frame: true })}
-          className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
+          <Focus aria-hidden="true" className="size-3.5" />
           Show me
         </button>
         <button
@@ -111,8 +113,9 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
               dirty: false,
             })
           }
-          className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
+          <Move3d aria-hidden="true" className="size-3.5" />
           Adjust placement (E)
         </button>
       </div>

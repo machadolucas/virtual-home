@@ -23,7 +23,18 @@ import type { HouseStore, Mutators } from "../createHouseStore";
 export const CANVAS_TOOLS = ["orbit", "select", "place"] as const;
 export type CanvasTool = (typeof CANVAS_TOOLS)[number];
 
+export interface IlluminationSettings {
+  mode: "live" | "manual" | "studio";
+  atMs: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  northDeg: number | null;
+  softShadows: boolean;
+}
+
 export interface ViewSlice {
+  illumination: IlluminationSettings;
+  setIllumination(settings: Partial<IlluminationSettings>): void;
   viewMode: ViewMode;
   tool: CanvasTool;
   /** True while Space is held: the camera is on loan, whatever the tool says. */
@@ -64,6 +75,7 @@ export interface ViewSlice {
 }
 
 export const initialView = {
+  illumination: { mode: "live", atMs: null, latitude: null, longitude: null, northDeg: null, softShadows: true } as IlluminationSettings,
   viewMode: "overview" as ViewMode,
   tool: "orbit" as CanvasTool,
   cameraOverride: false,
@@ -82,6 +94,8 @@ export const initialView = {
 
 export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> = (set) => ({
   ...initialView,
+
+  setIllumination: (settings) => set((s) => ({ illumination: { ...s.illumination, ...settings } })),
 
   setViewMode: (viewMode) => set({ viewMode }),
 

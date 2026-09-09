@@ -240,7 +240,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
       >
         <p id="vh-canvas-help" className="sr-only">
           Arrow keys orbit the camera, Shift and the arrow keys pan, plus and minus zoom. Press 1,
-          2 or 3 for a top-down floor focus, 0 for the whole property, P for a top-down plan, and question
+          2 or 3 to focus a floor in 3D, 0 for the whole property, P for a top-down plan, and question
           mark for the full list of shortcuts.
         </p>
         <div
@@ -615,10 +615,10 @@ function useShortcutHandlers(
         const s = get();
         const floorId = floorIdByIndex(s.index?.floorOrder ?? [], n);
         if (!floorId) return;
-        s.setProjection("ortho");
+        s.setProjection("perspective");
         s.isolateFloor(floorId);
-        s.setViewMode("plan");
-        void runtime.camera?.planFor(floorId);
+        s.setViewMode("floor");
+        void runtime.camera?.frameFloor(floorId);
       },
       allFloors() {
         get().isolateFloor(null);

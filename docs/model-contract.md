@@ -372,6 +372,7 @@ must call `invalidate()`:
 - a marker `instanceColor` change from Home Assistant — **only** when a colour actually changed;
 - a canvas resize or dpr change;
 - an edit-draft change (including the snap indicator).
+- live daylight advancing once per minute, or a daylight/soft-shadow override;
 - each frame of a rapid live-equipment-light fade; shadow maps refresh only when a source or model
   occluder changes, then demand rendering returns idle;
 
@@ -383,8 +384,7 @@ Other fixed choices: `localClippingEnabled = true` (per-material clipping planes
 shared clipping planes allocated per explode group plus a fixed third plane per surface material
 for focus wall cuts (edges retain the shared pair). "Off" is a constant beyond the model bounds,
 so focus changes never change shader plane counts; `NoToneMapping`, so a persisted hex
-matches what the user picked; bounded local equipment-light shadows (never broad directional
-shadows); no `three-mesh-bvh`; scan references are non-pickable and do not cast shadows.
+matches what the user picked; bounded local equipment-light shadows plus one site-fitted directional shadow map; no `three-mesh-bvh`; scan references are non-pickable and do not cast shadows.
 
 The context is **`alpha: true`** with `scene.background = null` and `setClearAlpha(0)` — it was
 `alpha: false` with an opaque `0xf4f4f2` clear colour until D-024. The background is now CSS on the
@@ -551,3 +551,26 @@ General attachment uses the actual picked face and normal with a 2 cm standoff. 
 are rounded to millimetres, without snapping a narrow frame off its face onto the global grid.
 Height remains relative to the resolved room floor or floor datum. Numeric edits and save/reload
 retain the reference and facing direction; choosing an unattached free mount removes the reference.
+
+### Daylight and soft shadows
+
+Rendering offers Live time (default when the model has a geographic anchor), an explicit date/time
+preview, morning/noon/night shortcuts, and constant Studio lighting. Geographic location comes from
+`coordinateSystem.geoAnchor`; north bearing is clockwise from model -Z towards +X. With no valid
+anchor the viewer uses Studio and asks for coordinates. Latitude, longitude and north overrides are
+transient view state: no household coordinates are baked into code or written to the immutable
+package. The panel labels inferred/unknown north; sun/shadow orientation is only as accurate as that
+input. Manual civil times use the displayed browser IANA time zone through `domain/time.ts`.
+
+The pure solar calculation uses NOAA's approximate annual declination and equation-of-time series
+(https://gml.noaa.gov/grad/solcalc/solareqns.PDF). Elevation drives warm low sun, daylight and dim blue
+night illumination. Night fill is illustrative moonlight, not a lunar position/phase calculation;
+weather, indirect light bounces and photometric exposure are not simulated. Background selection
+remains independent and exports retain it.
+
+One directional light casts site-fitted shadows (2048 px; 512 px in performance mode). Model meshes
+and equipment are shadow casters/receivers; scan references and editing guides remain excluded. PCF
+filter radii soften directional and local-light shadows; disabling Soft shadows selects crisp
+filtering. Visibility/explode changes dirty maps through the existing equipment-light synchronizer.
+Live time updates once per minute and otherwise returns to demand-rendering idle. Maps are disposed
+on resizing/unmount, with no continuous temporal shadow accumulation or preserveDrawingBuffer.

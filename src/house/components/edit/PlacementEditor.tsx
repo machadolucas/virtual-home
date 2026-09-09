@@ -13,6 +13,7 @@
  * cross-checks the world position against the draft before the write is dispatched.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Save, Trash2, X } from "lucide-react";
 import * as THREE from "three";
 import { snapValue } from "@/house/model/geometry2d";
 import {
@@ -484,8 +485,9 @@ export function PlacementEditor() {
           type="button"
           onClick={() => void save()}
           disabled={saving}
-          className="min-h-9 rounded-md bg-accent px-3 text-xs font-semibold text-on-accent hover:bg-accent-hover disabled:opacity-50"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-semibold text-on-accent hover:bg-accent-hover disabled:opacity-50"
         >
+          <Save aria-hidden="true" className="size-3.5" />
           {saving ? "Saving…" : "Save placement"}
         </button>
         <button
@@ -495,8 +497,9 @@ export function PlacementEditor() {
             setIndicator(null);
             cancelEdit();
           }}
-          className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
+          <X aria-hidden="true" className="size-3.5" />
           Cancel (Esc)
         </button>
       </div>
@@ -514,15 +517,17 @@ export function PlacementEditor() {
                 type="button"
                 onClick={() => void remove()}
                 disabled={saving}
-                className="min-h-8 rounded-md border border-overdue/45 bg-surface px-2 text-xs font-semibold text-overdue hover:bg-overdue-soft disabled:opacity-50"
+                className="inline-flex min-h-8 items-center gap-1 rounded-md border border-overdue/45 bg-surface px-2 text-xs font-semibold text-overdue hover:bg-overdue-soft disabled:opacity-50"
               >
+                <Trash2 aria-hidden="true" className="size-3.5" />
                 {saving ? "Removing…" : "Remove it"}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmRemove(false)}
-                className="min-h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3"
+                className="inline-flex min-h-8 items-center gap-1 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3"
               >
+                <X aria-hidden="true" className="size-3.5" />
                 Keep it
               </button>
             </>
@@ -530,8 +535,9 @@ export function PlacementEditor() {
             <button
               type="button"
               onClick={() => setConfirmRemove(true)}
-              className="min-h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink-2 hover:bg-surface-3"
+              className="inline-flex min-h-8 items-center gap-1 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink-2 hover:bg-surface-3"
             >
+              <Trash2 aria-hidden="true" className="size-3.5" />
               Remove from the model
             </button>
           )}

@@ -62,7 +62,7 @@ export class MarkerLayer {
     private readonly index: SceneIndex,
     private readonly clip: ClipGroups,
   ) {
-    this.material = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0 });
+    this.material = new THREE.MeshStandardMaterial({ roughness: 0.94, metalness: 0 });
   }
 
   private groupFor(group: ExplodeGroup, symbol: PlacementSymbol): MarkerGroupState {
@@ -74,6 +74,8 @@ export class MarkerLayer {
         this.material,
         MARKER_CAPACITY,
       );
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       mesh.name = `vh-markers-${group}-${symbol}`;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.instanceColor = new THREE.InstancedBufferAttribute(

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { Archive, PencilLine, SquarePen, Trash2, X } from "lucide-react";
 import { polylineLength } from "@/house/model/geometry2d";
 import { MEDIUM_LABELS } from "@/features/projects/infraMedium";
 import { isRunVisibleOn } from "@/features/projects/renovationDate";
@@ -123,16 +124,18 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
         <button
           type="button"
           onClick={() => beginRouteDraft(route)}
-          className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
+          <PencilLine aria-hidden="true" className="size-3.5" />
           Edit path
         </button>
         <button
           type="button"
           aria-expanded={editing}
           onClick={() => setEditing((v) => !v)}
-          className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
+          <SquarePen aria-hidden="true" className="size-3.5" />
           {editing ? "Hide details" : "Edit details"}
         </button>
       </div>
@@ -146,15 +149,17 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
               type="button"
               onClick={() => setArmed("soft")}
               disabled={route.lifecycle === "removed"}
-              className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
             >
+              <Archive aria-hidden="true" className="size-3.5" />
               Mark removed
             </button>
             <button
               type="button"
               onClick={() => setArmed("hard")}
-              className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
             >
+              <Trash2 aria-hidden="true" className="size-3.5" />
               Delete — it was drawn wrongly
             </button>
           </div>
@@ -170,15 +175,17 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
                 type="button"
                 disabled={busy}
                 onClick={() => void remove(armed === "hard")}
-                className="min-h-9 rounded-md border border-overdue/45 bg-surface px-3 text-xs font-medium text-overdue hover:bg-overdue-soft disabled:opacity-50"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-overdue/45 bg-surface px-3 text-xs font-medium text-overdue hover:bg-overdue-soft disabled:opacity-50"
               >
+                {armed === "soft" ? <Archive aria-hidden="true" className="size-3.5" /> : <Trash2 aria-hidden="true" className="size-3.5" />}
                 {armed === "soft" ? "Mark removed" : "Delete"}
               </button>
               <button
                 type="button"
                 onClick={() => setArmed(null)}
-                className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
               >
+                <X aria-hidden="true" className="size-3.5" />
                 Keep
               </button>
             </div>

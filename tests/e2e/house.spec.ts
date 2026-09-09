@@ -413,7 +413,7 @@ test("turning the ceilings off removes exactly the ceiling surfaces from the pic
   }
 });
 
-test("the orthographic and plan views switch the projection", async ({ browser }) => {
+test("floor shortcuts stay in perspective and keep camera orbit available", async ({ browser }) => {
   const { context, page } = await openHouseSession(browser);
   try {
     expect((await vh(page).camera()).projection).toBe("perspective");
@@ -424,48 +424,36 @@ test("the orthographic and plan views switch the projection", async ({ browser }
     await page.getByRole("button", { name: "Orthographic" }).click();
     await expect.poll(() => vh(page).camera().then((c) => c.projection)).toBe("perspective");
 
-    // A floor shortcut is an orthographic top-down focus in one action.
+    // A floor shortcut opens the shell and frames it without turning the navigable model into a
+    // locked plan.
     await page.getByRole("button", { name: "Upper floor", exact: true }).click();
-    await expect.poll(() => vh(page).camera().then((c) => c.projection)).toBe("ortho");
+    await expect.poll(() => vh(page).camera().then((c) => c.projection)).toBe("perspective");
     expect(await vh(page).visible("fixture-lower", "f-lower")).toBe(true);
+    await waitForStableFrames(page);
+    const before = await vh(page).camera();
+    const canvas = (await page.locator("canvas").boundingBox())!;
+    await page.mouse.move(canvas.x + canvas.width * 0.6, canvas.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(canvas.x + canvas.width * 0.6 + 60, canvas.y + 140, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(async () => (await vh(page).camera()).position).not.toEqual(before.position);
+    await waitForStableFrames(page);
+    const afterDrag = await vh(page).camera();
+    const workspace = page.getByRole("application", { name: "House 3D view" });
+    await workspace.focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect.poll(async () => (await vh(page).camera()).position).not.toEqual(afterDrag.position);
   } finally {
     await context.close();
   }
 });
 
-test("the plan view looks straight down at the active floor", async ({ browser }) => {
-  /**
-   * APP BUG — two of them, both in the camera layer, neither fixed here (this suite does not edit
-   * application code). Measured on this run against the fixture package, headless Chromium:
-   *
-   * 1. `src/house/hooks/useCameraApi.ts:132-135` — `planFor(floorId)` is only
-   *    `fitBox(planBox3(...))`, and `fitBox` (same file, lines 77-98) frames with
-   *    `controls.fitToBox()`, which by design fits along the **current** view direction. Nothing on
-   *    the path ever rotates the polar angle to 0, so "Plan view (P)" produces an orthographic view
-   *    from whatever angle the camera happened to hold. Measured: isolate the lower floor in
-   *    orthographic (pose [3, 1.15, 38.28] → target [3, 1.15, 2], polar 90° — a pure side
-   *    elevation), then press Plan view; the pose does not change at all. §4.2 and §13.2 #16 both
-   *    require polar 0. The `minPolarAngle = maxPolarAngle = 0` lock in
-   *    `src/house/components/Rig.tsx:88-108` only constrains later user input; it never moves the
-   *    camera. Re-measured 2026-09-08 by running this test: the assertion below reports
-   *    **polar 63.83°** where it requires < 1°.
-   *
-   * 2. `src/house/components/Rig.tsx:54-81` — the pose is not carried across a projection switch.
-   *    `<CameraControls key={projection}>` (lines 118-126) remounts, and the capture/restore pair
-   *    does not land: measured, toggling "Orthographic" from the overview pose
-   *    ([19.15, 17, 20.05] → target [3.15, 3, 2.05]) leaves the camera at the freshly-mounted
-   *    orthographic camera's declared default, [22, 16, 24] → target [0, 0, 0]. Because
-   *    `ViewToolbar.planFor` (`src/house/components/ViewToolbar.tsx:51-56`) calls `setProjection`
-   *    and then `runtime.camera?.planFor()` synchronously, the fit runs against the outgoing
-   *    controls instance and is discarded — so entering the plan view from perspective (button or
-   *    the `P` shortcut) lands on that same default pose, polar 63.8°.
-   *
-   * The projection half of both paths *is* asserted and passes, in the test above. What this test
-   * would assert once the camera is fixed: polar 0 and a target over the active floor's centre.
-   */
+test("the explicit plan shortcut looks straight down at the active floor", async ({ browser }) => {
   const { context, page } = await openHouseSession(browser);
   try {
     await page.getByRole("button", { name: "Upper floor", exact: true }).click();
+    await page.getByRole("application", { name: "House 3D view" }).focus();
+    await page.keyboard.press("p");
     await waitForStableFrames(page, 1_000);
 
     const camera = await vh(page).camera();

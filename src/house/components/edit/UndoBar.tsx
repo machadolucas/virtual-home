@@ -5,6 +5,7 @@
  * selection churn.
  */
 import { useHouseStore, useShallow } from "../../hooks/useHouseStore";
+import { Redo2, Undo2 } from "lucide-react";
 
 export function UndoBar() {
   const { undo, redo, editing } = useHouseStore(
@@ -43,16 +44,18 @@ export function UndoBar() {
         type="button"
         onClick={applyUndo}
         disabled={undo.length === 0}
-        className="min-h-8 rounded-md border border-line bg-surface px-2 font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
+        className="inline-flex min-h-8 items-center gap-1 rounded-md border border-line bg-surface px-2 font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
       >
+        <Undo2 aria-hidden="true" className="size-3.5" />
         Undo
       </button>
       <button
         type="button"
         onClick={applyRedo}
         disabled={redo.length === 0}
-        className="min-h-8 rounded-md border border-line bg-surface px-2 font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
+        className="inline-flex min-h-8 items-center gap-1 rounded-md border border-line bg-surface px-2 font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
       >
+        <Redo2 aria-hidden="true" className="size-3.5" />
         Redo
       </button>
       <span className="text-ink-3">{undo.length} step(s)</span>

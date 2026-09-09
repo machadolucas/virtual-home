@@ -12,7 +12,16 @@
  * The order is task-first: header, Locate card, then the written note and the photo. A user
  * finishing an ordinary maintenance job never has to touch the canvas.
  */
+import {
+  House,
+  Layers3,
+  PanelBottom,
+  PanelTop,
+  Sun,
+  type LucideIcon,
+} from "lucide-react";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
+import { DaylightControl } from "../DaylightControl";
 import { HouseCanvasLazy } from "../HouseCanvasLazy";
 import { HouseErrorBoundary } from "../HouseErrorBoundary";
 import { PlacementEditor } from "../edit/PlacementEditor";
@@ -55,20 +64,41 @@ export function PhoneHouse() {
       </header>
 
       <nav aria-label="Floors" className="flex flex-wrap gap-1">
-        <FloorChip label="All" active={activeFloorId === null} onClick={() => isolateFloor(null)} />
+        <FloorChip
+          icon={House}
+          label="All"
+          active={activeFloorId === null}
+          onClick={() => isolateFloor(null)}
+        />
         {[...(index?.buildings.values() ?? [])].map((building) => (
           <fieldset key={building.id} className="min-w-0">
             <legend className="px-1 text-[11px] text-ink-3">{building.name}</legend>
             <div className="flex flex-wrap gap-1">
-              {(index?.floorsByBuilding.get(building.id) ?? []).map((floor) => (
-                <FloorChip key={floor.id} label={floor.name} active={activeFloorId === floor.id}
+              {(index?.floorsByBuilding.get(building.id) ?? [])
+                .slice()
+                .sort((a, b) => a.elevation - b.elevation)
+                .map((floor, floorIndex, floors) => (
+                <FloorChip
+                  key={floor.id}
+                  icon={
+                    floors.length === 1
+                      ? Layers3
+                      : floorIndex === 0
+                        ? PanelBottom
+                        : floorIndex === floors.length - 1
+                          ? PanelTop
+                          : Layers3
+                  }
+                  label={floor.name}
+                  active={activeFloorId === floor.id}
                   onClick={() => {
-                    setProjection("ortho");
+                    setProjection("perspective");
                     isolateFloor(floor.id);
-                    setViewMode("plan");
-                    void runtime.camera?.planFor(floor.id);
-                  }} />
-              ))}
+                    setViewMode("floor");
+                    void runtime.camera?.frameFloor(floor.id);
+                  }}
+                />
+                ))}
             </div>
           </fieldset>
         ))}
@@ -81,6 +111,16 @@ export function PhoneHouse() {
       </div>
 
       <div className="flex justify-end"><DownloadImageButton /></div>
+
+      <details className="rounded-lg border border-line bg-surface">
+        <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-sm font-medium text-ink">
+          <Sun aria-hidden="true" className="size-4 text-ink-3" />
+          Lighting
+        </summary>
+        <div className="border-t border-line p-3">
+          <DaylightControl />
+        </div>
+      </details>
 
       {equipmentId ? <LocateSheet placementId={equipmentId} /> : null}
 
@@ -122,10 +162,12 @@ export function PhoneHouse() {
 }
 
 function FloorChip({
+  icon: Icon,
   label,
   active,
   onClick,
 }: {
+  icon: LucideIcon;
   label: string;
   active: boolean;
   onClick: () => void;
@@ -135,12 +177,13 @@ function FloorChip({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`min-h-11 rounded-full border px-3 text-sm font-medium ${
+      className={`inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 text-sm font-medium ${
         active
           ? "border-accent bg-accent text-on-accent"
           : "border-line bg-surface text-ink"
       }`}
     >
+      <Icon aria-hidden="true" className="size-4" />
       {label}
     </button>
   );

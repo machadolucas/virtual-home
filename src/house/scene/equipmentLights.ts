@@ -285,6 +285,7 @@ function configureShadow(light: THREE.PointLight | THREE.SpotLight, mapSize: num
   light.shadow.mapSize.set(mapSize, mapSize);
   light.shadow.camera.near = 0.05;
   light.shadow.camera.far = light.distance;
+  light.shadow.radius = 2;
   light.shadow.bias = -0.0008;
   light.shadow.normalBias = 0.025;
 }

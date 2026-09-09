@@ -17,6 +17,8 @@ export interface SwitchProps {
   ariaLabel?: string;
   label?: ReactNode;
   hint?: ReactNode;
+  /** Place the control beside the leading edge of its label. Defaults to the trailing edge. */
+  controlPosition?: "start" | "end";
   className?: string;
 }
 
@@ -41,6 +43,7 @@ export function Switch({
   ariaLabel,
   label,
   hint,
+  controlPosition = "end",
   className,
 }: SwitchProps) {
   const generated = useId();
@@ -77,18 +80,29 @@ export function Switch({
 
   if (!label) return control;
 
+  const labelBlock = (
+    <span className="flex min-w-0 flex-col">
+      <label
+        htmlFor={controlId}
+        className={cn("text-sm leading-6 text-ink", disabled ? "opacity-55" : "cursor-pointer")}
+      >
+        {label}
+      </label>
+      {hint ? <span className="text-xs leading-5 text-ink-3">{hint}</span> : null}
+    </span>
+  );
+  const controlBlock = <span className="flex h-6 items-center">{control}</span>;
+
   return (
-    <div className={cn("flex min-h-11 items-start justify-between gap-4 py-1.5", className)}>
-      <span className="flex min-w-0 flex-col">
-        <label
-          htmlFor={controlId}
-          className={cn("text-sm leading-6 text-ink", disabled ? "opacity-55" : "cursor-pointer")}
-        >
-          {label}
-        </label>
-        {hint ? <span className="text-xs leading-5 text-ink-3">{hint}</span> : null}
-      </span>
-      <span className="flex h-6 items-center">{control}</span>
+    <div
+      className={cn(
+        "flex min-h-11 items-start py-1.5",
+        controlPosition === "start" ? "justify-start gap-2" : "justify-between gap-4",
+        className,
+      )}
+    >
+      {controlPosition === "start" ? controlBlock : labelBlock}
+      {controlPosition === "start" ? labelBlock : controlBlock}
     </div>
   );
 }

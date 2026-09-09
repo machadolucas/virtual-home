@@ -1,14 +1,34 @@
 "use client";
 /**
  * View controls. Every button is a **store write**, never a direct scene mutation — which is why
- * the checkboxes can never desynchronise from the scene: the resolver derives the scene from these
+ * the switches can never desynchronise from the scene: the resolver derives the scene from these
  * fields, in full, on every change.
  */
 import { HouseBackgroundControl } from "@/features/settings/HouseBackgroundControl";
-import { Eye } from "lucide-react";
+import {
+  BetweenHorizontalEnd,
+  Box,
+  BrickWall,
+  Building2,
+  Eye,
+  Gauge,
+  House,
+  Layers3,
+  Map,
+  PanelBottom,
+  PanelTop,
+  PanelsTopLeft,
+  Route,
+  RotateCcw,
+  ScanLine,
+  StickyNote,
+  Trees,
+  type LucideIcon,
+} from "lucide-react";
 import { ALL_LAYERS, type LayerId, type WallMode } from "@/house/model/types";
 import { Switch } from "@/ui";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
+import { DaylightControl } from "./DaylightControl";
 
 const LAYER_LABELS: Record<LayerId, string> = {
   structure: "Structure (trusses, footings)",
@@ -20,13 +40,21 @@ const LAYER_LABELS: Record<LayerId, string> = {
   annotations: "Notes",
 };
 
+const LAYER_ICONS: Record<LayerId, LucideIcon> = {
+  structure: Building2,
+  scanReferences: ScanLine,
+  yard: Trees,
+  outdoor: Map,
+  equipment: Box,
+  routes: Route,
+  annotations: StickyNote,
+};
+
 export function ViewToolbar({ section }: { section: "view" | "layers" | "rendering" | "presets" }) {
   const runtime = useHouseRuntime();
   const state = useHouseStore(
     useShallow((s) => ({
-      viewMode: s.viewMode,
       projection: s.projection,
-      activeFloorId: s.activeFloorId,
       roofVisible: s.roofVisible,
       ceilingsVisible: s.ceilingsVisible,
       edgesVisible: s.edgesVisible,
@@ -53,7 +81,7 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
       {section === "view" ? (
       <fieldset className="flex min-w-0 flex-col gap-2">
         <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">Walls</legend>
-        <div role="radiogroup" aria-label="Wall display" className="grid grid-cols-2 gap-1">
+        <div role="radiogroup" aria-label="Wall display" className="flex flex-wrap gap-1">
           {WALL_MODES.map((mode) => (
             <button
               key={mode.value}
@@ -61,13 +89,15 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
               role="radio"
               aria-checked={state.wallMode === mode.value}
               onClick={() => setWallMode(mode.value)}
-              className={`min-h-8 rounded-md border px-2 text-xs font-medium transition-colors ${
+              title={`${mode.label}: ${mode.description}`}
+              className={`inline-flex size-11 items-center justify-center rounded-md border transition-colors md:size-8 [&_svg]:size-4 ${
                 state.wallMode === mode.value
                   ? "border-accent bg-accent-soft text-accent-text"
                   : "border-line bg-surface text-ink hover:bg-surface-3"
               }`}
             >
-              {mode.label}
+              <mode.icon aria-hidden="true" />
+              <span className="sr-only">{mode.label}</span>
             </button>
           ))}
         </div>
@@ -89,7 +119,10 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
               void runtime.camera?.overview();
             }}
           >
-            Overview (R)
+            <span className="inline-flex items-center gap-1">
+              <RotateCcw aria-hidden="true" className="size-3.5" />
+              Overview (R)
+            </span>
           </ToolbarButton>
           <ToolbarButton onClick={applyDollhouse} title="Hide the roof and ceilings, then cut walls around the selected room">
             <span className="inline-flex items-center gap-1"><Eye aria-hidden="true" className="size-3.5" />Show inside (D)</span>
@@ -98,7 +131,10 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
             pressed={state.projection === "ortho"}
             onClick={() => setProjection(state.projection === "ortho" ? "perspective" : "ortho")}
           >
-            Orthographic
+            <span className="inline-flex items-center gap-1">
+              <PanelsTopLeft aria-hidden="true" className="size-3.5" />
+              Orthographic
+            </span>
           </ToolbarButton>
         </div>
       </fieldset>
@@ -110,9 +146,9 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
         <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Show
         </legend>
-        <Toggle checked={state.roofVisible} onChange={setRoofVisible} label="Roof (H)" />
-        <Toggle checked={state.ceilingsVisible} onChange={setCeilingsVisible} label="Ceilings (G)" />
-        <Toggle checked={state.edgesVisible} onChange={setEdgesVisible} label="Architectural edges (B)" />
+        <Toggle icon={House} checked={state.roofVisible} onChange={setRoofVisible} label="Roof (H)" />
+        <Toggle icon={PanelTop} checked={state.ceilingsVisible} onChange={setCeilingsVisible} label="Ceilings (G)" />
+        <Toggle icon={PanelsTopLeft} checked={state.edgesVisible} onChange={setEdgesVisible} label="Architectural edges (B)" />
         {state.explodeGap > 0 ? (
           <p className="pl-6 text-[11px] text-ink-3">
             Edges are hidden on the structure assets while exploded — their overlay is one object
@@ -129,6 +165,7 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
         {ALL_LAYERS.map((layer) => (
           <Toggle
             key={layer}
+            icon={LAYER_ICONS[layer]}
             checked={state.layers[layer]}
             onChange={(on) => setLayer(layer, on)}
             label={LAYER_LABELS[layer]}
@@ -140,91 +177,144 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
       </>
       ) : null}
       {section === "rendering" ? (
-      <fieldset className="grid min-w-0 flex-1 grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(12rem,0.7fr)_minmax(16rem,1.3fr)]">
+      <fieldset className="grid min-w-0 flex-1 grid-cols-1 items-start gap-3 lg:grid-cols-2 2xl:grid-cols-3">
         <legend className="sr-only">
           Rendering
         </legend>
-        <Toggle checked={state.performanceMode} onChange={setPerformanceMode} label="Performance mode (pixel ratio 1)" />
+        <Toggle icon={Gauge} checked={state.performanceMode} onChange={setPerformanceMode} label="Performance mode (pixel ratio 1)" />
         <div className="min-w-0">
           <p className="mb-2 text-xs font-medium text-ink-2">Background</p>
           <HouseBackgroundControl value={state.background} onPreview={setBackground} />
         </div>
+        <DaylightControl />
       </fieldset>
       ) : null}
     </div>
   );
 }
 
-const WALL_MODES: ReadonlyArray<{ value: WallMode; label: string }> = [
-  { value: "cut", label: "All cut" },
-  { value: "contextual", label: "Contextual" },
-  { value: "up", label: "All up" },
-  { value: "closed", label: "All up + roof/ceiling" },
+const WALL_MODES: ReadonlyArray<{
+  value: WallMode;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+}> = [
+  { value: "cut", label: "All cut", description: "Lower every wall", icon: BetweenHorizontalEnd },
+  { value: "contextual", label: "Contextual", description: "Lower walls between the camera and the current focus", icon: Eye },
+  { value: "up", label: "All up", description: "Raise every wall with the roof and ceilings hidden", icon: BrickWall },
+  { value: "closed", label: "All up + roof/ceiling", description: "Show the complete building shell", icon: House },
 ];
 
 /** Compact floor-by-building controls that stay on the model rather than in the bottom drawer. */
 export function FloorControls() {
   const runtime = useHouseRuntime();
-  const { index, activeFloorId, isolateFloor, setProjection, setViewMode } = useHouseStore(
+  const { index, activeFloorId, isolateFloor, setProjection } = useHouseStore(
     useShallow((s) => ({
       index: s.index,
       activeFloorId: s.activeFloorId,
       isolateFloor: s.isolateFloor,
       setProjection: s.setProjection,
-      setViewMode: s.setViewMode,
     })),
   );
   if (!index) return null;
 
   const focusFloor = (floorId: string) => {
-    setProjection("ortho");
+    setProjection("perspective");
     isolateFloor(floorId);
-    setViewMode("plan");
-    void runtime.camera?.planFor(floorId);
+    void runtime.camera?.frameFloor(floorId);
   };
 
   return (
     <section
       aria-label="Floor focus"
-      className="pointer-events-auto absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] rounded-lg border border-line bg-surface/95 p-1.5 shadow-pop backdrop-blur"
+      className="pointer-events-auto absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] rounded-lg border border-line bg-surface/95 p-1 shadow-pop backdrop-blur"
     >
-      <div className="flex items-end gap-2 overflow-x-auto">
-        <div className="flex flex-col gap-1">
-          <span className="px-1 text-[10px] font-medium uppercase tracking-wide text-ink-3">Property</span>
-          <ToolbarButton
+      <div className="flex items-end gap-1.5 overflow-x-auto">
+        <div className="flex flex-col items-center gap-1">
+          <FloorIconButton
+            label="All"
+            icon={House}
             pressed={activeFloorId === null}
             onClick={() => {
               isolateFloor(null);
               void runtime.camera?.overview();
             }}
-          >
-            All
-          </ToolbarButton>
+          />
+          <span className="max-w-16 truncate px-0.5 text-[9px] font-medium uppercase tracking-wide text-ink-3">
+            Property
+          </span>
         </div>
         {[...index.buildings.values()].map((building) => (
-          <fieldset key={building.id} className="flex shrink-0 flex-col gap-1">
-            <legend className="px-1 text-[10px] font-medium uppercase tracking-wide text-ink-3">
-              {building.name}
-            </legend>
-            <div className="flex gap-1">
+          <div
+            key={building.id}
+            role="group"
+            aria-label={building.name}
+            className="flex shrink-0 flex-col items-center gap-1"
+          >
+            <div className="flex flex-col gap-1">
               {(index.floorsByBuilding.get(building.id) ?? [])
                 .slice()
-                .sort((a, b) => a.elevation - b.elevation)
-                .map((floor) => (
-                  <ToolbarButton
+                .sort((a, b) => b.elevation - a.elevation)
+                .map((floor, floorIndex, floors) => (
+                  <FloorIconButton
                     key={floor.id}
+                    label={floor.name}
+                    icon={
+                      floors.length === 1
+                        ? Layers3
+                        : floorIndex === 0
+                          ? PanelTop
+                          : floorIndex === floors.length - 1
+                            ? PanelBottom
+                            : Layers3
+                    }
                     pressed={activeFloorId === floor.id}
-                    title={`Top-down focus on ${floor.name}; other buildings and supporting floors remain visible`}
+                    title={`Focus ${floor.name} in 3D; other buildings and supporting floors remain visible`}
                     onClick={() => focusFloor(floor.id)}
-                  >
-                    {floor.name}
-                  </ToolbarButton>
+                  />
                 ))}
             </div>
-          </fieldset>
+            <span
+              className="max-w-16 truncate px-0.5 text-[9px] font-medium uppercase tracking-wide text-ink-3"
+              title={building.name}
+            >
+              {building.name}
+            </span>
+          </div>
         ))}
       </div>
     </section>
+  );
+}
+
+function FloorIconButton({
+  label,
+  icon: Icon,
+  onClick,
+  pressed,
+  title,
+}: {
+  label: string;
+  icon: LucideIcon;
+  onClick: () => void;
+  pressed?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      title={title ?? label}
+      onClick={onClick}
+      className={`inline-flex size-11 shrink-0 items-center justify-center rounded-md border transition-colors md:size-8 [&_svg]:size-4 ${
+        pressed
+          ? "border-accent bg-accent-soft text-accent-text"
+          : "border-line bg-surface text-ink hover:bg-surface-3"
+      }`}
+    >
+      <Icon aria-hidden="true" />
+    </button>
   );
 }
 
@@ -260,15 +350,28 @@ export function ToolbarButton({
 }
 
 function Toggle({
+  icon: Icon,
   checked,
   onChange,
   label,
 }: {
+  icon: LucideIcon;
   checked: boolean;
   onChange: (on: boolean) => void;
   label: string;
 }) {
   return (
-    <Switch checked={checked} onCheckedChange={onChange} label={label} className="min-h-8 py-0 text-xs" />
+    <Switch
+      checked={checked}
+      onCheckedChange={onChange}
+      controlPosition="start"
+      label={
+        <span className="inline-flex items-center gap-1.5">
+          <Icon aria-hidden="true" className="size-3.5 text-ink-3" />
+          {label}
+        </span>
+      }
+      className="min-h-8 py-0 text-xs"
+    />
   );
 }

@@ -150,3 +150,20 @@ test("rendering controls share the available desktop width", async ({ browser },
     await testInfo.attach("compact-rendering-controls.png", { body: await page.screenshot(), contentType: "image/png" });
   } finally { await context.close(); }
 });
+
+test("phone keeps daylight overrides available in a collapsed lighting disclosure", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== "phone", "Phone-only lighting controls.");
+  const { context, page } = await openHouseSession(browser);
+  try {
+    const lighting = page.getByText("Lighting", { exact: true });
+    const shadows = page.getByRole("switch", { name: "Soft shadows", exact: true });
+    await expect(lighting).toBeVisible();
+    await expect(shadows).toBeHidden();
+    await lighting.click();
+    await expect(shadows).toBeVisible();
+    await expect(page.getByRole("button", { name: "Live time", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "All", exact: true }).locator("svg")).toHaveCount(1);
+  } finally {
+    await context.close();
+  }
+});

@@ -15,6 +15,7 @@
  * `docs/model-contract.md` because that file is outside this change's scope.
  */
 import { useEffect, useState } from "react";
+import { Save, Trash2 } from "lucide-react";
 import { ANNOTATION_KINDS } from "@/features/projects/wire";
 import type { AnnotationDto } from "@/features/projects/wire";
 import { NotPersistedError } from "@/house/store/dataApi";
@@ -254,16 +255,18 @@ export function AnnotationInspector({ annotationId }: { annotationId: string }) 
             type="button"
             disabled={busy}
             onClick={() => void save()}
-            className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
           >
+            <Save aria-hidden="true" className="size-3.5" />
             Save
           </button>
           <button
             type="button"
             disabled={busy}
             onClick={() => void remove()}
-            className="min-h-9 rounded-md border border-overdue/45 bg-surface px-3 text-xs font-medium text-overdue hover:bg-overdue-soft disabled:opacity-50"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-overdue/45 bg-surface px-3 text-xs font-medium text-overdue hover:bg-overdue-soft disabled:opacity-50"
           >
+            <Trash2 aria-hidden="true" className="size-3.5" />
             Delete pin
           </button>
         </div>

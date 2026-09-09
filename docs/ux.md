@@ -70,10 +70,12 @@ missing.
 ### House workspace controls
 
 The desktop right panel has one scroll region for details, equipment placement or route editing.
-Floor shortcuts float at the bottom-left of the canvas, grouped by building. Choosing a floor gives
-it a top-down focus while retaining lower supporting floors in that building and every other
-building. The bottom View controls panel contains View (Sims-style wall mode, cutaway, explode),
-Layers (visibility and route legend), and Rendering (performance and background) tabs. Wall mode is
+Floor shortcuts float at the bottom-left of the canvas, grouped by building as vertical stacks that
+match their physical floor order. Their icon-only buttons retain accessible names and hover labels.
+Choosing a floor frames it in the regular perspective view, leaves orbit controls available, and
+retains lower supporting floors in that building and every other building. The bottom View controls
+panel contains View (Sims-style wall mode, cutaway, explode), Layers (visibility and route legend),
+and Rendering (performance, background, daylight and shadows) tabs. Wall mode is
 one of All cut, Contextual, All up, or All up + roof/ceiling; Show inside is the quick contextual
 preset. Camera presets and Download image remain available when the bottom panel is collapsed.
 Immediate visibility settings use switches. Controls use compact desktop spacing and retain larger
@@ -669,3 +671,10 @@ Placement also accepts door frames, door leaves and other visible model objects.
 face to attach with a **Free / other surface** mount. The height and X/Y/Z fields allow fine
 adjustment; editing Y now updates the mounting height too. Model scans and equipment markers are
 not attachment surfaces.
+
+Daylight controls live under Rendering: Live time follows the model location; Studio keeps a steady
+architectural light; date/time and morning/noon/night shortcuts preview another time. The time zone
+is shown beside the input. Location/north overrides are view-only and disclose model north certainty.
+Soft shadows can be switched to crisp shadows. Performance mode reduces the site shadow map.
+Expanded sensor labels use font-independent SVG icons, including a complete thermometer for
+temperature, with their text readings retained for screen readers.
