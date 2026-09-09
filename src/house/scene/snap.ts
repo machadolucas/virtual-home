@@ -89,7 +89,8 @@ export function resolveSnap(input: SnapInput): SnapSolution {
     if (canMountSurface(manifest, hit.surfaceId, "wall") && mesh) {
       const anchor = room ? input.anchorOf?.(room.id) : undefined;
       const frame = wallFrame(mesh, {
-        towards: anchor ? new THREE.Vector3(...anchor) : hit.normal ? hit.point.clone().add(hit.normal) : undefined,
+        point: hit.point, normal: hit.normal,
+        towards: hit.normal ? hit.point.clone().add(hit.normal) : anchor ? new THREE.Vector3(...anchor) : undefined,
       });
       const local = frame.toLocal(hit.point);
       const u = snap(local.u);
@@ -97,7 +98,7 @@ export function resolveSnap(input: SnapInput): SnapSolution {
         draft.mount.kind === "wall" ? draft.mount.height : local.v - base;
       const height = snap(currentHeight);
       const point = frame.toWorld(u, base + height, WALL_STANDOFF);
-      // Face out of the wall, into the room.
+      // Face towards the picked side, even if an exterior face has a room association.
       const rotY = THREE.MathUtils.radToDeg(Math.atan2(frame.n.x, frame.n.z));
       return {
         // Rounded to millimetres, **not** re-snapped to the grid: the grid snap already happened
@@ -266,13 +267,12 @@ export function resolveNumeric(
     if (mesh) {
       // Project onto the wall's own plane, exactly as the drag path does, so the standoff moves
       // the marker along the surface normal instead of only changing a number.
-      const anchor = room ? opts.anchorOf?.(room.id) : undefined;
       const source = new THREE.Vector3(...draft.physical);
-      let frame = wallFrame(mesh, { towards: anchor ? new THREE.Vector3(...anchor) : source });
+      let frame = wallFrame(mesh, { point: source, towards: source });
       // A flush mount has no positional side information; its saved facing direction retains it.
-      if (!anchor && Math.abs(frame.toLocal(source).d) < 1e-6) {
+      if (Math.abs(frame.toLocal(source).d) < 1e-6) {
         const yaw = THREE.MathUtils.degToRad(draft.rotationYDeg);
-        frame = wallFrame(mesh, { towards: source.clone().add(new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))) });
+        frame = wallFrame(mesh, { point: source, towards: source.clone().add(new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))) });
       }
       const local = frame.toLocal(source);
       const world = frame.toWorld(snapValue(local.u, grid), base + mount.height, mount.offset);

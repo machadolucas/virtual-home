@@ -613,3 +613,8 @@ stored value; explicit null restores the display defaults (1 m and 5 m). API val
 non-finite or out-of-range values and rounds to millimetres. Migration 0010 adds two nullable columns.
 LED bars scale along their long axis only. Motion-sensor and camera bodies follow the existing
 `lightAim` yaw/pitch format, as do their selection-only, non-persistent cone meshes.
+
+Wall snapping treats a semantic surface as potentially multi-planar: exterior surfaces can wrap
+around corners or bays. The picked triangle selects the mounting plane, and only coplanar triangles
+supply the guide extents. Numeric adjustments recover that plane from the saved physical position,
+retaining the picked side and wall standoff instead of averaging the whole surface into a diagonal.

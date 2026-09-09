@@ -65,12 +65,27 @@ export function dominantNormal(geometry: THREE.BufferGeometry): THREE.Vector3 {
 export interface WallFrameOptions {
   /** A point inside the room, used to orient `n` towards it. `DoubleSide` makes winding useless. */
   towards?: THREE.Vector3;
+  /** World-space picked/saved point: select its actual plane in a multi-face surface. */
+  point?: THREE.Vector3;
+  /** Picked face normal in world space; disambiguates corners. */
+  normal?: THREE.Vector3;
 }
 
 export function wallFrame(mesh: THREE.Mesh, opts: WallFrameOptions = {}): WallFrame {
   const geometry = mesh.geometry;
   mesh.updateWorldMatrix(true, false);
   const matrix = mesh.matrixWorld;
+
+  const face = opts.point ? localFace(mesh, opts.point, opts.normal) : null;
+  if (face) {
+    const n = face.normal.clone();
+    if (opts.towards && opts.towards.clone().sub(face.point).dot(n) < 0) n.negate();
+    const v = new THREE.Vector3(0, 1, 0);
+    const u = new THREE.Vector3().crossVectors(v, n).normalize();
+    const along = face.vertices.map((p) => p.dot(u));
+    const heights = face.vertices.map((p) => p.y);
+    return makeFrame(u, v, n, Math.min(...along), Math.max(...along), Math.min(...heights), Math.max(...heights), face.point.dot(n));
+  }
 
   const n = dominantNormal(geometry).applyMatrix3(
     new THREE.Matrix3().getNormalMatrix(matrix),
@@ -166,4 +181,37 @@ function makeFrame(
     },
   };
   return frame;
+}
+
+/** Select a vertical triangle, then only the coplanar triangles that belong to its face.
+ * A semantic surface may wrap around a bay/corner; averaging those normals invents a diagonal.
+ */
+function localFace(mesh: THREE.Mesh, point: THREE.Vector3, pickedNormal?: THREE.Vector3) {
+  const pos = mesh.geometry.getAttribute("position");
+  if (!pos) return null;
+  const index = mesh.geometry.getIndex();
+  const triangles: { triangle: THREE.Triangle; normal: THREE.Vector3 }[] = [];
+  const closest = new THREE.Vector3();
+  let best: (typeof triangles)[number] | undefined;
+  let distance = Infinity;
+  for (let i = 0; i + 2 < (index?.count ?? pos.count); i += 3) {
+    const vertices = [0, 1, 2].map((j) => new THREE.Vector3().fromBufferAttribute(pos, index ? index.getX(i + j) : i + j).applyMatrix4(mesh.matrixWorld));
+    const triangle = new THREE.Triangle(vertices[0]!, vertices[1]!, vertices[2]!);
+    const normal = triangle.getNormal(new THREE.Vector3());
+    if (normal.lengthSq() < 0.5 || Math.abs(normal.y) > 0.1) continue;
+    normal.y = 0;
+    normal.normalize();
+    const entry = { triangle, normal };
+    triangles.push(entry);
+    if (pickedNormal && Math.abs(normal.dot(pickedNormal)) < 0.99) continue;
+    const d = triangle.closestPointToPoint(point, closest).distanceToSquared(point);
+    if (d < distance) { best = entry; distance = d; }
+  }
+  if (!best) return null;
+  const planePoint = best.triangle.a;
+  const vertices = triangles.filter(({ triangle, normal }) =>
+    Math.abs(normal.dot(best!.normal)) > 0.9999 &&
+    [triangle.a, triangle.b, triangle.c].every((p) => Math.abs(p.clone().sub(planePoint).dot(best!.normal)) < 0.001),
+  ).flatMap(({ triangle }) => [triangle.a, triangle.b, triangle.c]);
+  return { normal: best.normal, point: planePoint, vertices };
 }

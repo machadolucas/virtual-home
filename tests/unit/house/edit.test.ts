@@ -813,3 +813,36 @@ describe("attachment to other physical objects", () => {
     expect(numeric.mount).toEqual(result.mount);
   });
 });
+
+
+describe("exterior surfaces spanning multiple wall planes", () => {
+  it("snaps to each picked face instead of a diagonal average, including after numeric edits", () => {
+    const built = buildScene(FIXTURE_DIR);
+    const geometry = new THREE.BufferGeometry();
+    // Synthetic L-shaped exterior: z=0 and x=2, both under one surface ID.
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute([
+      0,0,0, 2,0,0, 2,3,0, 0,0,0, 2,3,0, 0,3,0,
+      2,0,0, 2,0,2, 2,3,2, 2,0,0, 2,3,2, 2,3,0,
+    ], 3));
+    const mesh = new THREE.Mesh(geometry);
+    for (const [point, normal, expected] of [
+      [[1,1.35,0], [0,0,-1], [1,1.35,-0.02]],
+      [[2,1.35,1], [1,0,0], [2.02,1.35,1]],
+    ] as [Vec3, Vec3, Vec3][]) {
+      const hit = hitOn(built, "s-e-l-ext-out", "r-l-a", new THREE.Vector3(...point));
+      hit.normal = new THREE.Vector3(...normal);
+      const solution = resolveSnap({ hit, config: SNAP, manifest: built.manifestIndex,
+        draft: draftAt([0,0,0], "f-lower"), meshOf: () => mesh, anchorOf: () => [1,1,1] });
+      expect(solution.physical).toEqual(expected);
+      expect(solution.indicator.frame!.n.distanceTo(new THREE.Vector3(...normal))).toBeCloseTo(0);
+      expect(solution.indicator.frame!.uRange[1]).toBeCloseTo(2);
+      const numeric = resolveNumeric(built.manifestIndex, solution, SNAP, { meshOf: () => mesh, anchorOf: () => [1,1,1] });
+      expect(numeric.physical).toEqual(expected);
+      expect(numeric.rotationYDeg).toEqual(solution.rotationYDeg);
+      const raised = resolveNumeric(built.manifestIndex, { ...numeric, mount: { kind: "wall", surfaceId: "s-e-l-ext-out", height: 1.8, offset: 0.1 } }, SNAP, { meshOf: () => mesh });
+      expect(raised.physical[1]).toBe(1.8);
+      expect(new THREE.Vector3(...raised.physical).sub(new THREE.Vector3(point[0],1.8,point[2])).dot(new THREE.Vector3(...normal))).toBeCloseTo(0.1);
+    }
+    geometry.dispose();
+  });
+});
