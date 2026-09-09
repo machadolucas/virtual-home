@@ -28,6 +28,7 @@ import type {
   SurfaceKindSchema,
   SurfaceSchema,
 } from "./schema";
+import type { SolarPanelConfig } from "./solarPanel";
 
 export type Manifest = z.infer<typeof ManifestSchema>;
 export type Building = z.infer<typeof BuildingSchema>;
@@ -144,6 +145,8 @@ export interface Placement {
   rotationYDeg: number;
   /** Physical beam direction; null/absent uses the fixture default. */
   lightAim?: { yawDeg: number; pitchDeg: number } | null;
+  /** Physical panel dimensions and roof-relative tilt. Present only for solar-panel symbols. */
+  solarPanel?: SolarPanelConfig | null;
   mount: PlacementMount;
   floorId: FloorId;
   roomId: RoomId | null;

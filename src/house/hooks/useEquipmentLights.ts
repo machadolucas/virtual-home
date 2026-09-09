@@ -4,7 +4,13 @@ import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { clipGroupOf } from "../model/explodeGroups";
-import { isLightEntity, lightAppearance, lightDirection } from "../model/equipmentLight";
+import {
+  isLightEntity,
+  isSpotlightSymbol,
+  lightAppearance,
+  lightDirection,
+  lightSourcePosition,
+} from "../model/equipmentLight";
 import { defaultSymbol, isPlacementSymbol } from "../scene/symbols";
 import { isVisibleUp } from "../scene/applyVisibility";
 import {
@@ -54,7 +60,7 @@ export function useEquipmentLights() {
       if (index && manifest && state.layers.equipment) {
         for (const saved of state.placements) {
           const draft = state.editing?.placementId === saved.id ? state.editing : null;
-          const p = draft ? { ...saved, position: draft.physical, lightAim: draft.lightAim, symbol: draft.symbol, floorId: draft.floorId, roomId: draft.roomId, surfaceId: draft.surfaceId, mount: draft.mount } : saved;
+          const p = draft ? { ...saved, position: draft.physical, rotationYDeg: draft.rotationYDeg, lightAim: draft.lightAim, symbol: draft.symbol, floorId: draft.floorId, roomId: draft.roomId, surfaceId: draft.surfaceId, mount: draft.mount } : saved;
           const entityId = [p.entityId, ...(p.linkedEntities ?? []).map((e) => e.entityId)].find(isLightEntity);
           if (!entityId) continue;
           const entity = ha.entities[entityId];
@@ -67,13 +73,10 @@ export function useEquipmentLights() {
           const position: [number, number, number] = [p.position[0], p.position[1] + (runtime.offsets.get(group) ?? 0), p.position[2]];
           if (runtime.clip && !runtime.clip.keeps(group, new THREE.Vector3(...position))) continue;
           const symbol = isPlacementSymbol(p.symbol) ? p.symbol : defaultSymbol({ category: p.category, entityId: p.entityId, mountKind: p.mount.kind, isOutdoor: !p.roomId });
-          const direction = lightDirection(symbol, p.lightAim);
-          // Source follows the emitter, not the mount point (a standing lamp's mount is on the floor).
-          const rise = symbol === "lamp_post" ? 0.55 : symbol === "floor_lamp" ? 0.35 : symbol === "spike_spot" ? 0.085 : symbol === "wall_lamp" ? 0.055 : symbol === "ceiling_lamp" ? -0.14 : -0.065;
-          const wallOffset = symbol === "wall_lamp" ? 0.09 : 0;
-          const yaw = THREE.MathUtils.degToRad(p.rotationYDeg);
-          const source: [number, number, number] = [position[0] + Math.sin(yaw) * wallOffset, position[1] + rise, position[2] + Math.cos(yaw) * wallOffset];
-          candidates.push({ id: p.id, spot: symbol === "downlight" || symbol === "spike_spot", position: source, direction, color: appearance.color, brightness: appearance.intensity });
+          const direction = lightDirection(symbol, p.lightAim, p.rotationYDeg);
+          // Source follows the visible emitter, while the persisted coordinate remains its mount.
+          const source = lightSourcePosition(p.position, symbol, p.rotationYDeg, runtime.offsets.get(group) ?? 0);
+          candidates.push({ id: p.id, spot: isSpotlightSymbol(symbol), position: source, direction, color: appearance.color, brightness: appearance.intensity });
         }
       }
       const selected = state.selection?.kind === "equipment" ? state.selection.id : null;

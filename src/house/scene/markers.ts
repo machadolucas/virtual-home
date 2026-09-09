@@ -15,6 +15,8 @@ import type { ExplodeGroup, Placement, PlacementId } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
 import { getViewerPalette, type MarkerStateClass } from "./palette";
 import { overlayGroup, type SceneIndex } from "./SceneIndex";
+import { isSpotlightSymbol } from "@/house/model/equipmentLight";
+import { DEFAULT_SOLAR_PANEL_CONFIG } from "@/house/model/solarPanel";
 import { symbolGeometry, type PlacementSymbol } from "./symbols";
 
 export const MARKER_CAPACITY = 256;
@@ -74,7 +76,9 @@ export class MarkerLayer {
         this.material,
         MARKER_CAPACITY,
       );
-      mesh.castShadow = true;
+      // These are compact fixture symbols, not hollow light housings. Their solid silhouette
+      // must not extinguish the emitter inside it; physical walls/appliances still occlude light.
+      mesh.castShadow = !(isSpotlightSymbol(symbol) || ["lamp_post", "floor_lamp", "wall_lamp", "ceiling_lamp"].includes(symbol));
       mesh.receiveShadow = true;
       mesh.name = `vh-markers-${group}-${symbol}`;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -104,13 +108,16 @@ export class MarkerLayer {
       state.ids.length = 0;
     }
     for (const p of placements) {
-      const state = this.groupFor(groupOf(p), symbolOf(p));
+      const symbol = symbolOf(p);
+      const state = this.groupFor(groupOf(p), symbol);
       if (state.mesh.count >= MARKER_CAPACITY) continue;
       const i = state.mesh.count;
       // Yaw matters now that symbols have a front: a wall lamp's shade has to point away from the
       // wall it is bolted to, which is the rotation the wall snap already solved for.
       this.position.set(p.position[0], p.position[1], p.position[2]);
-      this.euler.set(0, THREE.MathUtils.degToRad(p.rotationYDeg ?? 0), 0);
+      const panel = symbol === "solar_panel" ? p.solarPanel ?? DEFAULT_SOLAR_PANEL_CONFIG : null;
+      this.euler.set(THREE.MathUtils.degToRad(panel?.tiltDeg ?? 0), THREE.MathUtils.degToRad(p.rotationYDeg ?? 0), 0, "YXZ");
+      this.unitScale.set(panel?.widthM ?? 1, panel?.thicknessM ?? 1, panel?.lengthM ?? 1);
       this.quaternion.setFromEuler(this.euler);
       this.matrix.compose(this.position, this.quaternion, this.unitScale);
       state.mesh.setMatrixAt(i, this.matrix);

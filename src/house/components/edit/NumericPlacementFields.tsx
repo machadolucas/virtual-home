@@ -5,6 +5,8 @@
  *
  * On a phone this is the whole editor (§7.3): drag placement is not offered there.
  */
+import { SolarPanelFields } from "./SolarPanelFields";
+import { DEFAULT_SOLAR_PANEL_CONFIG } from "@/house/model/solarPanel";
 import { resolveNumeric } from "@/house/scene/snap";
 import {
   defaultSymbol,
@@ -199,7 +201,10 @@ export function NumericPlacementFields() {
           selectSize="sm"
           value={editing.symbol ?? INFERRED}
           onValueChange={(value) => {
-            updateDraft({ symbol: value === INFERRED ? null : value });
+            updateDraft({
+              symbol: value === INFERRED ? null : value,
+              ...(value === "solar_panel" ? { solarPanel: editing.solarPanel ?? { ...DEFAULT_SOLAR_PANEL_CONFIG } } : {}),
+            });
           }}
           options={[
             {
@@ -213,6 +218,8 @@ export function NumericPlacementFields() {
           ]}
         />
       </label>
+
+      <SolarPanelFields />
 
       <label className="flex flex-col gap-0.5 text-xs">
         <span className="text-ink-3">

@@ -48,6 +48,7 @@ describe("symbol geometry", () => {
       expect(position, symbol).toBeTruthy();
       expect(position.count, symbol).toBeGreaterThan(0);
       expect(geometry.boundingSphere, symbol).toBeTruthy();
+      expect(Array.from(position.array).every(Number.isFinite), symbol).toBe(true);
       // A symbol nobody can tell apart from another is not a symbol.
       signatures.add(`${position.count}:${geometry.boundingSphere?.radius.toFixed(4)}`);
     }
@@ -61,9 +62,40 @@ describe("symbol geometry", () => {
 
   it("keeps every symbol small enough to read as a marker rather than as furniture", () => {
     for (const symbol of PLACEMENT_SYMBOLS) {
+      // Solar panels use normalized unit geometry so their placement scale can hold the real
+      // width, thickness and length independently.
+      if (symbol === "solar_panel") continue;
       const radius = symbolGeometry(symbol).boundingSphere?.radius ?? 0;
       expect(radius, symbol).toBeLessThan(0.5);
     }
+  });
+
+  it("normalizes a solar panel to configurable dimensions and anchors it on its bottom", () => {
+    const box = symbolGeometry("solar_panel").boundingBox!;
+    const size = box.getSize(new THREE.Vector3());
+    expect(size.x).toBeCloseTo(1, 6);
+    expect(size.y).toBeCloseTo(1, 6);
+    expect(size.z).toBeCloseTo(1, 6);
+    expect(box.min.y).toBeCloseTo(0, 6);
+    const centre = box.getCenter(new THREE.Vector3());
+    expect(centre.x).toBeCloseTo(0, 6);
+    expect(centre.y).toBeCloseTo(0.5, 6);
+    expect(centre.z).toBeCloseTo(0, 6);
+  });
+
+  it("centres the lantern directly over its single pole", () => {
+    const position = symbolGeometry("lamp_post").getAttribute("position");
+    const head = new THREE.Box3();
+    for (let index = 0; index < position.count; index += 1) {
+      if (position.getY(index) >= 0.52) {
+        head.expandByPoint(
+          new THREE.Vector3(position.getX(index), position.getY(index), position.getZ(index)),
+        );
+      }
+    }
+    const centre = head.getCenter(new THREE.Vector3());
+    expect(centre.x).toBeCloseTo(0, 6);
+    expect(centre.z).toBeCloseTo(0, 6);
   });
 
   it("labels every symbol", () => {
@@ -73,6 +105,10 @@ describe("symbol geometry", () => {
     expect(isPlacementSymbol("lamp_post")).toBe(true);
     expect(isPlacementSymbol("not_a_symbol")).toBe(false);
     expect(isPlacementSymbol(null)).toBe(false);
+    expect(SYMBOL_LABEL.wall_spot).toBe("Wall spot");
+    expect(SYMBOL_LABEL.floor_spot).toBe("Floor spot");
+    expect(SYMBOL_LABEL.ceiling_spot).toBe("Ceiling spot");
+    expect(SYMBOL_LABEL.solar_panel).toBe("Solar panel");
   });
 });
 

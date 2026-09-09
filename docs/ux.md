@@ -695,3 +695,16 @@ Global illumination intensity in Rendering → Daylight and shadows (phone: Ligh
 scales sunlight, moonlit fill and ambient/studio light from 0–300%, with 100% as the
 default. It is a view-only override independent of time; equipment light brightness
 is unchanged. PNG captures use the adjusted illumination.
+
+Equipment placement's **Shown as** picker offers household appliances, plumbing, sauna heaters,
+network/media equipment and lamp variants. Wall/floor/ceiling spots expose **Spotlight direction**:
+enter yaw/pitch or use **Aim in 3D view** on desktop. Aiming points from the actual fixture head.
+Choose **Solar panel** to reveal width, length, thickness and tilt fields. Click a visible roof to
+align its slope, then adjust position/rotation numerically as needed. Panel dimensions are metres;
+other equipment silhouettes are compact symbols. Every panel remains a separate equipment placement.
+
+Home Assistant import rows keep their selection, device details and import action in aligned columns.
+**Hide already imported** filters linked devices from the registry list. Selected-device entity choices
+show explicit Disabled, Hidden and availability badges, so diagnostic readings remain distinguishable
+from entities HA cannot currently provide. Dropdowns with explanatory hints open wider than a compact
+trigger when space allows, and remain constrained to the phone viewport.

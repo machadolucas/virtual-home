@@ -165,6 +165,8 @@ export const assetPlacement = sqliteTable(
      * category and the mount without ever writing it back.
      */
     symbol: text("symbol"),
+    /** Validated JSON `SolarPanelConfig`; nullable for every non-panel placement. */
+    solarPanelJson: text("solar_panel_json"),
     /** "behind the hatch, left of the manifold" — words a photo cannot replace. */
     locationNote: text("location_note"),
     /** The close-up that makes the location findable. */

@@ -1,0 +1,1 @@
+ALTER TABLE `asset_placement` ADD `solar_panel_json` text;

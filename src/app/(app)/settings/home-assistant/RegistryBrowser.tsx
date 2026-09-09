@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Cpu, Search, X } from "lucide-react";
 import { ASSET_CATEGORIES, HA_LINK_ROLES, type AssetCategory, type HaLinkRole } from "@/db/schema";
 import {
@@ -90,6 +90,8 @@ export interface BrowserEntity {
   state: string | null;
   liveness: "live" | "restored" | "unavailable" | "unknown" | "no_state" | null;
   liveState: string | null;
+  disabledBy: string | null;
+  hiddenBy: string | null;
   linkedAssetName: string | null;
 }
 
@@ -144,6 +146,7 @@ export function RegistryBrowser({
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [bulkRoles, setBulkRoles] = useState<Record<string, Record<string, string>>>({});
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [hideImported, setHideImported] = useState(false);
   const [draftQuery, setDraftQuery] = useState(query);
   /**
    * The result of the last bulk import, held here rather than in the bar.
@@ -209,6 +212,43 @@ export function RegistryBrowser({
       role === NO_ROLE ? [] : [{ registryId, role: role as HaLinkRole }],
     ),
   }));
+
+  const importedDeviceCount = useMemo(
+    () =>
+      groups.reduce(
+        (count, floor) =>
+          count +
+          floor.areas.reduce(
+            (areaCount, area) =>
+              areaCount + area.devices.filter((device) => device.linkedAssetId !== null).length,
+            0,
+          ),
+        0,
+      ),
+    [groups],
+  );
+  const visibleGroups = useMemo(
+    () =>
+      hideImported
+        ? groups.flatMap((floor) => {
+            const areas = floor.areas.flatMap((area) => {
+              const devices = area.devices.filter((device) => device.linkedAssetId === null);
+              return devices.length === 0 ? [] : [{ ...area, devices }];
+            });
+            return areas.length === 0 ? [] : [{ ...floor, areas }];
+          })
+        : groups,
+    [groups, hideImported],
+  );
+  const visibleDeviceCount = useMemo(
+    () =>
+      visibleGroups.reduce(
+        (count, floor) =>
+          count + floor.areas.reduce((areaCount, area) => areaCount + area.devices.length, 0),
+        0,
+      ),
+    [visibleGroups],
+  );
 
   const push = useCallback(
     (next: { q?: string; hidden?: boolean; dead?: boolean }) => {
@@ -283,6 +323,17 @@ export function RegistryBrowser({
         </label>
         <div className="flex flex-col gap-3">
           <Switch
+            checked={hideImported}
+            disabled={bulkBusy}
+            onCheckedChange={setHideImported}
+            label="Hide already imported"
+            hint={
+              importedDeviceCount === 0
+                ? "No devices in these results are already imported."
+                : `${importedDeviceCount} already imported device(s) in these results.`
+            }
+          />
+          <Switch
             checked={includeHidden}
             disabled={bulkBusy}
             onCheckedChange={(checked) => push({ hidden: checked })}
@@ -332,12 +383,14 @@ export function RegistryBrowser({
 
       {lastImport === null ? null : <BulkImportOutcome outcome={lastImport} />}
 
-      {deviceCount === 0 ? (
+      {visibleDeviceCount === 0 ? (
         <p className="text-sm text-ink-3">
-          No device matches. Clear the search, or turn on disabled and hidden things.
+          {deviceCount > 0 && hideImported
+            ? "Every matching device is already imported. Turn off Hide already imported to see them."
+            : "No device matches. Clear the search, or turn on disabled and hidden things."}
         </p>
       ) : (
-        groups.map((floor) => (
+        visibleGroups.map((floor) => (
           <div key={floor.floorId ?? "__none"} className="flex flex-col gap-2">
             <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-3">
               {floor.floorName}
@@ -349,10 +402,11 @@ export function RegistryBrowser({
                   {area.devices.map((device) => (
                     <li
                       key={device.deviceId}
-                      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5"
+                      className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-3 py-2.5"
                     >
-                      {device.linkedAssetId === null ? (
-                        <>
+                      <span className="flex w-11 shrink-0 items-center gap-3">
+                        {device.linkedAssetId === null ? (
+                          <>
                           {/* The name is the label, but repeating it inline would double every
                               row; an external sr-only label keeps the accessible name. */}
                           <label
@@ -370,42 +424,45 @@ export function RegistryBrowser({
                               toggleSelected(device.deviceId, checked === true)
                             }
                           />
-                        </>
-                      ) : (
-                        <span className="w-4 shrink-0" />
-                      )}
-                      <Cpu aria-hidden="true" className="size-4 shrink-0 text-ink-3" />
-                      <span className="text-sm font-medium text-ink">
-                        {device.nameByUser ?? device.name ?? device.deviceId}
+                          </>
+                        ) : (
+                          <span className="w-4 shrink-0" />
+                        )}
+                        <Cpu aria-hidden="true" className="size-4 shrink-0 text-ink-3" />
                       </span>
-                      {device.entryType === "service" ? (
-                        <Badge tone="neutral" size="sm">
-                          Software
-                        </Badge>
-                      ) : null}
-                      <span className="text-xs text-ink-3">
-                        {[device.manufacturer, device.model].filter(Boolean).join(" ") ||
-                          "no manufacturer recorded"}
+                      <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+                        <span className="min-w-0 text-sm font-medium text-ink">
+                          {device.nameByUser ?? device.name ?? device.deviceId}
+                        </span>
+                        {device.entryType === "service" ? (
+                          <Badge tone="neutral" size="sm">
+                            Software
+                          </Badge>
+                        ) : null}
+                        <span className="min-w-0 text-xs text-ink-3">
+                          {[device.manufacturer, device.model].filter(Boolean).join(" ") ||
+                            "no manufacturer recorded"}
+                        </span>
+                        <span className="vh-tnum text-xs text-ink-3">
+                          {device.visibleEntityCount} of {device.entityCount} entities
+                        </span>
+                        {device.livenessUnmeasured ? null : device.liveEntityCount === 0 &&
+                          device.deadEntityCount > 0 ? (
+                          <Badge tone="overdue" size="sm">
+                            Nothing live
+                          </Badge>
+                        ) : device.deadEntityCount > 0 ? (
+                          <Badge tone="stale" size="sm">
+                            {device.deadEntityCount} not live
+                          </Badge>
+                        ) : null}
+                        {device.linkedAssetId === null ? null : (
+                          <Badge tone="ok" size="sm">
+                            Already {device.linkedAssetName}
+                          </Badge>
+                        )}
                       </span>
-                      <span className="vh-tnum text-xs text-ink-3">
-                        {device.visibleEntityCount} of {device.entityCount} entities
-                      </span>
-                      {device.livenessUnmeasured ? null : device.liveEntityCount === 0 &&
-                        device.deadEntityCount > 0 ? (
-                        <Badge tone="overdue" size="sm">
-                          Nothing live
-                        </Badge>
-                      ) : device.deadEntityCount > 0 ? (
-                        <Badge tone="stale" size="sm">
-                          {device.deadEntityCount} not live
-                        </Badge>
-                      ) : null}
-                      {device.linkedAssetId === null ? null : (
-                        <Badge tone="ok" size="sm">
-                          Already {device.linkedAssetName}
-                        </Badge>
-                      )}
-                      <span className="ml-auto">
+                      <span className="shrink-0">
                         <ImportDialog
                           device={device}
                           entities={entitiesByDevice[device.deviceId] ?? []}
@@ -415,22 +472,24 @@ export function RegistryBrowser({
                         />
                       </span>
                       {device.linkedAssetId === null && selected.has(device.deviceId) ? (
-                        <BulkEntityChoices
-                          deviceName={device.nameByUser ?? device.name ?? device.deviceId}
-                          entities={entitiesByDevice[device.deviceId] ?? []}
-                          roles={bulkRoles[device.deviceId] ?? {}}
-                          disabled={bulkBusy}
-                          onRoleChange={(registryId, role) =>
-                            setBulkRoles((current) => ({
-                              ...current,
-                              [device.deviceId]: setRole(
-                                current[device.deviceId] ?? {},
-                                registryId,
-                                role,
-                              ),
-                            }))
-                          }
-                        />
+                        <div className="col-span-3 min-w-0 sm:col-span-2 sm:col-start-2">
+                          <BulkEntityChoices
+                            deviceName={device.nameByUser ?? device.name ?? device.deviceId}
+                            entities={entitiesByDevice[device.deviceId] ?? []}
+                            roles={bulkRoles[device.deviceId] ?? {}}
+                            disabled={bulkBusy}
+                            onRoleChange={(registryId, role) =>
+                              setBulkRoles((current) => ({
+                                ...current,
+                                [device.deviceId]: setRole(
+                                  current[device.deviceId] ?? {},
+                                  registryId,
+                                  role,
+                                ),
+                              }))
+                            }
+                          />
+                        </div>
                       ) : null}
                     </li>
                   ))}
@@ -581,6 +640,16 @@ function BulkImportBar({
   );
 }
 
+function EntityStatusBadges({ entity }: { entity: BrowserEntity }) {
+  const state = entity.liveness;
+  const label = state === "unavailable" ? "Unavailable" : state === "unknown" ? "Unknown" : state === "restored" ? "Restored" : state === "no_state" ? "No state" : null;
+  return <span className="flex flex-wrap gap-1">
+    {entity.disabledBy ? <Badge tone="neutral" size="sm">Disabled</Badge> : null}
+    {entity.hiddenBy ? <Badge tone="neutral" size="sm">Hidden</Badge> : null}
+    {label ? <Badge tone="stale" size="sm">{label}</Badge> : null}
+  </span>;
+}
+
 function BulkEntityChoices({
   deviceName,
   entities,
@@ -603,18 +672,15 @@ function BulkEntityChoices({
       {entities.length === 0 ? (
         <p className="text-xs text-ink-3">No visible entities are available for this device.</p>
       ) : (
-        <ul className="grid list-none gap-2 lg:grid-cols-2">
+        <ul className="grid list-none grid-cols-[repeat(auto-fit,minmax(min(100%,26rem),1fr))] gap-3">
           {entities.map((entity) => (
-            <li key={entity.registryId} className="flex min-w-0 items-center gap-2">
+            <li key={entity.registryId} className="grid min-w-0 grid-cols-1 items-start gap-2 sm:grid-cols-[minmax(0,1fr)_11rem]">
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-mono text-xs text-ink">{entity.entityId}</span>
-                <span className="block truncate text-xs text-ink-3">
-                  {[entity.name ?? entity.originalName, entity.deviceClass, entity.unitOfMeasurement]
-                    .filter(Boolean)
-                    .join(" · ") || entity.domain}
-                </span>
+                <span className="block truncate text-xs font-medium text-ink" title={entity.name ?? entity.originalName ?? entity.deviceClass ?? entity.domain}>{entity.name ?? entity.originalName ?? entity.deviceClass ?? entity.domain}</span>
+                <span className="block truncate font-mono text-xs text-ink-3" title={entity.entityId}>{entity.entityId}</span>
+                <EntityStatusBadges entity={entity} />
               </span>
-              <span className="w-40 shrink-0">
+              <span className="min-w-0 w-full">
                 <Select
                   ariaLabel={`Role for ${entity.entityId}`}
                   selectSize="sm"
@@ -891,7 +957,9 @@ function ImportDialog({
                   className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2"
                 >
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="font-mono text-xs text-ink">{entity.entityId}</span>
+                    <span className="text-xs font-medium text-ink">{entity.name ?? entity.originalName ?? entity.deviceClass ?? entity.domain}</span>
+                    <span className="break-all font-mono text-xs text-ink-3">{entity.entityId}</span>
+                    <EntityStatusBadges entity={entity} />
                     <span className="text-xs text-ink-3">
                       {[
                         entity.name ?? entity.originalName,

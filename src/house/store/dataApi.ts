@@ -393,6 +393,7 @@ export function createRestDataApi(opts: RestDataApiOptions = {}): HouseDataApi {
             position: placement.position,
             rotationYDeg: placement.rotationYDeg,
             lightAim: placement.lightAim ?? null,
+            solarPanel: placement.solarPanel ?? null,
             floorId: placement.floorId,
             roomId: placement.roomId,
             // The mount round-trips now: a wall-mounted sensor keeps *which* wall it is on.

@@ -28,6 +28,13 @@ export interface LightAppearance {
 
 const DOWN: LightAim = { yawDeg: 0, pitchDeg: -90 };
 const UP: LightAim = { yawDeg: 0, pitchDeg: 90 };
+const SPOTLIGHT_SYMBOLS = new Set([
+  "wall_spot",
+  "floor_spot",
+  "ceiling_spot",
+  "spike_spot",
+  "downlight",
+]);
 /** A warm household bulb when HA exposes no colour capability/value. */
 export const DEFAULT_LIGHT_COLOR_KELVIN = 2_700;
 
@@ -40,9 +47,20 @@ export function isLightEntity(entityId: string | null | undefined): boolean {
   return typeof entityId === "string" && entityId.startsWith("light.") && entityId.length > 6;
 }
 
+/** Symbols whose HA light should use a directional scene emitter and expose beam aiming. */
+export function isSpotlightSymbol(symbol: string | null | undefined): boolean {
+  return typeof symbol === "string" && SPOTLIGHT_SYMBOLS.has(symbol);
+}
+
 /** Default beam direction for a symbol with no explicitly saved aim. */
-export function defaultLightAim(symbol: string | null | undefined): LightAim {
-  return symbol === "spike_spot" ? { ...UP } : { ...DOWN };
+export function defaultLightAim(
+  symbol: string | null | undefined,
+  rotationYDeg = 0,
+): LightAim {
+  if (symbol === "spike_spot") return { ...UP };
+  if (symbol === "wall_spot") return { yawDeg: rotationYDeg, pitchDeg: 0 };
+  if (symbol === "floor_spot") return { yawDeg: rotationYDeg, pitchDeg: -45 };
+  return { ...DOWN };
 }
 
 /** Convert the persisted yaw/pitch pair to a normalized site-space direction. */
@@ -57,8 +75,58 @@ export function directionFromAim(aim: LightAim): Vec3 {
 export function lightDirection(
   symbol: string | null | undefined,
   aim: LightAim | null | undefined,
+  rotationYDeg = 0,
 ): Vec3 {
-  return directionFromAim(aim ?? defaultLightAim(symbol));
+  return directionFromAim(aim ?? defaultLightAim(symbol, rotationYDeg));
+}
+
+/**
+ * The emitter's offset from the persisted mount point, in site axes. Local X/Z offsets rotate
+ * with the fixture body so wall-mounted heads stay on the visible aperture when body yaw changes.
+ */
+export function lightSourceOffset(
+  symbol: string | null | undefined,
+  rotationYDeg = 0,
+): Vec3 {
+  const local: Vec3 =
+    symbol === "lamp_post"
+      ? [0, 0.587, 0]
+      : symbol === "floor_lamp"
+        ? [0, 0.35, 0]
+        : symbol === "floor_spot"
+          ? [0, 0.35, 0.035]
+          : symbol === "spike_spot"
+            ? [0, 0.085, 0]
+            : symbol === "wall_spot"
+              ? [0, 0.045, 0.078]
+              : symbol === "wall_lamp"
+                ? [0, 0.055, 0.09]
+                : symbol === "ceiling_spot"
+                  ? [0.024, -0.088, 0]
+                  : symbol === "ceiling_lamp"
+                    ? [0, -0.14, 0]
+                    : [0, -0.065, 0];
+  const yaw = radians(rotationYDeg);
+  return [
+    local[0] * Math.cos(yaw) + local[2] * Math.sin(yaw),
+    local[1],
+    -local[0] * Math.sin(yaw) + local[2] * Math.cos(yaw),
+  ];
+}
+
+/** Resolve an emitter source in presentation space, including the current explode offset. */
+export function lightSourcePosition(
+  position: Vec3,
+  symbol: string | null | undefined,
+  rotationYDeg = 0,
+  presentationYOffset = 0,
+): Vec3 {
+  const offset = lightSourceOffset(symbol, rotationYDeg);
+  return [
+    position[0] + offset[0],
+    position[1] + presentationYOffset + offset[1],
+    position[2] + offset[2],
+  ];
 }
 
 /** Aim from one physical site-space point to another. */

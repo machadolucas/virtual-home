@@ -8,6 +8,7 @@ import type {
   SurfaceId,
   Vec3,
 } from "@/house/model/types";
+import type { SolarPanelConfig } from "@/house/model/solarPanel";
 import type { HouseStore, Mutators } from "../createHouseStore";
 
 /** The draft is the authority. Coordinates are ALWAYS physical site metres. */
@@ -22,6 +23,8 @@ export interface EditDraft {
   rotationYDeg: number;
   /** Physical beam direction; null/absent uses the fixture default. */
   lightAim?: { yawDeg: number; pitchDeg: number } | null;
+  /** Physical panel dimensions and roof-relative tilt. */
+  solarPanel?: SolarPanelConfig | null;
   mount: PlacementMount;
   floorId: FloorId;
   roomId: RoomId | null;

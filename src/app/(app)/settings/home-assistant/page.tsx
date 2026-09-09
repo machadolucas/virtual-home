@@ -73,6 +73,8 @@ export default async function HomeAssistantSettingsPage({
           state: entity.state,
           liveness: entity.liveness,
           liveState: entity.liveState,
+          disabledBy: entity.disabledBy,
+          hiddenBy: entity.hiddenBy,
           linkedAssetName: entity.linkedAssetName,
         }));
       }

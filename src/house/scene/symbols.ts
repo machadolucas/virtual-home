@@ -4,7 +4,7 @@
  * A single 6 cm sphere for everything meant the 3D view could not answer "which of those is the
  * lamp post and which is the ceiling light" — the one question a picture is supposed to answer.
  * So each symbol is a small, recognisable silhouette instead: a hanging dome, a wall bracket, a
- * standing lamp, a post, a ground spike, a downlight, a vent grille.
+ * standing lamp, a lantern post, adjustable spots, appliances and building services.
  *
  * Deliberately **procedural**, not modelled assets. Three reasons: the model package is immutable
  * input and household symbols are not part of it; a GLB per fixture type would be megabytes of
@@ -25,13 +25,37 @@ export const PLACEMENT_SYMBOLS = [
   "wall_lamp",
   "floor_lamp",
   "lamp_post",
+  "wall_spot",
+  "floor_spot",
+  "ceiling_spot",
   "spike_spot",
   "downlight",
   "vent",
   "sensor",
   "socket",
+  "switch",
+  "remote_control",
   "valve",
   "radiator",
+  "floor_heating",
+  "dishwasher",
+  "fridge",
+  "freezer",
+  "washing_machine",
+  "dryer",
+  "water_tap",
+  "shower",
+  "toilet",
+  "sink",
+  "sauna_heater_electric",
+  "sauna_heater_wood",
+  "tv",
+  "server_rack",
+  "router",
+  "nvr",
+  "nas",
+  "media_player",
+  "solar_panel",
 ] as const;
 
 export type PlacementSymbol = (typeof PLACEMENT_SYMBOLS)[number];
@@ -41,14 +65,38 @@ export const SYMBOL_LABEL: { readonly [S in PlacementSymbol]: string } = {
   ceiling_lamp: "Ceiling lamp",
   wall_lamp: "Wall lamp",
   floor_lamp: "Floor lamp",
-  lamp_post: "Lamp post",
+  lamp_post: "Lantern post",
+  wall_spot: "Wall spot",
+  floor_spot: "Floor spot",
+  ceiling_spot: "Ceiling spot",
   spike_spot: "Ground spike spot",
   downlight: "Downlight / eave spot",
   vent: "Air vent",
   sensor: "Sensor",
   socket: "Socket / outlet",
+  switch: "Switch / Hue remote",
+  remote_control: "Remote control",
   valve: "Valve / shutoff",
   radiator: "Radiator",
+  floor_heating: "Floor heating",
+  dishwasher: "Dishwasher",
+  fridge: "Fridge",
+  freezer: "Freezer",
+  washing_machine: "Washing machine",
+  dryer: "Dryer",
+  water_tap: "Water tap",
+  shower: "Shower",
+  toilet: "Toilet",
+  sink: "Sink",
+  sauna_heater_electric: "Sauna heater — electric",
+  sauna_heater_wood: "Sauna heater — wood-fired",
+  tv: "TV",
+  server_rack: "Server rack",
+  router: "Router",
+  nvr: "NVR",
+  nas: "NAS",
+  media_player: "Media player",
+  solar_panel: "Solar panel",
 };
 
 /** Low segment counts on purpose: these are 20–40 px silhouettes, not hero assets. */
@@ -61,6 +109,16 @@ function translated(geometry: THREE.BufferGeometry, x: number, y: number, z: num
 
 function rotatedX(geometry: THREE.BufferGeometry, radians: number) {
   geometry.rotateX(radians);
+  return geometry;
+}
+
+function rotatedZ(geometry: THREE.BufferGeometry, radians: number) {
+  geometry.rotateZ(radians);
+  return geometry;
+}
+
+function scaled(geometry: THREE.BufferGeometry, x: number, y: number, z: number) {
+  geometry.scale(x, y, z);
   return geometry;
 }
 
@@ -101,12 +159,41 @@ function build(symbol: PlacementSymbol): THREE.BufferGeometry {
       ])!;
 
     case "lamp_post":
-      // Taller and thicker than a floor lamp, with a head that overhangs — the outdoor silhouette.
+      // A single straight pole with a centred lantern sitting directly on top. There is no arm or
+      // hanging fixture: the symmetry is intentional and keeps it distinct from a street light.
       return mergeGeometries([
         translated(new THREE.CylinderGeometry(0.045, 0.06, 0.03, RADIAL), 0, 0.015, 0),
-        translated(new THREE.CylinderGeometry(0.014, 0.018, 0.55, 8), 0, 0.3, 0),
-        translated(new THREE.BoxGeometry(0.02, 0.02, 0.1), 0, 0.575, 0.045),
-        translated(new THREE.ConeGeometry(0.055, 0.05, RADIAL, 1, true), 0, 0.555, 0.09),
+        translated(new THREE.CylinderGeometry(0.014, 0.018, 0.5, 8), 0, 0.28, 0),
+        translated(new THREE.BoxGeometry(0.08, 0.012, 0.08), 0, 0.536, 0),
+        translated(new THREE.BoxGeometry(0.064, 0.09, 0.064), 0, 0.587, 0),
+        translated(new THREE.ConeGeometry(0.06, 0.055, 4), 0, 0.66, 0),
+      ])!;
+
+    case "wall_spot":
+      // Wall plate, articulated knuckle and a short barrel pointing away from the wall (+Z).
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.075, 0.075, 0.014), 0, 0.02, 0.007),
+        translated(rotatedX(new THREE.CylinderGeometry(0.01, 0.01, 0.04, 7), Math.PI / 2), 0, 0.02, 0.035),
+        translated(rotatedX(new THREE.CylinderGeometry(0.034, 0.026, 0.07, RADIAL), Math.PI / 2), 0, 0.045, 0.078),
+        translated(new THREE.SphereGeometry(0.014, 7, 5), 0, 0.02, 0.052),
+      ])!;
+
+    case "floor_spot":
+      // A weighted standing lamp with an adjustable spotlight barrel at the top.
+      return mergeGeometries([
+        translated(new THREE.CylinderGeometry(0.055, 0.065, 0.015, RADIAL), 0, 0.008, 0),
+        translated(new THREE.CylinderGeometry(0.008, 0.008, 0.31, 6), 0, 0.165, 0),
+        translated(new THREE.SphereGeometry(0.017, 7, 5), 0, 0.326, 0),
+        translated(rotatedX(new THREE.CylinderGeometry(0.038, 0.028, 0.075, RADIAL), Math.PI / 2), 0, 0.35, 0.035),
+      ])!;
+
+    case "ceiling_spot":
+      // Flush plate below the mount, a small joint, and an angled adjustable barrel.
+      return mergeGeometries([
+        translated(new THREE.CylinderGeometry(0.05, 0.05, 0.012, RADIAL), 0, -0.006, 0),
+        translated(new THREE.CylinderGeometry(0.008, 0.008, 0.04, 7), 0, -0.03, 0),
+        translated(new THREE.SphereGeometry(0.016, 7, 5), 0, -0.052, 0),
+        translated(rotatedZ(new THREE.CylinderGeometry(0.027, 0.036, 0.075, RADIAL), -Math.PI / 5), 0.024, -0.088, 0),
       ])!;
 
     case "spike_spot":
@@ -145,6 +232,25 @@ function build(symbol: PlacementSymbol): THREE.BufferGeometry {
         translated(new THREE.CylinderGeometry(0.022, 0.022, 0.006, RADIAL), 0, 0.035, 0.023),
       ])!;
 
+    case "switch":
+      // Compact wall remote: a thin rounded-looking body and four tactile buttons.
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.052, 0.09, 0.014), 0, 0.045, 0.007),
+        translated(rotatedX(new THREE.CylinderGeometry(0.012, 0.012, 0.005, 10), Math.PI / 2), -0.013, 0.064, 0.017),
+        translated(rotatedX(new THREE.CylinderGeometry(0.012, 0.012, 0.005, 10), Math.PI / 2), 0.013, 0.064, 0.017),
+        translated(rotatedX(new THREE.CylinderGeometry(0.012, 0.012, 0.005, 10), Math.PI / 2), -0.013, 0.031, 0.017),
+        translated(rotatedX(new THREE.CylinderGeometry(0.012, 0.012, 0.005, 10), Math.PI / 2), 0.013, 0.031, 0.017),
+      ])!;
+
+    case "remote_control":
+      // Hand-held remote laid on its back, with a large navigation disc and two small buttons.
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.06, 0.16, 0.018), 0, 0.08, 0.009),
+        translated(rotatedX(new THREE.CylinderGeometry(0.022, 0.022, 0.006, 12), Math.PI / 2), 0, 0.115, 0.021),
+        translated(new THREE.SphereGeometry(0.009, 8, 5), 0, 0.068, 0.021),
+        translated(new THREE.SphereGeometry(0.007, 8, 5), 0, 0.043, 0.021),
+      ])!;
+
     case "valve":
       return mergeGeometries([
         translated(new THREE.CylinderGeometry(0.02, 0.02, 0.05, 8), 0, 0.025, 0),
@@ -157,6 +263,185 @@ function build(symbol: PlacementSymbol): THREE.BufferGeometry {
         translated(new THREE.BoxGeometry(0.22, 0.12, 0.03), 0, 0.06, 0),
         translated(new THREE.BoxGeometry(0.22, 0.012, 0.05), 0, 0.115, 0),
       ])!;
+
+    case "floor_heating": {
+      // A square serpentine coil just above the floor, joined into one continuous visual run.
+      const parts: THREE.BufferGeometry[] = [
+        translated(new THREE.BoxGeometry(0.25, 0.008, 0.25), 0, 0.004, 0),
+      ];
+      for (let row = 0; row < 6; row += 1) {
+        const z = -0.09 + row * 0.036;
+        parts.push(translated(new THREE.BoxGeometry(0.19, 0.009, 0.008), 0, 0.013, z));
+        if (row < 5) {
+          const x = row % 2 === 0 ? 0.091 : -0.091;
+          parts.push(translated(new THREE.BoxGeometry(0.008, 0.009, 0.044), x, 0.013, z + 0.018));
+        }
+      }
+      return mergeGeometries(parts)!;
+    }
+
+    case "dishwasher":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.2, 0.25, 0.17), 0, 0.125, 0),
+        translated(new THREE.BoxGeometry(0.16, 0.012, 0.012), 0, 0.218, 0.092),
+        translated(new THREE.BoxGeometry(0.15, 0.015, 0.008), 0, 0.19, 0.091),
+      ])!;
+
+    case "fridge":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.19, 0.38, 0.17), 0, 0.19, 0),
+        translated(new THREE.BoxGeometry(0.175, 0.009, 0.012), 0, 0.15, 0.091),
+        translated(new THREE.BoxGeometry(0.012, 0.09, 0.012), 0.066, 0.242, 0.091),
+        translated(new THREE.BoxGeometry(0.012, 0.06, 0.012), 0.066, 0.11, 0.091),
+      ])!;
+
+    case "freezer":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.28, 0.18, 0.18), 0, 0.09, 0),
+        translated(new THREE.BoxGeometry(0.29, 0.025, 0.19), 0, 0.192, 0),
+        translated(new THREE.BoxGeometry(0.07, 0.012, 0.012), 0, 0.18, 0.102),
+      ])!;
+
+    case "washing_machine":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.2, 0.26, 0.18), 0, 0.13, 0),
+        translated(new THREE.TorusGeometry(0.055, 0.012, 7, 14), 0, 0.125, 0.098),
+        translated(new THREE.CylinderGeometry(0.043, 0.043, 0.012, 14), 0, 0.125, 0.098),
+        translated(new THREE.BoxGeometry(0.12, 0.025, 0.01), -0.018, 0.225, 0.096),
+      ])!;
+
+    case "dryer":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.2, 0.27, 0.18), 0, 0.135, 0),
+        translated(new THREE.TorusGeometry(0.062, 0.009, 7, 16), 0, 0.13, 0.098),
+        translated(new THREE.CylinderGeometry(0.049, 0.049, 0.009, 16), 0, 0.13, 0.098),
+        translated(new THREE.BoxGeometry(0.05, 0.018, 0.01), 0.05, 0.235, 0.096),
+        translated(new THREE.SphereGeometry(0.008, 7, 5), -0.06, 0.235, 0.102),
+      ])!;
+
+    case "water_tap":
+      return mergeGeometries([
+        translated(new THREE.CylinderGeometry(0.014, 0.014, 0.12, 8), -0.045, 0.06, 0),
+        translated(new THREE.TorusGeometry(0.045, 0.014, 7, 12, Math.PI), 0, 0.12, 0),
+        translated(new THREE.CylinderGeometry(0.013, 0.013, 0.065, 8), 0.045, 0.09, 0),
+        translated(rotatedZ(new THREE.CylinderGeometry(0.009, 0.009, 0.065, 7), Math.PI / 2), -0.045, 0.115, 0),
+      ])!;
+
+    case "shower":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.07, 0.08, 0.014), 0, 0.04, 0.007),
+        translated(new THREE.CylinderGeometry(0.008, 0.008, 0.24, 7), 0, 0.18, 0.025),
+        translated(rotatedZ(new THREE.CylinderGeometry(0.008, 0.008, 0.075, 7), Math.PI / 2), 0.035, 0.296, 0.025),
+        translated(rotatedX(new THREE.CylinderGeometry(0.045, 0.03, 0.025, RADIAL), Math.PI / 2), 0.073, 0.296, 0.038),
+      ])!;
+
+    case "toilet":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.13, 0.18, 0.07), 0, 0.15, -0.055),
+        translated(scaled(new THREE.SphereGeometry(0.09, 12, 8), 1, 0.52, 1.25), 0, 0.105, 0.045),
+        translated(rotatedX(new THREE.TorusGeometry(0.066, 0.012, 7, 14), Math.PI / 2), 0, 0.132, 0.055),
+        translated(new THREE.CylinderGeometry(0.045, 0.065, 0.08, 10), 0, 0.04, 0.015),
+      ])!;
+
+    case "sink":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.24, 0.035, 0.17), 0, 0.1, 0),
+        translated(scaled(new THREE.SphereGeometry(0.08, 12, 7), 1.25, 0.3, 0.8), 0, 0.08, 0.015),
+        translated(new THREE.CylinderGeometry(0.009, 0.009, 0.095, 7), -0.065, 0.16, -0.045),
+        translated(new THREE.TorusGeometry(0.035, 0.009, 6, 10, Math.PI), -0.03, 0.205, -0.045),
+      ])!;
+
+    case "sauna_heater_electric": {
+      const parts: THREE.BufferGeometry[] = [
+        translated(new THREE.BoxGeometry(0.17, 0.19, 0.15), 0, 0.095, 0),
+        translated(scaled(new THREE.SphereGeometry(0.035, 7, 5), 1.2, 0.7, 1), -0.045, 0.205, 0),
+        translated(scaled(new THREE.SphereGeometry(0.035, 7, 5), 1.1, 0.8, 1), 0.035, 0.205, 0.015),
+      ];
+      for (const x of [-0.065, -0.022, 0.022, 0.065]) {
+        parts.push(translated(new THREE.BoxGeometry(0.008, 0.17, 0.16), x, 0.105, 0));
+      }
+      return mergeGeometries(parts)!;
+    }
+
+    case "sauna_heater_wood":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.18, 0.21, 0.17), 0, 0.105, 0),
+        translated(new THREE.BoxGeometry(0.115, 0.1, 0.012), 0, 0.095, 0.091),
+        translated(new THREE.TorusGeometry(0.027, 0.007, 6, 12), 0, 0.097, 0.099),
+        translated(new THREE.CylinderGeometry(0.032, 0.032, 0.18, 9), 0.04, 0.3, -0.035),
+        translated(scaled(new THREE.SphereGeometry(0.034, 7, 5), 1.2, 0.65, 1), -0.04, 0.225, 0),
+      ])!;
+
+    case "tv":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.34, 0.2, 0.025), 0, 0.2, 0),
+        translated(new THREE.BoxGeometry(0.3, 0.16, 0.01), 0, 0.2, 0.018),
+        translated(new THREE.BoxGeometry(0.018, 0.09, 0.018), 0, 0.065, 0),
+        translated(new THREE.BoxGeometry(0.16, 0.015, 0.08), 0, 0.012, 0),
+      ])!;
+
+    case "server_rack": {
+      const parts: THREE.BufferGeometry[] = [
+        translated(new THREE.BoxGeometry(0.23, 0.38, 0.19), 0, 0.19, 0),
+        translated(new THREE.BoxGeometry(0.19, 0.34, 0.012), 0, 0.19, 0.101),
+      ];
+      for (const y of [0.08, 0.14, 0.2, 0.26, 0.32]) {
+        parts.push(translated(new THREE.BoxGeometry(0.165, 0.025, 0.01), 0, y, 0.109));
+      }
+      return mergeGeometries(parts)!;
+    }
+
+    case "router":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.22, 0.045, 0.14), 0, 0.023, 0),
+        translated(new THREE.CylinderGeometry(0.006, 0.006, 0.16, 6), -0.082, 0.105, -0.055),
+        translated(new THREE.CylinderGeometry(0.006, 0.006, 0.16, 6), 0.082, 0.105, -0.055),
+        translated(new THREE.SphereGeometry(0.007, 7, 5), -0.055, 0.038, 0.074),
+        translated(new THREE.SphereGeometry(0.007, 7, 5), -0.03, 0.038, 0.074),
+        translated(new THREE.SphereGeometry(0.007, 7, 5), -0.005, 0.038, 0.074),
+      ])!;
+
+    case "nvr":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.25, 0.075, 0.19), 0, 0.038, 0),
+        translated(new THREE.BoxGeometry(0.11, 0.036, 0.008), -0.045, 0.042, 0.099),
+        translated(new THREE.CylinderGeometry(0.009, 0.009, 0.008, 8), 0.09, 0.042, 0.099),
+      ])!;
+
+    case "nas":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.16, 0.22, 0.18), 0, 0.11, 0),
+        translated(new THREE.BoxGeometry(0.052, 0.15, 0.012), -0.034, 0.12, 0.096),
+        translated(new THREE.BoxGeometry(0.052, 0.15, 0.012), 0.034, 0.12, 0.096),
+        translated(new THREE.SphereGeometry(0.007, 7, 5), -0.052, 0.034, 0.103),
+        translated(new THREE.SphereGeometry(0.007, 7, 5), -0.028, 0.034, 0.103),
+      ])!;
+
+    case "media_player":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.16, 0.035, 0.16), 0, 0.018, 0),
+        translated(new THREE.CylinderGeometry(0.018, 0.018, 0.006, 12), 0, 0.039, 0),
+        translated(new THREE.SphereGeometry(0.006, 7, 5), 0.055, 0.034, 0.083),
+      ])!;
+
+    case "solar_panel": {
+      // Normalized x/y/z extents are exactly 1 × 1 × 1, with the bottom on y=0. The placement
+      // layer can therefore scale width, physical thickness and length independently.
+      const parts: THREE.BufferGeometry[] = [
+        translated(new THREE.BoxGeometry(1, 0.72, 1), 0, 0.36, 0),
+        translated(new THREE.BoxGeometry(1, 0.28, 0.035), 0, 0.86, -0.4825),
+        translated(new THREE.BoxGeometry(1, 0.28, 0.035), 0, 0.86, 0.4825),
+        translated(new THREE.BoxGeometry(0.035, 0.28, 0.93), -0.4825, 0.86, 0),
+        translated(new THREE.BoxGeometry(0.035, 0.28, 0.93), 0.4825, 0.86, 0),
+      ];
+      for (const x of [-0.25, 0, 0.25]) {
+        parts.push(translated(new THREE.BoxGeometry(0.015, 0.06, 0.93), x, 0.75, 0));
+      }
+      for (const z of [-0.25, 0, 0.25]) {
+        parts.push(translated(new THREE.BoxGeometry(0.93, 0.06, 0.015), 0, 0.75, z));
+      }
+      return mergeGeometries(parts)!;
+    }
 
     case "generic":
     default:
@@ -171,6 +456,7 @@ export function symbolGeometry(symbol: PlacementSymbol): THREE.BufferGeometry {
   let geometry = cache.get(symbol);
   if (!geometry) {
     geometry = build(symbol);
+    geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     cache.set(symbol, geometry);
   }

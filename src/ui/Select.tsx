@@ -281,7 +281,9 @@ export function Select({
             }}
             className={cn(
               "z-50 flex max-h-[min(24rem,var(--radix-popover-content-available-height))]",
-              "w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)]",
+              options.some((option) => option.hint)
+                ? "w-[max(var(--radix-popover-trigger-width),22rem)]"
+                : "w-[var(--radix-popover-trigger-width)]",
               "max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-md border border-line",
               "bg-surface shadow-overlay data-[state=open]:animate-[vh-pop-in_120ms_var(--vh-ease-out)]",
             )}
@@ -351,7 +353,7 @@ export function Select({
                       <span className="flex min-w-0 flex-col">
                         <span>{option.label}</span>
                         {option.hint ? (
-                          <span className="text-xs text-ink-3">{option.hint}</span>
+                          <span className="text-xs text-ink-3 [overflow-wrap:anywhere]">{option.hint}</span>
                         ) : null}
                       </span>
                     </div>

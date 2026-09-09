@@ -153,6 +153,67 @@ describe("placement mount round trip", () => {
     expect(cleared.placement.symbol).toBeNull();
   });
 
+  it("round-trips solar-panel dimensions and tilt through storage and reload", async () => {
+    const solarPanel = { widthM: 1.234, lengthM: 1.987, thicknessM: 0.055, tiltDeg: 32.5 };
+    const created = await bodyOf<{ placement: PersistedPlacement }>(
+      await put({
+        position: [1.5, 2.4, 1.5],
+        symbol: "solar_panel",
+        solarPanel,
+        mount: { kind: "free", height: 2.4, surfaceId: "s-r-l-a-ceiling" },
+      }),
+    );
+    expect(created.placement.solarPanel).toEqual(solarPanel);
+
+    const row = h.handle.db.select().from(assetPlacement).all()[0];
+    expect(JSON.parse(row?.solarPanelJson ?? "null")).toEqual(solarPanel);
+
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]?.solarPanel).toEqual(solarPanel);
+  });
+
+  it("uses physical panel defaults when a solar-panel placement omits its config", async () => {
+    const created = await bodyOf<{ placement: PersistedPlacement }>(
+      await put({ position: [1.5, 2.4, 1.5], symbol: "solar_panel" }),
+    );
+    expect(created.placement.solarPanel).toEqual({
+      widthM: 1.1,
+      lengthM: 1.8,
+      thicknessM: 0.04,
+      tiltDeg: 0,
+    });
+
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]?.solarPanel).toEqual(created.placement.solarPanel);
+  });
+
+  it.each([
+    ["width below range", { widthM: 0.099, lengthM: 1.8, thicknessM: 0.04, tiltDeg: 0 }],
+    ["length above range", { widthM: 1.1, lengthM: 10.001, thicknessM: 0.04, tiltDeg: 0 }],
+    ["thickness below range", { widthM: 1.1, lengthM: 1.8, thicknessM: 0.004, tiltDeg: 0 }],
+    ["tilt above range", { widthM: 1.1, lengthM: 1.8, thicknessM: 0.04, tiltDeg: 90.001 }],
+    ["non-finite width", { widthM: null, lengthM: 1.8, thicknessM: 0.04, tiltDeg: 0 }],
+  ])("refuses invalid solar-panel config: %s", async (_label, solarPanel) => {
+    const res = await put({
+      position: [1.5, 2.4, 1.5],
+      symbol: "solar_panel",
+      solarPanel,
+    });
+    expect(res.status).toBe(400);
+    expect(h.handle.db.select().from(assetPlacement).all()).toHaveLength(0);
+  });
+
+  it("clears solar-panel config when the placement changes to another symbol", async () => {
+    const created = await bodyOf<{ placement: PersistedPlacement }>(
+      await put({ position: [1.5, 2.4, 1.5], symbol: "solar_panel" }),
+    );
+    await put({ id: created.placement.id, position: [1.5, 0.4, 1.5], symbol: "lamp_post" });
+
+    expect(h.handle.db.select().from(assetPlacement).all()[0]?.solarPanelJson).toBeNull();
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]?.solarPanel).toBeNull();
+  });
+
   it("refuses a wall mount on a surface that is not a wall", async () => {
     const res = await put({
       position: [1.5, 1.4, 1.5],

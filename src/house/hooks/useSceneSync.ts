@@ -326,6 +326,8 @@ export function useSceneSync(): void {
                 name: draft.name,
                 position: draft.physical,
                 rotationYDeg: draft.rotationYDeg,
+                lightAim: draft.lightAim ?? null,
+                solarPanel: draft.solarPanel ?? null,
                 mount: draft.mount,
                 floorId: draft.floorId,
                 roomId: draft.roomId,

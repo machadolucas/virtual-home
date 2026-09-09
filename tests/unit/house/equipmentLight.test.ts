@@ -5,8 +5,11 @@ import {
   defaultLightAim,
   directionFromAim,
   isLightEntity,
+  isSpotlightSymbol,
   lightAppearance,
   lightDirection,
+  lightSourceOffset,
+  lightSourcePosition,
 } from "@/house/model/equipmentLight";
 
 function expectDirection(actual: readonly number[], expected: readonly number[]): void {
@@ -91,12 +94,32 @@ describe("Home Assistant light appearance", () => {
 });
 
 describe("equipment light direction", () => {
-  it("uses vertical defaults for downlights, spike spots, and other light symbols", () => {
+  it("classifies every adjustable spot through one shared helper", () => {
+    expect(["wall_spot", "floor_spot", "ceiling_spot", "spike_spot", "downlight"].every(isSpotlightSymbol)).toBe(true);
+    expect(isSpotlightSymbol("wall_lamp")).toBe(false);
+    expect(isSpotlightSymbol(null)).toBe(false);
+  });
+
+  it("uses mount-aware defaults for adjustable spots", () => {
     expect(defaultLightAim("downlight")).toEqual({ yawDeg: 0, pitchDeg: -90 });
     expect(defaultLightAim("spike_spot")).toEqual({ yawDeg: 0, pitchDeg: 90 });
+    expect(defaultLightAim("ceiling_spot", 30)).toEqual({ yawDeg: 0, pitchDeg: -90 });
+    expect(defaultLightAim("wall_spot", 30)).toEqual({ yawDeg: 30, pitchDeg: 0 });
+    expect(defaultLightAim("floor_spot", -20)).toEqual({ yawDeg: -20, pitchDeg: -45 });
     expect(defaultLightAim("wall_lamp")).toEqual({ yawDeg: 0, pitchDeg: -90 });
     expectDirection(lightDirection("downlight", null), [0, -1, 0]);
     expectDirection(lightDirection("spike_spot", null), [0, 1, 0]);
+    expectDirection(lightDirection("wall_spot", null, 90), [1, 0, 0]);
+    expectDirection(lightDirection("wall_spot", { yawDeg: -90, pitchDeg: 0 }, 90), [-1, 0, 0]);
+  });
+
+  it("places emitters at their visible heads and rotates local offsets with the body", () => {
+    expectDirection(lightSourceOffset("lamp_post"), [0, 0.587, 0]);
+    expectDirection(lightSourceOffset("wall_spot"), [0, 0.045, 0.078]);
+    expectDirection(lightSourceOffset("wall_spot", 90), [0.078, 0.045, 0]);
+    expectDirection(lightSourceOffset("floor_spot"), [0, 0.35, 0.035]);
+    expectDirection(lightSourceOffset("ceiling_spot"), [0.024, -0.088, 0]);
+    expectDirection(lightSourcePosition([2, 3, 4], "lamp_post", 0, 1.5), [2, 5.087, 4]);
   });
 
   it("maps yaw around +Y and pitch from the horizontal", () => {

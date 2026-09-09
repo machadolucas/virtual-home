@@ -15,11 +15,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Save, Trash2, X } from "lucide-react";
 import * as THREE from "three";
+import { DEFAULT_SOLAR_PANEL_CONFIG } from "@/house/model/solarPanel";
+import { panelOrientation } from "@/house/model/panelOrientation";
 import { snapValue } from "@/house/model/geometry2d";
 import {
   aimFromTarget,
   directionFromAim,
   lightDirection,
+  lightSourcePosition,
 } from "@/house/model/equipmentLight";
 import type { Placement } from "@/house/model/types";
 import { dragCandidates, intersectHorizontalPlane } from "@/house/scene/picker";
@@ -116,14 +119,18 @@ export function PlacementEditor() {
         point: solution.physical, floorId: solution.floorId, roomId: solution.roomId,
         manifest: index, sceneIndex,
       });
-      return solution;
+      const orientation = editing.symbol === "solar_panel" && hit?.normal ? panelOrientation(hit.normal.toArray()) : null;
+      return { ...solution, panelOrientation: orientation };
     };
 
     const commit = (solution: ReturnType<typeof solveAt>) => {
       updateDraft(
         {
+          ...(solution.panelOrientation ? {
+            solarPanel: { ...(editing.solarPanel ?? DEFAULT_SOLAR_PANEL_CONFIG), tiltDeg: solution.panelOrientation.tiltDeg },
+          } : {}),
           physical: solution.physical,
-          rotationYDeg: solution.rotationYDeg,
+          rotationYDeg: solution.panelOrientation?.rotationYDeg ?? solution.rotationYDeg,
           mount: solution.mount,
           floorId: solution.floorId,
           roomId: solution.roomId,
@@ -195,8 +202,9 @@ export function PlacementEditor() {
     const scene = runtime.scene;
     if (!scene) return;
 
-    const origin = new THREE.Vector3(...editing.physical);
-    const initial = lightDirection(draftSymbol(editing), editing.lightAim);
+    const source = lightSourcePosition(editing.physical, draftSymbol(editing), editing.rotationYDeg, runtime.offsets.get(editing.floorId) ?? 0);
+    const origin = new THREE.Vector3(...source);
+    const initial = lightDirection(draftSymbol(editing), editing.lightAim, editing.rotationYDeg);
     const arrow = new THREE.ArrowHelper(
       new THREE.Vector3(...initial),
       origin,
@@ -214,7 +222,7 @@ export function PlacementEditor() {
     runtime.invalidate();
 
     const showSavedDirection = () => {
-      const direction = lightDirection(draftSymbol(editing), editing.lightAim);
+      const direction = lightDirection(draftSymbol(editing), editing.lightAim, editing.rotationYDeg);
       arrow.setDirection(new THREE.Vector3(...direction));
       arrow.setLength(1.2, 0.22, 0.1);
       runtime.invalidate();
@@ -250,13 +258,13 @@ export function PlacementEditor() {
         showSavedDirection();
         return;
       }
-      const aim = aimFromTarget(editing.physical, target);
+      const aim = aimFromTarget(source, target);
       if (!aim) return;
       const direction = directionFromAim(aim);
       const length = Math.max(0.15, Math.hypot(
-        target[0] - editing.physical[0],
-        target[1] - editing.physical[1],
-        target[2] - editing.physical[2],
+        target[0] - source[0],
+        target[1] - source[1],
+        target[2] - source[2],
       ));
       arrow.setDirection(new THREE.Vector3(...direction));
       arrow.setLength(length, Math.min(0.25, length * 0.2), Math.min(0.12, length * 0.1));
@@ -269,7 +277,7 @@ export function PlacementEditor() {
       if (event.button !== 0 || state.editorSaving || state.cameraOverride || state.tool !== "place") return;
       const target = targetAt(event);
       if (!target) return;
-      const aim = aimFromTarget(editing.physical, target);
+      const aim = aimFromTarget(source, target);
       if (!aim) return;
       updateDraft({ lightAim: aim });
       setAiming(false);
@@ -343,6 +351,7 @@ export function PlacementEditor() {
       ],
       rotationYDeg: editing.rotationYDeg,
       lightAim: editing.lightAim ?? null,
+      solarPanel: editing.solarPanel ?? null,
       mount: editing.mount,
       floorId: editing.floorId,
       roomId: editing.roomId,

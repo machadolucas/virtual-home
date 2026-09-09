@@ -3,14 +3,10 @@
 import { Crosshair, RotateCcw, X } from "lucide-react";
 import type { EditDraft } from "@/house/store/slices/edit";
 import { defaultSymbol, isPlacementSymbol } from "@/house/scene/symbols";
-import { defaultLightAim } from "@/house/model/equipmentLight";
+import { defaultLightAim, isSpotlightSymbol } from "@/house/model/equipmentLight";
 import { useHouseStore } from "../../hooks/useHouseStore";
 
-export const SPOTLIGHT_SYMBOLS = new Set(["downlight", "spike_spot"]);
-
-export function isSpotlightSymbol(symbol: string | null | undefined): boolean {
-  return typeof symbol === "string" && SPOTLIGHT_SYMBOLS.has(symbol);
-}
+export { isSpotlightSymbol } from "@/house/model/equipmentLight";
 
 export function draftSymbol(draft: EditDraft) {
   return isPlacementSymbol(draft.symbol) ? draft.symbol : defaultSymbol({ category: draft.category, entityId: draft.entityId, mountKind: draft.mount.kind, isOutdoor: !draft.roomId });
@@ -31,7 +27,7 @@ export function SpotlightAimFields({
   const updateDraft = useHouseStore((state) => state.updateDraft);
   if (!editing || !isSpotlightSymbol(draftSymbol(editing))) return null;
 
-  const aim = editing.lightAim ?? defaultLightAim(draftSymbol(editing));
+  const aim = editing.lightAim ?? defaultLightAim(draftSymbol(editing), editing.rotationYDeg);
   const update = (field: "yawDeg" | "pitchDeg", raw: string) => {
     const value = Number(raw);
     if (!Number.isFinite(value)) return;

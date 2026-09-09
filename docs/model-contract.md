@@ -581,3 +581,26 @@ filter radii soften directional and local-light shadows; disabling Soft shadows 
 filtering. Visibility/explode changes dirty maps through the existing equipment-light synchronizer.
 Live time updates once per minute and otherwise returns to demand-rendering idle. Maps are disposed
 on resizing/unmount, with no continuous temporal shadow accumulation or preserveDrawingBuffer.
+
+### Equipment silhouettes and solar panels
+
+The placement editor's searchable **Shown as** picker includes lantern posts; wall, floor and ceiling
+spots; square floor-heating coils; switches and remotes; kitchen/laundry appliances; plumbing fixtures;
+electric and wood-fired sauna heaters; TVs; server racks, routers, NVRs, NAS units and media players.
+These remain lightweight procedural silhouettes, instanced by symbol and presentation group. A lantern
+post has a single pole and a centred lantern, with no hanging arm. The three spot variants share the
+existing yaw/pitch and click-to-aim beam controls; their light origins follow their fixture heads.
+Light fixture silhouettes do not cast shadows that would block their own emitters inside the solid
+marker geometry. Building geometry and other equipment, including solar panels, still cast shadows.
+
+Solar panels use physical dimensions instead of marker scale. Each placement optionally stores
+`solarPanel: { widthM, lengthM, thicknessM, tiltDeg }`; defaults are 1.1 × 1.8 × 0.04 m and 0° tilt.
+Width/length range from 0.1–10 m, thickness from 0.005–1 m, and tilt from −90–90°. The existing placement
+yaw rotates the slope direction. The unit panel's bottom centre is the mount point, its +Y face is
+outward, and its X/Z axes are width/length. The instance applies yaw then local X tilt and physical
+scale. Clicking a surface aligns panel tilt/yaw with the picked normal; hovering never changes the
+draft. Numeric size and angle changes remain independently adjustable. Roof attachment uses the
+existing free surface mount and physical coordinate bounds, without changing the model package.
+Dimensions persist in an additive placement JSON column; older placements and other silhouettes
+retain their existing scale and formats. Panels in the same presentation group share one draw call,
+even when their dimensions differ.

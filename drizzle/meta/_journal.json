@@ -64,6 +64,13 @@
       "when": 1788958325014,
       "tag": "0008_black_spirit",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1788966706407,
+      "tag": "0009_adorable_nova",
+      "breakpoints": true
     }
   ]
 }

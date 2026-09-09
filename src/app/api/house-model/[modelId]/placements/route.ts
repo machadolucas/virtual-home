@@ -41,6 +41,11 @@ import {
   type MountKind,
 } from "@/db/schema";
 import { roomAt } from "@/house/model/manifestIndex";
+import {
+  DEFAULT_SOLAR_PANEL_CONFIG,
+  solarPanelConfigFromJson,
+  type SolarPanelConfig,
+} from "@/house/model/solarPanel";
 import type { Placement, PlacementLinkedEntity, PlacementMount } from "@/house/model/types";
 import { authed, badRequest, conflict, HttpError } from "@/server/api/handler";
 import { currentPackageForRequest, NO_STORE } from "@/server/house-model/http";
@@ -192,6 +197,14 @@ function linkedEntitiesByAsset(
 
 const IdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const FiniteSchema = z.number().finite();
+const SolarPanelConfigSchema = z
+  .object({
+    widthM: FiniteSchema.min(0.1).max(10),
+    lengthM: FiniteSchema.min(0.1).max(10),
+    thicknessM: FiniteSchema.min(0.005).max(1),
+    tiltDeg: FiniteSchema.min(-90).max(90),
+  })
+  .strict();
 
 /**
  * The mount, as the client states it. A discriminated union rather than four loose columns, so
@@ -222,6 +235,7 @@ const PlacementSchema = z.object({
   position: z.tuple([FiniteSchema, FiniteSchema, FiniteSchema]),
   rotationYDeg: FiniteSchema.default(0),
   lightAim: z.object({ yawDeg: FiniteSchema.min(-180).max(180), pitchDeg: FiniteSchema.min(-90).max(90) }).nullish(),
+  solarPanel: SolarPanelConfigSchema.nullish(),
   floorId: IdSchema,
   roomId: IdSchema.nullish(),
   placementKind: z.enum(["body", "access_panel", "label", "shutoff"]).default("body"),
@@ -250,6 +264,15 @@ const PutSchema = z.object({
 });
 
 const mm = (v: number): number => Math.round(v * 1000) / 1000;
+
+function canonicalSolarPanelConfig(config: SolarPanelConfig): SolarPanelConfig {
+  return {
+    widthM: mm(config.widthM),
+    lengthM: mm(config.lengthM),
+    thicknessM: mm(config.thicknessM),
+    tiltDeg: mm(config.tiltDeg),
+  };
+}
 
 export const GET = authed<Ctx>(async (_session, req, ctx) => {
   const { modelId } = await ctx.params;
@@ -353,6 +376,7 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
       mountOffsetM: assetPlacement.mountOffsetM,
       locationNote: assetPlacement.locationNote,
       symbol: assetPlacement.symbol,
+      solarPanelJson: assetPlacement.solarPanelJson,
       photoAttachmentId: assetPlacement.photoAttachmentId,
       needsReconciliation: assetPlacement.needsReconciliation,
       name: asset.name,
@@ -412,6 +436,10 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
       entityId: linkedEntities.get(row.assetId)?.[0]?.entityId ?? null,
       linkedEntities: linkedEntities.get(row.assetId) ?? [],
       symbol: row.symbol,
+      solarPanel:
+        row.symbol === "solar_panel"
+          ? solarPanelConfigFromJson(row.solarPanelJson) ?? { ...DEFAULT_SOLAR_PANEL_CONFIG }
+          : null,
       category: row.category,
       mountKind: row.mountKind,
       mountSurfaceId: row.mountSurfaceId,
@@ -531,6 +559,10 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
   );
   const mountOffsetM =
     p.mount && "offset" in p.mount && p.mount.offset !== undefined ? mm(p.mount.offset) : null;
+  const solarPanel =
+    p.symbol === "solar_panel"
+      ? canonicalSolarPanelConfig(p.solarPanel ?? DEFAULT_SOLAR_PANEL_CONFIG)
+      : null;
 
   // A client-supplied id addresses an existing row; without one this is a new placement, and the
   // natural key (asset, kind) decides whether it replaces one. Splitting the two keeps a re-`PUT`
@@ -565,6 +597,7 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     mountOffsetM,
     locationNote: p.locationNote ?? null,
     symbol: p.symbol ?? null,
+    solarPanelJson: solarPanel === null ? null : JSON.stringify(solarPanel),
     photoAttachmentId: p.photoId ?? null,
     needsReconciliation: false,
     colorOverride: p.colorOverride ?? null,
@@ -605,7 +638,13 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
   });
 
   const stored = db
-    .select({ id: assetPlacement.id, rotYawDeg: assetPlacement.rotYawDeg, lightAimYawDeg: assetPlacement.lightAimYawDeg, lightAimPitchDeg: assetPlacement.lightAimPitchDeg })
+    .select({
+      id: assetPlacement.id,
+      rotYawDeg: assetPlacement.rotYawDeg,
+      lightAimYawDeg: assetPlacement.lightAimYawDeg,
+      lightAimPitchDeg: assetPlacement.lightAimPitchDeg,
+      solarPanelJson: assetPlacement.solarPanelJson,
+    })
     .from(assetPlacement)
     .where(
       and(
@@ -639,6 +678,10 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     entityId: linkedEntities[0]?.entityId ?? null,
     linkedEntities,
     symbol: p.symbol ?? null,
+    solarPanel:
+      p.symbol === "solar_panel"
+        ? solarPanelConfigFromJson(stored?.solarPanelJson ?? null) ?? solarPanel
+        : null,
     category: equipment.category,
     mountKind,
     mountSurfaceId,

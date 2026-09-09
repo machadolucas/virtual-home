@@ -261,7 +261,7 @@ async function seedHaImportDevices(handle: DbHandle): Promise<void> {
           entityCategory: kind === "battery" || kind === "signal" ? "diagnostic" : null,
           disabledBy: kind === "signal" ? "user" : null,
           unitOfMeasurement: ({ temperature: "°C", humidity: "%", illuminance: "lx", battery: "%" } as Record<string, string>)[kind] ?? null,
-          liveState: kind === "occupancy" ? "off" : "23", liveRestored: false, liveAtMs: at,
+          liveState: kind === "occupancy" ? "off" : kind === "humidity" ? "unavailable" : "23", liveRestored: false, liveAtMs: at,
           firstSeenMs: at, lastSeenMs: at }).run();
       }
     }
