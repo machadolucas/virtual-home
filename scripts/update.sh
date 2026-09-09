@@ -10,7 +10,7 @@ say "1/8 backup (rollback point)"; ./scripts/backup.sh --label pre-update --keep
 BEFORE="$(git rev-parse --short HEAD)"
 say "2/8 git pull"; git pull --ff-only
 say "3/8 install"; pnpm install --frozen-lockfile
-say "4/8 typecheck + unit tests"; pnpm run typecheck && pnpm exec vitest run tests/unit
+say "4/8 typecheck + unit tests"; pnpm run typecheck && NODE_ENV=test pnpm exec vitest run tests/unit
 say "5/8 stop worker, then web"
 launchctl kill SIGTERM "gui/$UID_NUM/net.machadolucas.virtual-home.worker" 2>/dev/null || true
 launchctl kill SIGTERM "gui/$UID_NUM/net.machadolucas.virtual-home.web" 2>/dev/null || true
