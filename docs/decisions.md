@@ -150,3 +150,15 @@ The immutable package and database schema are unchanged; synthetic geometry cove
 Image download composites one fresh WebGL frame with the chosen CSS background and projected
 label chips using Canvas 2D. Keeping `preserveDrawingBuffer: false` avoids an ongoing rendering
 cost for an occasional export; no screenshot service or household-data upload is needed.
+
+## D-027 The PWA caches only a public shell; household data stays network-only
+The service worker pre-caches a household-neutral connection-required page, the web manifest and
+app icons, and may runtime-cache hashed `/_next/static/` build assets. Every navigation goes to the
+server first. Authenticated HTML, RSC payloads, APIs, model assets and Home Assistant data are never
+put in a service-worker cache, so an offline tablet cannot expose a previous user's household data.
+
+The consequence is deliberate: the home-screen app installs and opens in a standalone window, but
+it does not provide offline household access. A failed fresh navigation shows only the neutral
+offline page. Installation requires HTTPS (apart from browser localhost exceptions); the documented
+HTTP LAN fallback remains an emergency browser-only mode. Push stays with Home Assistant and is not
+part of this service worker.

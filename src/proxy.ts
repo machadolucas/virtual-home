@@ -29,6 +29,6 @@ export const config = {
     // `_next` is excluded wholesale, not just `static`/`image`: the dev client also talks to
     // `_next/hmr` and `_next/devtools`, and answering those with a 401 breaks dev tooling.
     // Real navigations and RSC requests use the page's own URL, so they stay behind this gate.
-    "/((?!api/auth|api/health|login|_next/|favicon.ico|icons/|manifest.webmanifest|fonts/).*)",
+    "/((?!api/auth|api/health|login|_next/|favicon.ico|icons/|manifest.webmanifest|sw.js|offline.html|fonts/).*)",
   ],
 };

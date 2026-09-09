@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { inter } from "./fonts";
 import { ToastViewport } from "@/ui/Toast";
+import { PwaRegistration } from "@/ui/shell/PwaRegistration";
 import { themeScript } from "@/ui/shell/theme";
 import "./globals.css";
 
@@ -15,9 +16,9 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/icons/house.svg", type: "image/svg+xml" },
-      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-192-v2.png", sizes: "192x192", type: "image/png" },
     ],
-    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+    apple: [{ url: "/icons/apple-touch-icon-v2.png", sizes: "180x180" }],
   },
   appleWebApp: {
     capable: true,
@@ -60,6 +61,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-dvh bg-paper font-sans text-ink">
         {children}
         <ToastViewport />
+        <PwaRegistration />
       </body>
     </html>
   );

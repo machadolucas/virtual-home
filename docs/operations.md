@@ -115,4 +115,17 @@ set the alert threshold at 1.5 × measured p95. Watch the trend across updates, 
 ## HTTP-only fallback
 If TLS is temporarily unavailable, set `VH_BASE_URL=http://<lan-ip>:3010` and `HOST=0.0.0.0`; cookies
 become non-Secure automatically and `doctor` warns. Passwords then cross the LAN in cleartext; treat it
-as temporary.
+as temporary. Tablet home-screen installation and the service worker also require the normal HTTPS
+deployment (browsers permit service workers only in a secure context).
+
+## Tablet home-screen app
+
+On iPad, open the HTTPS app in Safari, sign in, use Share → Add to Home Screen, then open the new
+icon. On Android, open the HTTPS app in Chrome and choose Install app from the browser menu. The
+installed app starts at Today in a standalone window.
+
+The service worker caches only the public offline document, app icons, manifest and hashed Next.js
+build assets. Signed-in pages, RSC payloads, APIs, house-model files and Home Assistant data always
+come from the server. When it cannot reach the server, a fresh navigation therefore shows only a
+connection-required screen and never household data. Push notifications are not part of the PWA;
+household reminders continue to use Home Assistant.

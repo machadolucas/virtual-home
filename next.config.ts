@@ -41,6 +41,14 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/sw.js",
+        headers: [
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      {
         // Everything except `_next/*`: these headers belong on documents and API responses, and
         // appending them to the dev HMR WebSocket's 101 upgrade corrupts the handshake in Chrome
         // (`ERR_INVALID_HTTP_RESPONSE`), which leaves the dev client retrying and the page

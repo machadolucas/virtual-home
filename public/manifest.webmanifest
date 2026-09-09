@@ -12,29 +12,26 @@
   "theme_color": "#faf9f5",
   "lang": "en",
   "dir": "ltr",
-  "categories": ["utilities", "productivity"],
+  "categories": [
+    "utilities",
+    "productivity"
+  ],
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/icons/house.svg",
-      "type": "image/svg+xml",
-      "sizes": "any",
-      "purpose": "any"
-    },
-    {
-      "src": "/icons/icon-192.png",
+      "src": "/icons/icon-192-v2.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.png",
+      "src": "/icons/icon-512-v2.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-maskable-512.png",
+      "src": "/icons/icon-maskable-512-v2.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "maskable"

@@ -264,6 +264,25 @@ export default async function SystemSettingsPage() {
       </Panel>
 
       <Panel
+        title="Tablet home-screen app"
+        subtitle="Open virtual-home without browser chrome on iPad or Android."
+      >
+        <div className="flex max-w-prose flex-col gap-3 text-sm leading-6 text-ink-2">
+          <p>
+            First open this installation over HTTPS and sign in. On iPad, use Safari’s Share menu
+            and choose <strong className="font-semibold text-ink">Add to Home Screen</strong>. On
+            Android, use Chrome’s menu and choose{" "}
+            <strong className="font-semibold text-ink">Install app</strong>.
+          </p>
+          <p className="text-xs leading-5 text-ink-3">
+            The installed app still needs the home server for household information. If the server
+            cannot be reached, it shows a connection-required screen; signed-in pages, house-model
+            files and Home Assistant data are never saved for offline use.
+          </p>
+        </div>
+      </Panel>
+
+      <Panel
         title="Alerts"
         subtitle="In-app warnings. Acknowledging one means you have seen it, not that it is fixed."
       >
