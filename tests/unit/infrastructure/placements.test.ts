@@ -370,3 +370,24 @@ describe("the HA entity link on a placement", () => {
     expect(listed.placements[0]?.entityId).toBeNull();
   });
 });
+
+describe("surface policy round trips", () => {
+  it.each([
+    { surfaceId: "s-e-roof-fx-under", kind: "ceiling", position: [-0.2, 4.95, 1] },
+    { surfaceId: "s-e-l-ext-out", kind: "wall", position: [-0.02, 1.35, 1.4] },
+  ])("persists a roomless $kind mount on $surfaceId", async ({ surfaceId, kind, position }) => {
+    const response = await put({ position, roomId: null,
+      mount: { kind, surfaceId, height: kind === "wall" ? 1.35 : 0, offset: kind === "wall" ? 0.02 : 0 } });
+    expect(response.status).toBe(200);
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]).toMatchObject({ roomId: null, surfaceId, position,
+      mount: { kind, surfaceId } });
+  });
+
+  it.each(["wall", "ceiling"])("rejects terrain for a %s mount", async (kind) => {
+    const response = await put({ position: [1, 0, 1], roomId: null,
+      mount: { kind, surfaceId: "s-e-terrain-fx", height: 0, offset: 0 } });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "mount_surface_kind_mismatch" });
+  });
+});

@@ -62,8 +62,9 @@ function subscribe(onChange: () => void): () => void {
   };
 }
 
-export function togglePanel(id: PanelId): void {
-  const next: PanelState = { ...getSnapshot(), [id]: !getSnapshot()[id] };
+export function setPanelCollapsed(id: PanelId, collapsed: boolean): void {
+  if (getSnapshot()[id] === collapsed) return;
+  const next: PanelState = { ...getSnapshot(), [id]: collapsed };
   cache = next;
   try {
     globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -73,12 +74,17 @@ export function togglePanel(id: PanelId): void {
   for (const listener of listeners) listener();
 }
 
+export function togglePanel(id: PanelId): void {
+  setPanelCollapsed(id, !getSnapshot()[id]);
+}
+
 export interface PanelLayout {
   collapsed: PanelState;
   toggle(id: PanelId): void;
+  setCollapsed(id: PanelId, collapsed: boolean): void;
 }
 
 export function usePanelLayout(): PanelLayout {
   const collapsed = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  return { collapsed, toggle: togglePanel };
+  return { collapsed, toggle: togglePanel, setCollapsed: setPanelCollapsed };
 }

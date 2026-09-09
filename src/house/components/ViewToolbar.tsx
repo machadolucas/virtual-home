@@ -21,7 +21,7 @@ const LAYER_LABELS: Record<LayerId, string> = {
   annotations: "Notes",
 };
 
-export function ViewToolbar() {
+export function ViewToolbar({ section }: { section: "view" | "layers" | "rendering" | "presets" }) {
   const runtime = useHouseRuntime();
   const state = useHouseStore(
     useShallow((s) => ({
@@ -59,7 +59,8 @@ export function ViewToolbar() {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+      {section === "view" ? (
       <fieldset className="flex flex-col gap-2">
         <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Floors
@@ -94,8 +95,10 @@ export function ViewToolbar() {
         ) : null}
       </fieldset>
 
+      ) : null}
+      {section === "presets" ? (
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
+        <legend className="sr-only">
           Presets
         </legend>
         <div className="flex flex-wrap gap-1">
@@ -117,6 +120,9 @@ export function ViewToolbar() {
         </div>
       </fieldset>
 
+      ) : null}
+      {section === "layers" ? (
+      <>
       <fieldset className="flex flex-col gap-1">
         <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Show
@@ -136,6 +142,7 @@ export function ViewToolbar() {
         <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Layers
         </legend>
+        <div className="grid grid-cols-2 gap-x-4">
         {ALL_LAYERS.map((layer) => (
           <Toggle
             key={layer}
@@ -144,10 +151,14 @@ export function ViewToolbar() {
             label={LAYER_LABELS[layer]}
           />
         ))}
+        </div>
       </fieldset>
 
-      <fieldset className="flex flex-col gap-1">
-        <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
+      </>
+      ) : null}
+      {section === "rendering" ? (
+      <fieldset className="flex min-w-0 flex-1 flex-col gap-1">
+        <legend className="sr-only">
           Rendering
         </legend>
         <Toggle
@@ -158,6 +169,7 @@ export function ViewToolbar() {
         <p className="mt-2 text-xs font-medium text-ink-2">Background</p>
         <HouseBackgroundControl value={state.background} onPreview={setBackground} />
       </fieldset>
+      ) : null}
     </div>
   );
 }

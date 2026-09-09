@@ -46,10 +46,13 @@ export const UNDO_LIMIT = 50;
 export const COALESCE_MS = 400;
 
 export interface EditSlice {
+  editorSaving: boolean;
+  setEditorSaving(saving: boolean): void;
   editing: EditDraft | null;
   original: EditDraft | null;
   /** The exploded gap to put back when the editor closes; `null` outside an editing session. */
   gapBeforeEdit: number | null;
+  explodeEnabledBeforeEdit: boolean | null;
   snap: SnapConfig;
   undo: UndoEntry[];
   redo: UndoEntry[];
@@ -69,9 +72,12 @@ export interface EditSlice {
 }
 
 export const createEditSlice: StateCreator<HouseStore, Mutators, [], EditSlice> = (set, get) => ({
+  editorSaving: false,
+  setEditorSaving: (editorSaving) => set({ editorSaving }),
   editing: null,
   original: null,
   gapBeforeEdit: null,
+  explodeEnabledBeforeEdit: null,
   snap: { grid: 0.05, rotationStep: 15, enabled: true, wallSnap: true },
   undo: [],
   redo: [],
@@ -83,7 +89,7 @@ export const createEditSlice: StateCreator<HouseStore, Mutators, [], EditSlice> 
    * every save path (defence in depth: the save reads `draft.physical`, never `object.position`).
    */
   beginEdit: (draft) =>
-    set((s) => ({
+    set((s) => s.editorSaving ? {} : ({
       editing: draft,
       original: draft,
       editError: null,
@@ -95,13 +101,14 @@ export const createEditSlice: StateCreator<HouseStore, Mutators, [], EditSlice> 
       // Remember the gap so leaving the editor can put the exploded view back where it was;
       // clearing it to 0 and never restoring left the On/Off button flipping its label and moving
       // nothing until the slider was touched.
-      gapBeforeEdit: s.explode.gap,
+      gapBeforeEdit: s.editing ? s.gapBeforeEdit : s.explode.gap,
+      explodeEnabledBeforeEdit: s.editing ? s.explodeEnabledBeforeEdit : s.explode.enabled,
       explode: { ...s.explode, enabled: false, gap: 0, locked: true },
     })),
 
   updateDraft: (patch, opts = {}) =>
     set((s) => {
-      if (!s.editing) return {};
+      if (!s.editing || s.editorSaving) return {};
       const before = s.editing;
       const after: EditDraft = { ...before, ...patch, dirty: true };
       const now = Date.now();
@@ -124,16 +131,17 @@ export const createEditSlice: StateCreator<HouseStore, Mutators, [], EditSlice> 
     }),
 
   /** Replace the draft without touching the stacks — what undo and redo need. */
-  setDraft: (draft) => set({ editing: draft }),
+  setDraft: (draft) => set((s) => s.editorSaving ? {} : { editing: draft }),
 
   cancelEdit: () =>
-    set((s) => ({
+    set((s) => s.editorSaving ? {} : ({
       editing: null,
       original: null,
       editError: null,
       undo: s.undo.filter((e) => e.t !== "draft"),
-      explode: { ...s.explode, locked: false, gap: s.gapBeforeEdit ?? s.explode.gap },
+      explode: { ...s.explode, locked: false, enabled: s.explodeEnabledBeforeEdit ?? s.explode.enabled, gap: s.gapBeforeEdit ?? s.explode.gap },
       gapBeforeEdit: null,
+      explodeEnabledBeforeEdit: null,
     })),
 
   endEdit: () =>
@@ -142,8 +150,9 @@ export const createEditSlice: StateCreator<HouseStore, Mutators, [], EditSlice> 
       original: null,
       editError: null,
       undo: s.undo.filter((e) => e.t !== "draft"),
-      explode: { ...s.explode, locked: false, gap: s.gapBeforeEdit ?? s.explode.gap },
+      explode: { ...s.explode, locked: false, enabled: s.explodeEnabledBeforeEdit ?? s.explode.enabled, gap: s.gapBeforeEdit ?? s.explode.gap },
       gapBeforeEdit: null,
+      explodeEnabledBeforeEdit: null,
     })),
 
   setSnap: (patch) => set((s) => ({ snap: { ...s.snap, ...patch } })),

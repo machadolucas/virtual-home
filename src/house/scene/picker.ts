@@ -19,7 +19,8 @@ import type {
 } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
 import type { SceneIndex } from "./SceneIndex";
-import { isSoffitSurface } from "./snap";
+import { isVisibleUp } from "./applyVisibility";
+import { canMountSurface } from "../model/mountSurface";
 
 export interface PickResult {
   surfaceId: SurfaceId | null;
@@ -28,6 +29,8 @@ export interface PickResult {
   floorId: FloorId | null;
   buildingId: BuildingId | null;
   point: THREE.Vector3;
+  /** World normal facing the side hit by the pointer ray. */
+  normal?: THREE.Vector3;
   object: THREE.Object3D;
   distance: number;
 }
@@ -74,7 +77,9 @@ export class Picker {
         const sid = index.meshSurfaceId.get(hit.object) ?? (hit.object.userData.surfaceId as string | undefined);
         const group = (sid && index.clipGroupOf.get(sid)) || "site";
         if (!clip.keeps(group, hit.point)) continue;
-        return resolveOwnership(hit, index);
+        const result = resolveOwnership(hit, index);
+        if (result.normal && result.normal.dot(this.ray.ray.direction) > 0) result.normal.negate();
+        return result;
       }
     }
     return null;
@@ -122,6 +127,7 @@ export function resolveOwnership(
     floorId,
     buildingId,
     point: hit.point.clone(),
+    normal: hit.face?.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize(),
     object: hit.object,
     distance: hit.distance,
   };
@@ -133,17 +139,17 @@ export function dragCandidates(index: SceneIndex, floorId: FloorId | null): THRE
   for (const [sid, mesh] of index.surfaceMesh) {
     const s = index.manifest.surfaces.get(sid);
     if (!s) continue;
-    if (!mesh.visible) continue;
+    if (!isVisibleUp(mesh)) continue;
 
     // Roof undersides and other soffits belong to no floor — an eave is above the ground floor's
     // ceiling and below the roof — so they are admitted regardless of the isolated floor. Without
     // this an eave spot could not be aimed at all, which is the case that motivated it.
-    if (isSoffitSurface(sid, s.kind)) {
+    if (canMountSurface(index.manifest, sid, "ceiling")) {
       out.push(mesh);
       continue;
     }
 
-    if (s.kind !== "floor" && s.kind !== "wall") continue;
+    if (s.kind !== "floor" && !canMountSurface(index.manifest, sid, "wall")) continue;
     if (floorId && index.manifest.floorOfSurface.get(sid) !== floorId) continue;
     out.push(mesh);
   }

@@ -278,6 +278,7 @@ test("every mesh-backed surface of the nine default assets carries its defaultCo
   try {
     // The structure assets sit behind their layer (1.5 MB of trusses and footings, off by default),
     // so the layer has to be on before the full 403-surface set is in the scene.
+    await page.getByRole("tab", { name: "Layers", exact: true }).click();
     await page.getByRole("checkbox", { name: "Structure (trusses, footings)" }).check();
     await expect
       .poll(() => vh(page).status().then((s) => s.loadedAssetIds.length), { timeout: 60_000 })
@@ -512,6 +513,7 @@ test("the structure asset's edges are hidden while the floors are exploded", asy
   const { context, page } = await openHouseSession(browser);
   try {
     const api = vh(page);
+    await page.getByRole("tab", { name: "Layers", exact: true }).click();
     await page.getByRole("checkbox", { name: "Structure (trusses, footings)" }).check();
     await expect
       .poll(() => vh(page).status().then((s) => s.loadedAssetIds.includes(STRUCTURE.asset)), {

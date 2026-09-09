@@ -27,6 +27,7 @@ export function SnapIndicatorLayer() {
 export function SnapIndicator({ state }: { state: SnapIndicatorState | null }) {
   const gridGeometry = useMemo(() => new THREE.PlaneGeometry(1, 1, 10, 10), []);
   const ringGeometry = useMemo(() => new THREE.RingGeometry(0.06, 0.08, 24), []);
+  useEffect(() => () => { gridGeometry.dispose(); ringGeometry.dispose(); }, [gridGeometry, ringGeometry]);
   // Hooks before the early return: the indicator only exists during a drag, but a theme change
   // while dragging still has to re-tint it.
   const snapColor = useViewerPalette().snap;
@@ -58,6 +59,32 @@ export function SnapIndicator({ state }: { state: SnapIndicatorState | null }) {
 
       <mesh geometry={ringGeometry} position={[x, y + 0.003, z]} rotation={[-Math.PI / 2, 0, 0]}>
         <meshBasicMaterial color={snapColor} transparent opacity={0.9} depthTest={false} side={THREE.DoubleSide} />
+      </mesh>
+      {state.ground && y - state.ground.point[1] > 0.05 ? (
+        <ElevationGuide point={state.point} groundY={state.ground.point[1]} color={snapColor} />
+      ) : null}
+    </group>
+  );
+}
+
+/** Dashed segments avoid a frame loop or a line-distance buffer update on hover. */
+function ElevationGuide({ point: [x, y, z], groundY, color }: {
+  point: readonly [number, number, number]; groundY: number; color: string | number;
+}) {
+  const vertices = useMemo(() => {
+    const lines: number[] = [];
+    for (let h = groundY; h < y; h += 0.12) lines.push(x, h, z, x, Math.min(h + 0.065, y), z);
+    return new Float32Array(lines);
+  }, [x, y, z, groundY]);
+  return (
+    <group name="vh-elevation-guide">
+      <lineSegments renderOrder={10}>
+        <bufferGeometry><bufferAttribute attach="attributes-position" args={[vertices, 3]} /></bufferGeometry>
+        <lineBasicMaterial color={color} depthTest={false} transparent opacity={0.8} />
+      </lineSegments>
+      <mesh position={[x, groundY + 0.005, z]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={10}>
+        <ringGeometry args={[0.09, 0.12, 32]} />
+        <meshBasicMaterial color={color} depthTest={false} transparent opacity={0.65} side={THREE.DoubleSide} />
       </mesh>
     </group>
   );
@@ -105,6 +132,9 @@ export function SnapReadout({ state }: { state: SnapIndicatorState | null }) {
       {state.kind === "wall" && state.u !== undefined && state.v !== undefined
         ? `along wall ${state.u.toFixed(3)} m · height ${state.v.toFixed(3)} m`
         : `x ${x.toFixed(3)} · y ${y.toFixed(3)} · z ${z.toFixed(3)}`}
+      {state.ground && y - state.ground.point[1] > 0.05
+        ? ` · ${(y - state.ground.point[1]).toFixed(2)} m above ${state.ground.label}${state.ground.source === "floor-datum" ? " (reference)" : ""}`
+        : null}
     </p>
   );
 }

@@ -15,7 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { snapValue } from "@/house/model/geometry2d";
 import type { Placement } from "@/house/model/types";
-import { dragCandidates } from "@/house/scene/picker";
+import { dragCandidates, intersectHorizontalPlane } from "@/house/scene/picker";
+import { projectGroundReference } from "@/house/scene/groundProjection";
 import { assertPhysicalY, resolveSnap, type SnapIndicatorState } from "@/house/scene/snap";
 import { NotPersistedError } from "@/house/store/dataApi";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
@@ -55,7 +56,8 @@ export function PlacementEditor() {
     },
     [runtime],
   );
-  const [saving, setSaving] = useState(false);
+  const saving = useHouseStore((s) => s.editorSaving);
+  const setSaving = useHouseStore((s) => s.setEditorSaving);
   const dragging = useRef(false);
 
   /**
@@ -77,7 +79,6 @@ export function PlacementEditor() {
     const clip = runtime.clip;
     if (!el || !picker || !sceneIndex || !clip) return;
 
-    const candidates = dragCandidates(sceneIndex, editing.floorId);
     const camera = runtime.camera3d;
     if (!camera) return;
 
@@ -85,10 +86,15 @@ export function PlacementEditor() {
     const solveAt = (event: PointerEvent) => {
       const rect = el.getBoundingClientRect();
       const hit = picker.pick(event.clientX, event.clientY, rect, camera, sceneIndex, clip, {
-        candidates,
+        candidates: dragCandidates(sceneIndex, editing.floorId),
       });
-      return resolveSnap({
+      const solution = resolveSnap({
         hit,
+        freePoint: intersectHorizontalPlane(
+          ((event.clientX - rect.left) / rect.width) * 2 - 1,
+          -((event.clientY - rect.top) / rect.height) * 2 + 1,
+          camera, index.floors.get(editing.floorId)?.elevation ?? editing.physical[1],
+        ),
         config: snap,
         manifest: index,
         draft: editing,
@@ -96,6 +102,11 @@ export function PlacementEditor() {
         meshOf: (id) => sceneIndex.surfaceMesh.get(id),
         anchorOf: (id) => index.roomAnchors.get(id)?.point,
       });
+      solution.indicator.ground = projectGroundReference({
+        point: solution.physical, floorId: solution.floorId, roomId: solution.roomId,
+        manifest: index, sceneIndex,
+      });
+      return solution;
     };
 
     const commit = (solution: ReturnType<typeof solveAt>) => {
@@ -115,7 +126,7 @@ export function PlacementEditor() {
     /** The pointer places only when the place tool holds the left button. */
     const placing = () => {
       const s = runtime.store.getState();
-      return s.tool === "place" && !s.cameraOverride;
+      return s.tool === "place" && !s.cameraOverride && !s.editorSaving;
     };
 
     const onDown = (event: PointerEvent) => {
@@ -183,7 +194,7 @@ export function PlacementEditor() {
   );
 
   const save = useCallback(async () => {
-    if (!editing || !index || !modelId || !fingerprint) return;
+    if (saving || !editing || !index || !modelId || !fingerprint) return;
     if (editing.physical.some((v) => !Number.isFinite(v))) {
       setEditError("The coordinates must be numbers.");
       return;
@@ -249,7 +260,7 @@ export function PlacementEditor() {
     } finally {
       setSaving(false);
     }
-  }, [editing, index, modelId, fingerprint, runtime, upsertPlacement, markPlaced, pushUndo, endEdit, setEditError]);
+  }, [saving, setSaving, editing, index, modelId, fingerprint, runtime, upsertPlacement, markPlaced, pushUndo, endEdit, setEditError]);
 
   /**
    * Remove the placement. The equipment record itself is untouched — this says "it is not here",
@@ -257,7 +268,7 @@ export function PlacementEditor() {
    * disappearing from the household.
    */
   const remove = useCallback(async () => {
-    if (!editing?.placementId || !modelId) return;
+    if (saving || !editing?.placementId || !modelId) return;
     setSaving(true);
     setEditError(null);
     try {
@@ -282,12 +293,12 @@ export function PlacementEditor() {
     } finally {
       setSaving(false);
     }
-  }, [editing, modelId, runtime, removePlacement, restorePlaceable, endEdit, setEditError]);
+  }, [saving, setSaving, editing, modelId, runtime, removePlacement, restorePlaceable, endEdit, setEditError]);
 
   if (!editing) return null;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-full flex-col gap-2">
       <header className="flex items-baseline justify-between">
         <h2 className="text-base font-semibold text-ink">
           {editing.placementId ? "Adjust placement" : "Place equipment"}
@@ -307,9 +318,11 @@ export function PlacementEditor() {
         </p>
       )}
 
-      <NumericPlacementFields />
+      <fieldset disabled={saving} className="min-w-0 border-0 p-0 disabled:opacity-60">
+        <NumericPlacementFields />
+      </fieldset>
 
-      <fieldset className="flex flex-col gap-1 text-xs">
+      <fieldset disabled={saving} className="flex flex-col gap-1 text-xs">
         <legend className="text-ink-3">Nudge</legend>
         <div className="flex flex-wrap gap-1">
           <NudgeButton onClick={() => nudge(-snap.grid, 0, 0)} label="X −5 cm" />
@@ -321,7 +334,7 @@ export function PlacementEditor() {
         </div>
       </fieldset>
 
-      <fieldset className="flex flex-col gap-1 text-xs">
+      <fieldset disabled={saving} className="flex flex-col gap-1 text-xs">
         <legend className="text-ink-3">Snapping</legend>
         <label className="flex min-h-8 items-center gap-2">
           <input
@@ -345,7 +358,7 @@ export function PlacementEditor() {
 
       {editError ? <p className="text-xs text-overdue">{editError}</p> : null}
 
-      <div className="flex gap-2">
+      <div className="sticky bottom-0 z-10 mt-auto flex shrink-0 gap-2 border-t border-line bg-surface py-2">
         <button
           type="button"
           onClick={() => void save()}
@@ -356,6 +369,7 @@ export function PlacementEditor() {
         </button>
         <button
           type="button"
+          disabled={saving}
           onClick={() => {
             setIndicator(null);
             cancelEdit();
@@ -412,7 +426,7 @@ function NudgeButton({ onClick, label }: { onClick: () => void; label: string })
     <button
       type="button"
       onClick={onClick}
-      className="min-h-11 min-w-11 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3"
+      className="min-h-11 md:min-h-8 min-w-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3"
     >
       {label}
     </button>

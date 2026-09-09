@@ -123,7 +123,9 @@ export function startRouteDraft(
 ): (Route & Partial<RouteDto>) | null {
   const s = runtime.store.getState();
   const index = s.index;
-  if (!index || !s.modelId) return null;
+  if (s.editorSaving || !index || !s.modelId) return null;
+  if (s.editing) s.cancelEdit();
+  if (s.routeDraft) s.cancelRouteDraft();
 
   const floorId = s.activeFloorId ?? index.floorOrder[0] ?? null;
   if (!floorId) return null;

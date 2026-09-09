@@ -115,7 +115,7 @@ need no shader, no geometry and no invalidate loop; the compositor already knows
 
 The trade is a transparent drawing buffer: `alpha: true`, `scene.background = null`,
 `setClearAlpha(0)`. That costs one blend of the canvas against the page instead of an opaque
-composite, and it means the render can never be captured without whatever is behind it. Everything
+composite, and a complete image export must composite that CSS background with the transparent render. Everything
 else is unchanged and deliberately so — `antialias: true`, `stencil: false`,
 `localClippingEnabled`, `NoToneMapping`, the dpr policy and `frameloop="demand"`. A background
 change triggers exactly one `invalidate()`, because the transparent buffer has to be re-blended over
@@ -141,3 +141,12 @@ The **theme** goes the other way: System / Light / Dark in the account menu, `vh
 property of the screen you are looking at, not of the house, and it grants nothing — so it never
 touches the database and never needs a session. Revisit if the household ever wants a shared
 "kitchen tablet" theme, which would make it a device setting rather than a browser one.
+
+## D-026 Placement compatibility is shared; viewer image export stays local
+Picking, numeric editing and placement writes use one semantic mount-surface policy. Soffits encoded
+as `other` and exterior faces without a room must retain their real mount kind through save/reload.
+The immutable package and database schema are unchanged; synthetic geometry covers those cases.
+
+Image download composites one fresh WebGL frame with the chosen CSS background and projected
+label chips using Canvas 2D. Keeping `preserveDrawingBuffer: false` avoids an ongoing rendering
+cost for an occasional export; no screenshot service or household-data upload is needed.

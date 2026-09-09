@@ -5,7 +5,7 @@
  *
  * On a phone this is the whole editor (§7.3): drag placement is not offered there.
  */
-import { isSoffitSurface, resolveNumeric } from "@/house/scene/snap";
+import { resolveNumeric } from "@/house/scene/snap";
 import {
   defaultSymbol,
   PLACEMENT_SYMBOLS,
@@ -15,6 +15,8 @@ import {
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
 
 /** Sentinel for "let the view infer it", which is `null` in the draft and in the database. */
+import { canMountSurface } from "@/house/model/mountSurface";
+
 const INFERRED = "__inferred";
 
 export function NumericPlacementFields() {
@@ -32,10 +34,8 @@ export function NumericPlacementFields() {
   // inference — good enough to label the option honestly.
   // A mount kind the surface cannot take is refused by the endpoint, so offering it only produces
   // a failed save at the end of the work. The remembered surface decides what is on offer.
-  const mountSurface = editing.surfaceId ? index.surfaces.get(editing.surfaceId) : undefined;
-  const canWall = mountSurface?.kind === "wall";
-  const canCeiling =
-    mountSurface !== undefined && isSoffitSurface(editing.surfaceId ?? "", mountSurface.kind);
+  const canWall = canMountSurface(index, editing.surfaceId ?? "", "wall");
+  const canCeiling = canMountSurface(index, editing.surfaceId ?? "", "ceiling");
 
   const inferredSymbol: PlacementSymbol = defaultSymbol({
     mountKind: editing.mount.kind,
@@ -55,6 +55,7 @@ export function NumericPlacementFields() {
         physical: solution.physical,
         rotationYDeg: solution.rotationYDeg,
         roomId: solution.roomId,
+        floorId: solution.floorId,
       },
       { coalesce: true },
     );

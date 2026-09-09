@@ -117,3 +117,20 @@ under one account). That is what `workers: 1` in `playwright.config.ts` exists t
   (as the 2026-09-08 set does), run the real-model spec first and then the screenshots with
   `--output=test-results/pw-artifacts`, which moves Playwright's own wipe to that subdirectory and
   leaves the two artefacts alone.
+
+## 2026-09-09 — placement, viewer panels and PNG export
+
+- Shared mount policy: synthetic soffit and roomless exterior wall fixtures, endpoint save/reload,
+  invalid surface rejection, picked-side and numeric standoff preservation.
+- Elevation: room floor, terrain, sloping terrain and explicit datum fallback; browser hover leaves
+  the draft unchanged and clears on exit.
+- Panels: compact View/Layers/Rendering tabs, collapse/cancel/reopen, pending-save dismissal guard,
+  original route restoration and exploded-state restoration.
+- PNG: desktop and phone download, nonblank model, visible labels, opaque theme/solid/gradient
+  backgrounds, guide cleanup and no continued idle rendering. Export images and panel screenshots
+  were visually inspected using the synthetic model.
+- `pnpm check`: 95 files passed; 1,365 tests passed, 23 existing skips. Local socket access is required
+  for the fake HA servers.
+- Playwright (`house`, `house-theme`, `house-viewer`): 37 passed, 21 skipped (desktop-only cases on
+  phones and existing camera limitations). The build and synthetic data were isolated in a temporary
+  checkout so verification did not overwrite the live production build.

@@ -344,9 +344,9 @@
    "loadByDefault": true,
    "edgesNode": "edges-fixture-roof",
    "stats": {
-    "triangles": 8,
-    "surfaces": 4,
-    "bytes": 6340,
+    "triangles": 10,
+    "surfaces": 5,
+    "bytes": 7444,
     "edgeSegments": 24
    },
    "buildingId": "b-fx",
@@ -795,6 +795,10 @@
     },
     {
      "assetId": "fixture-roof",
+     "nodeName": "s-e-roof-fx-under"
+    },
+    {
+     "assetId": "fixture-roof",
      "nodeName": "s-e-roof-fx-north"
     },
     {
@@ -803,6 +807,7 @@
     }
    ],
    "surfaceIds": [
+    "s-e-roof-fx-under",
     "s-e-roof-fx-north",
     "s-e-roof-fx-south"
    ],
@@ -889,7 +894,7 @@
   },
   {
    "id": "s-e-l-ext-out",
-   "kind": "wall",
+   "kind": "other",
    "nodeRefs": [
     {
      "assetId": "fixture-lower",
@@ -1187,6 +1192,19 @@
    "roomId": "r-u-a",
    "elementId": "e-dormer-fx",
    "role": "dormer-ceiling"
+  },
+  {
+   "id": "s-e-roof-fx-under",
+   "kind": "other",
+   "nodeRefs": [
+    {
+     "assetId": "fixture-roof",
+     "nodeName": "s-e-roof-fx-under"
+    }
+   ],
+   "defaultColor": "#d6c9b8",
+   "elementId": "e-roof-fx",
+   "role": "soffit"
   },
   {
    "id": "s-e-roof-fx-north",

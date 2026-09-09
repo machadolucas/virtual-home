@@ -17,8 +17,7 @@
  *    concealed installation, and the legend from `RouteFields` is repeated here rather than being
  *    left for the user to find later.
  *  - **Saving is explicit.** The draft is mirrored into the route list so the 3D line follows the
- *    points as they move, but nothing reaches the server until "Save path". The path editor's own
- *    "Done" closes the draft *without* saving, so this panel says so.
+ *    points as they move, but nothing reaches the server until "Save path". Closing the path editor discards any unsaved changes.
  */
 import { useState } from "react";
 import type { InfraCertainty, InfraLifecycle, InfraMedium } from "@/db/schema/infrastructure";
@@ -60,7 +59,7 @@ function extrasOf(draft: Route & Partial<RouteDto>): Extras {
 
 export function RouteCreateControl() {
   const runtime = useHouseRuntime();
-  const { index, modelId, fingerprint, routeDraft, routeDraftIsNew, routeDraftOrigin } =
+  const { index, modelId, fingerprint, routeDraft, routeDraftIsNew } =
     useHouseStore(
       useShallow((s) => ({
         index: s.index,
@@ -68,11 +67,10 @@ export function RouteCreateControl() {
         fingerprint: s.fingerprint,
         routeDraft: s.routeDraft as (Route & Partial<RouteDto>) | null,
         routeDraftIsNew: s.routeDraftIsNew,
-        routeDraftOrigin: s.routeDraftOrigin,
       })),
     );
   const upsertRoute = useHouseStore((s) => s.upsertRoute);
-  const removeRoute = useHouseStore((s) => s.removeRoute);
+  const cancelRouteDraft = useHouseStore((s) => s.cancelRouteDraft);
   const endRouteDraft = useHouseStore((s) => s.endRouteDraft);
   const setDataError = useHouseStore((s) => s.setDataError);
 
@@ -83,7 +81,8 @@ export function RouteCreateControl() {
   const [lifecycle, setLifecycle] = useState<InfraLifecycle>("installed");
   const [nominalSize, setNominalSize] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const saving = useHouseStore((s) => s.editorSaving);
+  const setSaving = useHouseStore((s) => s.setEditorSaving);
   /** Keyed by draft id, like `RouteFields`: switching draft derives fresh values in one render. */
   const [held, setHeld] = useState<{ routeId: string; extras: Extras } | null>(null);
 
@@ -122,7 +121,7 @@ export function RouteCreateControl() {
   };
 
   const save = async (): Promise<void> => {
-    if (!routeDraft || !extras || !modelId || !fingerprint) return;
+    if (saving || !routeDraft || !extras || !modelId || !fingerprint) return;
     setError(null);
     const candidate: RouteSave = {
       ...routeDraft,
@@ -155,11 +154,8 @@ export function RouteCreateControl() {
   };
 
   const discard = (): void => {
-    if (!routeDraft) return;
-    // A new run leaves nothing behind; an edited one goes back to exactly what was stored.
-    if (routeDraftIsNew) removeRoute(routeDraft.id);
-    else if (routeDraftOrigin) upsertRoute(routeDraftOrigin);
-    endRouteDraft();
+    if (saving || !routeDraft) return;
+    cancelRouteDraft();
     setError(null);
   };
 
@@ -475,7 +471,7 @@ function DraftPath({
         </button>
       </div>
       <p className="text-[11px] text-ink-3">
-        “Done” on the path editor closes it without saving. Use <strong>Save path</strong> to store
+        Closing the path editor discards changes. Use <strong>Save path</strong> to store
         the polyline.
       </p>
     </div>

@@ -25,6 +25,7 @@
  * four, so `mount` carries the true kind. `mountKind`/`mountSurfaceId`/`mountHeightM`/
  * `mountOffsetM` still travel beside it for callers that read the row shape directly.
  */
+import { canMountSurface } from "@/house/model/mountSurface";
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, writeTx, type Db } from "@/db/client";
@@ -401,13 +402,13 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
   if (mountSurfaceId !== null) {
     const surface = index.surfaces.get(mountSurfaceId);
     if (!surface) throw badRequest("unknown_surface", { surfaceId: mountSurfaceId });
-    if (p.mount?.kind === "wall" && surface.kind !== "wall")
+    if (p.mount?.kind === "wall" && !canMountSurface(index, mountSurfaceId, "wall"))
       throw badRequest("mount_surface_kind_mismatch", {
         surfaceId: mountSurfaceId,
         surfaceKind: surface.kind,
         mountKind: "wall",
       });
-    if (p.mount?.kind === "ceiling" && surface.kind !== "ceiling")
+    if (p.mount?.kind === "ceiling" && !canMountSurface(index, mountSurfaceId, "ceiling"))
       throw badRequest("mount_surface_kind_mismatch", {
         surfaceId: mountSurfaceId,
         surfaceKind: surface.kind,

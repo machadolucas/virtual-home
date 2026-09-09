@@ -370,9 +370,11 @@ test("turning the ceilings off removes exactly the ceiling surfaces from the pic
     expect(ceilings.length).toBeGreaterThan(0);
 
     const before = await vh(page).pickables();
+    await page.getByRole("tab", { name: "Layers", exact: true }).click();
     await page.getByRole("checkbox", { name: "Ceilings (G)" }).uncheck();
     await expect.poll(() => vh(page).pickables()).toBe(before - ceilings.length);
 
+    await page.getByRole("tab", { name: "Layers", exact: true }).click();
     await page.getByRole("checkbox", { name: "Ceilings (G)" }).check();
     await expect.poll(() => vh(page).pickables()).toBe(before);
     console.log(`[house] pickables ${before} → ${before - ceilings.length} with ceilings off`);
@@ -514,7 +516,7 @@ test("equipment that is not placed yet can be placed, outdoors, from the tree pa
     await expect(page.getByRole("heading", { name: "Place equipment" })).toBeVisible();
 
     // A point outside every room footprint: the fixture's rooms all sit within x/z 0.2–5.8.
-    const inspector = page.getByRole("region", { name: "Selected item details" });
+    const inspector = page.getByRole("region", { name: "Equipment placement" });
     await inspector.getByLabel("X (m)").fill("8");
     await inspector.getByLabel("Z (m)").fill("6.5");
 

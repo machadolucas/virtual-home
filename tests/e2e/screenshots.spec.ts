@@ -199,6 +199,7 @@ test.describe("desktop scenes", () => {
     const { context, page } = await openHouseSession(browser);
     try {
       // The one opt-in asset the fixture does have: `fixture-scan`, `loadByDefault: false`.
+    await page.getByRole("tab", { name: "Layers", exact: true }).click();
       await page.getByRole("checkbox", { name: "Scan reference" }).check();
       await expect
         .poll(() => vh(page).status().then((s) => s.loadedAssetIds.includes("fixture-scan")), {

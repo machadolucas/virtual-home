@@ -59,6 +59,8 @@ export interface HouseRuntime {
    * immutability rule (rightly) refuses. The runtime owns the object, so the runtime changes it.
    */
   setControlsEnabled(enabled: boolean): void;
+  /** One fresh rendered frame, composited locally with background and labels. */
+  captureImage: (() => Promise<Blob>) | null;
   canvasEl: HTMLCanvasElement | null;
   /** The R3F renderer, published by `SceneRoot` for the test hook's render-info assertions. */
   gl: THREE.WebGLRenderer | null;
@@ -109,6 +111,7 @@ export function createRuntime(init: {
     setControlsEnabled(enabled) {
       if (this.controls) this.controls.enabled = enabled;
     },
+    captureImage: null,
     canvasEl: null,
     gl: null,
     invalidate() {},

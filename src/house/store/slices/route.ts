@@ -47,6 +47,7 @@ export interface RouteSlice {
   setRoutePoint(index: number, point: [number, number, number]): void;
   insertRoutePoint(index: number, point: [number, number, number]): void;
   deleteRoutePoint(index: number): void;
+  cancelRouteDraft(): void;
   endRouteDraft(): void;
   selectPoint(index: number | null): void;
   toggleSystem(system: RouteSystem): void;
@@ -147,19 +148,19 @@ export const createRouteSlice: StateCreator<HouseStore, Mutators, [], RouteSlice
   removeEndpoint: (id) => set((s) => ({ endpoints: s.endpoints.filter((e) => e.id !== id) })),
 
   beginRouteDraft: (route, opts) =>
-    set({
+    set((s) => s.editorSaving ? {} : ({
       routeDraft: route,
       routeDraftIsNew: opts?.isNew ?? false,
       routeDraftOrigin: opts?.isNew ? null : route,
       selectedPointIndex: null,
-    }),
+    })),
 
   updateRouteDraft: (patch) =>
-    set((s) => (s.routeDraft ? withDraft(s, { ...s.routeDraft, ...patch }) : {})),
+    set((s) => (s.routeDraft && !s.editorSaving ? withDraft(s, { ...s.routeDraft, ...patch }) : {})),
 
   setRoutePoint: (index, point) =>
     set((s) => {
-      if (!s.routeDraft || index < 0 || index >= s.routeDraft.points.length) return {};
+      if (s.editorSaving || !s.routeDraft || index < 0 || index >= s.routeDraft.points.length) return {};
       const points = [...s.routeDraft.points];
       points[index] = point;
       return withDraft(s, { ...s.routeDraft, points });
@@ -167,7 +168,7 @@ export const createRouteSlice: StateCreator<HouseStore, Mutators, [], RouteSlice
 
   insertRoutePoint: (index, point) =>
     set((s) => {
-      if (!s.routeDraft) return {};
+      if (s.editorSaving || !s.routeDraft) return {};
       const points = [...s.routeDraft.points];
       points.splice(index, 0, point);
       const segments = [...s.routeDraft.segments];
@@ -181,13 +182,23 @@ export const createRouteSlice: StateCreator<HouseStore, Mutators, [], RouteSlice
 
   deleteRoutePoint: (index) =>
     set((s) => {
-      if (!s.routeDraft || s.routeDraft.points.length <= 2) return {};
+      if (s.editorSaving || !s.routeDraft || s.routeDraft.points.length <= 2) return {};
       const points = s.routeDraft.points.filter((_, i) => i !== index);
       const segments = s.routeDraft.segments.slice(0, Math.max(0, points.length - 1));
       return {
         ...withDraft(s, { ...s.routeDraft, points, segments }),
         selectedPointIndex: null,
       };
+    }),
+
+  cancelRouteDraft: () =>
+    set((s) => {
+      if (s.editorSaving || !s.routeDraft) return {};
+      const id = s.routeDraft.id;
+      const routes = s.routeDraftIsNew
+        ? s.routes.filter((route) => route.id !== id)
+        : s.routes.map((route) => route.id === id ? (s.routeDraftOrigin ?? route) : route);
+      return { routes, routeDraft: null, routeDraftOrigin: null, routeDraftIsNew: false, selectedPointIndex: null };
     }),
 
   endRouteDraft: () =>

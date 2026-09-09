@@ -42,17 +42,14 @@ import {
 import { HouseRuntimeContext, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { useModelPackage } from "../hooks/useModelPackage";
 import { useIsPhone } from "../hooks/useReducedMotion";
-import { usePanelLayout } from "../hooks/usePanelLayout";
-import { CutawayControl } from "./CutawayControl";
-import { ExplodeControl } from "./ExplodeControl";
+import { setPanelCollapsed, usePanelLayout } from "../hooks/usePanelLayout";
 import { HouseCanvasLazy } from "./HouseCanvasLazy";
 import { HouseErrorBoundary } from "./HouseErrorBoundary";
 import { CanvasHints, setHintsSeen } from "./CanvasHints";
 import { PropertyTree } from "./PropertyTree";
 import { ToolPalette } from "./ToolPalette";
-import { RouteLegend } from "./RouteLayer";
 import { SetupState } from "./SetupState";
-import { ViewToolbar } from "./ViewToolbar";
+import { ViewControls } from "./ViewControls";
 import { PlaceableList } from "./edit/PlaceableList";
 import { RouteCreateControl } from "./routeEditor/RouteCreateControl";
 import { RoutePath3D } from "./routeEditor/RoutePath3D";
@@ -64,8 +61,6 @@ import { PhoneHouse } from "./phone/PhoneHouse";
 import { IconButton, Input } from "@/ui";
 import { cn } from "@/ui/cn";
 import {
-  PanelBottomClose,
-  PanelBottomOpen,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -159,6 +154,8 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
       loaded: s.loadedAssetIds.length,
       announcement: s.announcement,
       editing: s.editing !== null,
+      adjusting: !!s.editing?.placementId,
+      editorSaving: s.editorSaving,
       routeDraft: s.routeDraft !== null,
       tool: s.tool,
       cameraOverride: s.cameraOverride,
@@ -172,6 +169,10 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
   useRegionCycling(rootRef, [treeRef, canvasRegionRef, inspectorRef]);
   useToolCamera(runtime);
   const panels = usePanelLayout();
+  useEffect(() => runtime.store.subscribe((next, previous) => {
+    if ((next.editing && !previous.editing) || (next.routeDraft && !previous.routeDraft))
+      setPanelCollapsed("inspector", false);
+  }), [runtime]);
 
   if (state.phase === "failed" || state.fatal)
     return (
@@ -262,34 +263,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
           <CanvasHints />
           <LoadProgress />
         </div>
-        {panels.collapsed.controls ? (
-          <div className="flex shrink-0 items-center justify-between rounded-lg border border-line bg-surface px-2 py-1">
-            <span className="text-xs text-ink-3">View controls</span>
-            <IconButton
-              label="Show the view controls"
-              size="sm"
-              icon={<PanelBottomOpen aria-hidden="true" />}
-              onClick={() => panels.toggle("controls")}
-            />
-          </div>
-        ) : (
-          <div className="shrink-0 rounded-lg border border-line bg-surface">
-            <div className="flex items-center justify-between border-b border-line px-2 py-1">
-              <span className="text-xs font-medium text-ink-2">View controls</span>
-              <IconButton
-                label="Collapse the view controls"
-                size="sm"
-                icon={<PanelBottomClose aria-hidden="true" />}
-                onClick={() => panels.toggle("controls")}
-              />
-            </div>
-            <div className="flex max-h-56 flex-wrap items-start gap-4 overflow-y-auto p-3">
-              <CutawayControl />
-              <ExplodeControl />
-              <RouteLegend />
-            </div>
-          </div>
-        )}
+        <ViewControls collapsed={panels.collapsed.controls} onToggle={() => panels.toggle("controls")} />
       </section>
 
       {/* An editor with nowhere to render is a trap: with the inspector collapsed (a choice that
@@ -308,24 +282,35 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
           className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface"
         >
           <PanelHeader
-            title="View"
+            title={state.editing ? (state.adjusting ? "Adjust placement" : "Place equipment") : state.routeDraft ? "Edit route" : "Details"}
             collapseLabel="Collapse the inspector"
             icon={<PanelRightClose aria-hidden="true" />}
-            onCollapse={() => panels.toggle("inspector")}
+            disabled={state.editorSaving}
+            onCollapse={() => {
+              const current = runtime.store.getState();
+              if (current.editorSaving) return;
+              current.cancelEdit();
+              current.cancelRouteDraft();
+              runtime.setSnapIndicator(null);
+              panels.setCollapsed("inspector", true);
+              canvasRegionRef.current?.focus();
+            }}
           />
-          {/* Two independent scroll regions. The view controls are long enough to push the
-              selected item's details below the fold when they share one scroller, which is the
-              one thing this panel exists to show. */}
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            <ViewToolbar />
-          </div>
           <section
-            aria-label="Selected item details"
-            className="flex max-h-[60%] shrink-0 flex-col overflow-y-auto border-t border-line p-3"
+            aria-label={state.editing ? "Equipment placement" : state.routeDraft ? "Route editing" : "Selected item details"}
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3"
           >
-            {state.editing ? <PlacementEditor /> : <Inspector />}
-            {state.routeDraft ? <RouteEditors /> : null}
-            <RouteCreateControl />
+            {state.editing ? <PlacementEditor /> : state.routeDraft ? (
+              <>
+                <RouteEditors />
+                <RouteCreateControl />
+              </>
+            ) : (
+              <>
+                <Inspector />
+                <RouteCreateControl />
+              </>
+            )}
           </section>
         </aside>
       )}
@@ -646,6 +631,7 @@ function useShortcutHandlers(
       },
       escape() {
         const s = get();
+        if (s.editorSaving) return;
         if (s.editing) {
           // Esc once on a clean draft cancels; on a dirty one it asks, and a second Esc discards.
           if (!s.editing.dirty || s.editError === DISCARD_PROMPT) s.cancelEdit();
@@ -653,13 +639,14 @@ function useShortcutHandlers(
           return;
         }
         if (s.routeDraft) {
-          s.endRouteDraft();
+          s.cancelRouteDraft();
           return;
         }
         runtime.select(null);
       },
       toggleEdit() {
         const s = get();
+        if (s.editorSaving) return;
         if (s.editing) {
           s.cancelEdit();
           return;
@@ -914,7 +901,8 @@ function RouteEditors() {
       index: s.index,
     })),
   );
-  const endRouteDraft = useHouseStore((s) => s.endRouteDraft);
+  const cancelRouteDraft = useHouseStore((s) => s.cancelRouteDraft);
+  const saving = useHouseStore((s) => s.editorSaving);
   const phone = useIsPhone();
   if (!routeDraft || !index) return null;
 
@@ -931,21 +919,10 @@ function RouteEditors() {
         <h3 className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Route path — {routeDraft.name}
         </h3>
-        {/* "Done" used to just close the draft: it neither saved nor reverted, so every point edit
-            was lost on reload while the 3D line kept showing it. Saving lives in the panel below
-            (which states it), so this says what it does — and warns when there is something to
-            lose. */}
         <button
           type="button"
-          onClick={() => {
-            if (
-              window.confirm(
-                "Close the path editor? Anything not saved with “Save path” below is discarded.",
-              )
-            ) {
-              endRouteDraft();
-            }
-          }}
+          disabled={saving}
+          onClick={cancelRouteDraft}
           className="min-h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3"
         >
           Close editor
@@ -1111,16 +1088,18 @@ function PanelHeader({
   collapseLabel,
   icon,
   onCollapse,
+  disabled = false,
 }: {
   title: string;
   collapseLabel: string;
   icon: React.ReactNode;
   onCollapse: () => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex shrink-0 items-center justify-between border-b border-line px-2 py-1">
       <span className="text-xs font-medium text-ink-2">{title}</span>
-      <IconButton label={collapseLabel} size="sm" icon={icon} onClick={onCollapse} />
+      <IconButton label={collapseLabel} size="sm" icon={icon} onClick={onCollapse} disabled={disabled} />
     </div>
   );
 }

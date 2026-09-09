@@ -78,7 +78,8 @@ function initialPosition(
 export function startPlacement(runtime: HouseRuntime, equipment: PlaceableEquipment): boolean {
   const s = runtime.store.getState();
   const index = s.index;
-  if (!index || !s.modelId) return false;
+  if (s.editorSaving || !index || !s.modelId) return false;
+  if (s.routeDraft) s.cancelRouteDraft();
 
   const floorId = s.activeFloorId ?? index.floorOrder[0] ?? null;
   if (!floorId) return false;

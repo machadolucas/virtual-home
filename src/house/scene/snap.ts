@@ -16,6 +16,9 @@ import { snapValue } from "@/house/model/geometry2d";
 import { roomAt, type ManifestIndex } from "@/house/model/manifestIndex";
 import type { FloorId, PlacementMount, RoomId, SurfaceId, Vec3 } from "@/house/model/types";
 import type { PickResult } from "./picker";
+import { canMountSurface } from "../model/mountSurface";
+import type { GroundReference } from "./groundProjection";
+export { isSoffitSurface } from "../model/mountSurface";
 import { wallFrame, type WallFrame } from "./wallFrame";
 
 /** Clearance from a wall face so the marker is not co-planar with the surface. */
@@ -32,6 +35,7 @@ export interface SnapIndicatorState {
   kind: "wall" | "floor" | "free";
   /** Snapped point in physical coordinates. */
   point: Vec3;
+  ground?: GroundReference;
   /** Wall snapping only: the frame and the local coordinates within it. */
   frame?: WallFrame;
   u?: number;
@@ -70,19 +74,6 @@ export interface SnapInput {
   anchorOf?: (roomId: RoomId) => Vec3 | undefined;
 }
 
-/**
- * Is this surface something you hang a light *under*?
- *
- * The package marks roof undersides as kind `other`, so kind alone cannot answer it. The id
- * convention (`s-e-roof-house-under`, `s-e-roof-garage-under`) can, and it is the same convention
- * the model contract documents. Matching on the id is narrow on purpose: every other `other`
- * surface — terrain, paving, cladding — keeps falling through to the free plane.
- */
-export function isSoffitSurface(surfaceId: string, kind: string | undefined): boolean {
-  if (kind === "ceiling") return true;
-  return /(^|-)(soffit|eave)(-|$)/.test(surfaceId) || /-under$/.test(surfaceId);
-}
-
 export function resolveSnap(input: SnapInput): SnapSolution {
   const { hit, manifest, draft } = input;
   const grid = input.config.enabled && !input.modifiers?.alt ? input.config.grid : 0;
@@ -90,21 +81,22 @@ export function resolveSnap(input: SnapInput): SnapSolution {
   const rotationStep = input.config.enabled ? input.config.rotationStep : 0;
 
   // 1. WALL SNAP
-  if (input.config.wallSnap && hit?.surfaceId && hit.roomId) {
-    const surface = manifest.surfaces.get(hit.surfaceId);
+  if (input.config.wallSnap && hit?.surfaceId) {
     const mesh = input.meshOf?.(hit.surfaceId);
-    const room = manifest.rooms.get(hit.roomId);
-    if (surface?.kind === "wall" && mesh && room) {
-      const anchor = input.anchorOf?.(room.id);
+    const room = hit.roomId ? manifest.rooms.get(hit.roomId) : undefined;
+    const floorId = room?.floorId ?? manifest.floorOfSurface.get(hit.surfaceId) ?? hit.floorId ?? draft.floorId;
+    const base = room?.floorElevation ?? manifest.floors.get(floorId)?.elevation ?? 0;
+    if (canMountSurface(manifest, hit.surfaceId, "wall") && mesh) {
+      const anchor = room ? input.anchorOf?.(room.id) : undefined;
       const frame = wallFrame(mesh, {
-        towards: anchor ? new THREE.Vector3(anchor[0], anchor[1], anchor[2]) : undefined,
+        towards: anchor ? new THREE.Vector3(...anchor) : hit.normal ? hit.point.clone().add(hit.normal) : undefined,
       });
       const local = frame.toLocal(hit.point);
       const u = snap(local.u);
       const currentHeight =
-        draft.mount.kind === "wall" ? draft.mount.height : local.v - room.floorElevation;
+        draft.mount.kind === "wall" ? draft.mount.height : local.v - base;
       const height = snap(currentHeight);
-      const point = frame.toWorld(u, room.floorElevation + height, WALL_STANDOFF);
+      const point = frame.toWorld(u, base + height, WALL_STANDOFF);
       // Face out of the wall, into the room.
       const rotY = THREE.MathUtils.radToDeg(Math.atan2(frame.n.x, frame.n.z));
       return {
@@ -114,8 +106,8 @@ export function resolveSnap(input: SnapInput): SnapSolution {
         physical: [snapValue(point.x, 0), snapValue(point.y, 0), snapValue(point.z, 0)],
         rotationYDeg: snapValue(rotY, rotationStep),
         mount: { kind: "wall", surfaceId: hit.surfaceId, height, offset: WALL_STANDOFF },
-        floorId: room.floorId,
-        roomId: room.id,
+        floorId,
+        roomId: room?.id ?? null,
         surfaceId: hit.surfaceId,
         indicator: { kind: "wall", point: [point.x, point.y, point.z], frame, u, v: height },
       };
@@ -129,8 +121,7 @@ export function resolveSnap(input: SnapInput): SnapSolution {
   // neither was in the pick set and the mount union could not name them. Now a hit on either
   // hangs the fixture from the surface, `height` metres below it.
   if (hit?.surfaceId) {
-    const surface = manifest.surfaces.get(hit.surfaceId);
-    const overhead = surface?.kind === "ceiling" || isSoffitSurface(hit.surfaceId, surface?.kind);
+    const overhead = canMountSurface(manifest, hit.surfaceId, "ceiling");
     if (overhead) {
       const drop = draft.mount.kind === "ceiling" ? draft.mount.height : 0;
       const x = snap(hit.point.x);
@@ -146,7 +137,7 @@ export function resolveSnap(input: SnapInput): SnapSolution {
           height: drop,
           offset: draft.mount.kind === "ceiling" ? draft.mount.offset : 0,
         },
-        floorId: room?.floorId ?? draft.floorId,
+        floorId: room?.floorId ?? manifest.floorOfSurface.get(hit.surfaceId) ?? hit.floorId ?? draft.floorId,
         roomId: room?.id ?? null,
         surfaceId: hit.surfaceId,
         indicator: { kind: "free", point: [x, y, z], floorY: hit.point.y },
@@ -169,7 +160,7 @@ export function resolveSnap(input: SnapInput): SnapSolution {
         floorId: room.floorId,
         roomId: room.id,
         surfaceId: hit.surfaceId,
-        indicator: { kind: "floor", point: [x, room.floorElevation, z], floorY: room.floorElevation },
+        indicator: { kind: "floor", point: [x, snapValue(room.floorElevation + height, 0), z], floorY: room.floorElevation },
       };
     }
   }
@@ -198,7 +189,7 @@ export function resolveSnap(input: SnapInput): SnapSolution {
     floorId: draft.floorId,
     roomId,
     surfaceId: null,
-    indicator: { kind: "free", point: [x, base, z], floorY: base },
+    indicator: { kind: "free", point: [x, snapValue(base + height, 0), z], floorY: base },
   };
 }
 
@@ -220,7 +211,10 @@ export function resolveNumeric(
   const grid = config.enabled ? config.grid : 0;
   let x = snapValue(draft.physical[0], grid);
   let z = snapValue(draft.physical[2], grid);
-  const roomId = roomAt(manifest, draft.floorId, x, z);
+  const surfaceId = draft.mount.kind === "wall" || draft.mount.kind === "ceiling" ? draft.mount.surfaceId : null;
+  const surface = surfaceId ? manifest.surfaces.get(surfaceId) : undefined;
+  const floorId = (surfaceId ? manifest.floorOfSurface.get(surfaceId) : null) ?? draft.floorId;
+  const roomId = surface ? surface.roomId ?? null : roomAt(manifest, floorId, x, z);
   const room = roomId ? manifest.rooms.get(roomId) : undefined;
 
   /**
@@ -235,19 +229,23 @@ export function resolveNumeric(
   const mount = draft.mount;
 
   if (mount.kind === "floor" || mount.kind === "free") {
-    const base = room?.floorElevation ?? manifest.floors.get(draft.floorId)?.elevation ?? 0;
+    const base = room?.floorElevation ?? manifest.floors.get(floorId)?.elevation ?? 0;
     y = snapValue(base + mount.height, 0);
   } else if (mount.kind === "wall") {
-    const base = room?.floorElevation ?? manifest.floors.get(draft.floorId)?.elevation ?? 0;
+    const base = room?.floorElevation ?? manifest.floors.get(floorId)?.elevation ?? 0;
     const mesh = opts.meshOf?.(mount.surfaceId);
     if (mesh) {
       // Project onto the wall's own plane, exactly as the drag path does, so the standoff moves
       // the marker along the surface normal instead of only changing a number.
       const anchor = room ? opts.anchorOf?.(room.id) : undefined;
-      const frame = wallFrame(mesh, {
-        towards: anchor ? new THREE.Vector3(anchor[0], anchor[1], anchor[2]) : undefined,
-      });
-      const local = frame.toLocal(new THREE.Vector3(x, y, z));
+      const source = new THREE.Vector3(...draft.physical);
+      let frame = wallFrame(mesh, { towards: anchor ? new THREE.Vector3(...anchor) : source });
+      // A flush mount has no positional side information; its saved facing direction retains it.
+      if (!anchor && Math.abs(frame.toLocal(source).d) < 1e-6) {
+        const yaw = THREE.MathUtils.degToRad(draft.rotationYDeg);
+        frame = wallFrame(mesh, { towards: source.clone().add(new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))) });
+      }
+      const local = frame.toLocal(source);
       const world = frame.toWorld(snapValue(local.u, grid), base + mount.height, mount.offset);
       x = snapValue(world.x, 0);
       y = snapValue(world.y, 0);
@@ -267,7 +265,7 @@ export function resolveNumeric(
     physical: [x, y, z],
     rotationYDeg: snapValue(draft.rotationYDeg, config.enabled ? config.rotationStep : 0),
     mount: draft.mount,
-    floorId: draft.floorId,
+    floorId,
     roomId,
     surfaceId:
       mount.kind === "wall" || mount.kind === "ceiling" ? mount.surfaceId : null,

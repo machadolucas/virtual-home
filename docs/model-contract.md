@@ -118,7 +118,7 @@ millimetres. Exploded and cutaway views are presentation transforms and have no 
 | Data | Table | Coverage |
 |---|---|---|
 | Surface colour | `surface_color_override` | **Complete.** `(modelId, surfaceId) → #rrggbb`, plus the `model_revision_id` the choice was made against. Reset deletes the row, restoring the manifest's `defaultColor` |
-| Equipment placement | `asset_placement` | Geometry **and the mount** — one gap left, see §3.1 |
+| Equipment placement | `asset_placement` | Physical coordinates and all four mount kinds (§3.1) |
 | Infrastructure routes | `infra_route`, `infra_route_point` | **Complete.** Polyline in physical metres with per-point floor/room, medium, certainty, lifecycle + dates, depth/offset, project, photos via `attachment_link` |
 | Infrastructure endpoints | `infra_endpoint` | **Complete.** A coordinate is optional: an endpoint may be location-only |
 | Model annotations | `annotation` | **Complete.** Pins with an optional coordinate, plus a measurement value and unit |
@@ -138,10 +138,21 @@ Two documented consequences:
   datum, so "1.4 m up the wall" means the same thing on every floor. A row written before these
   columns existed has no stored height and the endpoint still derives it the old way, so old rows
   answer the same numbers they always did.
-- The workspace's `PlacementMount` union only knows `floor` and `wall`. A `ceiling` mount is
-  therefore **answered** as a wall mount on its ceiling surface and a `free` mount as a floor mount
-  at its height — the numbers are identical, only the noun is coarser — and the true value travels
-  beside it as `mountKind`/`mountSurfaceId`/`mountHeightM`/`mountOffsetM`.
+- The workspace and API both preserve `floor`, `wall`, `ceiling` and `free` mounts. Ceiling height
+  is a drop below the supporting surface; floor/free height is measured above the room floor or
+  floor datum. Roomless exterior wall mounts use their owning floor's datum.
+
+A shared pure mount-surface policy drives picking, snapping, numeric radio availability and write
+validation. Ceiling mounts accept ceilings and explicitly identified soffits/eave undersides
+(`soffit`, `eave`, `roof-underside` roles or the established underside ID convention). Wall mounts
+accept wall surfaces and `other` exterior faces owned by an `exterior-wall` element. Terrain,
+roof slopes and horizontal trim are not ceiling/wall supports. Exterior wall snapping needs no room;
+the ray-facing normal selects the side, and numeric edits retain it.
+
+Placement hover shows the proposed physical point without changing the draft. Above 5 cm it draws
+a dashed vertical guide and a footprint: room floor indoors, a downward intersection with loaded
+floor/paving/terrain outside, or an explicitly labeled floor-datum reference when geometry is absent.
+Guides disappear on pointer leave or when the editor closes.
 
 `partialFields` is now `["entityId"]`: the HA entity link is a row in `asset_ha_link`, owned by
 another module. A placement says where a thing sits, not what it reports.
@@ -446,3 +457,12 @@ is a decision rather than an oversight:
 - **The performance budgets in the design note are budgets**, computed from the package and the
   producer's reference run — not results this implementation has already demonstrated on the target
   machine.
+
+## 8. Local image capture
+
+`HouseRuntime.captureImage()` returns a PNG Blob of the current view. A one-shot demand frame runs
+after label projection, renders the active camera and copies the WebGL buffer immediately to a
+Canvas 2D surface. CSS theme/solid/gradient backgrounds and visible label chips are composited into
+the image; panels, snap guides and route handles are excluded. The output uses the current drawing
+buffer dimensions, including the pixel-ratio cap. `preserveDrawingBuffer` stays false. Capture is
+client-only and temporary object URLs are released after download.

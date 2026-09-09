@@ -28,7 +28,7 @@ export interface E2eUser {
  * runs single-worker, so a test that saves a placement removes that row from every later test's
  * "Not placed yet" list. One name per test keeps them independent of order.
  */
-export const E2E_PLACEABLE_NAMES = ["Yard lamp", "Eave spot", "Porch light"] as const;
+export const E2E_PLACEABLE_NAMES = ["Yard lamp", "Eave spot", "Porch light", "Viewer test lamp"] as const;
 
 /** The first of them, for tests that only need one. */
 export const E2E_PLACEABLE_NAME = E2E_PLACEABLE_NAMES[0];

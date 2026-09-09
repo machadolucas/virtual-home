@@ -23,6 +23,7 @@ import { backgroundStyle, DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from 
 import { useHouseStore } from "../hooks/useHouseStore";
 import { useIsPhone } from "../hooks/useReducedMotion";
 import { LabelHost, LabelProjector, useLabelAnchors } from "./LabelOverlay";
+import { CaptureBridge } from "./CaptureBridge";
 import { Lighting } from "./Lighting";
 import { MarkerButtons, MarkerDomLayer } from "./MarkerLayer";
 import { Rig } from "./Rig";
@@ -93,6 +94,7 @@ export function HouseCanvas({ background = DEFAULT_HOUSE_BACKGROUND }: HouseCanv
         <SnapIndicatorLayer />
         <LabelProjector hostRef={hostRef} anchors={anchors} />
         <MarkerDomLayer hostRef={markerHostRef} />
+        <CaptureBridge hostRef={canvasHostRef} labelRef={hostRef} />
       </Canvas>
       <MarkerButtons hostRef={markerHostRef} />
       <LabelHost hostRef={hostRef} anchors={anchors} />

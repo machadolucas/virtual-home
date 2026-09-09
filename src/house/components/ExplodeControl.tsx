@@ -23,7 +23,7 @@ export function ExplodeControl() {
   const disabled = explode.locked || editing !== null;
 
   return (
-    <section className="flex flex-col gap-2" aria-label="Exploded floors">
+    <section className="flex flex-col gap-1" aria-label="Exploded floors">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wide text-ink-3">
           Exploded floors
@@ -51,7 +51,7 @@ export function ExplodeControl() {
           onChange={(event) =>
             setExplode({ enabled: true, gap: Number(event.currentTarget.value) })
           }
-          className="h-11 w-full touch-manipulation disabled:opacity-50"
+          className="h-11 md:h-6 w-full touch-manipulation disabled:opacity-50"
           aria-label="Explode gap in metres"
         />
       </label>

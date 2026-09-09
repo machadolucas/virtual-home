@@ -25,7 +25,7 @@ export function CutawayControl() {
   const bounds = index.manifest.bounds;
 
   return (
-    <section className="flex flex-col gap-2" aria-label="Cutaway">
+    <section className="flex flex-col gap-1" aria-label="Cutaway">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wide text-ink-3">Section</span>
         <ToolbarButton pressed={cut.enabled} onClick={() => setCut({ enabled: !cut.enabled })}>
@@ -51,7 +51,7 @@ export function CutawayControl() {
           step={0.01}
           value={cut.y}
           onChange={(event) => setCut({ enabled: true, y: Number(event.currentTarget.value) })}
-          className="h-11 w-full touch-manipulation"
+          className="h-11 md:h-6 w-full touch-manipulation"
           aria-label="Cut height in metres"
         />
       </label>
@@ -108,7 +108,7 @@ export function CutawayControl() {
                       : null,
                   })
                 }
-                className="h-11 w-full touch-manipulation"
+                className="h-11 md:h-6 w-full touch-manipulation"
                 aria-label={`Vertical cut position along ${cut.vertical.axis}`}
               />
             </label>

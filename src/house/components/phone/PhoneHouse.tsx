@@ -17,6 +17,7 @@ import { HouseCanvasLazy } from "../HouseCanvasLazy";
 import { HouseErrorBoundary } from "../HouseErrorBoundary";
 import { PlacementEditor } from "../edit/PlacementEditor";
 import { Inspector } from "../inspector/Inspector";
+import { DownloadImageButton } from "../DownloadImageButton";
 import { LocateSheet } from "./LocateSheet";
 
 export function PhoneHouse() {
@@ -72,6 +73,8 @@ export function PhoneHouse() {
           <HouseCanvasLazy background={background} />
         </HouseErrorBoundary>
       </div>
+
+      <div className="flex justify-end"><DownloadImageButton /></div>
 
       {equipmentId ? <LocateSheet placementId={equipmentId} /> : null}
 

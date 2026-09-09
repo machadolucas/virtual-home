@@ -268,7 +268,7 @@ describe("the exploded-save invariant", () => {
     expect(store.getState().explode.gap).toBe(0);
 
     store.getState().cancelEdit();
-    expect(store.getState().explode.locked).toBe(false);
+    expect(store.getState().explode).toMatchObject({ enabled: true, gap: 2.5, locked: false });
   });
 
   it("serialises the physical Y even when the lock is forcibly bypassed", () => {
@@ -738,5 +738,51 @@ describe("numeric editing across mount kinds", () => {
       new THREE.Vector3(solution.physical[0], solution.physical[1], solution.physical[2]),
     );
     expect(local.d).toBeCloseTo(WALL_STANDOFF, 3);
+  });
+});
+
+describe("outdoor mounts", () => {
+  it("snaps a roomless exterior face on the picked side and preserves it during numeric edits", () => {
+    const built = buildScene(FIXTURE_DIR);
+    const hit = hitOn(built, "s-e-l-ext-out", null, new THREE.Vector3(0, 1.35, 1.4));
+    hit.normal = new THREE.Vector3(-1, 0, 0);
+    const solution = resolveSnap({ hit, config: SNAP, manifest: built.manifestIndex,
+      draft: draftAt([0, 0, 0], "f-upper"), meshOf: (id) => built.index.surfaceMesh.get(id) });
+    expect(solution).toMatchObject({ mount: { kind: "wall", height: 1.35 }, floorId: "f-lower", roomId: null,
+      surfaceId: "s-e-l-ext-out" });
+    expect(solution.physical[0]).toBeCloseTo(-WALL_STANDOFF);
+    const numeric = resolveNumeric(built.manifestIndex, { ...solution, physical: solution.physical }, SNAP,
+      { meshOf: (id) => built.index.surfaceMesh.get(id) });
+    expect(numeric.physical).toEqual(solution.physical);
+    expect(numeric.mount).toEqual(solution.mount);
+    expect(numeric.roomId).toBeNull();
+    expect(numeric.floorId).toBe("f-lower");
+    if (numeric.mount.kind !== "wall") throw new Error("Expected a wall mount");
+    const flush = resolveNumeric(built.manifestIndex, { ...numeric, mount: { ...numeric.mount, offset: 0 } }, SNAP,
+      { meshOf: (id) => built.index.surfaceMesh.get(id) });
+    const raised = resolveNumeric(built.manifestIndex, { ...flush, mount: { ...numeric.mount, offset: 0.1 } }, SNAP,
+      { meshOf: (id) => built.index.surfaceMesh.get(id) });
+    expect(raised.physical[0]).toBeCloseTo(-0.1);
+    expect(dragCandidates(built.index, "f-lower")).toContain(hit.object);
+  });
+
+  it("keeps a soffit identity for saving", () => {
+    const built = buildScene(FIXTURE_DIR);
+    const solution = resolveSnap({ hit: hitOn(built, "s-e-roof-fx-under", null, new THREE.Vector3(-0.2, 4.95, 1)),
+      config: SNAP, manifest: built.manifestIndex, draft: draftAt([0, 0, 0], "f-upper") });
+    expect(solution.mount).toMatchObject({ kind: "ceiling", surfaceId: "s-e-roof-fx-under" });
+    expect(solution.physical[1]).toBe(4.95);
+  });
+
+  it("does not dismiss or change a placement while its save is pending", () => {
+    const store = createHouseStore();
+    store.getState().beginEdit(draft());
+    store.getState().setEditorSaving(true);
+    store.getState().cancelEdit();
+    store.getState().updateDraft({ physical: [2, 3, 4] });
+    expect(store.getState().editing?.physical).toEqual([0, 0, 0]);
+    store.getState().setEditorSaving(false);
+    store.getState().cancelEdit();
+    expect(store.getState().editing).toBeNull();
   });
 });

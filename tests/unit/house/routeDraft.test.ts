@@ -159,3 +159,26 @@ describe("editing the draft", () => {
     expect(runtime.store.getState().routeDraft?.points[0]).toEqual([1, 1, 1]);
   });
 });
+
+describe("canceling route edits", () => {
+  it("removes a new draft from the scene", () => {
+    const runtime = runtimeWithPackage();
+    const route = startRouteDraft(runtime, SPEC)!;
+    runtime.store.getState().cancelRouteDraft();
+    expect(runtime.store.getState().routeDraft).toBeNull();
+    expect(runtime.store.getState().routes.some((r) => r.id === route.id)).toBe(false);
+  });
+  it("restores the original path and refuses cancellation during a save", () => {
+    const runtime = runtimeWithPackage();
+    const route = startRouteDraft(runtime, SPEC)!;
+    runtime.store.getState().endRouteDraft();
+    runtime.store.getState().beginRouteDraft(route);
+    runtime.store.getState().setRoutePoint(0, [8, 8, 8]);
+    runtime.store.getState().setEditorSaving(true);
+    runtime.store.getState().cancelRouteDraft();
+    expect(runtime.store.getState().routeDraft).not.toBeNull();
+    runtime.store.getState().setEditorSaving(false);
+    runtime.store.getState().cancelRouteDraft();
+    expect(runtime.store.getState().routes[0]?.points).toEqual(route.points);
+  });
+});

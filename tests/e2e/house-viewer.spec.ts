@@ -1,0 +1,133 @@
+import { expect, test, type Page } from "@playwright/test";
+import sharp from "sharp";
+import { openHouseSession, waitForStableFrames, idleFrames } from "./helpers/house";
+
+async function imageDownload(page: Page): Promise<Buffer> {
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download image", exact: true }).click();
+  const download = await downloaded;
+  expect(download.suggestedFilename()).toMatch(/^house-view-.*\.png$/);
+  expect(await download.failure()).toBeNull();
+  const file = await download.path();
+  return sharp(file!).png().toBuffer();
+}
+
+test("PNG includes the rendered scene, background and visible labels", async ({ browser }, testInfo) => {
+  const { context, page } = await openHouseSession(browser);
+  try {
+    await waitForStableFrames(page, 1000);
+    const canvas = page.locator("canvas").first();
+    const size = await canvas.evaluate((el) => ({ width: (el as HTMLCanvasElement).width, height: (el as HTMLCanvasElement).height }));
+    const png = await imageDownload(page);
+    const decoded = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    expect(decoded.info.width).toBe(size.width);
+    expect(decoded.info.height).toBe(size.height);
+    expect(decoded.data[3]).toBe(255); // CSS background was composited, not left transparent.
+    const colors = new Set<string>();
+    for (let i = 0; i < decoded.data.length; i += 4 * 97) colors.add(decoded.data.subarray(i, i + 3).toString("hex"));
+    expect(colors.size).toBeGreaterThan(15); // A scene, not an empty background.
+    const visibleLabels = page.locator(".vh-label:visible, .vh-label-cluster:visible");
+    expect(await visibleLabels.count()).toBeGreaterThan(0);
+    await page.locator(".vh-label, .vh-label-cluster").evaluateAll((els) => els.forEach((el) => (el as HTMLElement).style.visibility = "hidden"));
+    const withoutLabels = await imageDownload(page);
+    expect(png.equals(withoutLabels)).toBe(false);
+    await page.locator(".vh-label, .vh-label-cluster").evaluateAll((els) => els.forEach((el) => (el as HTMLElement).style.visibility = ""));
+    await testInfo.attach("house-image.png", { body: png, contentType: "image/png" });
+    await waitForStableFrames(page);
+    const idle = await idleFrames(page, 500);
+    expect(idle.invalidateAfter).toBe(idle.invalidateBefore);
+  } finally { await context.close(); }
+});
+
+test("compact controls are separate and collapsing placement cancels it", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name === "phone", "Desktop panels; phone retains its numeric editor.");
+  const { context, page } = await openHouseSession(browser);
+  try {
+    const inspector = page.getByRole("complementary", { name: "Inspector", exact: true });
+    const controls = page.getByRole("region", { name: "View controls", exact: true });
+    await expect(inspector.getByRole("checkbox", { name: "Roof (H)" })).toHaveCount(0);
+    await controls.getByRole("tab", { name: "Layers", exact: true }).click();
+    await expect(controls.getByRole("checkbox", { name: "Roof (H)" })).toBeVisible();
+    await controls.getByRole("tab", { name: "Rendering", exact: true }).click();
+    await expect(controls.getByRole("radiogroup", { name: "3D background" })).toBeVisible();
+    await page.getByRole("button", { name: "Collapse the view controls", exact: true }).click();
+    await expect(controls.getByRole("button", { name: "Download image", exact: true })).toBeVisible();
+    await expect(controls.getByRole("button", { name: "Overview (R)" })).toBeVisible();
+    await page.getByRole("button", { name: "Collapse the inspector", exact: true }).click();
+    await page.getByRole("button", { name: /Not placed yet/ }).click();
+    const place = page.getByRole("button", { name: "Place Viewer test lamp in the model", exact: true });
+    await place.click();
+    await page.getByLabel("X (m)", { exact: true }).fill("8");
+    await page.getByRole("button", { name: "Collapse the inspector", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Place equipment", exact: true })).toBeHidden();
+    await expect(page.getByRole("button", { name: "Show the inspector", exact: true })).toBeVisible();
+    await place.click();
+    await expect(page.getByLabel("X (m)", { exact: true })).not.toHaveValue("8");
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/house-model/*/placements", async (route) => {
+      if (route.request().method() !== "PUT") { await route.continue(); return; }
+      await gate;
+      await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "test_save_rejected" }) });
+    });
+    await page.getByRole("button", { name: "Save placement", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Collapse the inspector", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Cancel (Esc)", exact: true })).toBeDisabled();
+    release();
+    await expect(page.getByRole("button", { name: "Save placement", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Cancel (Esc)", exact: true }).click();
+    await testInfo.attach("compact-controls.png", { body: await page.screenshot(), contentType: "image/png" });
+  } finally { await context.close(); }
+});
+
+test("solid and gradient backgrounds are baked into the PNG", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name === "phone", "Background settings live in the desktop controls.");
+  const { context, page } = await openHouseSession(browser);
+  try {
+    await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+    await page.getByRole("button", { name: "Warm paper, light", exact: true }).click();
+    await expect(page.getByTestId("vh-canvas-host")).toHaveAttribute("style", /background-color/);
+    await waitForStableFrames(page);
+    const solid = await sharp(await imageDownload(page)).ensureAlpha().raw().toBuffer();
+    expect([...solid.subarray(0, 4)]).toEqual([244, 244, 242, 255]);
+    await page.getByRole("button", { name: "Cool fade, dark", exact: true }).click();
+    await expect(page.getByTestId("vh-canvas-host")).toHaveAttribute("style", /linear-gradient/);
+    await waitForStableFrames(page);
+    const gradient = await sharp(await imageDownload(page)).ensureAlpha().raw().toBuffer();
+    expect(gradient[0]).toBeGreaterThan(gradient[gradient.length - 4]!);
+    expect(gradient[3]).toBe(255);
+  } finally {
+    await page.getByRole("button", { name: "Follows the theme", exact: true }).click();
+    await expect(page.getByTestId("vh-canvas-host")).not.toHaveAttribute("style", /background/);
+    // Background persistence is debounced; leave it time to complete before the next test.
+    await page.waitForTimeout(1000);
+    await context.close();
+  }
+});
+
+
+test("hovering an elevated surface shows a ground projection without changing the draft", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name === "phone", "Pointer placement is desktop only.");
+  const { context, page } = await openHouseSession(browser);
+  try {
+    await page.getByRole("button", { name: /Not placed yet/ }).click();
+    await page.getByRole("button", { name: "Place Viewer test lamp in the model", exact: true }).click();
+    await waitForStableFrames(page, 1000);
+    const initialY = await page.getByLabel("Y (m)", { exact: true }).inputValue();
+    const box = (await page.locator("canvas").first().boundingBox())!;
+    const readout = page.locator("p.font-mono", { hasText: /m above/ });
+    // Search screen points for a roof/ceiling/wall hit; the fixture is fully synthetic.
+    for (let row = 2; row < 8 && !(await readout.isVisible()); row++) {
+      for (let column = 2; column < 8; column++) {
+        await page.mouse.move(box.x + box.width * column / 10, box.y + box.height * row / 10);
+        if (await readout.isVisible()) break;
+      }
+    }
+    await expect(readout).toBeVisible();
+    await expect(page.getByLabel("Y (m)", { exact: true })).toHaveValue(initialY);
+    await testInfo.attach("elevation-preview.png", { body: await page.screenshot(), contentType: "image/png" });
+    await page.mouse.move(0, 0);
+    await expect(readout).toBeHidden();
+  } finally { await context.close(); }
+});

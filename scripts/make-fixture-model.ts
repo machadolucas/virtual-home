@@ -368,7 +368,7 @@ const lowerElements: ElementSpec[] = [
       },
       {
         id: "s-e-l-ext-out",
-        kind: "wall",
+        kind: "other",
         role: "exterior",
         color: "#c8b48f",
         geometry: wallQuad(0, 0, 0, 4, 0, WALL_TOP_LOWER),
@@ -625,6 +625,13 @@ const roofFloorless: ElementSpec[] = [
     kind: "roof",
     certainty: "inferred",
     surfaces: [
+      {
+        id: "s-e-roof-fx-under",
+        kind: "other",
+        role: "soffit",
+        color: "#d6c9b8",
+        geometry: slabQuad(-0.3, -0.3, 6.3, 4.3, 4.95, false),
+      },
       {
         id: "s-e-roof-fx-north",
         kind: "other",

@@ -226,7 +226,7 @@ describe("installPackage / getCurrentPackage", () => {
       "fixture-terrain",
       "fixture-upper",
     ]);
-    expect((await readManifest())?.surfaces.length).toBe(30);
+    expect((await readManifest())?.surfaces.length).toBe(31);
     await expect(assetPath("fixture-lower")).resolves.toContain(
       path.join(fingerprint, "assets", "fixture-lower.glb"),
     );

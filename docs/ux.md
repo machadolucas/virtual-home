@@ -62,6 +62,23 @@ Inside a page: `PageHeader` (eyebrow, `<h1>`, description, actions) then `Panel`
 nest.** A panel inside a panel means the information architecture is wrong, not that a border is
 missing.
 
+### House workspace controls
+
+The desktop right panel has one scroll region for details, equipment placement or route editing.
+The bottom View controls panel contains View (floors, cutaway, explode), Layers (visibility and
+route legend), and Rendering (performance and background) tabs. Camera presets and Download image
+remain available when the bottom panel is collapsed. Controls use compact desktop spacing and
+retain larger phone touch targets.
+
+Starting an edit opens the right panel. Collapsing it discards the unsaved placement or route draft
+without confirmation, restores the existing route when applicable, and returns focus to the canvas.
+Placement cancellation restores the prior exploded view. Save/remove requests disable dismissal
+until the request completes. Placement Save/Cancel actions remain pinned within the scroll region.
+
+Download image saves a PNG of the visible model, background and labels at the current canvas
+resolution. It excludes panels and editing guides, works on desktop and phone, and reports capture
+errors beside the button.
+
 ## 3. Tokens
 
 ### Colour

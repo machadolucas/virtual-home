@@ -72,7 +72,7 @@ describe("fixture package", () => {
         checked++;
       }
     }
-    expect(checked).toBe(29); // 30 surfaces, one of them mesh-less
+    expect(checked).toBe(30); // 31 surfaces, one of them mesh-less
   });
 });
 
