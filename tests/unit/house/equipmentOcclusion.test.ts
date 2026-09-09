@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ClipGroups } from "@/house/scene/clipGroups";
 import { EquipmentOcclusion } from "@/house/scene/equipmentOcclusion";
 import { createSceneIndex } from "@/house/scene/SceneIndex";
@@ -128,5 +128,37 @@ describe("equipment label occlusion", () => {
     occlusion.beginFrame(index, null, perspective());
     expect(occlusion.isOccluded(new THREE.Vector3(0, 0, 0.1))).toBe(false);
     expect(occlusion.isOccluded(new THREE.Vector3(0, 0, 0.08))).toBe(true);
+  });
+
+  it("broadphases a dense scene before doing exact mesh raycasts", () => {
+    const index = createSceneIndex({} as ManifestIndex);
+    const geometry = new THREE.BoxGeometry(0.5, 0.5, 0.1);
+    const material = new THREE.MeshBasicMaterial();
+    for (let i = 0; i < 400; i += 1) {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(10 + (i % 20), 10 + Math.floor(i / 20), 0);
+      mesh.updateMatrixWorld(true);
+      const id = `far-${i}` as SurfaceId;
+      index.surfaceMesh.set(id, mesh);
+      index.clipGroupOf.set(id, "f-lower");
+    }
+    const blocker = new THREE.Mesh(geometry, material);
+    blocker.updateMatrixWorld(true);
+    index.surfaceMesh.set("near" as SurfaceId, blocker);
+    index.clipGroupOf.set("near" as SurfaceId, "f-lower");
+
+    const occlusion = new EquipmentOcclusion();
+    occlusion.beginFrame(index, null, perspective());
+    const exactRaycast = vi.spyOn(THREE.Mesh.prototype, "raycast");
+    try {
+      expect(occlusion.isOccluded(new THREE.Vector3(0, 0, -1))).toBe(true);
+      // 401 physical meshes are present; only the one AABB crossing this label ray reaches the
+      // triangle-level Mesh.raycast path.
+      expect(exactRaycast).toHaveBeenCalledTimes(1);
+    } finally {
+      exactRaycast.mockRestore();
+      geometry.dispose();
+      material.dispose();
+    }
   });
 });

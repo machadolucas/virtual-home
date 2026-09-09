@@ -673,6 +673,8 @@ equipment labels visible; phones expose the same switch beside the model.
 Equipment labels show their main linked reading. Clicking a label expands its other linked readings;
 battery-linked equipment includes its percentage. The placement's chosen silhouette survives save
 and reload. Live lights tint nearby model surfaces with their Home Assistant brightness and colour.
+Rotating the camera does not swap which lights illuminate the scene. When many lights are on,
+additional fixtures use simpler surface glows to keep shadow-rendering cost bounded.
 
 For downlights and ground spike spots, placement editing includes **Spotlight direction**. Choose
 **Aim in 3D view**, point at a surface and click to set the beam direction. The preview arrow does not
@@ -729,3 +731,8 @@ click targets behind visible floors, walls, doors and other model surfaces. Turn
 upstairs to stop downstairs sensors showing through the floor. It follows the camera, hidden layers,
 wall cuts and exploded floors; selected equipment obeys the same occlusion. Turn it off to see
 through the model again. Like the other layer switches, this is a session-only view preference.
+
+The discreet counter in the viewer's bottom-right corner measures actual rendered FPS during
+sustained motion and shows **idle** when the demand-rendered scene settles. It does not force the
+viewer to render. Hidden floors now also hide their 3D equipment models; disabling occlusion only
+allows seeing equipment through visible geometry, not equipment on floors deliberately hidden.

@@ -43,6 +43,8 @@ export interface SceneIndex {
   surfaceMesh: Map<SurfaceId, THREE.Mesh>;
   elementGroups: Map<ElementId, THREE.Object3D[]>;
   floorNodes: Map<FloorId, THREE.Object3D[]>;
+  /** Semantic floor visibility also applies to app-owned equipment, even without floor nodes. */
+  hiddenGroups: Set<ExplodeGroup>;
   buildingNodes: Map<BuildingId, THREE.Object3D[]>;
   meshSurfaceId: WeakMap<THREE.Object3D, SurfaceId>;
 
@@ -69,6 +71,7 @@ export function createSceneIndex(manifest: ManifestIndex): SceneIndex {
     surfaceMesh: new Map(),
     elementGroups: new Map(),
     floorNodes: new Map(),
+    hiddenGroups: new Set(),
     buildingNodes: new Map(),
     meshSurfaceId: new WeakMap(),
     originalColor: new Map(),
@@ -84,6 +87,7 @@ export function overlayGroup(index: SceneIndex, group: ExplodeGroup): THREE.Grou
   if (!g) {
     g = new THREE.Group();
     g.name = `vh-overlay-${group}`;
+    g.visible = !index.hiddenGroups.has(group);
     index.overlay.root.add(g);
     index.overlay.floorGroups.set(group, g);
   }

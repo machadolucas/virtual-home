@@ -8,10 +8,27 @@ import {
   PERFORMANCE_LIGHT_BUDGET,
   prepareEquipmentLightSurfaces,
   type EquipmentLightSpec,
+  type EquipmentLightProjectionSpec,
 } from "@/house/scene/equipmentLights";
 import type { SceneIndex } from "@/house/scene/SceneIndex";
 
 const spec: EquipmentLightSpec = { id: "lamp", spot: true, position: [1, 2.4, 1], direction: [0, -1, 0], color: [1, 0.4, 0.1], brightness: 0.5 };
+
+const projection = (
+  id: string,
+  over: Partial<EquipmentLightProjectionSpec> = {},
+): EquipmentLightProjectionSpec => ({
+  id,
+  geometry: new THREE.PlaneGeometry(4, 4),
+  matrixWorld: new THREE.Matrix4(),
+  hitPoint: [0, 0, 0],
+  radius: 1,
+  color: [1, 0.4, 0.1],
+  brightness: 0.5,
+  clippingPlanes: [],
+  clipIntersection: false,
+  ...over,
+});
 
 describe("live equipment lights", () => {
   it("rapidly fades brightness and colour, then lets demand rendering settle", () => {
@@ -52,7 +69,7 @@ describe("live equipment lights", () => {
     expect(scene.children).toHaveLength(0);
   });
 
-  it("bounds shadow cost, shadows every emitter, and keeps priority within each kind", () => {
+  it("bounds shadow cost while retaining every active source in diagnostics", () => {
     const layer = new EquipmentLightLayer(new THREE.Scene());
     const many = Array.from({ length: 30 }, (_, i) => ({
       ...spec,
@@ -60,12 +77,7 @@ describe("live equipment lights", () => {
       spot: i % 2 === 0,
     }));
     layer.set(many);
-    expect(layer.snapshot().filter((entry) => entry.spot).map((entry) => entry.id)).toEqual([
-      "lamp-0", "lamp-2", "lamp-4", "lamp-6",
-    ]);
-    expect(layer.snapshot().filter((entry) => !entry.spot).map((entry) => entry.id)).toEqual([
-      "lamp-1", "lamp-3", "lamp-5", "lamp-7",
-    ]);
+    expect(layer.snapshot().map((entry) => entry.id)).toEqual(many.map((entry) => entry.id));
     const emitters = layer.root.children.filter(
       (child): child is THREE.PointLight | THREE.SpotLight =>
         (child instanceof THREE.PointLight || child instanceof THREE.SpotLight) && child.castShadow,
@@ -74,7 +86,64 @@ describe("live equipment lights", () => {
     expect(emitters.every((light) => light.shadow.mapSize.width <= 256)).toBe(true);
 
     layer.set(many, PERFORMANCE_LIGHT_BUDGET);
-    expect(layer.snapshot()).toHaveLength(2);
+    expect(layer.snapshot()).toHaveLength(30);
+    layer.dispose();
+  });
+
+  it("renders one clipped, non-shadow projection for each overflow source and fades it", () => {
+    const layer = new EquipmentLightLayer(new THREE.Scene());
+    const specs = Array.from({ length: 6 }, (_, index) => ({
+      ...spec,
+      id: `lamp-${index}`,
+      spot: false,
+    }));
+    const overflow = specs.slice(4).map((entry) => projection(entry.id));
+
+    layer.set(specs, LIGHT_BUDGET, overflow);
+    expect(layer.projectedSnapshot().map((entry) => entry.id)).toEqual(["lamp-4", "lamp-5"]);
+    expect(layer.renderedSnapshot().filter((entry) => entry.kind === "projection")).toEqual([
+      expect.objectContaining({ id: "lamp-4", castShadow: false, intensity: 0, fading: true }),
+      expect.objectContaining({ id: "lamp-5", castShadow: false, intensity: 0, fading: true }),
+    ]);
+
+    layer.tick(LIGHT_FADE_SECONDS);
+    expect(layer.renderedSnapshot().map((entry) => entry.id).sort()).toEqual(
+      specs.map((entry) => entry.id).sort(),
+    );
+    expect(layer.renderedSnapshot().filter((entry) => entry.kind === "projection").every(
+      (entry) => entry.intensity > 0 && !entry.castShadow,
+    )).toBe(true);
+
+    layer.set(specs, LIGHT_BUDGET, [overflow[1]!]);
+    layer.tick(LIGHT_FADE_SECONDS);
+    expect(layer.projectedSnapshot().map((entry) => entry.id)).toEqual(["lamp-5"]);
+    layer.dispose();
+  });
+
+  it("recompiles a projection when its clipping mode changes", () => {
+    const layer = new EquipmentLightLayer(new THREE.Scene());
+    const plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), -1);
+    layer.set([spec], { point: 0, spot: 0 }, [projection(spec.id)]);
+    const mesh = layer.root.getObjectByName(`vh-light-projection-${spec.id}`) as THREE.Mesh<
+      THREE.BufferGeometry,
+      THREE.ShaderMaterial
+    >;
+    const initialVersion = mesh.material.version;
+
+    expect(layer.set([spec], { point: 0, spot: 0 }, [projection(spec.id, {
+      clippingPlanes: [plane],
+      clipIntersection: true,
+    })])).toBe(true);
+    expect(mesh.material.version).toBeGreaterThan(initialVersion);
+    expect(layer.projectedSnapshot()).toEqual([
+      expect.objectContaining({ clippingPlaneCount: 1, clipIntersection: true }),
+    ]);
+
+    plane.constant = -2;
+    expect(layer.set([spec], { point: 0, spot: 0 }, [projection(spec.id, {
+      clippingPlanes: [plane],
+      clipIntersection: true,
+    })])).toBe(true);
     layer.dispose();
   });
 

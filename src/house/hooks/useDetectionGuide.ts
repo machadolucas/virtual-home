@@ -36,7 +36,7 @@ export function useDetectionGuide() {
       const symbol = p && (isPlacementSymbol(p.symbol) ? p.symbol : defaultSymbol({ category: p.category, entityId: p.entityId, mountKind: p.mount.kind, isOutdoor: !p.roomId }));
       const group = p?.surfaceId && runtime.manifest ? clipGroupOf(runtime.manifest, p.surfaceId) : p?.floorId;
       const nodes = group ? runtime.index?.floorNodes.get(group) : undefined;
-      const eligible = p && s.layers.equipment && isDirectionalSymbol(symbol) && (draft || showDetectionGuide({ ...p, symbol: symbol ?? null })) && (!nodes?.length || nodes.some(isVisibleUp));
+      const eligible = p && !runtime.index?.hiddenGroups.has(group!) && s.layers.equipment && isDirectionalSymbol(symbol) && (draft || showDetectionGuide({ ...p, symbol: symbol ?? null })) && (!nodes?.length || nodes.some(isVisibleUp));
       const next = eligible ? JSON.stringify([p.position, p.rotationYDeg, p.lightAim, p.detectionRangeM, symbol, runtime.offsets.get(group!) ?? 0]) : "";
       if (next === signature) return;
       signature = next;

@@ -16,6 +16,7 @@ import { DEFAULT_LAYERS, type LayerId } from "@/house/model/types";
 import {
   assetLayer,
   computeVisibility,
+  isGroupVisible,
   type AssetNodeInventory,
   type VisibilityInput,
 } from "@/house/model/visibilityPlan";
@@ -55,6 +56,16 @@ const baseInput = (
 
 describe("computeVisibility (fixture)", () => {
   const { index, inventory, loadedAssetIds } = setup(FIXTURE_DIR);
+
+  it("hides upper equipment groups without relying on loaded floor nodes", () => {
+    const input = baseInput({ viewMode: "floor", activeFloorId: "f-lower" }, [], []);
+    const plan = computeVisibility(index, input);
+    expect(isGroupVisible(index, plan, "f-upper", input)).toBe(false);
+    expect(isGroupVisible(index, plan, "f-lower", input)).toBe(true);
+    const focused = { ...input, focus: focusContextFor(index, { kind: "room", id: "r-u-a" }) };
+    expect(isGroupVisible(index, plan, "f-upper", focused)).toBe(true);
+    expect(isGroupVisible(index, plan, "f-lower", focused)).toBe(true);
+  });
 
   it("shows everything in the overview", () => {
     const plan = computeVisibility(index, baseInput({}, inventory, loadedAssetIds));

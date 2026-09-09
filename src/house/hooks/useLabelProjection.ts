@@ -16,7 +16,6 @@ import * as THREE from "three";
 import type { RefObject } from "react";
 import type { ExplodeGroup, PlacementLinkedEntity, Selection } from "@/house/model/types";
 import type { EquipmentLabelReading } from "@/house/model/equipmentLabel";
-import { EquipmentOcclusion } from "@/house/scene/equipmentOcclusion";
 import { isVisibleUp } from "@/house/scene/applyVisibility";
 import type { HouseRuntime } from "../runtime";
 
@@ -171,7 +170,7 @@ export function useLabelProjection(
   const poolRef = useRef<LabelPool | null>(null);
   const tierRef = useRef<LabelTier["name"] | null>(null);
   const expandedRef = useRef<Set<string>>(new Set());
-  const occlusion = useRef(new EquipmentOcclusion()).current;
+  const occlusion = runtime.occlusion;
   const badgeTextRef = useRef(opts.badgeText);
   const badgeText = opts.badgeText;
   const subscribeBadgeChanges = opts.subscribeBadgeChanges;
@@ -249,7 +248,7 @@ export function useLabelProjection(
     const cells = new Map<number, Candidate>();
     const v = new THREE.Vector3();
     const { selection, equipmentOcclusion } = runtime.store.getState();
-    if (equipmentOcclusion && runtime.index) occlusion.beginFrame(runtime.index, runtime.clip, camera);
+    if (equipmentOcclusion && runtime.index) occlusion.beginFrame(runtime.index, runtime.clip, camera, runtime.occlusionRevision, runtime.invalidate);
 
     for (const anchor of anchors) {
       const selected =
@@ -529,6 +528,7 @@ function refreshVisibleLabels(
 function isGroupOnScreen(runtime: HouseRuntime, group: ExplodeGroup): boolean {
   const index = runtime.index;
   if (!index) return true;
+  if (index.hiddenGroups.has(group)) return false;
   const nodes = index.floorNodes.get(group);
   if (!nodes || nodes.length === 0) return true;
   return nodes.some(isVisibleUp);

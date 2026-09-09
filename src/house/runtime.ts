@@ -5,6 +5,7 @@
  * couple of callbacks. Components read it through `useHouseRuntime()` and never re-render because
  * of it, which is what keeps HA traffic and camera motion off the React render path.
  */
+import { EquipmentOcclusionCache } from "./scene/equipmentOcclusionCache";
 import type * as THREE from "three";
 import type CameraControlsImpl from "camera-controls";
 import type { ManifestIndex } from "./model/manifestIndex";
@@ -72,6 +73,8 @@ export interface HouseRuntime {
   refreshFocusClipping: (() => void) | null;
   /** Number of `invalidate()` calls — the idle test asserts this stays flat. */
   invalidateCount: number;
+  occlusionRevision: number;
+  occlusion: EquipmentOcclusionCache;
   offsets: Map<ExplodeGroup, number>;
   /**
    * The one selection path. `SceneRoot` replaces it with a version that paints the highlight
@@ -123,6 +126,8 @@ export function createRuntime(init: {
     invalidate() {},
     refreshFocusClipping: null,
     invalidateCount: 0,
+    occlusionRevision: 0,
+    occlusion: new EquipmentOcclusionCache(),
     offsets: new Map(),
     select() {},
     lastPick: null,

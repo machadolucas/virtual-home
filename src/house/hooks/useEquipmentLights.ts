@@ -14,13 +14,16 @@ import {
 import { isLedBar, ledLength, ledSource } from "../model/equipmentOptics";
 import { defaultSymbol, isPlacementSymbol } from "../scene/symbols";
 import { isVisibleUp } from "../scene/applyVisibility";
+import type { ClipGroups } from "../scene/clipGroups";
 import {
   EquipmentLightLayer,
   LIGHT_BUDGET,
   PERFORMANCE_LIGHT_BUDGET,
   prepareEquipmentLightSurfaces,
   type EquipmentLightSpec,
+  type EquipmentLightProjectionSpec,
 } from "../scene/equipmentLights";
+import type { SceneIndex } from "../scene/SceneIndex";
 import { classifyState, haStore } from "../store/haStore";
 import { useHouseRuntime } from "./useHouseStore";
 
@@ -29,12 +32,16 @@ export function useEquipmentLights() {
   const scene = useThree((s) => s.scene);
   const gl = useThree((s) => s.gl);
   const refresh = useRef<(() => void) | null>(null);
-  const lastCamera = useRef(new THREE.Vector3(Infinity, Infinity, Infinity));
-  const lastRefresh = useRef(0);
+  const lastOcclusionRevision = useRef(-1);
   const preparedIndex = useRef<{ index: typeof runtime.index; assetCount: number }>({
     index: null,
     assetCount: -1,
   });
+  const projectionCache = useRef<{
+    index: typeof runtime.index;
+    occlusionRevision: number;
+    entries: Map<string, EquipmentLightProjectionSpec | null>;
+  }>({ index: null, occlusionRevision: -1, entries: new Map() });
 
   useEffect(() => {
     const layer = new EquipmentLightLayer(scene);
@@ -56,7 +63,6 @@ export function useEquipmentLights() {
       const manifest = runtime.manifest;
       const ha = haStore.getState();
       const candidates: EquipmentLightSpec[] = [];
-      const camera = runtime.camera3d?.position ?? new THREE.Vector3();
       const now = Date.now();
       if (index && manifest && state.layers.equipment) {
         for (const saved of state.placements) {
@@ -69,6 +75,7 @@ export function useEquipmentLights() {
           const appearance = lightAppearance({ ...entity, live: classifyState(entity, ha.connection, now) === "live" });
           if (!appearance || appearance.intensity <= 0) continue;
           const group = p.surfaceId ? clipGroupOf(manifest, p.surfaceId) : p.floorId;
+          if (index.hiddenGroups.has(group)) continue;
           const nodes = index.floorNodes.get(group);
           if (nodes?.length && !nodes.some(isVisibleUp)) continue;
           const position: [number, number, number] = [p.position[0], p.position[1] + (runtime.offsets.get(group) ?? 0), p.position[2]];
@@ -81,10 +88,48 @@ export function useEquipmentLights() {
         }
       }
       const selected = state.selection?.kind === "equipment" ? state.selection.id : null;
-      candidates.sort((a, b) => (a.id === selected ? -1 : b.id === selected ? 1 : new THREE.Vector3(...a.position).distanceToSquared(camera) - new THREE.Vector3(...b.position).distanceToSquared(camera)));
+      candidates.sort((a, b) =>
+        Number(b.id === selected) - Number(a.id === selected) || a.id.localeCompare(b.id));
+      const budget = state.performanceMode ? PERFORMANCE_LIGHT_BUDGET : LIGHT_BUDGET;
+      const detailedIds = new Set([
+        ...candidates.filter((candidate) => !candidate.spot).slice(0, budget.point),
+        ...candidates.filter((candidate) => candidate.spot).slice(0, budget.spot),
+      ].map((candidate) => candidate.id));
+      if (
+        projectionCache.current.index !== index ||
+        projectionCache.current.occlusionRevision !== runtime.occlusionRevision
+      ) {
+        projectionCache.current = {
+          index,
+          occlusionRevision: runtime.occlusionRevision,
+          entries: new Map(),
+        };
+      }
+      const activeClip = runtime.clip;
+      const projections = index && activeClip
+        ? candidates
+            .filter((candidate) => !detailedIds.has(candidate.id))
+            .flatMap((candidate) => {
+              const cacheKey = JSON.stringify([
+                candidate.id,
+                candidate.spot,
+                candidate.position,
+                candidate.direction,
+              ]);
+              let projection = projectionCache.current.entries.get(cacheKey);
+              if (projection === undefined) {
+                projection = projectOverflowLight(candidate, index, activeClip);
+                projectionCache.current.entries.set(cacheKey, projection);
+              }
+              return projection
+                ? [{ ...projection, color: candidate.color, brightness: candidate.brightness }]
+                : [];
+            })
+        : [];
       const changed = layer.set(
         candidates,
-        state.performanceMode ? PERFORMANCE_LIGHT_BUDGET : LIGHT_BUDGET,
+        budget,
+        projections,
       );
       const surfacesChanged = index ? prepareEquipmentLightSurfaces(index) : false;
       if (changed || surfacesChanged || refreshOccluders) {
@@ -110,8 +155,9 @@ export function useEquipmentLights() {
     };
   }, [runtime, scene, gl]);
 
-  useFrame(({ camera, clock }, delta) => {
+  useFrame((_, delta) => {
     const index = runtime.index;
+    let sceneChanged = false;
     if (
       index &&
       (preparedIndex.current.index !== index || preparedIndex.current.assetCount !== index.assets.size)
@@ -123,13 +169,57 @@ export function useEquipmentLights() {
       prepareEquipmentLightSurfaces(index);
       gl.shadowMap.needsUpdate = true;
       runtime.invalidate();
+      sceneChanged = true;
     }
+    if (lastOcclusionRevision.current !== runtime.occlusionRevision) {
+      lastOcclusionRevision.current = runtime.occlusionRevision;
+      sceneChanged = true;
+    }
+    if (sceneChanged) refresh.current?.();
     // R3F's first delta after an idle demand loop includes the whole idle gap. Cap that first step
     // so a light event after a quiet second cannot complete its 160 ms fade in one frame.
     if (runtime.equipmentLights?.tick(Math.min(delta, 1 / 30))) runtime.invalidate();
-    if (clock.elapsedTime - lastRefresh.current < 0.15 || camera.position.distanceToSquared(lastCamera.current) < 0.01) return;
-    lastCamera.current.copy(camera.position);
-    lastRefresh.current = clock.elapsedTime;
-    refresh.current?.();
   });
+}
+
+function projectOverflowLight(
+  spec: EquipmentLightSpec,
+  index: SceneIndex,
+  clip: ClipGroups,
+): EquipmentLightProjectionSpec | null {
+  const direction = new THREE.Vector3(...(spec.spot ? spec.direction : [0, -1, 0] as const));
+  if (direction.lengthSq() < 0.0001) return null;
+  direction.normalize();
+  // Hidden or clipped faces still block light. Test the nearest physical face first, then decide
+  // whether that receiver itself may be shown; skipping it would leak into the room beyond.
+  const targets = [...index.surfaceMesh.values()];
+  for (const surface of targets) surface.updateWorldMatrix(true, false);
+  const raycaster = new THREE.Raycaster(
+    new THREE.Vector3(...spec.position),
+    direction,
+    0.03,
+    spec.spot ? 8 : 5,
+  );
+  const hit = raycaster.intersectObjects(targets, false)[0];
+  if (!hit || !(hit.object instanceof THREE.Mesh)) return null;
+  const surfaceId = index.meshSurfaceId.get(hit.object) ?? null;
+  const group = surfaceId ? index.clipGroupOf.get(surfaceId) ?? "site" : "site";
+  if (index.hiddenGroups.has(group) || !isVisibleUp(hit.object) || !clip.keepsSurface(group, surfaceId, hit.point)) return null;
+  const sourceMaterial = Array.isArray(hit.object.material)
+    ? hit.object.material[0]
+    : hit.object.material;
+  const distance = hit.distance;
+  return {
+    id: spec.id,
+    geometry: hit.object.geometry,
+    matrixWorld: hit.object.matrixWorld.clone(),
+    hitPoint: hit.point.toArray(),
+    radius: spec.spot
+      ? THREE.MathUtils.clamp(distance * Math.tan(Math.PI / 7), 0.15, 1.5)
+      : THREE.MathUtils.clamp(0.45 + distance * 0.22, 0.45, 1.5),
+    color: spec.color,
+    brightness: spec.brightness,
+    clippingPlanes: sourceMaterial?.clippingPlanes ?? [],
+    clipIntersection: sourceMaterial?.clipIntersection ?? false,
+  };
 }

@@ -30,12 +30,34 @@ export interface EquipmentLightBudget {
 
 export interface RenderedEquipmentLight {
   id: string;
-  kind: "point" | "spot";
+  kind: "point" | "spot" | "projection";
   intensity: number;
   castShadow: boolean;
   shadowMapSize: number;
   shadowMapAllocated: boolean;
   fading: boolean;
+}
+
+/** One cheap, source-specific illumination patch for an active light outside the shadow pool. */
+export interface EquipmentLightProjectionSpec {
+  id: string;
+  geometry: THREE.BufferGeometry;
+  matrixWorld: THREE.Matrix4;
+  hitPoint: Vec3;
+  radius: number;
+  color: Vec3;
+  brightness: number;
+  clippingPlanes: readonly THREE.Plane[];
+  clipIntersection: boolean;
+}
+
+export interface RenderedEquipmentLightProjection {
+  id: string;
+  opacity: number;
+  radius: number;
+  fading: boolean;
+  clippingPlaneCount: number;
+  clipIntersection: boolean;
 }
 
 interface Fade {
@@ -44,6 +66,20 @@ interface Fade {
   toIntensity: number;
   fromColor: THREE.Color;
   toColor: THREE.Color;
+}
+
+interface ProjectionFade {
+  elapsed: number;
+  fromOpacity: number;
+  toOpacity: number;
+  fromColor: THREE.Color;
+  toColor: THREE.Color;
+}
+
+interface ProjectionEntry {
+  mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  material: THREE.ShaderMaterial;
+  radius: number;
 }
 
 /**
@@ -84,6 +120,8 @@ export class EquipmentLightLayer {
   private readonly points: THREE.PointLight[] = [];
   private readonly spots: THREE.SpotLight[] = [];
   private readonly fades = new Map<THREE.Light, Fade>();
+  private readonly projections = new Map<string, ProjectionEntry>();
+  private readonly projectionFades = new Map<string, ProjectionFade>();
   private readonly assignments = new Map<THREE.Light, string>();
   private signature = "";
   private active: EquipmentLightSpec[] = [];
@@ -108,16 +146,76 @@ export class EquipmentLightLayer {
   set(
     specs: readonly EquipmentLightSpec[],
     budget: EquipmentLightBudget = LIGHT_BUDGET,
+    projections: readonly EquipmentLightProjectionSpec[] = [],
   ): boolean {
     const points = specs.filter((spec) => !spec.spot).slice(0, budget.point);
     const spots = specs.filter((spec) => spec.spot).slice(0, budget.spot);
-    const signature = JSON.stringify([points, spots, budget.point, budget.spot]);
+    const projectionSignature = projections.map((projection) => [
+      projection.id,
+      projection.geometry.uuid,
+      projection.matrixWorld.elements,
+      projection.hitPoint,
+      projection.radius,
+      projection.color,
+      projection.brightness,
+      projection.clippingPlanes.map((plane) => [
+        plane.normal.x,
+        plane.normal.y,
+        plane.normal.z,
+        plane.constant,
+      ]),
+      projection.clipIntersection,
+    ]);
+    const signature = JSON.stringify([points, spots, budget.point, budget.spot, projectionSignature]);
     if (signature === this.signature) return false;
     this.signature = signature;
-    this.active = [...points, ...spots];
+    this.active = [...specs];
     this.reconcile(this.points, points, budget.point);
     this.reconcile(this.spots, spots, budget.spot);
+    this.reconcileProjections(projections);
     return true;
+  }
+
+  private reconcileProjections(specs: readonly EquipmentLightProjectionSpec[]): void {
+    const wanted = new Map(specs.map((spec) => [spec.id, spec]));
+    for (const [id, entry] of this.projections) {
+      const spec = wanted.get(id);
+      if (spec) {
+        wanted.delete(id);
+        this.applyProjection(entry, spec);
+      } else {
+        this.startProjectionFade(id, entry, 0, projectionColor(entry.material));
+      }
+    }
+    for (const [id, spec] of wanted) {
+      const material = projectionMaterial(spec);
+      const mesh = new THREE.Mesh(spec.geometry, material);
+      mesh.name = `vh-light-projection-${id}`;
+      mesh.matrixAutoUpdate = false;
+      mesh.matrix.copy(spec.matrixWorld);
+      mesh.renderOrder = 2;
+      const entry = { mesh, material, radius: spec.radius };
+      this.projections.set(id, entry);
+      this.root.add(mesh);
+      this.startProjectionFade(id, entry, projectionOpacity(spec), projectionTargetColor(spec));
+    }
+  }
+
+  private applyProjection(entry: ProjectionEntry, spec: EquipmentLightProjectionSpec): void {
+    entry.mesh.geometry = spec.geometry;
+    entry.mesh.matrix.copy(spec.matrixWorld);
+    entry.mesh.matrixWorldNeedsUpdate = true;
+    const clippingChanged =
+      entry.material.clippingPlanes?.length !== spec.clippingPlanes.length ||
+      entry.material.clipIntersection !== spec.clipIntersection;
+    entry.material.clippingPlanes = [...spec.clippingPlanes];
+    entry.material.clipping = spec.clippingPlanes.length > 0;
+    entry.material.clipIntersection = spec.clipIntersection;
+    if (clippingChanged) entry.material.needsUpdate = true;
+    entry.material.uniforms.center!.value.fromArray(spec.hitPoint);
+    entry.material.uniforms.radius!.value = spec.radius;
+    entry.radius = spec.radius;
+    this.startProjectionFade(spec.id, entry, projectionOpacity(spec), projectionTargetColor(spec));
   }
 
   private reconcile(
@@ -169,7 +267,7 @@ export class EquipmentLightLayer {
 
   /** Advance active fades. Returning true asks demand rendering for one more frame. */
   tick(deltaSeconds: number): boolean {
-    if (!(deltaSeconds > 0) || this.fades.size === 0) return false;
+    if (!(deltaSeconds > 0) || (this.fades.size === 0 && this.projectionFades.size === 0)) return false;
     let changed = false;
     for (const [light, fade] of this.fades) {
       fade.elapsed = Math.min(LIGHT_FADE_SECONDS, fade.elapsed + deltaSeconds);
@@ -188,11 +286,64 @@ export class EquipmentLightLayer {
         this.fades.delete(light);
       }
     }
+    for (const [id, fade] of this.projectionFades) {
+      const entry = this.projections.get(id);
+      if (!entry) {
+        this.projectionFades.delete(id);
+        continue;
+      }
+      fade.elapsed = Math.min(LIGHT_FADE_SECONDS, fade.elapsed + deltaSeconds);
+      const t = fade.elapsed / LIGHT_FADE_SECONDS;
+      const eased = t * t * (3 - 2 * t);
+      entry.material.uniforms.opacity!.value = THREE.MathUtils.lerp(
+        fade.fromOpacity,
+        fade.toOpacity,
+        eased,
+      );
+      (entry.material.uniforms.glowColor!.value as THREE.Color)
+        .copy(fade.fromColor)
+        .lerp(fade.toColor, eased);
+      changed = true;
+      if (fade.elapsed >= LIGHT_FADE_SECONDS) {
+        entry.material.uniforms.opacity!.value = fade.toOpacity;
+        (entry.material.uniforms.glowColor!.value as THREE.Color).copy(fade.toColor);
+        this.projectionFades.delete(id);
+        if (fade.toOpacity === 0) {
+          entry.mesh.removeFromParent();
+          entry.material.dispose();
+          this.projections.delete(id);
+        }
+      }
+    }
     return changed;
   }
 
   get fading(): boolean {
-    return this.fades.size > 0;
+    return this.fades.size > 0 || this.projectionFades.size > 0;
+  }
+
+  private startProjectionFade(
+    id: string,
+    entry: ProjectionEntry,
+    targetOpacity: number,
+    targetColor: THREE.Color,
+  ): void {
+    const opacity = entry.material.uniforms.opacity!.value as number;
+    const color = projectionColor(entry.material);
+    if (
+      Math.abs(opacity - targetOpacity) < SETTLE_EPSILON &&
+      colorDistance(color, targetColor) < SETTLE_EPSILON
+    ) {
+      this.projectionFades.delete(id);
+      return;
+    }
+    this.projectionFades.set(id, {
+      elapsed: 0,
+      fromOpacity: opacity,
+      toOpacity: targetOpacity,
+      fromColor: color.clone(),
+      toColor: targetColor,
+    });
   }
 
   private apply(
@@ -267,7 +418,31 @@ export class EquipmentLightLayer {
     };
     for (const light of this.points) append(light, "point");
     for (const light of this.spots) append(light, "spot");
+    for (const [id, entry] of this.projections) {
+      const opacity = entry.material.uniforms.opacity!.value as number;
+      if (opacity === 0 && !this.projectionFades.has(id)) continue;
+      result.push({
+        id,
+        kind: "projection",
+        intensity: opacity,
+        castShadow: false,
+        shadowMapSize: 0,
+        shadowMapAllocated: false,
+        fading: this.projectionFades.has(id),
+      });
+    }
     return result;
+  }
+
+  projectedSnapshot(): RenderedEquipmentLightProjection[] {
+    return [...this.projections].map(([id, entry]) => ({
+      id,
+      opacity: entry.material.uniforms.opacity!.value as number,
+      radius: entry.radius,
+      fading: this.projectionFades.has(id),
+      clippingPlaneCount: entry.material.clippingPlanes?.length ?? 0,
+      clipIntersection: entry.material.clipIntersection,
+    }));
   }
 
   dispose(): void {
@@ -275,9 +450,73 @@ export class EquipmentLightLayer {
     for (const light of [...this.points, ...this.spots]) light.dispose();
     this.root.clear();
     this.fades.clear();
+    for (const entry of this.projections.values()) entry.material.dispose();
+    this.projections.clear();
+    this.projectionFades.clear();
     this.assignments.clear();
     this.active = [];
   }
+}
+
+function projectionOpacity(spec: EquipmentLightProjectionSpec): number {
+  return Math.min(0.42, Math.max(0, spec.brightness) * 0.28);
+}
+
+function projectionTargetColor(spec: EquipmentLightProjectionSpec): THREE.Color {
+  return new THREE.Color().setRGB(...spec.color, THREE.SRGBColorSpace);
+}
+
+function projectionColor(material: THREE.ShaderMaterial): THREE.Color {
+  return material.uniforms.glowColor!.value as THREE.Color;
+}
+
+function projectionMaterial(spec: EquipmentLightProjectionSpec): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      center: { value: new THREE.Vector3(...spec.hitPoint) },
+      radius: { value: spec.radius },
+      glowColor: { value: projectionTargetColor(spec) },
+      opacity: { value: 0 },
+    },
+    vertexShader: `
+      varying vec3 vWorldPosition;
+      #include <clipping_planes_pars_vertex>
+      void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vec4 mvPosition = viewMatrix * worldPosition;
+        vWorldPosition = worldPosition.xyz;
+        gl_Position = projectionMatrix * mvPosition;
+        #include <clipping_planes_vertex>
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 center;
+      uniform float radius;
+      uniform vec3 glowColor;
+      uniform float opacity;
+      varying vec3 vWorldPosition;
+      #include <clipping_planes_pars_fragment>
+      void main() {
+        #include <clipping_planes_fragment>
+        float radial = 1.0 - smoothstep(0.0, radius, distance(vWorldPosition, center));
+        float alpha = opacity * radial * radial;
+        if (alpha < 0.002) discard;
+        gl_FragColor = vec4(glowColor, alpha);
+      }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthTest: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+    clipping: spec.clippingPlanes.length > 0,
+    clippingPlanes: [...spec.clippingPlanes],
+    clipIntersection: spec.clipIntersection,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
 }
 
 function configureShadow(light: THREE.PointLight | THREE.SpotLight, mapSize: number): void {

@@ -14,7 +14,6 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useStore } from "zustand";
-import { EquipmentOcclusion } from "@/house/scene/equipmentOcclusion";
 import { isVisibleUp } from "@/house/scene/applyVisibility";
 import { clipGroupOf } from "@/house/model/explodeGroups";
 import type { Placement } from "@/house/model/types";
@@ -28,7 +27,7 @@ export function MarkerDomLayer({ hostRef }: { hostRef: React.RefObject<HTMLDivEl
   const placements = useHouseStore((s) => s.placements);
   const equipmentVisible = useHouseStore((s) => s.layers.equipment);
   const equipmentOcclusion = useHouseStore((s) => s.equipmentOcclusion);
-  const occlusion = useRef(new EquipmentOcclusion()).current;
+  const occlusion = runtime.occlusion;
   useEffect(() => { runtime.invalidate(); }, [runtime, equipmentOcclusion]);
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
@@ -49,11 +48,12 @@ export function MarkerDomLayer({ hostRef }: { hostRef: React.RefObject<HTMLDivEl
   useFrame(() => {
     const manifest = runtime.manifest;
     if (!manifest || !equipmentVisible) return;
-    if (equipmentOcclusion && runtime.index) occlusion.beginFrame(runtime.index, runtime.clip, camera);
+    if (equipmentOcclusion && runtime.index) occlusion.beginFrame(runtime.index, runtime.clip, camera, runtime.occlusionRevision, runtime.invalidate);
     for (const p of placements) {
       const el = nodesRef.current.get(p.id);
       if (!el) continue;
       const group = p.surfaceId ? clipGroupOf(manifest, p.surfaceId) : p.floorId;
+      if (runtime.index?.hiddenGroups.has(group)) { el.hidden = true; continue; }
       const nodes = runtime.index?.floorNodes.get(group);
       if (nodes?.length && !nodes.some(isVisibleUp)) { el.hidden = true; continue; }
       const offset = runtime.offsets.get(group) ?? 0;

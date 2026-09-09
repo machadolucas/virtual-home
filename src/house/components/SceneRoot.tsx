@@ -63,6 +63,7 @@ export function SceneRoot() {
       invalidate();
     };
     return () => {
+      runtime.occlusion.dispose();
       runtime.scene = null;
       runtime.canvasEl = null;
       runtime.gl = null;

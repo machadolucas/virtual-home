@@ -30,6 +30,7 @@ import { Rig } from "./Rig";
 import { RoutePointHandles } from "./RouteLayer";
 import { SceneRoot } from "./SceneRoot";
 import { SnapIndicatorLayer } from "./edit/SnapIndicator";
+import { ViewerDiagnostics, ViewerFrameObserver } from "./ViewerDiagnostics";
 
 export interface HouseCanvasProps {
   /**
@@ -43,6 +44,7 @@ export function HouseCanvas({ background = DEFAULT_HOUSE_BACKGROUND }: HouseCanv
   const hostRef = useRef<HTMLDivElement>(null);
   const markerHostRef = useRef<HTMLDivElement>(null);
   const canvasHostRef = useRef<HTMLDivElement>(null);
+  const diagnosticsRef = useRef<HTMLOutputElement>(null);
   const anchors = useLabelAnchors();
   const phone = useIsPhone();
   const performanceMode = useHouseStore((s) => s.performanceMode);
@@ -96,9 +98,11 @@ export function HouseCanvas({ background = DEFAULT_HOUSE_BACKGROUND }: HouseCanv
         <LabelProjector hostRef={hostRef} anchors={anchors} />
         <MarkerDomLayer hostRef={markerHostRef} />
         <CaptureBridge hostRef={canvasHostRef} labelRef={hostRef} />
+        <ViewerFrameObserver outputRef={diagnosticsRef} />
       </Canvas>
       <MarkerButtons hostRef={markerHostRef} />
       <LabelHost hostRef={hostRef} anchors={anchors} />
+      <ViewerDiagnostics outputRef={diagnosticsRef} />
     </div>
   );
 }

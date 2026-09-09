@@ -17,6 +17,7 @@ test("equipment occlusion hides downstairs markers and labels behind the upstair
   const upstairs = page.locator('[data-placement="upstairs"]');
   await expect(downstairs).toBeVisible();
   await expect(upstairs).toBeVisible();
+  expect(await page.evaluate(() => window.__vh!.equipmentCount())).toBe(2);
   await expect(page.locator('[data-anchor="equipment:downstairs"]:visible')).toHaveCount(1);
   if (testInfo.project.name !== "phone") await page.getByRole("tab", { name: "Layers", exact: true }).click();
   const toggle = page.getByRole("switch", { name: "Hide occluded equipment", exact: true });
@@ -25,9 +26,12 @@ test("equipment occlusion hides downstairs markers and labels behind the upstair
   await expect(upstairs).toBeVisible();
   await expect(page.locator('[data-anchor="equipment:downstairs"]:visible')).toHaveCount(0);
   await waitForStableFrames(page);
+  await expect(page.getByTestId("viewer-frame-rate")).toHaveText("idle");
+  const occlusionBefore = await page.evaluate(() => window.__vh!.occlusionStats());
   const before = await page.evaluate(() => window.__vh!.invalidateCount());
   await page.waitForTimeout(800);
   expect(await page.evaluate(() => window.__vh!.invalidateCount())).toBe(before);
+  expect(await page.evaluate(() => window.__vh!.occlusionStats())).toEqual(occlusionBefore);
   await testInfo.attach("upstairs-equipment-occlusion.png", { body: await page.screenshot(), contentType: "image/png" });
   await toggle.click();
   await expect(downstairs).toBeVisible();
@@ -41,4 +45,7 @@ test("equipment occlusion hides downstairs markers and labels behind the upstair
   await page.getByRole("button", { name: "Lower floor", exact: true }).click();
   await expect(downstairs).toBeVisible();
   await expect(upstairs).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.__vh!.equipmentCount())).toBe(1);
+  await toggle.click(); // Hidden-floor models stay hidden even with occlusion disabled.
+  await expect.poll(() => page.evaluate(() => window.__vh!.equipmentCount())).toBe(1);
 });

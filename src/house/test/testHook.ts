@@ -5,6 +5,7 @@
  * production bundle. It only reads state and dispatches actions the UI already exposes: it is not
  * a back door around authentication or around the store's own invariants.
  */
+import { isVisibleUp } from "../scene/applyVisibility";
 import * as THREE from "three";
 import CameraControlsImpl from "camera-controls";
 import { allMaterialHex, materialHex } from "@/house/scene/applyColors";
@@ -60,6 +61,7 @@ export interface VhHook {
   lights(): import("../scene/equipmentLights").EquipmentLightSpec[];
   detectionGuide(): { visible: boolean; position: number[]; direction: number[] };
   equipmentCount(): number;
+  occlusionStats(): { queries: number; batches: number };
   daylight(): { position: number[]; intensity: number; shadowMapSize: number; shadowMapAllocated: boolean; radius: number } | null;
   renderedLights(): import("../scene/equipmentLights").RenderedEquipmentLight[];
   shadowSurface(surfaceId: string): {
@@ -272,9 +274,11 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
       return { visible: Boolean(guide?.visible && guide.children.length), position: guide?.position.toArray() ?? [], direction: guide ? new THREE.Vector3(0, 1, 0).applyQuaternion(guide.quaternion).toArray() : [] };
     },
 
+    occlusionStats() { return { queries: runtime.occlusion.queries, batches: runtime.occlusion.batches }; },
+
     equipmentCount() {
       let count = 0;
-      runtime.index?.overlay.root.traverse((o) => { if (o instanceof THREE.InstancedMesh && o.name.startsWith("vh-markers-")) count += o.count; });
+      runtime.index?.overlay.root.traverse((o) => { if (o instanceof THREE.InstancedMesh && o.name.startsWith("vh-markers-") && isVisibleUp(o)) count += o.count; });
       return count;
     },
 

@@ -18,14 +18,14 @@ import * as THREE from "three";
 
 import { shallow } from "zustand/vanilla/shallow";
 import { planAllSurfaces } from "@/house/model/colorPlan";
-import { buildGroupOrder, clipGroupOf, explodeOffset } from "@/house/model/explodeGroups";
+import { buildGroupOrder, clipGroupOf, explodeOffset, groupsOf } from "@/house/model/explodeGroups";
 import {
   cameraFacingRoomWalls,
   focusContextFor,
   focusCutSurfaceIds,
 } from "@/house/model/focusContext";
 import { roomAt } from "@/house/model/manifestIndex";
-import { computeVisibility } from "@/house/model/visibilityPlan";
+import { computeVisibility, isGroupVisible } from "@/house/model/visibilityPlan";
 import type { Placement } from "@/house/model/types";
 import { applyColors } from "@/house/scene/applyColors";
 import { applyVisibility } from "@/house/scene/applyVisibility";
@@ -133,12 +133,12 @@ export function useSceneSync(): void {
           const cap = floor.elevation + 0.9 + (runtime.offsets.get(floor.id) ?? 0);
           for (const sid of focusCutSurfaceIds(manifest, wallFaces)) cuts.set(sid, cap);
         }
-        if (runtime.clip.setFocusCuts(cuts)) runtime.invalidate();
+        if (runtime.clip.setFocusCuts(cuts)) { runtime.occlusionRevision++; runtime.invalidate(); }
         return;
       }
       const focuses = contextualRoomFocuses(s, resolvedFocus);
       if (s.wallMode !== "contextual" || focuses.length === 0 || !runtime.camera3d) {
-        if (clearWhenInactive && runtime.clip.setFocusCuts(new Map())) runtime.invalidate();
+        if (clearWhenInactive && runtime.clip.setFocusCuts(new Map())) { runtime.occlusionRevision++; runtime.invalidate(); }
         return;
       }
       const cuts = new Map<string, number>();
@@ -162,7 +162,7 @@ export function useSceneSync(): void {
           if (sid !== focus.preserveSurfaceId) cuts.set(sid, cap);
         }
       }
-      if (runtime.clip.setFocusCuts(cuts)) runtime.invalidate();
+      if (runtime.clip.setFocusCuts(cuts)) { runtime.occlusionRevision++; runtime.invalidate(); }
     };
 
     const apply = (s: HouseStore) => {
@@ -183,6 +183,11 @@ export function useSceneSync(): void {
         inventory: inventoryOf(index),
         focus,
       });
+      index.hiddenGroups = new Set(groupsOf(runtime.manifest).filter((group) =>
+        !isGroupVisible(runtime.manifest!, plan, group, { ...s, focus }),
+      ));
+      for (const [group, overlay] of index.overlay.floorGroups) overlay.visible = !index.hiddenGroups.has(group);
+      runtime.occlusionRevision++;
       applyVisibility(plan, index, runtime.invalidate);
       applyFocusCuts(s, true);
     };
@@ -246,6 +251,7 @@ export function useSceneSync(): void {
       const applied = applyExplode(index, s.explode, runtime.invalidate);
       runtime.offsets = applied.offsets;
       const order = buildGroupOrder(runtime.manifest);
+      runtime.occlusionRevision++;
       clip.setCutAll(s.cut, (group) =>
         applied.offsets.get(group) ?? explodeOffset(order, group, s.explode.enabled ? s.explode.gap : 0),
       );

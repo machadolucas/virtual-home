@@ -200,10 +200,11 @@ export function isGroupVisible(
   index: ManifestIndex,
   plan: VisibilityPlan,
   group: string,
-  input: Pick<VisibilityInput, "viewMode" | "activeFloorId" | "roofVisible">,
+  input: Pick<VisibilityInput, "viewMode" | "activeFloorId" | "roofVisible" | "focus">,
 ): boolean {
   if (isRoofGroup(group)) return input.roofVisible;
   if (group === SITE_GROUP) return true;
+  if (input.focus) return !isAboveFocus(index, group, input.focus);
   if (!ISOLATING.has(input.viewMode) || input.activeFloorId === null) return true;
   return !aboveActiveFloor(index, group, input.activeFloorId);
 }

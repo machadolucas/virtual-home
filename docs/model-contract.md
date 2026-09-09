@@ -526,11 +526,14 @@ stream stays connected. State, brightness and colour changes fade over 160 ms; d
 for frames only until the fade settles. Downlight and spike-spot symbols use a narrow cone; other
 fixtures use a local point light. Sources follow the placement's explode offset and floor visibility.
 
-The rendering is illustrative rather than photometric. Every emitting source casts a shadow so walls
-and closed door geometry stop light leaking into adjacent rooms. Cutaway/focus clipping is excluded
+The rendering is illustrative rather than photometric. Detailed lights cast shadows so walls and
+closed door geometry stop light leaking into adjacent rooms. Cutaway/focus clipping is excluded
 from the shadow pass, leaving the model's full wall and door geometry as occluders even when the
 camera sees a low wall stub. Shadow cost is bounded to four point lights and four spotlights (one of
-each in performance mode), prioritizing selected and nearby visible fixtures. Point-light cube faces
+each in performance mode), prioritizing selection and then stable equipment IDs. Camera movement
+does not reassign lights. Additional sources use a fading radial glow on the first physical surface
+hit below a point light or along a spotlight's aim. These inexpensive projections are approximate
+single-surface illumination, bounded by the receiving mesh, rather than additional shadowed lights. Point-light cube faces
 are 128 px and spotlight maps are 256 px. Four fixed slots of each kind remain allocated, and the
 budgeted shadow slots stay enabled at zero intensity to avoid shader churn when HA state changes.
 Model surfaces use at least 0.94 roughness, and local intensities plus the architectural fill are
@@ -625,3 +628,16 @@ clipping and exploded transforms. Perspective and orthographic cameras use their
 Equipment, routes and editing guides never become blockers. Checks run only with rendered frames,
 so enabling the setting does not create an idle render loop; the 3D equipment itself already uses
 normal depth testing. Hidden floor groups suppress their DOM markers even with occlusion disabled.
+
+Equipment visibility follows semantic floor focus for app-owned 3D groups as well as DOM labels,
+click targets, detection guides and lights. It does not depend on every model asset containing a
+floor node. Floors above the focused storey are hidden within its building, with lower floors and
+other buildings retained as context. This applies even when equipment occlusion is off.
+
+Equipment occlusion uses world-space bounding boxes to reject irrelevant surfaces before triangle
+raycasts, stops at the first valid blocker, and shares results between labels and click targets at
+the same mounting coordinate. Camera changes are sampled at most ten times per second; visibility
+and clipping changes invalidate the cache immediately. A single trailing frame resolves the final
+camera pose. No timer keeps an idle view rendering. A read-only local CPU benchmark on the installed
+model with 200 synthetic targets over 15 passes reduced raw occlusion time from 1,370 ms to 20 ms
+with matching visibility results; this is a CPU geometry benchmark, not an end-to-end FPS claim.
