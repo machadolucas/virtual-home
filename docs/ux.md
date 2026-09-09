@@ -708,3 +708,17 @@ Home Assistant import rows keep their selection, device details and import actio
 show explicit Disabled, Hidden and availability badges, so diagnostic readings remain distinguishable
 from entities HA cannot currently provide. Dropdowns with explanatory hints open wider than a compact
 trigger when space allows, and remain constrained to the phone viewport.
+
+Additional symbols cover Wi-Fi access points, robot vacuums, indoor/outdoor heat pumps, HomePods,
+network switches, security cameras, fans and humidifiers. Linked climate entities show HVAC activity
+and current temperature in the compact label; expansion shows available target temperatures and fan
+mode. Unknown/unavailable values remain unavailable.
+
+Vertical and horizontal LED bars have a saved **LED bar length (m)** (0.05–20 m, default 1 m).
+Their cross-section stays fixed and total light output scales with length at the same HA brightness.
+Lighting uses a bounded, illustrative point source at the bar's centre, not a photometric strip model.
+Motion sensors and security cameras expose saved yaw/pitch and **Detection / viewing range (m)**
+(0.1–30 m, default 5 m). Selecting one shows an illustrative 60° cone; generic sensors show it when
+linked to motion/occupancy or explicitly aimed. It does not configure HA detection coverage.
+**Show equipment** in Layers (or below the phone viewer) hides markers, equipment labels, lights and
+selection cones together. Cones are excluded from PNG downloads and do not keep an idle viewer rendering.

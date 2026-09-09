@@ -3,7 +3,8 @@
 import { Crosshair, RotateCcw, X } from "lucide-react";
 import type { EditDraft } from "@/house/store/slices/edit";
 import { defaultSymbol, isPlacementSymbol } from "@/house/scene/symbols";
-import { defaultLightAim, isSpotlightSymbol } from "@/house/model/equipmentLight";
+import { isAimableSymbol, isDirectionalSymbol, detectionRange } from "@/house/model/equipmentOptics";
+import { defaultLightAim } from "@/house/model/equipmentLight";
 import { useHouseStore } from "../../hooks/useHouseStore";
 
 export { isSpotlightSymbol } from "@/house/model/equipmentLight";
@@ -25,7 +26,7 @@ export function SpotlightAimFields({
 }) {
   const editing = useHouseStore((state) => state.editing);
   const updateDraft = useHouseStore((state) => state.updateDraft);
-  if (!editing || !isSpotlightSymbol(draftSymbol(editing))) return null;
+  if (!editing || !isAimableSymbol(draftSymbol(editing))) return null;
 
   const aim = editing.lightAim ?? defaultLightAim(draftSymbol(editing), editing.rotationYDeg);
   const update = (field: "yawDeg" | "pitchDeg", raw: string) => {
@@ -47,7 +48,7 @@ export function SpotlightAimFields({
       disabled={disabled}
       className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 p-2 text-xs disabled:opacity-60"
     >
-      <legend className="px-1 text-ink-2">Spotlight direction</legend>
+      <legend className="px-1 text-ink-2">{isDirectionalSymbol(draftSymbol(editing)) ? "Detection / viewing direction" : "Spotlight direction"}</legend>
       <p className="text-[11px] leading-4 text-ink-3">
         Yaw turns around the house; pitch is −90° down, 0° level and +90° up.
       </p>
@@ -75,6 +76,14 @@ export function SpotlightAimFields({
           />
         </label>
       </div>
+      {isDirectionalSymbol(draftSymbol(editing)) && <label className="flex flex-col gap-1">
+        <span>Detection / viewing range (m)</span>
+        <input aria-label="Detection / viewing range (m)" type="number" min="0.1" max="30" step="0.1" value={detectionRange(editing.detectionRangeM)} onChange={(event) => {
+          const value = event.currentTarget.valueAsNumber;
+          if (Number.isFinite(value) && value >= 0.1 && value <= 30) updateDraft({ detectionRangeM: value }, { coalesce: true });
+        }} className="min-h-11 rounded-md border border-line bg-surface px-2 md:min-h-8" />
+        <span className="text-ink-3">Illustrative 60° cone; this does not change the device or measure its actual coverage.</span>
+      </label>}
       <div className="flex flex-wrap gap-1.5">
         {canAimInView ? (
           <button
@@ -101,7 +110,7 @@ export function SpotlightAimFields({
       </div>
       {aiming ? (
         <p role="status" className="text-[11px] leading-4 text-accent-text">
-          Point at a surface in the 3D view, then click to aim the beam there.
+          Point at a surface in the 3D view, then click to aim there.
         </p>
       ) : null}
     </fieldset>

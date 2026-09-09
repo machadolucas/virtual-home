@@ -91,6 +91,10 @@ function humanState(state: string, deviceClass: string | null, entityId: string)
 function valueOf(entity: EntityState | undefined, link?: PlacementLinkedEntity): string {
   if (!entity || entity.state === "unknown") return "—";
   if (entity.state === "unavailable") return "Unavailable";
+  if (entity.entityId.startsWith("climate.")) {
+    const mode = (entity.hvacAction ?? entity.state).replaceAll("_", " ");
+    return `${mode}${Number.isFinite(entity.currentTemperature) && entity.currentTemperature != null ? ` · ${entity.currentTemperature}${entity.temperatureUnit ? ` ${entity.temperatureUnit}` : "°"}` : ""}`;
+  }
   const state = humanState(
     entity.state,
     entity.deviceClass ?? link?.deviceClass ?? null,
@@ -176,6 +180,18 @@ export function equipmentLabelReading(
         tone: toneOf(entity, connection, now),
       } satisfies EquipmentLabelDetail;
     });
+
+  const climate = usefulLinks.map((link) => entities[link.entityId]).filter((entity): entity is EntityState => Boolean(entity?.entityId.startsWith("climate.")));
+  if (main?.entityId.startsWith("climate.") && !climate.includes(main)) climate.push(main);
+  for (const entity of climate) {
+    if (entity.state === "unknown" || entity.state === "unavailable") continue;
+    const unit = entity.temperatureUnit ?? "°";
+    const tone = toneOf(entity, connection, now);
+    for (const [label, value] of [["Current temperature", entity.currentTemperature], ["Target temperature", entity.targetTemperature], ["Target low", entity.targetTempLow], ["Target high", entity.targetTempHigh]] as const) {
+      if (value != null && Number.isFinite(value)) details.push({ label, value: connection === "open" ? `${value} ${unit}` : "—", icon: "temperature", tone });
+    }
+    if (entity.fanMode) details.push({ label: "Fan", value: connection === "open" ? entity.fanMode : "—", icon: "reading", tone });
+  }
 
   return {
     text,

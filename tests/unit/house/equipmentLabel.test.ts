@@ -86,3 +86,19 @@ describe("equipment label readings", () => {
       });
   });
 });
+
+describe("climate readings", () => {
+  const climate: EntityState = { entityId: "climate.pump", state: "heat", hvacAction: "heating", currentTemperature: 21.5, targetTemperature: 23, temperatureUnit: "°C", fanMode: "auto", lastUpdated: 1 };
+  const climateLinks: PlacementLinkedEntity[] = [{ entityId: climate.entityId, role: "primary", name: "Heat pump", deviceClass: null, unit: null }];
+  it("shows climate operation and temperatures with only one linked climate entity", () => {
+    const reading = equipmentLabelReading(climate.entityId, climateLinks, { [climate.entityId]: climate }, "open", 1000, true)!;
+    expect(reading.text).toBe("heating · 21.5 °C");
+    expect(reading.expandable).toBe(true);
+    expect(reading.details).toContainEqual(expect.objectContaining({ label: "Target temperature", value: "23 °C" }));
+  });
+  it("does not treat unavailable climate attributes as current values", () => {
+    const reading = equipmentLabelReading(climate.entityId, climateLinks, { [climate.entityId]: { ...climate, state: "unavailable" } }, "open", 1000, true)!;
+    expect(reading.text).toBe("Unavailable");
+    expect(reading.details.some((detail) => detail.label === "Target temperature")).toBe(false);
+  });
+});

@@ -5,6 +5,7 @@
  *
  * On a phone this is the whole editor (§7.3): drag placement is not offered there.
  */
+import { isLedBar, ledLength } from "@/house/model/equipmentOptics";
 import { SolarPanelFields } from "./SolarPanelFields";
 import { DEFAULT_SOLAR_PANEL_CONFIG } from "@/house/model/solarPanel";
 import { resolveNumeric } from "@/house/scene/snap";
@@ -220,6 +221,14 @@ export function NumericPlacementFields() {
       </label>
 
       <SolarPanelFields />
+      {isLedBar(editing.symbol) && <label className="flex flex-col gap-1 text-xs">
+        <span>LED bar length (m)</span>
+        <input aria-label="LED bar length (m)" type="number" min="0.05" max="20" step="0.05" value={ledLength(editing.ledLengthM)} onChange={(event) => {
+          const value = event.currentTarget.valueAsNumber;
+          if (Number.isFinite(value) && value >= 0.05 && value <= 20) updateDraft({ ledLengthM: value }, { coalesce: true });
+        }} className="min-h-9 rounded-md border border-line px-2 max-sm:min-h-11" />
+        <span className="text-ink-3">A 2 m bar emits twice the light of a 1 m bar at the same HA brightness.</span>
+      </label>}
 
       <label className="flex flex-col gap-0.5 text-xs">
         <span className="text-ink-3">

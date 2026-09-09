@@ -32,6 +32,18 @@ export const PLACEMENT_SYMBOLS = [
   "downlight",
   "vent",
   "sensor",
+  "motion_sensor",
+  "wifi_access_point",
+  "robot_vacuum",
+  "heat_pump_indoor",
+  "heat_pump_outdoor",
+  "homepod",
+  "network_switch",
+  "security_camera",
+  "fan",
+  "humidifier",
+  "led_bar_vertical",
+  "led_bar_horizontal",
   "socket",
   "switch",
   "remote_control",
@@ -73,6 +85,18 @@ export const SYMBOL_LABEL: { readonly [S in PlacementSymbol]: string } = {
   downlight: "Downlight / eave spot",
   vent: "Air vent",
   sensor: "Sensor",
+  motion_sensor: "Motion sensor",
+  wifi_access_point: "Wi-Fi access point",
+  robot_vacuum: "Robot vacuum",
+  heat_pump_indoor: "Heat pump (indoor)",
+  heat_pump_outdoor: "Heat pump (outdoor)",
+  homepod: "HomePod",
+  network_switch: "Network switch",
+  security_camera: "Security camera",
+  fan: "Fan",
+  humidifier: "Humidifier",
+  led_bar_vertical: "LED bar (vertical)",
+  led_bar_horizontal: "LED bar (horizontal)",
   socket: "Socket / outlet",
   switch: "Switch / Hue remote",
   remote_control: "Remote control",
@@ -225,6 +249,136 @@ function build(symbol: PlacementSymbol): THREE.BufferGeometry {
         translated(new THREE.BoxGeometry(0.055, 0.075, 0.025), 0, 0.038, 0),
         translated(new THREE.SphereGeometry(0.012, 8, 6), 0, 0.062, 0.016),
       ])!;
+
+    case "motion_sensor":
+      // Wall casing with a large faceted PIR lens facing +Z, the shared aiming direction.
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.065, 0.085, 0.028), 0, 0.043, 0.014),
+        translated(scaled(new THREE.SphereGeometry(0.032, 10, 6), 1, 0.72, 0.55), 0, 0.057, 0.038),
+      ])!;
+
+    case "wifi_access_point":
+      // A shallow ceiling puck with two raised radio-wave arcs.
+      return mergeGeometries([
+        translated(new THREE.CylinderGeometry(0.072, 0.072, 0.022, 14), 0, -0.011, 0),
+        translated(rotatedX(new THREE.TorusGeometry(0.024, 0.004, 5, 10, Math.PI), Math.PI / 2), 0, -0.025, 0.006),
+        translated(rotatedX(new THREE.TorusGeometry(0.043, 0.004, 5, 12, Math.PI), Math.PI / 2), 0, -0.027, 0.006),
+      ])!;
+
+    case "robot_vacuum":
+      // Low circular chassis, front bumper and the small lidar turret seen on robot vacuums.
+      return mergeGeometries([
+        translated(new THREE.CylinderGeometry(0.105, 0.105, 0.045, 16), 0, 0.023, 0),
+        translated(new THREE.BoxGeometry(0.15, 0.032, 0.025), 0, 0.025, 0.1),
+        translated(new THREE.CylinderGeometry(0.027, 0.027, 0.025, 10), -0.035, 0.058, -0.015),
+        translated(new THREE.CylinderGeometry(0.012, 0.012, 0.008, 8), 0.055, 0.05, 0.075),
+      ])!;
+
+    case "heat_pump_indoor": {
+      // Wall-mounted indoor cassette with a lower outlet and three directional vanes.
+      const parts: THREE.BufferGeometry[] = [
+        translated(new THREE.BoxGeometry(0.32, 0.115, 0.075), 0, 0.058, 0.038),
+        translated(new THREE.BoxGeometry(0.28, 0.025, 0.02), 0, 0.013, 0.082),
+      ];
+      for (const x of [-0.09, 0, 0.09]) {
+        parts.push(translated(rotatedZ(new THREE.BoxGeometry(0.008, 0.035, 0.018), -0.2), x, 0.014, 0.098));
+      }
+      return mergeGeometries(parts)!;
+    }
+
+    case "heat_pump_outdoor": {
+      // Outdoor condenser cabinet, feet and a prominent front fan grille.
+      const parts: THREE.BufferGeometry[] = [
+        translated(new THREE.BoxGeometry(0.29, 0.23, 0.14), 0, 0.135, 0),
+        translated(new THREE.BoxGeometry(0.09, 0.02, 0.17), -0.085, 0.01, 0),
+        translated(new THREE.BoxGeometry(0.09, 0.02, 0.17), 0.085, 0.01, 0),
+        translated(rotatedX(new THREE.TorusGeometry(0.075, 0.008, 6, 16), Math.PI / 2), 0.04, 0.145, 0.078),
+        translated(rotatedX(new THREE.CylinderGeometry(0.012, 0.012, 0.012, 8), Math.PI / 2), 0.04, 0.145, 0.085),
+      ];
+      for (let blade = 0; blade < 4; blade += 1) {
+        parts.push(
+          translated(
+            rotatedZ(new THREE.BoxGeometry(0.018, 0.064, 0.008), blade * Math.PI / 2 + 0.45),
+            0.04,
+            0.145,
+            0.086,
+          ),
+        );
+      }
+      return mergeGeometries(parts)!;
+    }
+
+    case "homepod":
+      // A compact fabric-speaker capsule with distinct top and bottom caps.
+      return mergeGeometries([
+        translated(new THREE.CylinderGeometry(0.062, 0.068, 0.115, 14), 0, 0.068, 0),
+        translated(scaled(new THREE.SphereGeometry(0.064, 14, 6), 1, 0.25, 1), 0, 0.126, 0),
+        translated(new THREE.CylinderGeometry(0.045, 0.045, 0.006, 14), 0, 0.139, 0),
+        translated(new THREE.CylinderGeometry(0.057, 0.057, 0.008, 14), 0, 0.004, 0),
+      ])!;
+
+    case "network_switch": {
+      // Shallow rack-style switch with a row of eight visible Ethernet sockets.
+      const parts: THREE.BufferGeometry[] = [
+        translated(new THREE.BoxGeometry(0.28, 0.055, 0.15), 0, 0.028, 0),
+      ];
+      for (let port = 0; port < 8; port += 1) {
+        parts.push(
+          translated(new THREE.BoxGeometry(0.024, 0.018, 0.009), -0.105 + port * 0.03, 0.031, 0.079),
+        );
+      }
+      return mergeGeometries(parts)!;
+    }
+
+    case "security_camera":
+      // Wall plate and elbow bracket supporting a bullet camera aimed along +Z.
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.075, 0.085, 0.016), 0, 0.043, 0.008),
+        translated(rotatedX(new THREE.CylinderGeometry(0.01, 0.01, 0.07, 7), Math.PI / 2), 0, 0.048, 0.045),
+        translated(new THREE.SphereGeometry(0.018, 8, 5), 0, 0.048, 0.078),
+        translated(rotatedX(new THREE.CylinderGeometry(0.041, 0.033, 0.12, 12), Math.PI / 2), 0, 0.07, 0.13),
+        translated(rotatedX(new THREE.CylinderGeometry(0.035, 0.035, 0.012, 12), Math.PI / 2), 0, 0.07, 0.194),
+        translated(rotatedX(new THREE.CylinderGeometry(0.014, 0.014, 0.014, 9), Math.PI / 2), 0, 0.07, 0.202),
+      ])!;
+
+    case "fan": {
+      // Pedestal fan with a ring guard, hub and three broad blades facing +Z.
+      const parts: THREE.BufferGeometry[] = [
+        translated(new THREE.CylinderGeometry(0.07, 0.085, 0.018, 12), 0, 0.009, 0),
+        translated(new THREE.CylinderGeometry(0.01, 0.01, 0.18, 7), 0, 0.108, 0),
+        translated(rotatedX(new THREE.TorusGeometry(0.09, 0.008, 6, 18), Math.PI / 2), 0, 0.245, 0),
+        translated(rotatedX(new THREE.CylinderGeometry(0.018, 0.018, 0.025, 9), Math.PI / 2), 0, 0.245, 0),
+      ];
+      for (let blade = 0; blade < 3; blade += 1) {
+        parts.push(
+          translated(
+            rotatedZ(new THREE.BoxGeometry(0.025, 0.07, 0.009), blade * ((Math.PI * 2) / 3) + 0.4),
+            0,
+            0.245,
+            0.014,
+          ),
+        );
+      }
+      return mergeGeometries(parts)!;
+    }
+
+    case "humidifier":
+      // Floor unit with a translucent-tank silhouette, cap and offset mist nozzle.
+      return mergeGeometries([
+        translated(new THREE.CylinderGeometry(0.07, 0.082, 0.15, 12), 0, 0.075, 0),
+        translated(new THREE.CylinderGeometry(0.058, 0.066, 0.09, 12), 0, 0.195, 0),
+        translated(new THREE.CylinderGeometry(0.064, 0.064, 0.014, 12), 0, 0.247, 0),
+        translated(new THREE.CylinderGeometry(0.013, 0.017, 0.034, 8), 0.028, 0.271, 0),
+        translated(scaled(new THREE.SphereGeometry(0.012, 8, 5), 0.7, 1.25, 0.7), 0.028, 0.302, 0),
+      ])!;
+
+    case "led_bar_vertical":
+      // Unit length on +Y, anchored at y=0. The placement scales Y to the configured length.
+      return new THREE.BoxGeometry(0.03, 1, 0.025, 1, 2, 1).translate(0, 0.5, 0);
+
+    case "led_bar_horizontal":
+      // Unit length on X, centred at x=0. The placement scales X to the configured length.
+      return new THREE.BoxGeometry(1, 0.03, 0.025);
 
     case "socket":
       return mergeGeometries([
@@ -490,6 +644,13 @@ export function defaultSymbol(input: {
   const category = input.category ?? "";
   const mount = input.mountKind ?? "floor";
   const domain = input.entityId?.split(".", 1)[0];
+
+  if (domain === "climate") return "heat_pump_indoor";
+  if (domain === "vacuum") return "robot_vacuum";
+  if (domain === "fan") return "fan";
+  if (domain === "humidifier") return "humidifier";
+  if (domain === "camera") return "security_camera";
+  if (domain === "remote") return "remote_control";
 
   // This recovers a useful silhouette for older placements whose explicit symbol was lost. HA
   // imports commonly use the broad `appliance` category, while the entity domain stays precise.

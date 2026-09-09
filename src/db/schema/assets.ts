@@ -143,6 +143,10 @@ export const assetPlacement = sqliteTable(
     /** Physical spotlight direction, independent of its mounting orientation. */
     lightAimYawDeg: real("light_aim_yaw_deg"),
     lightAimPitchDeg: real("light_aim_pitch_deg"),
+    /** Physical length of an LED bar. Null lets the renderer use its one-metre default. */
+    ledLengthM: real("led_length_m"),
+    /** Physical camera or sensor detection reach. Null lets the renderer use its default. */
+    detectionRangeM: real("detection_range_m"),
     placementKind: text("placement_kind").$type<PlacementKind>().notNull().default("body"),
     /**
      * The mount, previously a coverage gap (`docs/model-contract.md` §3.1): a wall-mounted sensor

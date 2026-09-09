@@ -1048,7 +1048,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`created_at_ms\` integer NOT NULL,
 	\`created_by\` text,
 	\`updated_at_ms\` integer NOT NULL,
-	\`updated_by\` text, \`symbol\` text, \`light_aim_yaw_deg\` real, \`light_aim_pitch_deg\` real, \`solar_panel_json\` text,
+	\`updated_by\` text, \`symbol\` text, \`light_aim_yaw_deg\` real, \`light_aim_pitch_deg\` real, \`solar_panel_json\` text, \`led_length_m\` real, \`detection_range_m\` real,
 	FOREIGN KEY (\`asset_id\`) REFERENCES \`asset\`(\`id\`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (\`model_revision_id\`) REFERENCES \`model_revision\`(\`id\`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (\`photo_attachment_id\`) REFERENCES \`attachment\`(\`id\`) ON UPDATE no action ON DELETE set null,

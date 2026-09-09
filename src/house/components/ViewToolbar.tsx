@@ -37,7 +37,7 @@ const LAYER_LABELS: Record<LayerId, string> = {
   scanReferences: "Scan reference",
   yard: "Yard",
   outdoor: "Terrace and steps",
-  equipment: "Equipment",
+  equipment: "Show equipment",
   routes: "Infrastructure routes",
   annotations: "Notes",
 };

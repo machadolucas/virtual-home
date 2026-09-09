@@ -153,6 +153,65 @@ describe("placement mount round trip", () => {
     expect(cleared.placement.symbol).toBeNull();
   });
 
+  it("round-trips LED length and detection range through storage and reload", async () => {
+    const created = await bodyOf<{ placement: PersistedPlacement }>(
+      await put({
+        position: [1.5, 1.4, 1.5],
+        symbol: "led_bar_vertical",
+        ledLengthM: 1.2344,
+        detectionRangeM: 7.6544,
+      }),
+    );
+    expect(created.placement.ledLengthM).toBe(1.234);
+    expect(created.placement.detectionRangeM).toBe(7.654);
+
+    const row = h.handle.db.select().from(assetPlacement).all()[0];
+    expect(row?.ledLengthM).toBe(1.234);
+    expect(row?.detectionRangeM).toBe(7.654);
+
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]?.ledLengthM).toBe(1.234);
+    expect(listed.placements[0]?.detectionRangeM).toBe(7.654);
+  });
+
+  it.each([
+    ["LED length below range", { ledLengthM: 0.049 }],
+    ["LED length above range", { ledLengthM: 20.001 }],
+    ["detection range below range", { detectionRangeM: 0.099 }],
+    ["detection range above range", { detectionRangeM: 30.001 }],
+    ["non-number LED length", { ledLengthM: "NaN" }],
+    ["non-number detection range", { detectionRangeM: "Infinity" }],
+  ])("refuses invalid optical dimensions: %s", async (_label, fields) => {
+    const res = await put({ position: [1.5, 1.4, 1.5], ...fields });
+    expect(res.status).toBe(400);
+    expect(h.handle.db.select().from(assetPlacement).all()).toHaveLength(0);
+  });
+
+  it("refuses finite-number overflow in optical dimensions", async () => {
+    const res = await PUT(
+      new Request(`http://localhost:3010/api/house-model/${h.modelId}/placements`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        // JSON accepts an arbitrarily large exponent; parsing it produces Infinity in JavaScript.
+        body: `{"fingerprint":"${h.fingerprint}","viewMode":"normal","placement":{"equipmentId":"${equipmentId}","floorId":"f-lower","roomId":"r-l-a","position":[1.5,1.4,1.5],"ledLengthM":1e999}}`,
+      }),
+      ctx({ modelId: h.modelId }),
+    );
+    expect(res.status).toBe(400);
+    expect(h.handle.db.select().from(assetPlacement).all()).toHaveLength(0);
+  });
+
+  it("preserves stored optical dimensions when an older client omits them", async () => {
+    const created = await bodyOf<{ placement: PersistedPlacement }>(
+      await put({ position: [1.5, 1.4, 1.5], ledLengthM: 2.5, detectionRangeM: 8 }),
+    );
+    const updated = await bodyOf<{ placement: PersistedPlacement }>(
+      await put({ id: created.placement.id, position: [1.6, 1.4, 1.5] }),
+    );
+    expect(updated.placement.ledLengthM).toBe(2.5);
+    expect(updated.placement.detectionRangeM).toBe(8);
+  });
+
   it("round-trips solar-panel dimensions and tilt through storage and reload", async () => {
     const solarPanel = { widthM: 1.234, lengthM: 1.987, thicknessM: 0.055, tiltDeg: 32.5 };
     const created = await bodyOf<{ placement: PersistedPlacement }>(

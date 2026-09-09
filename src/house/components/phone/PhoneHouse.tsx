@@ -14,6 +14,7 @@
  */
 import {
   House,
+  Box,
   Layers3,
   PanelBottom,
   PanelTop,
@@ -49,6 +50,8 @@ export function PhoneHouse() {
     })),
   );
   const isolateFloor = useHouseStore((s) => s.isolateFloor);
+  const equipmentVisible = useHouseStore((s) => s.layers.equipment);
+  const setLayer = useHouseStore((s) => s.setLayer);
   const setAreaLabelsVisible = useHouseStore((s) => s.setAreaLabelsVisible);
 
   const setProjection = useHouseStore((s) => s.setProjection);
@@ -119,6 +122,8 @@ export function PhoneHouse() {
       </div>
 
       <div className="flex justify-end"><DownloadImageButton /></div>
+
+      <Switch checked={equipmentVisible} onCheckedChange={(on) => setLayer("equipment", on)} controlPosition="start" label={<span className="inline-flex items-center gap-1.5"><Box className="size-4" aria-hidden="true" />Show equipment</span>} />
 
       <Switch
         checked={areaLabelsVisible}

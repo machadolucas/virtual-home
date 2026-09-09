@@ -328,6 +328,8 @@ export function useSceneSync(): void {
                 rotationYDeg: draft.rotationYDeg,
                 lightAim: draft.lightAim ?? null,
                 solarPanel: draft.solarPanel ?? null,
+                ledLengthM: draft.ledLengthM ?? null,
+                detectionRangeM: draft.detectionRangeM ?? null,
                 mount: draft.mount,
                 floorId: draft.floorId,
                 roomId: draft.roomId,
@@ -340,12 +342,8 @@ export function useSceneSync(): void {
               },
             ];
 
-      // The "Equipment" layer checkbox used to move nothing: `computeVisibility` never read it, so
-      // markers were drawn whatever the toolbar said. The draft is exempt — hiding the thing you
-      // are currently placing would be absurd.
-      const drawn = s.layers.equipment
-        ? withDraft
-        : withDraft.filter((p) => p.id === (draft?.placementId ?? DRAFT_MARKER_ID) && draft !== null);
+      // Hiding equipment also hides draft silhouettes for a clean model-only view.
+      const drawn = s.layers.equipment ? withDraft : [];
 
       markers.set(drawn, stateOf, groupOf, symbolOf);
       applyExplode(index, s.explode);

@@ -18,6 +18,13 @@ export interface EntityState {
   unit?: string | null;
   deviceClass?: string | null;
   /** Normalized light attributes retained by the server for live fixture rendering. */
+  currentTemperature?: number | null;
+  targetTemperature?: number | null;
+  targetTempLow?: number | null;
+  targetTempHigh?: number | null;
+  temperatureUnit?: string | null;
+  hvacAction?: string | null;
+  fanMode?: string | null;
   brightness?: number | null;
   rgbColor?: [number, number, number] | null;
   hsColor?: [number, number] | null;
@@ -79,6 +86,13 @@ function sameEntityState(a: EntityState, b: EntityState): boolean {
     a.batteryType === b.batteryType &&
     a.unit === b.unit &&
     a.deviceClass === b.deviceClass &&
+    a.currentTemperature === b.currentTemperature &&
+    a.targetTemperature === b.targetTemperature &&
+    a.targetTempLow === b.targetTempLow &&
+    a.targetTempHigh === b.targetTempHigh &&
+    a.temperatureUnit === b.temperatureUnit &&
+    a.hvacAction === b.hvacAction &&
+    a.fanMode === b.fanMode &&
     a.brightness === b.brightness &&
     sameTuple(a.rgbColor, b.rgbColor) &&
     sameTuple(a.hsColor, b.hsColor) &&
@@ -128,7 +142,7 @@ export function classifyState(
   if (entity.state === "unknown") return "unknown";
   // A connected HA stream is authoritative for event-driven lights. A lamp can remain steadily
   // on or off for days without emitting another state change.
-  if (entity.entityId.startsWith("light.")) return "live";
+  if (entity.entityId.startsWith("light.") || entity.entityId.startsWith("climate.")) return "live";
   if (now - entity.lastUpdated > staleMs(entity.deviceClass)) return "stale";
   return "live";
 }

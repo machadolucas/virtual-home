@@ -64,7 +64,13 @@ describe("symbol geometry", () => {
     for (const symbol of PLACEMENT_SYMBOLS) {
       // Solar panels use normalized unit geometry so their placement scale can hold the real
       // width, thickness and length independently.
-      if (symbol === "solar_panel") continue;
+      if (
+        symbol === "solar_panel" ||
+        symbol === "led_bar_vertical" ||
+        symbol === "led_bar_horizontal"
+      ) {
+        continue;
+      }
       const radius = symbolGeometry(symbol).boundingSphere?.radius ?? 0;
       expect(radius, symbol).toBeLessThan(0.5);
     }
@@ -81,6 +87,29 @@ describe("symbol geometry", () => {
     expect(centre.x).toBeCloseTo(0, 6);
     expect(centre.y).toBeCloseTo(0.5, 6);
     expect(centre.z).toBeCloseTo(0, 6);
+  });
+
+  it("authors LED bars at unit length on the axis their placement scales", () => {
+    const vertical = symbolGeometry("led_bar_vertical").boundingBox!;
+    const verticalSize = vertical.getSize(new THREE.Vector3());
+    expect(verticalSize.x).toBeCloseTo(0.03, 6);
+    expect(verticalSize.y).toBeCloseTo(1, 6);
+    expect(verticalSize.z).toBeCloseTo(0.025, 6);
+    expect(vertical.min.y).toBeCloseTo(0, 6);
+    expect(vertical.getCenter(new THREE.Vector3()).x).toBeCloseTo(0, 6);
+
+    const horizontal = symbolGeometry("led_bar_horizontal").boundingBox!;
+    const horizontalSize = horizontal.getSize(new THREE.Vector3());
+    expect(horizontalSize.x).toBeCloseTo(1, 6);
+    expect(horizontalSize.y).toBeCloseTo(0.03, 6);
+    expect(horizontalSize.z).toBeCloseTo(0.025, 6);
+    expect(horizontal.min.x).toBeCloseTo(-0.5, 6);
+    expect(horizontal.max.x).toBeCloseTo(0.5, 6);
+  });
+
+  it("faces aimable motion sensors and security cameras along +Z", () => {
+    expect(symbolGeometry("motion_sensor").boundingBox!.max.z).toBeGreaterThan(0.04);
+    expect(symbolGeometry("security_camera").boundingBox!.max.z).toBeGreaterThan(0.19);
   });
 
   it("centres the lantern directly over its single pole", () => {
@@ -109,6 +138,18 @@ describe("symbol geometry", () => {
     expect(SYMBOL_LABEL.floor_spot).toBe("Floor spot");
     expect(SYMBOL_LABEL.ceiling_spot).toBe("Ceiling spot");
     expect(SYMBOL_LABEL.solar_panel).toBe("Solar panel");
+    expect(SYMBOL_LABEL.wifi_access_point).toBe("Wi-Fi access point");
+    expect(SYMBOL_LABEL.robot_vacuum).toBe("Robot vacuum");
+    expect(SYMBOL_LABEL.heat_pump_indoor).toBe("Heat pump (indoor)");
+    expect(SYMBOL_LABEL.heat_pump_outdoor).toBe("Heat pump (outdoor)");
+    expect(SYMBOL_LABEL.homepod).toBe("HomePod");
+    expect(SYMBOL_LABEL.network_switch).toBe("Network switch");
+    expect(SYMBOL_LABEL.security_camera).toBe("Security camera");
+    expect(SYMBOL_LABEL.fan).toBe("Fan");
+    expect(SYMBOL_LABEL.humidifier).toBe("Humidifier");
+    expect(SYMBOL_LABEL.motion_sensor).toBe("Motion sensor");
+    expect(SYMBOL_LABEL.led_bar_vertical).toBe("LED bar (vertical)");
+    expect(SYMBOL_LABEL.led_bar_horizontal).toBe("LED bar (horizontal)");
   });
 });
 

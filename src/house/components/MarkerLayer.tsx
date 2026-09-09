@@ -24,6 +24,7 @@ import { useIsTouch, useNow } from "../hooks/useReducedMotion";
 export function MarkerDomLayer({ hostRef }: { hostRef: React.RefObject<HTMLDivElement | null> }) {
   const runtime = useHouseRuntime();
   const placements = useHouseStore((s) => s.placements);
+  const equipmentVisible = useHouseStore((s) => s.layers.equipment);
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
   const nodesRef = useRef(new Map<string, HTMLElement>());
@@ -37,12 +38,12 @@ export function MarkerDomLayer({ hostRef }: { hostRef: React.RefObject<HTMLDivEl
       const id = el.dataset.placement;
       if (id) map.set(id, el);
     }
-  }, [hostRef, placements]);
+  }, [hostRef, placements, equipmentVisible]);
 
   const v = useRef(new THREE.Vector3()).current;
   useFrame(() => {
     const manifest = runtime.manifest;
-    if (!manifest) return;
+    if (!manifest || !equipmentVisible) return;
     for (const p of placements) {
       const el = nodesRef.current.get(p.id);
       if (!el) continue;
@@ -71,6 +72,7 @@ export function MarkerDomLayer({ hostRef }: { hostRef: React.RefObject<HTMLDivEl
 export function MarkerButtons({ hostRef }: { hostRef: React.RefObject<HTMLDivElement | null> }) {
   const runtime = useHouseRuntime();
   const placements = useHouseStore((s) => s.placements);
+  const equipmentVisible = useHouseStore((s) => s.layers.equipment);
   const selection = useHouseStore((s) => s.selection);
   const touch = useIsTouch();
   const [, forceBadgeTick] = useState(0);
@@ -89,7 +91,7 @@ export function MarkerButtons({ hostRef }: { hostRef: React.RefObject<HTMLDivEle
 
   return (
     <div ref={hostRef} className="pointer-events-none absolute inset-0 overflow-hidden">
-      {placements.map((p) => {
+      {(equipmentVisible ? placements : []).map((p) => {
         const selected = selection?.kind === "equipment" && selection.id === p.id;
         return (
           <button

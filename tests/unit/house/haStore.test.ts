@@ -19,3 +19,9 @@ describe("Home Assistant state freshness", () => {
       .toBe("stale");
   });
 });
+
+it("keeps event-driven climate status live while connected without inventing unavailable readings", () => {
+  const climate: EntityState = { entityId: "climate.pump", state: "heat", lastUpdated: 1 };
+  expect(classifyState(climate, "open", 7 * 86400000)).toBe("live");
+  expect(classifyState({ ...climate, state: "unavailable" }, "open", 7 * 86400000)).toBe("unavailable");
+});

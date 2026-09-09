@@ -58,6 +58,8 @@ export interface VhHook {
   frameStats(): VhFrameStats;
   invalidateCount(): number;
   lights(): import("../scene/equipmentLights").EquipmentLightSpec[];
+  detectionGuide(): { visible: boolean; position: number[]; direction: number[] };
+  equipmentCount(): number;
   daylight(): { position: number[]; intensity: number; shadowMapSize: number; shadowMapAllocated: boolean; radius: number } | null;
   renderedLights(): import("../scene/equipmentLights").RenderedEquipmentLight[];
   shadowSurface(surfaceId: string): {
@@ -264,6 +266,17 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
     },
 
     lights() { return runtime.equipmentLights?.snapshot() ?? []; },
+
+    detectionGuide() {
+      const guide = runtime.scene?.children.find((o) => o.userData.detectionGuide);
+      return { visible: Boolean(guide?.visible && guide.children.length), position: guide?.position.toArray() ?? [], direction: guide ? new THREE.Vector3(0, 1, 0).applyQuaternion(guide.quaternion).toArray() : [] };
+    },
+
+    equipmentCount() {
+      let count = 0;
+      runtime.index?.overlay.root.traverse((o) => { if (o instanceof THREE.InstancedMesh && o.name.startsWith("vh-markers-")) count += o.count; });
+      return count;
+    },
 
     daylight() {
       const light = runtime.scene?.getObjectByName("vh-daylight") as THREE.DirectionalLight | undefined;

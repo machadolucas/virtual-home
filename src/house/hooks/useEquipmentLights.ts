@@ -11,6 +11,7 @@ import {
   lightDirection,
   lightSourcePosition,
 } from "../model/equipmentLight";
+import { isLedBar, ledLength, ledSource } from "../model/equipmentOptics";
 import { defaultSymbol, isPlacementSymbol } from "../scene/symbols";
 import { isVisibleUp } from "../scene/applyVisibility";
 import {
@@ -60,7 +61,7 @@ export function useEquipmentLights() {
       if (index && manifest && state.layers.equipment) {
         for (const saved of state.placements) {
           const draft = state.editing?.placementId === saved.id ? state.editing : null;
-          const p = draft ? { ...saved, position: draft.physical, rotationYDeg: draft.rotationYDeg, lightAim: draft.lightAim, symbol: draft.symbol, floorId: draft.floorId, roomId: draft.roomId, surfaceId: draft.surfaceId, mount: draft.mount } : saved;
+          const p = draft ? { ...saved, position: draft.physical, rotationYDeg: draft.rotationYDeg, ledLengthM: draft.ledLengthM, lightAim: draft.lightAim, symbol: draft.symbol, floorId: draft.floorId, roomId: draft.roomId, surfaceId: draft.surfaceId, mount: draft.mount } : saved;
           const entityId = [p.entityId, ...(p.linkedEntities ?? []).map((e) => e.entityId)].find(isLightEntity);
           if (!entityId) continue;
           const entity = ha.entities[entityId];
@@ -75,8 +76,8 @@ export function useEquipmentLights() {
           const symbol = isPlacementSymbol(p.symbol) ? p.symbol : defaultSymbol({ category: p.category, entityId: p.entityId, mountKind: p.mount.kind, isOutdoor: !p.roomId });
           const direction = lightDirection(symbol, p.lightAim, p.rotationYDeg);
           // Source follows the visible emitter, while the persisted coordinate remains its mount.
-          const source = lightSourcePosition(p.position, symbol, p.rotationYDeg, runtime.offsets.get(group) ?? 0);
-          candidates.push({ id: p.id, spot: isSpotlightSymbol(symbol), position: source, direction, color: appearance.color, brightness: appearance.intensity });
+          const source = isLedBar(symbol) ? ledSource(p.position, symbol, ledLength(p.ledLengthM), runtime.offsets.get(group) ?? 0) : lightSourcePosition(p.position, symbol, p.rotationYDeg, runtime.offsets.get(group) ?? 0);
+          candidates.push({ id: p.id, spot: isSpotlightSymbol(symbol), position: source, direction, color: appearance.color, brightness: appearance.intensity * (isLedBar(symbol) ? ledLength(p.ledLengthM) : 1) });
         }
       }
       const selected = state.selection?.kind === "equipment" ? state.selection.id : null;

@@ -235,6 +235,8 @@ const PlacementSchema = z.object({
   position: z.tuple([FiniteSchema, FiniteSchema, FiniteSchema]),
   rotationYDeg: FiniteSchema.default(0),
   lightAim: z.object({ yawDeg: FiniteSchema.min(-180).max(180), pitchDeg: FiniteSchema.min(-90).max(90) }).nullish(),
+  ledLengthM: FiniteSchema.min(0.05).max(20).nullish(),
+  detectionRangeM: FiniteSchema.min(0.1).max(30).nullish(),
   solarPanel: SolarPanelConfigSchema.nullish(),
   floorId: IdSchema,
   roomId: IdSchema.nullish(),
@@ -369,6 +371,8 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
       rotYawDeg: assetPlacement.rotYawDeg,
       lightAimYawDeg: assetPlacement.lightAimYawDeg,
       lightAimPitchDeg: assetPlacement.lightAimPitchDeg,
+      ledLengthM: assetPlacement.ledLengthM,
+      detectionRangeM: assetPlacement.detectionRangeM,
       placementKind: assetPlacement.placementKind,
       mountKind: assetPlacement.mountKind,
       mountSurfaceId: assetPlacement.mountSurfaceId,
@@ -433,6 +437,8 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
         row.lightAimYawDeg != null && row.lightAimPitchDeg != null
           ? { yawDeg: row.lightAimYawDeg, pitchDeg: row.lightAimPitchDeg }
           : null,
+      ledLengthM: row.ledLengthM,
+      detectionRangeM: row.detectionRangeM,
       entityId: linkedEntities.get(row.assetId)?.[0]?.entityId ?? null,
       linkedEntities: linkedEntities.get(row.assetId) ?? [],
       symbol: row.symbol,
@@ -591,6 +597,10 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
       lightAimYawDeg: p.lightAim ? mm(p.lightAim.yawDeg) : null,
       lightAimPitchDeg: p.lightAim ? mm(p.lightAim.pitchDeg) : null,
     }),
+    ...(p.ledLengthM === undefined ? {} : { ledLengthM: p.ledLengthM === null ? null : mm(p.ledLengthM) }),
+    ...(p.detectionRangeM === undefined
+      ? {}
+      : { detectionRangeM: p.detectionRangeM === null ? null : mm(p.detectionRangeM) }),
     mountKind,
     mountSurfaceId,
     mountHeightM,
@@ -643,6 +653,8 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
       rotYawDeg: assetPlacement.rotYawDeg,
       lightAimYawDeg: assetPlacement.lightAimYawDeg,
       lightAimPitchDeg: assetPlacement.lightAimPitchDeg,
+      ledLengthM: assetPlacement.ledLengthM,
+      detectionRangeM: assetPlacement.detectionRangeM,
       solarPanelJson: assetPlacement.solarPanelJson,
     })
     .from(assetPlacement)
@@ -669,6 +681,8 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     rotationYDeg: stored?.rotYawDeg ?? mm(p.rotationYDeg),
     lightAim: stored?.lightAimYawDeg != null && stored.lightAimPitchDeg != null
       ? { yawDeg: stored.lightAimYawDeg, pitchDeg: stored.lightAimPitchDeg } : p.lightAim ?? null,
+    ledLengthM: stored?.ledLengthM ?? null,
+    detectionRangeM: stored?.detectionRangeM ?? null,
     mount: clientMount(mountKind, mountSurfaceId, mountHeightM, mountOffsetM),
     floorId: p.floorId,
     roomId: mountRoomId,

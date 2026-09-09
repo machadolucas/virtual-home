@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Save, Trash2, X } from "lucide-react";
 import * as THREE from "three";
+import { isAimableSymbol } from "@/house/model/equipmentOptics";
 import { DEFAULT_SOLAR_PANEL_CONFIG } from "@/house/model/solarPanel";
 import { panelOrientation } from "@/house/model/panelOrientation";
 import { snapValue } from "@/house/model/geometry2d";
@@ -32,7 +33,7 @@ import { NotPersistedError } from "@/house/store/dataApi";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
 import { useIsPhone } from "../../hooks/useReducedMotion";
 import { NumericPlacementFields } from "./NumericPlacementFields";
-import { draftSymbol, isSpotlightSymbol, SpotlightAimFields } from "./SpotlightAimFields";
+import { draftSymbol, SpotlightAimFields } from "./SpotlightAimFields";
 import { UndoBar } from "./UndoBar";
 
 export function PlacementEditor() {
@@ -67,11 +68,12 @@ export function PlacementEditor() {
     },
     [runtime],
   );
+  const equipmentVisible = useHouseStore((s) => s.layers.equipment);
   const saving = useHouseStore((s) => s.editorSaving);
   const setSaving = useHouseStore((s) => s.setEditorSaving);
   const dragging = useRef(false);
   const [aimRequested, setAiming] = useState(false);
-  const aiming = aimRequested && Boolean(editing && isSpotlightSymbol(draftSymbol(editing)));
+  const aiming = equipmentVisible && aimRequested && Boolean(editing && isAimableSymbol(draftSymbol(editing)));
 
   /**
    * Aiming with the pointer, on a pointer device only. On phones this is numeric-only plus the
@@ -198,11 +200,11 @@ export function PlacementEditor() {
    * guide name keeps it out of downloaded images (`captureHouseView`).
    */
   useEffect(() => {
-    if (!editing || !isSpotlightSymbol(draftSymbol(editing))) return;
+    if (!equipmentVisible || !editing || !isAimableSymbol(draftSymbol(editing))) return;
     const scene = runtime.scene;
     if (!scene) return;
 
-    const source = lightSourcePosition(editing.physical, draftSymbol(editing), editing.rotationYDeg, runtime.offsets.get(editing.floorId) ?? 0);
+    const source = lightSourcePosition(editing.physical, draftSymbol(editing), editing.rotationYDeg, runtime.offsets.get(editing.floorId) ?? 0, editing.lightAim);
     const origin = new THREE.Vector3(...source);
     const initial = lightDirection(draftSymbol(editing), editing.lightAim, editing.rotationYDeg);
     const arrow = new THREE.ArrowHelper(
@@ -295,7 +297,7 @@ export function PlacementEditor() {
       arrow.dispose();
       runtime.invalidate();
     };
-  }, [runtime, editing, aiming, phone, updateDraft]);
+  }, [runtime, editing, aiming, phone, updateDraft, equipmentVisible]);
 
   // Leaving the editor by any path (save, cancel, unmount) clears the in-canvas indicator.
   useEffect(() => () => runtime.setSnapIndicator(null), [runtime]);
@@ -352,6 +354,8 @@ export function PlacementEditor() {
       rotationYDeg: editing.rotationYDeg,
       lightAim: editing.lightAim ?? null,
       solarPanel: editing.solarPanel ?? null,
+      ledLengthM: editing.ledLengthM ?? null,
+      detectionRangeM: editing.detectionRangeM ?? null,
       mount: editing.mount,
       floorId: editing.floorId,
       roomId: editing.roomId,

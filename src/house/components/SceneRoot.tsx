@@ -31,6 +31,7 @@ import { baseSelect } from "@/house/runtime";
 import { useHouseRuntime, useHouseStore } from "../hooks/useHouseStore";
 import { useIsPhone, useIsTouch } from "../hooks/useReducedMotion";
 import { usePaletteSync } from "../hooks/usePaletteSync";
+import { useDetectionGuide } from "../hooks/useDetectionGuide";
 import { useEquipmentLights } from "../hooks/useEquipmentLights";
 import { useSceneSync } from "../hooks/useSceneSync";
 import { installTestHook } from "../test/testHook";
@@ -355,6 +356,7 @@ export function SceneRoot() {
 
   useSceneSync();
   useEquipmentLights();
+  useDetectionGuide();
   // The scene's own chrome colours (selection, markers, routes) follow the theme.
   usePaletteSync();
 

@@ -65,6 +65,7 @@ export function useLabelAnchors(): LabelAnchor[] {
     focusSelection,
     labelPreferences,
     areaLabelsVisible,
+    equipmentVisible,
   } = useHouseStore(
     useShallow((s) => ({
       placements: s.placements,
@@ -73,6 +74,7 @@ export function useLabelAnchors(): LabelAnchor[] {
       focusSelection: s.focusSelection,
       labelPreferences: s.labelPreferences,
       areaLabelsVisible: s.areaLabelsVisible,
+      equipmentVisible: s.layers.equipment,
     })),
   );
 
@@ -140,7 +142,7 @@ export function useLabelAnchors(): LabelAnchor[] {
       });
     }
 
-    for (const p of placements) {
+    for (const p of equipmentVisible ? placements : []) {
       anchors.push({
         id: `equipment:${p.id}`,
         kind: "equipment",
@@ -179,6 +181,7 @@ export function useLabelAnchors(): LabelAnchor[] {
     focusSelection,
     labelPreferences,
     areaLabelsVisible,
+    equipmentVisible,
   ]);
 }
 

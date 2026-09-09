@@ -23,6 +23,10 @@ export interface EditDraft {
   rotationYDeg: number;
   /** Physical beam direction; null/absent uses the fixture default. */
   lightAim?: { yawDeg: number; pitchDeg: number } | null;
+  /** Physical LED-bar length in metres; null/absent uses the symbol's default. */
+  ledLengthM?: number | null;
+  /** Physical detection reach in metres; null/absent uses the symbol's default. */
+  detectionRangeM?: number | null;
   /** Physical panel dimensions and roof-relative tilt. */
   solarPanel?: SolarPanelConfig | null;
   mount: PlacementMount;

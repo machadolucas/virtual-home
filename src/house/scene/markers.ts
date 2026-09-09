@@ -15,7 +15,8 @@ import type { ExplodeGroup, Placement, PlacementId } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
 import { getViewerPalette, type MarkerStateClass } from "./palette";
 import { overlayGroup, type SceneIndex } from "./SceneIndex";
-import { isSpotlightSymbol } from "@/house/model/equipmentLight";
+import { isDirectionalSymbol, isLedBar, ledLength } from "@/house/model/equipmentOptics";
+import { defaultLightAim, isSpotlightSymbol } from "@/house/model/equipmentLight";
 import { DEFAULT_SOLAR_PANEL_CONFIG } from "@/house/model/solarPanel";
 import { symbolGeometry, type PlacementSymbol } from "./symbols";
 
@@ -78,7 +79,7 @@ export class MarkerLayer {
       );
       // These are compact fixture symbols, not hollow light housings. Their solid silhouette
       // must not extinguish the emitter inside it; physical walls/appliances still occlude light.
-      mesh.castShadow = !(isSpotlightSymbol(symbol) || ["lamp_post", "floor_lamp", "wall_lamp", "ceiling_lamp"].includes(symbol));
+      mesh.castShadow = !(isLedBar(symbol) || isSpotlightSymbol(symbol) || ["lamp_post", "floor_lamp", "wall_lamp", "ceiling_lamp"].includes(symbol));
       mesh.receiveShadow = true;
       mesh.name = `vh-markers-${group}-${symbol}`;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -118,6 +119,11 @@ export class MarkerLayer {
       const panel = symbol === "solar_panel" ? p.solarPanel ?? DEFAULT_SOLAR_PANEL_CONFIG : null;
       this.euler.set(THREE.MathUtils.degToRad(panel?.tiltDeg ?? 0), THREE.MathUtils.degToRad(p.rotationYDeg ?? 0), 0, "YXZ");
       this.unitScale.set(panel?.widthM ?? 1, panel?.thicknessM ?? 1, panel?.lengthM ?? 1);
+      if (isDirectionalSymbol(symbol)) {
+        const aim = p.lightAim ?? defaultLightAim(symbol, p.rotationYDeg);
+        this.euler.set(THREE.MathUtils.degToRad(-aim.pitchDeg), THREE.MathUtils.degToRad(aim.yawDeg), 0, "YXZ");
+      }
+      if (isLedBar(symbol)) this.unitScale.set(symbol === "led_bar_horizontal" ? ledLength(p.ledLengthM) : 1, symbol === "led_bar_vertical" ? ledLength(p.ledLengthM) : 1, 1);
       this.quaternion.setFromEuler(this.euler);
       this.matrix.compose(this.position, this.quaternion, this.unitScale);
       state.mesh.setMatrixAt(i, this.matrix);

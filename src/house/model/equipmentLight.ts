@@ -58,6 +58,7 @@ export function defaultLightAim(
   rotationYDeg = 0,
 ): LightAim {
   if (symbol === "spike_spot") return { ...UP };
+  if (["security_camera", "motion_sensor", "sensor"].includes(symbol ?? "")) return { yawDeg: rotationYDeg, pitchDeg: 0 };
   if (symbol === "wall_spot") return { yawDeg: rotationYDeg, pitchDeg: 0 };
   if (symbol === "floor_spot") return { yawDeg: rotationYDeg, pitchDeg: -45 };
   return { ...DOWN };
@@ -89,6 +90,7 @@ export function lightSourceOffset(
   rotationYDeg = 0,
 ): Vec3 {
   const local: Vec3 =
+    ["sensor", "motion_sensor", "security_camera"].includes(symbol ?? "") ? [0, 0.06, 0.045] :
     symbol === "lamp_post"
       ? [0, 0.587, 0]
       : symbol === "floor_lamp"
@@ -120,8 +122,15 @@ export function lightSourcePosition(
   symbol: string | null | undefined,
   rotationYDeg = 0,
   presentationYOffset = 0,
+  aim?: LightAim | null,
 ): Vec3 {
-  const offset = lightSourceOffset(symbol, rotationYDeg);
+  let offset = lightSourceOffset(symbol, rotationYDeg);
+  if (["sensor", "motion_sensor", "security_camera"].includes(symbol ?? "") && aim) {
+    const pitch = radians(-aim.pitchDeg), yaw = radians(aim.yawDeg);
+    const y = 0.06 * Math.cos(pitch) - 0.045 * Math.sin(pitch);
+    const z = 0.06 * Math.sin(pitch) + 0.045 * Math.cos(pitch);
+    offset = [z * Math.sin(yaw), y, z * Math.cos(yaw)];
+  }
   return [
     position[0] + offset[0],
     position[1] + presentationYOffset + offset[1],

@@ -604,3 +604,12 @@ existing free surface mount and physical coordinate bounds, without changing the
 Dimensions persist in an additive placement JSON column; older placements and other silhouettes
 retain their existing scale and formats. Panels in the same presentation group share one draw call,
 even when their dimensions differ.
+
+### Equipment optical dimensions
+
+Placement fields `ledLengthM` (0.05–20 m) and `detectionRangeM` (0.1–30 m) are optional physical metre
+values stored independently from immutable model geometry. Omission during an update preserves the
+stored value; explicit null restores the display defaults (1 m and 5 m). API validation rejects
+non-finite or out-of-range values and rounds to millimetres. Migration 0010 adds two nullable columns.
+LED bars scale along their long axis only. Motion-sensor and camera bodies follow the existing
+`lightAim` yaw/pitch format, as do their selection-only, non-persistent cone meshes.

@@ -108,6 +108,8 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
               rotationYDeg: placement.rotationYDeg,
               lightAim: placement.lightAim ?? null,
               solarPanel: placement.solarPanel ?? null,
+              ledLengthM: placement.ledLengthM ?? null,
+              detectionRangeM: placement.detectionRangeM ?? null,
               mount: placement.mount,
               floorId: placement.floorId,
               roomId: placement.roomId,
