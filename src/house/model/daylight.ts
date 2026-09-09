@@ -1,3 +1,4 @@
+import { daysBetweenLocal, formatLocalDate, instantOf, localDateOf, parseLocalDate } from "@/domain/time";
 import type { Vec3 } from "./types";
 
 export interface SolarPosition {
@@ -47,15 +48,14 @@ export function solarPosition(
   const instant = new Date(epochMs);
   if (Number.isNaN(instant.getTime())) throw new RangeError("epochMs must be a valid instant");
 
-  const year = instant.getUTCFullYear();
-  const dayOfYear = utcDayOfYear(instant);
-  const minutesUtc =
-    instant.getUTCHours() * 60 +
-    instant.getUTCMinutes() +
-    instant.getUTCSeconds() / 60 +
-    instant.getUTCMilliseconds() / 60_000;
+  // Calendar boundaries belong to the shared time domain; the solar equations use UTC.
+  const date = localDateOf(epochMs, "UTC");
+  const { year } = parseLocalDate(date);
+  const yearStart = formatLocalDate(year, 1, 1);
+  const dayOfYear = daysBetweenLocal(yearStart, date) + 1;
+  const minutesUtc = (epochMs - instantOf(date, "00:00", "UTC")) / 60_000;
   const fractionalHourUtc = minutesUtc / 60;
-  const daysInYear = isLeapYear(year) ? 366 : 365;
+  const daysInYear = daysBetweenLocal(yearStart, formatLocalDate(year + 1, 1, 1));
   const gamma = (2 * Math.PI * (dayOfYear - 1 + (fractionalHourUtc - 12) / 24)) / daysInYear;
 
   const equationOfTimeMinutes =
@@ -189,15 +189,6 @@ function interpolateHex(from: string, to: string, amount: number): string {
       .padStart(2, "0"),
   );
   return `#${result.join("")}`;
-}
-
-function utcDayOfYear(date: Date): number {
-  const start = Date.UTC(date.getUTCFullYear(), 0, 1);
-  return Math.floor((date.getTime() - start) / 86_400_000) + 1;
-}
-
-function isLeapYear(year: number): boolean {
-  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 }
 
 function assertFinite(name: string, value: number): void {

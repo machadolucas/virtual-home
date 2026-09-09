@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Clock, MapPin, Moon, Sun, Sunrise, RotateCcw } from "lucide-react";
 import { instantOf, localDateOf, localDateTimeOf } from "@/domain/time";
 import { Switch } from "@/ui";
@@ -11,13 +11,17 @@ export function DaylightControl() {
   const settings = useHouseStore((s) => s.illumination);
   const set = useHouseStore((s) => s.setIllumination);
   const coordinate = useHouseStore((s) => s.index?.manifest.coordinateSystem);
-  const [now] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const latitude = settings.latitude ?? coordinate?.geoAnchor?.lat;
   const longitude = settings.longitude ?? coordinate?.geoAnchor?.lon;
-  const located = latitude !== undefined && longitude !== undefined;
-  const at = settings.atMs ?? now;
-  const preset = (time: string) => set({ mode: "manual", atMs: instantOf(localDateOf(at, zone), time, zone) });
+  const located = latitude !== undefined && longitude !== undefined && Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+  const at = settings.mode === "manual" ? settings.atMs ?? now : now;
+  const preset = (time: string) => set({ mode: "manual", atMs: instantOf(localDateOf(settings.mode === "manual" ? at : Date.now(), zone), time, zone) });
   const button = "inline-flex min-h-9 items-center justify-center gap-1 rounded-md border border-line px-2 text-xs hover:bg-surface-3 max-sm:min-h-11";
   return (
     <fieldset className="min-w-0 space-y-2" aria-label="Daylight and shadows">

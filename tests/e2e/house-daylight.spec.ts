@@ -45,6 +45,7 @@ test("daylight preview changes sunlight, shadows and night brightness then retur
   await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.shadowMapSize)).toBe(512);
   await controls.getByRole("button", { name: "Live time", exact: true }).click();
   await expect(controls.getByRole("button", { name: "Live time", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(date).not.toHaveValue("2026-03-20T00:00");
   await waitForStableFrames(page);
   const before = await page.evaluate(() => window.__vh!.invalidateCount());
   await page.waitForTimeout(500);
