@@ -6,6 +6,7 @@
  * a back door around authentication or around the store's own invariants.
  */
 import * as THREE from "three";
+import CameraControlsImpl from "camera-controls";
 import { allMaterialHex, materialHex } from "@/house/scene/applyColors";
 import { worldY } from "@/house/scene/explode";
 import type { PickResult } from "@/house/scene/picker";
@@ -41,6 +42,7 @@ export interface VhHook {
   selection(): Selection | null;
   /** Whether the camera controls currently accept the left button, or `null` if not mounted. */
   controlsEnabled(): boolean | null;
+  controlBindings(): { left: number; right: number; wheel: number } | null;
   camera(): { position: [number, number, number]; target: [number, number, number]; projection: string };
   screenOf(world: [number, number, number]): [number, number] | null;
   roomAnchor(roomId: string): [number, number, number] | null;
@@ -54,6 +56,7 @@ export interface VhHook {
   };
   frameStats(): VhFrameStats;
   invalidateCount(): number;
+  lights(): import("../scene/equipmentLights").EquipmentLightSpec[];
   lastSavePayload(): unknown;
   disposedInfo(): { geometries: number; textures: number } | null;
 }
@@ -167,12 +170,23 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
     },
 
     /**
-     * Who currently owns the left button: the camera, or the pointer tool. `null` when the canvas
-     * has not published its controls yet. Read-only — the tool is changed through the UI, so a
-     * test that flips this would be testing itself.
+     * Whether camera controls currently own the left button. The controls instance itself stays
+     * enabled so wheel zoom and right-button trucking remain available.
      */
     controlsEnabled() {
-      return runtime.controls?.enabled ?? null;
+      const controls = runtime.controls;
+      return controls ? controls.mouseButtons.left !== CameraControlsImpl.ACTION.NONE : null;
+    },
+
+    controlBindings() {
+      const controls = runtime.controls;
+      return controls
+        ? {
+            left: controls.mouseButtons.left,
+            right: controls.mouseButtons.right,
+            wheel: controls.mouseButtons.wheel,
+          }
+        : null;
     },
 
     camera() {
@@ -231,6 +245,8 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
         },
       };
     },
+
+    lights() { return runtime.equipmentLights?.snapshot() ?? []; },
 
     invalidateCount() {
       return runtime.invalidateCount;

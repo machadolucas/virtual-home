@@ -161,6 +161,14 @@ Precedence when matching a synced record to a cached row (`entityIdentity()`):
 
 Never link by display name.
 
+The latest-state cache keeps only attributes used by the UI: name, unit, device class, battery
+metadata, and light appearance (`brightness`, RGB, hue/saturation, Kelvin, and legacy mired color
+temperature). Placed equipment resolves every active direct or device link by registry identity;
+the primary role supplies the compact label, and clicking that label expands all linked readings.
+Battery readings use a proportionally filled icon and never turn `unknown` or `unavailable` into
+0%. A connected event stream is authoritative for `light.*` on/off state, since a steady lamp can
+legitimately emit no change for days.
+
 `diffRegistry(prev, next)` returns `{added, removed, renamed, changed}`:
 
 - **`renamed`** — same identity *and* that identity is a real registry id, with a different

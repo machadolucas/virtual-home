@@ -100,6 +100,18 @@ describe("state cache", () => {
   });
 
   it("persists only the interesting states, with only the attributes we need", () => {
+    const doorBattery = registry.states.get(DOOR_BATTERY_ENTITY);
+    if (doorBattery) {
+      doorBattery.attributes = {
+        ...doorBattery.attributes,
+        brightness: 153,
+        rgb_color: [240, 210, 180],
+        hs_color: [31, 25],
+        color_temp_kelvin: 2700,
+        color_temp: 370,
+        effect_list: ["pulse"],
+      };
+    }
     const written = applyStates(handle, [...registry.states.values()], T0, {
       onlyInteresting: true,
     });
@@ -120,7 +132,16 @@ describe("state cache", () => {
     expect(row?.registry_id).toBe("reg_door_battery");
     const attributes = JSON.parse(row!.attributes_json) as Record<string, unknown>;
     expect(Object.keys(attributes).every((key) => KEPT_ATTRIBUTES.includes(key))).toBe(true);
-    expect(attributes).toMatchObject({ device_class: "battery", unit_of_measurement: "%" });
+    expect(attributes).toMatchObject({
+      device_class: "battery",
+      unit_of_measurement: "%",
+      brightness: 153,
+      rgb_color: [240, 210, 180],
+      hs_color: [31, 25],
+      color_temp_kelvin: 2700,
+      color_temp: 370,
+    });
+    expect(attributes).not.toHaveProperty("effect_list");
   });
 
   it("onlyInteresting: false stores the whole instance", () => {

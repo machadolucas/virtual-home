@@ -139,7 +139,7 @@ describe("REST client", () => {
     }
   });
 
-  it("sends the placement's mount, note and photo — the fields that used to be dropped", async () => {
+  it("sends the placement's mount, note, photo and symbol", async () => {
     const { calls, impl } = fakeFetch(() => ({ body: { placement: {} } }));
     const api = createRestDataApi({ fetchImpl: impl });
     await api.savePlacement("m1", "fp", {
@@ -156,13 +156,14 @@ describe("REST client", () => {
       locationNote: "left of the hatch",
       photoId: "att-1",
       entityId: null,
-      symbol: null,
+      symbol: "lamp_post",
       category: null,
     });
     const sent = calls[0]?.body.placement as Record<string, unknown>;
     expect(sent.mount).toEqual({ kind: "wall", surfaceId: "s-w-1", height: 1.4, offset: 0.02 });
     expect(sent.locationNote).toBe("left of the hatch");
     expect(sent.photoId).toBe("att-1");
+    expect(sent.symbol).toBe("lamp_post");
   });
 
   it("asks for a soft delete by default and a hard one only when told", async () => {
@@ -326,11 +327,31 @@ describe("haSse control frames", () => {
       "hello",
       JSON.stringify({
         seq: 7,
-        items: [{ topic: "ha.state", key: "sensor.x", payload: { state: "21.5" } }],
+        items: [{
+          topic: "ha.state",
+          key: "sensor.x",
+          payload: {
+            state: "on",
+            attributes: {
+              brightness: 153,
+              rgb_color: [240, 210, 180],
+              hs_color: [31, 25],
+              color_temp_kelvin: 2700,
+              color_temp: 370,
+            },
+          },
+        }],
       }),
     );
     expect(haStore.getState().lastSeq).toBe(7);
-    expect(haStore.getState().entities["sensor.x"]?.state).toBe("21.5");
+    expect(haStore.getState().entities["sensor.x"]).toMatchObject({
+      state: "on",
+      brightness: 153,
+      rgbColor: [240, 210, 180],
+      hsColor: [31, 25],
+      colorTempKelvin: 2700,
+      colorTempMireds: 370,
+    });
 
     handle.close();
   });

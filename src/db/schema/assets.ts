@@ -140,6 +140,9 @@ export const assetPlacement = sqliteTable(
     posY: real("pos_y"),
     posZ: real("pos_z"),
     rotYawDeg: real("rot_yaw_deg"),
+    /** Physical spotlight direction, independent of its mounting orientation. */
+    lightAimYawDeg: real("light_aim_yaw_deg"),
+    lightAimPitchDeg: real("light_aim_pitch_deg"),
     placementKind: text("placement_kind").$type<PlacementKind>().notNull().default("body"),
     /**
      * The mount, previously a coverage gap (`docs/model-contract.md` §3.1): a wall-mounted sensor

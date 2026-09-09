@@ -17,9 +17,8 @@
  * standoff — plus the location note and the close-up photo. So a wall-mounted sensor keeps the
  * record of *which* wall, which it did not before.
  *
- * One field still cannot round-trip: the HA `entityId`, which lives in `asset_ha_link` and belongs
- * to a module this endpoint does not own. It stays in `partialFields`, so the workspace states it
- * rather than pretending.
+ * HA links are resolved by durable registry/device identity on read. The response carries both the
+ * main entity id and metadata for every linked reading, including device-level links.
  *
  * The stored mount kind is one of `floor | wall | ceiling | free`, and the workspace now knows all
  * four, so `mount` carries the true kind. `mountKind`/`mountSurfaceId`/`mountHeightM`/
@@ -35,13 +34,14 @@ import {
   assetHaLink,
   assetPlacement,
   attachment,
+  haDevice,
   haEntity,
   location,
   modelRevision,
   type MountKind,
 } from "@/db/schema";
 import { roomAt } from "@/house/model/manifestIndex";
-import type { Placement, PlacementMount } from "@/house/model/types";
+import type { Placement, PlacementLinkedEntity, PlacementMount } from "@/house/model/types";
 import { authed, badRequest, conflict, HttpError } from "@/server/api/handler";
 import { currentPackageForRequest, NO_STORE } from "@/server/house-model/http";
 import { manifestIndexOf } from "@/server/house-model/package";
@@ -49,8 +49,8 @@ import { manifestIndexOf } from "@/server/house-model/package";
 type Ctx = { params: Promise<{ modelId: string }> };
 
 /**
- * A placement as this endpoint answers it: the workspace's `Placement` plus the stored mount in
- * full, because `PlacementMount` only knows `floor` and `wall`.
+ * A placement as this endpoint answers it: the workspace's `Placement` plus the stored mount
+ * columns for callers that still read the row-shaped fields directly.
  */
 type PersistedPlacement = Placement & {
   mountKind: MountKind;
@@ -94,29 +94,90 @@ export const PARTIAL_FIELDS = [] as const;
  * state renaming produces, and it is still bound by registry id. The `primary` role wins when an
  * asset carries several links, because that is the reading the marker is meant to show.
  */
-function entityIdsByAsset(db: Db, assetIds: readonly string[]): Map<string, string> {
-  const out = new Map<string, string>();
+function linkedEntitiesByAsset(
+  db: Db,
+  assetIds: readonly string[],
+): Map<string, PlacementLinkedEntity[]> {
+  const out = new Map<string, PlacementLinkedEntity[]>();
   if (assetIds.length === 0) return out;
 
-  const rows = db
+  const directRows = db
     .select({
       assetId: assetHaLink.assetId,
       role: assetHaLink.role,
       entityId: haEntity.entityId,
+      name: haEntity.name,
+      originalName: haEntity.originalName,
+      deviceClass: haEntity.deviceClass,
+      unit: haEntity.unitOfMeasurement,
     })
     .from(assetHaLink)
     .innerJoin(haEntity, eq(haEntity.registryId, assetHaLink.haEntityRegistryId))
     .where(
       and(
         inArray(assetHaLink.assetId, [...assetIds]),
+        eq(assetHaLink.linkKind, "entity"),
         inArray(assetHaLink.linkState, ["active", "renamed"]),
         isNull(haEntity.removedAtMs),
       ),
     )
     .all();
 
+  const deviceRows = db
+    .select({
+      assetId: assetHaLink.assetId,
+      role: assetHaLink.role,
+      entityId: haEntity.entityId,
+      name: haEntity.name,
+      originalName: haEntity.originalName,
+      deviceClass: haEntity.deviceClass,
+      unit: haEntity.unitOfMeasurement,
+    })
+    .from(assetHaLink)
+    .innerJoin(haDevice, eq(haDevice.deviceId, assetHaLink.haDeviceId))
+    .innerJoin(haEntity, eq(haEntity.deviceId, assetHaLink.haDeviceId))
+    .where(
+      and(
+        inArray(assetHaLink.assetId, [...assetIds]),
+        eq(assetHaLink.linkKind, "device"),
+        inArray(assetHaLink.linkState, ["active", "renamed"]),
+        isNull(haDevice.disabledBy),
+        isNull(haEntity.disabledBy),
+        isNull(haEntity.hiddenBy),
+        isNull(haEntity.removedAtMs),
+      ),
+    )
+    .all();
+
+  const priority: Record<PlacementLinkedEntity["role"], number> = {
+    primary: 0,
+    status: 1,
+    control: 2,
+    power: 3,
+    diagnostic: 4,
+    other: 5,
+    battery_level: 6,
+  };
+  // Explicit entity links are authoritative for role metadata. Remove device-expanded duplicates
+  // before sorting, otherwise a generic device role can sort ahead of an explicit battery role.
+  const seen = new Set<string>();
+  const rows = [...directRows, ...deviceRows].filter((row) => {
+    const key = `${row.assetId}\0${row.entityId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  rows.sort((a, b) => priority[a.role] - priority[b.role] || a.entityId.localeCompare(b.entityId));
   for (const row of rows) {
-    if (row.role === "primary" || !out.has(row.assetId)) out.set(row.assetId, row.entityId);
+    const linked = out.get(row.assetId) ?? [];
+    linked.push({
+      entityId: row.entityId,
+      role: row.role,
+      name: row.name ?? row.originalName ?? null,
+      deviceClass: row.deviceClass,
+      unit: row.unit,
+    });
+    out.set(row.assetId, linked);
   }
   return out;
 }
@@ -152,6 +213,7 @@ const PlacementSchema = z.object({
   /** Physical site metres. Rounded to millimetres on write. */
   position: z.tuple([FiniteSchema, FiniteSchema, FiniteSchema]),
   rotationYDeg: FiniteSchema.default(0),
+  lightAim: z.object({ yawDeg: FiniteSchema.min(-180).max(180), pitchDeg: FiniteSchema.min(-90).max(90) }).nullish(),
   floorId: IdSchema,
   roomId: IdSchema.nullish(),
   placementKind: z.enum(["body", "access_panel", "label", "shutoff"]).default("body"),
@@ -274,6 +336,8 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
       posY: assetPlacement.posY,
       posZ: assetPlacement.posZ,
       rotYawDeg: assetPlacement.rotYawDeg,
+      lightAimYawDeg: assetPlacement.lightAimYawDeg,
+      lightAimPitchDeg: assetPlacement.lightAimPitchDeg,
       placementKind: assetPlacement.placementKind,
       mountKind: assetPlacement.mountKind,
       mountSurfaceId: assetPlacement.mountSurfaceId,
@@ -298,7 +362,7 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
     ))
     .all();
 
-  const entityIds = entityIdsByAsset(db, [...new Set(rows.map((row) => row.assetId))]);
+  const linkedEntities = linkedEntitiesByAsset(db, [...new Set(rows.map((row) => row.assetId))]);
   const placements: PersistedPlacement[] = [];
   const stale: string[] = [];
 
@@ -333,7 +397,12 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
       surfaceId: row.mountSurfaceId,
       locationNote: row.locationNote ?? "",
       photoId: row.photoAttachmentId,
-      entityId: entityIds.get(row.assetId) ?? null,
+      lightAim:
+        row.lightAimYawDeg != null && row.lightAimPitchDeg != null
+          ? { yawDeg: row.lightAimYawDeg, pitchDeg: row.lightAimPitchDeg }
+          : null,
+      entityId: linkedEntities.get(row.assetId)?.[0]?.entityId ?? null,
+      linkedEntities: linkedEntities.get(row.assetId) ?? [],
       symbol: row.symbol,
       category: row.category,
       mountKind: row.mountKind,
@@ -476,6 +545,10 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     posY: position[1],
     posZ: position[2],
     rotYawDeg: mm(p.rotationYDeg),
+    ...(p.lightAim === undefined ? {} : {
+      lightAimYawDeg: p.lightAim ? mm(p.lightAim.yawDeg) : null,
+      lightAimPitchDeg: p.lightAim ? mm(p.lightAim.pitchDeg) : null,
+    }),
     mountKind,
     mountSurfaceId,
     mountHeightM,
@@ -522,7 +595,7 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
   });
 
   const stored = db
-    .select({ id: assetPlacement.id, rotYawDeg: assetPlacement.rotYawDeg })
+    .select({ id: assetPlacement.id, rotYawDeg: assetPlacement.rotYawDeg, lightAimYawDeg: assetPlacement.lightAimYawDeg, lightAimPitchDeg: assetPlacement.lightAimPitchDeg })
     .from(assetPlacement)
     .where(
       and(
@@ -531,6 +604,8 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
       ),
     )
     .get();
+
+  const linkedEntities = linkedEntitiesByAsset(db, [p.equipmentId]).get(p.equipmentId) ?? [];
 
   // The row was just written, so this is a read-back, not a hope.
   const storedId = existing?.id ?? stored?.id;
@@ -543,13 +618,16 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     name: equipment.name,
     position,
     rotationYDeg: stored?.rotYawDeg ?? mm(p.rotationYDeg),
+    lightAim: stored?.lightAimYawDeg != null && stored.lightAimPitchDeg != null
+      ? { yawDeg: stored.lightAimYawDeg, pitchDeg: stored.lightAimPitchDeg } : p.lightAim ?? null,
     mount: clientMount(mountKind, mountSurfaceId, mountHeightM, mountOffsetM),
     floorId: p.floorId,
     roomId: mountRoomId,
     surfaceId: mountSurfaceId,
     locationNote: p.locationNote ?? "",
     photoId: p.photoId ?? null,
-    entityId: entityIdsByAsset(db, [p.equipmentId]).get(p.equipmentId) ?? null,
+    entityId: linkedEntities[0]?.entityId ?? null,
+    linkedEntities,
     symbol: p.symbol ?? null,
     category: equipment.category,
     mountKind,

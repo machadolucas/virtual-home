@@ -91,6 +91,7 @@ export function startPlacement(runtime: HouseRuntime, equipment: PlaceableEquipm
     equipmentId: equipment.assetId,
     modelId: s.modelId,
     name: equipment.name,
+    category: equipment.category,
     physical: position,
     rotationYDeg: 0,
     mount: { kind: "floor", height: 0 },

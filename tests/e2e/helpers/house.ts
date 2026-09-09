@@ -144,6 +144,8 @@ export function vh(page: Page) {
       evalHook(page, ({ hook, arg }) => hook.visible(arg[0], arg[1]), [assetId, nodeName] as const),
     worldY: (assetId: string, nodeName: string): Promise<number | null> =>
       evalHook(page, ({ hook, arg }) => hook.worldY(arg[0], arg[1]), [assetId, nodeName] as const),
+    clipPlanes: (surfaceId: string) =>
+      evalHook(page, ({ hook, arg }) => hook.clipPlanes(arg), surfaceId),
     pickables: (): Promise<number> => evalHook(page, ({ hook }) => hook.pickables(), undefined),
 
     select: (selection: VhSelectionValue | null): Promise<void> =>
@@ -166,6 +168,8 @@ export function vh(page: Page) {
 
     controlsEnabled: (): Promise<boolean | null> =>
       evalHook(page, ({ hook }) => hook.controlsEnabled(), undefined),
+    controlBindings: () =>
+      evalHook(page, ({ hook }) => hook.controlBindings(), undefined),
 
     camera: (): Promise<VhCamera> =>
       evalHook(

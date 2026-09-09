@@ -31,14 +31,16 @@ export function NumericPlacementFields() {
   const room = editing.roomId ? index.rooms.get(editing.roomId) : undefined;
   const floor = index.floors.get(editing.floorId);
   // What the view would draw with no explicit choice, so the "Automatic" option can name it
-  // instead of leaving the user to guess. The draft has no category, so this is the mount-only
-  // inference — good enough to label the option honestly.
+  // instead of leaving the user to guess. Draft and saved markers share the same category,
+  // entity-domain and mount inference.
   // A mount kind the surface cannot take is refused by the endpoint, so offering it only produces
   // a failed save at the end of the work. The remembered surface decides what is on offer.
   const canWall = canMountSurface(index, editing.surfaceId ?? "", "wall");
   const canCeiling = canMountSurface(index, editing.surfaceId ?? "", "ceiling");
 
   const inferredSymbol: PlacementSymbol = defaultSymbol({
+    category: editing.category,
+    entityId: editing.entityId,
     mountKind: editing.mount.kind,
     isOutdoor: editing.roomId === null,
   });

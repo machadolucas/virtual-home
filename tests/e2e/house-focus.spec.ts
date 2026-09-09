@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openHouseSession, waitForStableFrames } from "./helpers/house";
+import { openHouseSession, vh, waitForStableFrames } from "./helpers/house";
 
 test("property focus frames buildings and outdoor areas, and reveals rooms from above", async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name === "phone", "Property tree is a desktop control.");
@@ -27,6 +27,38 @@ test("property focus frames buildings and outdoor areas, and reveals rooms from 
       ownWall: window.__vh!.visible("fixture-lower", "s-w-l-ab--r-l-a"),
     }));
     expect(revealed).toEqual({ roof: false, upper: false, ceiling: false, ownWall: true });
+
+    // Orbiting away from the overhead pose must reclassify the camera-side wall cuts on the live
+    // controls instance. This failed when the listener remained attached to a discarded instance.
+    const canvas = page.locator("canvas").first();
+    const canvasBox = (await canvas.boundingBox())!;
+    await page.mouse.move(canvasBox.x + canvasBox.width * 0.45, canvasBox.y + canvasBox.height * 0.5);
+    await page.mouse.down();
+    // Drag upward from polar 0. A downward drag asks CameraControls to move below its minimum and
+    // is correctly clamped at the overhead pose, which would produce no camera-facing wall.
+    await page.mouse.move(canvasBox.x + canvasBox.width * 0.62, canvasBox.y + canvasBox.height * 0.35, {
+      steps: 12,
+    });
+    await page.mouse.up();
+    await waitForStableFrames(page);
+    const tiltedCamera = await vh(page).camera();
+    const tiltedDx = tiltedCamera.position[0] - tiltedCamera.target[0];
+    const tiltedDy = tiltedCamera.position[1] - tiltedCamera.target[1];
+    const tiltedDz = tiltedCamera.position[2] - tiltedCamera.target[2];
+    expect(Math.hypot(tiltedDx, tiltedDz) / tiltedDy).toBeGreaterThan(0.05);
+    const lowerWalls = [
+      "s-e-l-ext--r-l-a",
+      "s-e-l-ext--r-l-b",
+      "s-e-l-ext--r-l-closet",
+      "s-w-l-ab--r-l-a",
+      "s-w-l-ab--r-l-b",
+      "s-w-l-bc--r-l-b",
+      "s-w-l-bc--r-l-closet",
+    ];
+    const focusConstants = await Promise.all(
+      lowerWalls.map(async (surfaceId) => (await vh(page).clipPlanes(surfaceId))[2]?.constant ?? 10_000),
+    );
+    expect(focusConstants.some((constant) => constant < 1_000)).toBe(true);
     await testInfo.attach("room-focus.png", { body: await page.screenshot(), contentType: "image/png" });
     await building.click();
     await waitForStableFrames(page);

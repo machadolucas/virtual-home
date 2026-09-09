@@ -16,8 +16,12 @@ export interface EditDraft {
   equipmentId: string;
   modelId: string;
   name: string;
+  category?: string | null;
+  entityId?: string | null;
   physical: Vec3;
   rotationYDeg: number;
+  /** Physical beam direction; null/absent uses the fixture default. */
+  lightAim?: { yawDeg: number; pitchDeg: number } | null;
   mount: PlacementMount;
   floorId: FloorId;
   roomId: RoomId | null;

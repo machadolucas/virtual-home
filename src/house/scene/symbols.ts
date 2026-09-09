@@ -199,9 +199,21 @@ export function defaultSymbol(input: {
   category?: string | null;
   mountKind?: string | null;
   isOutdoor?: boolean;
+  entityId?: string | null;
 }): PlacementSymbol {
   const category = input.category ?? "";
   const mount = input.mountKind ?? "floor";
+  const domain = input.entityId?.split(".", 1)[0];
+
+  // This recovers a useful silhouette for older placements whose explicit symbol was lost. HA
+  // imports commonly use the broad `appliance` category, while the entity domain stays precise.
+  if (domain === "sensor" || domain === "binary_sensor") return "sensor";
+  if (domain === "light") {
+    if (mount === "ceiling") return input.isOutdoor ? "downlight" : "ceiling_lamp";
+    if (mount === "wall") return "wall_lamp";
+    if (input.isOutdoor) return mount === "free" ? "spike_spot" : "lamp_post";
+    return "floor_lamp";
+  }
 
   if (category === "hvac") return "vent";
   if (category === "plumbing") return "valve";

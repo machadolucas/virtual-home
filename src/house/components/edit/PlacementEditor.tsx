@@ -13,7 +13,13 @@
  * cross-checks the world position against the draft before the write is dispatched.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import * as THREE from "three";
 import { snapValue } from "@/house/model/geometry2d";
+import {
+  aimFromTarget,
+  directionFromAim,
+  lightDirection,
+} from "@/house/model/equipmentLight";
 import type { Placement } from "@/house/model/types";
 import { dragCandidates, intersectHorizontalPlane } from "@/house/scene/picker";
 import { projectGroundReference } from "@/house/scene/groundProjection";
@@ -22,6 +28,7 @@ import { NotPersistedError } from "@/house/store/dataApi";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
 import { useIsPhone } from "../../hooks/useReducedMotion";
 import { NumericPlacementFields } from "./NumericPlacementFields";
+import { draftSymbol, isSpotlightSymbol, SpotlightAimFields } from "./SpotlightAimFields";
 import { UndoBar } from "./UndoBar";
 
 export function PlacementEditor() {
@@ -59,6 +66,8 @@ export function PlacementEditor() {
   const saving = useHouseStore((s) => s.editorSaving);
   const setSaving = useHouseStore((s) => s.setEditorSaving);
   const dragging = useRef(false);
+  const [aimRequested, setAiming] = useState(false);
+  const aiming = aimRequested && Boolean(editing && isSpotlightSymbol(draftSymbol(editing)));
 
   /**
    * Aiming with the pointer, on a pointer device only. On phones this is numeric-only plus the
@@ -126,7 +135,7 @@ export function PlacementEditor() {
     /** The pointer places only when the place tool holds the left button. */
     const placing = () => {
       const s = runtime.store.getState();
-      return s.tool === "place" && !s.cameraOverride && !s.editorSaving;
+      return !aiming && s.tool === "place" && !s.cameraOverride && !s.editorSaving;
     };
 
     const onDown = (event: PointerEvent) => {
@@ -173,7 +182,111 @@ export function PlacementEditor() {
       el.removeEventListener("pointerleave", onLeave);
       setIndicator(null);
     };
-  }, [runtime, editing, index, snap, phone, updateDraft, setIndicator]);
+  }, [runtime, editing, index, snap, phone, aiming, updateDraft, setIndicator]);
+
+  /**
+   * A spotlight has its own beam aim, separate from the marker's body rotation. The arrow is an
+   * imperative editing guide because this panel lives outside the R3F canvas. Its established
+   * guide name keeps it out of downloaded images (`captureHouseView`).
+   */
+  useEffect(() => {
+    if (!editing || !isSpotlightSymbol(draftSymbol(editing))) return;
+    const scene = runtime.scene;
+    if (!scene) return;
+
+    const origin = new THREE.Vector3(...editing.physical);
+    const initial = lightDirection(draftSymbol(editing), editing.lightAim);
+    const arrow = new THREE.ArrowHelper(
+      new THREE.Vector3(...initial),
+      origin,
+      1.2,
+      0x2f5fd0,
+      0.22,
+      0.1,
+    );
+    arrow.name = "vh-snap-indicator";
+    arrow.renderOrder = 1002;
+    arrow.traverse((object) => {
+      object.frustumCulled = false;
+    });
+    scene.add(arrow);
+    runtime.invalidate();
+
+    const showSavedDirection = () => {
+      const direction = lightDirection(draftSymbol(editing), editing.lightAim);
+      arrow.setDirection(new THREE.Vector3(...direction));
+      arrow.setLength(1.2, 0.22, 0.1);
+      runtime.invalidate();
+    };
+
+    const el = runtime.canvasEl;
+    const picker = runtime.picker;
+    const sceneIndex = runtime.index;
+    const clip = runtime.clip;
+    const camera = runtime.camera3d;
+    if (!aiming || phone || !el || !picker || !sceneIndex || !clip || !camera) {
+      return () => {
+        scene.remove(arrow);
+        arrow.dispose();
+        runtime.invalidate();
+      };
+    }
+
+    const targetAt = (event: PointerEvent) => {
+      const hit = picker.pick(
+        event.clientX,
+        event.clientY,
+        el.getBoundingClientRect(),
+        camera,
+        sceneIndex,
+        clip,
+      );
+      return hit ? ([hit.point.x, hit.point.y, hit.point.z] as [number, number, number]) : null;
+    };
+
+    const preview = (target: [number, number, number] | null) => {
+      if (!target) {
+        showSavedDirection();
+        return;
+      }
+      const aim = aimFromTarget(editing.physical, target);
+      if (!aim) return;
+      const direction = directionFromAim(aim);
+      const length = Math.max(0.15, Math.hypot(
+        target[0] - editing.physical[0],
+        target[1] - editing.physical[1],
+        target[2] - editing.physical[2],
+      ));
+      arrow.setDirection(new THREE.Vector3(...direction));
+      arrow.setLength(length, Math.min(0.25, length * 0.2), Math.min(0.12, length * 0.1));
+      runtime.invalidate();
+    };
+
+    const onMove = (event: PointerEvent) => preview(targetAt(event));
+    const onDown = (event: PointerEvent) => {
+      const state = runtime.store.getState();
+      if (event.button !== 0 || state.editorSaving || state.cameraOverride || state.tool !== "place") return;
+      const target = targetAt(event);
+      if (!target) return;
+      const aim = aimFromTarget(editing.physical, target);
+      if (!aim) return;
+      updateDraft({ lightAim: aim });
+      setAiming(false);
+    };
+    const onLeave = () => showSavedDirection();
+
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointerleave", onLeave);
+    return () => {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointerleave", onLeave);
+      scene.remove(arrow);
+      arrow.dispose();
+      runtime.invalidate();
+    };
+  }, [runtime, editing, aiming, phone, updateDraft]);
 
   // Leaving the editor by any path (save, cancel, unmount) clears the in-canvas indicator.
   useEffect(() => () => runtime.setSnapIndicator(null), [runtime]);
@@ -228,15 +341,16 @@ export function PlacementEditor() {
         snapValue(editing.physical[2], 0),
       ],
       rotationYDeg: editing.rotationYDeg,
+      lightAim: editing.lightAim ?? null,
       mount: editing.mount,
       floorId: editing.floorId,
       roomId: editing.roomId,
       surfaceId: editing.surfaceId,
       locationNote: editing.locationNote,
       photoId: editing.photoId,
-      entityId: null,
+      entityId: editing.entityId ?? null,
       symbol: editing.symbol,
-      category: null,
+      category: editing.category ?? null,
     };
 
     setSaving(true);
@@ -321,6 +435,13 @@ export function PlacementEditor() {
       <fieldset disabled={saving} className="min-w-0 border-0 p-0 disabled:opacity-60">
         <NumericPlacementFields />
       </fieldset>
+
+      <SpotlightAimFields
+        aiming={aiming}
+        canAimInView={!phone}
+        disabled={saving}
+        onAimingChange={setAiming}
+      />
 
       <fieldset disabled={saving} className="flex flex-col gap-1 text-xs">
         <legend className="text-ink-3">Nudge</legend>
@@ -432,4 +553,3 @@ function NudgeButton({ onClick, label }: { onClick: () => void; label: string })
     </button>
   );
 }
-

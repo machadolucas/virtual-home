@@ -57,6 +57,24 @@ export type AssetId = string;
 export type PlacementId = string;
 export type RouteId = string;
 
+export type PlacementEntityRole =
+  | "primary"
+  | "status"
+  | "control"
+  | "power"
+  | "battery_level"
+  | "diagnostic"
+  | "other";
+
+/** Current HA identity and display metadata for one entity linked to placed equipment. */
+export interface PlacementLinkedEntity {
+  entityId: string;
+  role: PlacementEntityRole;
+  name: string | null;
+  deviceClass: string | null;
+  unit: string | null;
+}
+
 /** Plain-tuple axis-aligned box. Kept three-free so framing stays unit-testable in Node. */
 export interface Box {
   min: [number, number, number];
@@ -122,6 +140,8 @@ export interface Placement {
   name: string;
   position: Vec3;
   rotationYDeg: number;
+  /** Physical beam direction; null/absent uses the fixture default. */
+  lightAim?: { yawDeg: number; pitchDeg: number } | null;
   mount: PlacementMount;
   floorId: FloorId;
   roomId: RoomId | null;
@@ -129,6 +149,8 @@ export interface Placement {
   locationNote: string;
   photoId: string | null;
   entityId: string | null;
+  /** Every direct entity link. Optional while old/local placement caches age out. */
+  linkedEntities?: PlacementLinkedEntity[];
   /** Chosen silhouette, or `null` to let the view infer one. See `scene/symbols.ts`. */
   symbol: string | null;
   /** The equipment's category, read-only — only used to infer a symbol when none was chosen. */

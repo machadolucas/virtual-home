@@ -66,7 +66,7 @@ export function gradientEndpoints(width: number, height: number, angleDeg: numbe
   return [width / 2 - dx * half, height / 2 - dy * half, width / 2 + dx * half, height / 2 + dy * half];
 }
 
-/** The label pool contains single-line text chips and cluster badges, all in CSS pixel units. */
+/** Text chips and expanded reading cards, all in CSS pixel units. */
 function paintLabels(context: CanvasRenderingContext2D, labelHost: HTMLElement | null,
   host: HTMLElement, width: number, height: number): void {
   if (!labelHost) return;
@@ -96,8 +96,19 @@ function paintLabels(context: CanvasRenderingContext2D, labelHost: HTMLElement |
     context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillText(label.textContent ?? "", x + rect.width / 2, y + rect.height / 2,
-      Math.max(1, rect.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 2 * border));
+    const maxWidth = Math.max(1, rect.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 2 * border);
+    const text = label.dataset.captureText ?? label.textContent ?? "";
+    const lines = [""];
+    if (style.whiteSpace === "normal") {
+      for (const word of text.split(/\s+/)) {
+        const last = lines.length - 1;
+        const next = lines[last] ? `${lines[last]} ${word}` : word;
+        if (lines[last] && context.measureText(next).width > maxWidth) lines.push(word);
+        else lines[last] = next;
+      }
+    } else lines[0] = text;
+    const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.4;
+    lines.forEach((line, i) => context.fillText(line, x + rect.width / 2, y + rect.height / 2 + (i - (lines.length - 1) / 2) * lineHeight, maxWidth));
     context.restore();
   }
   context.restore();

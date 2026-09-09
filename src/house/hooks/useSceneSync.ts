@@ -241,6 +241,7 @@ export function useSceneSync(): void {
               // No room means outdoors here: the package's rooms are interior only, so a
               // roomless placement is on the terrace, the balcony or in the yard.
               isOutdoor: p.roomId === null,
+              entityId: p.entityId,
             });
 
       // The draft rides along as one more marker, so the thing being placed is **visible while
@@ -269,9 +270,9 @@ export function useSceneSync(): void {
                 surfaceId: draft.surfaceId,
                 locationNote: draft.locationNote,
                 photoId: draft.photoId,
-                entityId: null,
+                entityId: draft.entityId ?? null,
                 symbol: draft.symbol,
-                category: null,
+                category: draft.category ?? null,
               },
             ];
 

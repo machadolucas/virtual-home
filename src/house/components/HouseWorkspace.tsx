@@ -6,7 +6,7 @@
  *
  * The 3D canvas is a lazily-imported leaf behind an error boundary, so a WebGL failure or an
  * invalid package degrades to `<SetupState>` and never takes the rest of the app with it. Every
- * 3D-only capability has a non-3D route: the tree isolates floors and selects rooms, search finds
+ * 3D-only capability has a non-3D route: the tree focuses floors and selects rooms, search finds
  * equipment, the inspector edits placements numerically, and the colour picker lists a room's
  * surfaces by name.
  *
@@ -453,7 +453,7 @@ function useColorPersistence(runtime: HouseRuntime): void {
 function useHaStream(runtime: HouseRuntime): void {
   const entityKey = useHouseStore((s) =>
     s.placements
-      .map((p) => p.entityId)
+      .flatMap((p) => [p.entityId, ...(p.linkedEntities ?? []).map((entity) => entity.entityId)])
       .filter((id): id is string => typeof id === "string" && id.length > 0)
       .sort()
       .join(","),
@@ -671,8 +671,11 @@ function useShortcutHandlers(
           equipmentId: placement.equipmentId,
           modelId: placement.modelId,
           name: placement.name,
+              category: placement.category,
+              entityId: placement.entityId,
           physical: [...placement.position],
           rotationYDeg: placement.rotationYDeg,
+          lightAim: placement.lightAim ?? null,
           mount: placement.mount,
           floorId: placement.floorId,
           roomId: placement.roomId,

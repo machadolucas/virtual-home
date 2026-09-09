@@ -351,10 +351,56 @@ describe("the HA entity link on a placement", () => {
   it("prefers the primary role when an asset carries several links", async () => {
     linkEntity(equipmentId, "reg-4", "sensor.secondary", { role: "status" });
     linkEntity(equipmentId, "reg-5", "sensor.the_primary", { role: "primary" });
+    h.handle.sqlite
+      .prepare(`UPDATE ha_entity SET name = 'Room humidity', device_class = 'humidity', unit_of_measurement = '%' WHERE registry_id = 'reg-5'`)
+      .run();
     await put({ position: [1.5, 0.4, 1.5] });
 
     const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
     expect(listed.placements[0]?.entityId).toBe("sensor.the_primary");
+    expect(listed.placements[0]?.linkedEntities).toEqual([
+      {
+        entityId: "sensor.the_primary",
+        role: "primary",
+        name: "Room humidity",
+        deviceClass: "humidity",
+        unit: "%",
+      },
+      {
+        entityId: "sensor.secondary",
+        role: "status",
+        name: null,
+        deviceClass: null,
+        unit: null,
+      },
+    ]);
+  });
+
+  it("keeps an explicit role when a device link expands the same entity, and skips disabled siblings", async () => {
+    const at = 1_700_000_000_000;
+    h.handle.sqlite
+      .prepare(`INSERT INTO ha_device (device_id, name, first_seen_ms, last_seen_ms) VALUES ('dev-meter', 'Meter', ?, ?)`)
+      .run(at, at);
+    linkEntity(equipmentId, "reg-battery", "sensor.meter_battery", { role: "battery_level" });
+    h.handle.sqlite
+      .prepare(`UPDATE ha_entity SET device_id = 'dev-meter', device_class = 'battery', unit_of_measurement = '%' WHERE registry_id = 'reg-battery'`)
+      .run();
+    h.handle.sqlite
+      .prepare(`INSERT INTO ha_entity (registry_id, device_id, entity_id, domain, disabled_by, first_seen_ms, last_seen_ms)
+        VALUES ('reg-signal', 'dev-meter', 'sensor.meter_signal', 'sensor', 'user', ?, ?)`)
+      .run(at, at);
+    h.handle.sqlite
+      .prepare(`INSERT INTO asset_ha_link
+        (id, asset_id, link_kind, ha_device_id, role, link_state, created_at_ms, created_by, updated_at_ms, updated_by)
+        VALUES ('link-device-meter', ?, 'device', 'dev-meter', 'primary', 'active', ?, ?, ?, ?)`)
+      .run(equipmentId, at, SESSION_USER_ID, at, SESSION_USER_ID);
+    await put({ position: [1.5, 0.4, 1.5] });
+
+    const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+    expect(listed.placements[0]?.linkedEntities).toEqual([
+      expect.objectContaining({ entityId: "sensor.meter_battery", role: "battery_level" }),
+    ]);
+    expect(listed.placements[0]?.entityId).toBe("sensor.meter_battery");
   });
 
   it("stays null for equipment with no link, rather than inventing one", async () => {
@@ -429,5 +475,26 @@ describe("equipment lifecycle in the viewer", () => {
       tx.update(asset).set({ status: "planned" }).where(eq(asset.id, successor)).run();
     });
     expect((await available()).placeable.map((row) => row.assetId)).toEqual([successor]);
+  });
+});
+
+describe("spotlight physical aim", () => {
+  it("round-trips independent beam angles, preserves them for older clients, and explicitly resets", async () => {
+    const initial = await bodyOf<{ placement: Placement }>(await put({
+      position: [1, 1, 1], mount: { kind: "free", height: 1 }, symbol: "spike_spot",
+      lightAim: { yawDeg: 42.5, pitchDeg: -23 },
+    }));
+    expect(initial.placement.lightAim).toEqual({ yawDeg: 42.5, pitchDeg: -23 });
+    expect((await bodyOf<{ placements: Placement[] }>(await list())).placements[0]?.lightAim).toEqual(initial.placement.lightAim);
+    const moved = await bodyOf<{ placement: Placement }>(await put({ id: initial.placement.id, position: [1.1, 1, 1], mount: { kind: "free", height: 1 } }));
+    expect(moved.placement.lightAim).toEqual(initial.placement.lightAim);
+    const reset = await bodyOf<{ placement: Placement }>(await put({ id: initial.placement.id, position: [1.1, 1, 1], mount: { kind: "free", height: 1 }, lightAim: null }));
+    expect(reset.placement.lightAim).toBeNull();
+  });
+
+  it.each([{ yawDeg: 181, pitchDeg: 0 }, { yawDeg: 0, pitchDeg: 91 }, { yawDeg: "bad", pitchDeg: 0 }])("rejects invalid beam angles %j", async (lightAim) => {
+    const response = await put({ position: [1, 1, 1], lightAim });
+    expect(response.status).toBe(400);
+    expect(h.handle.db.select().from(assetPlacement).all()).toHaveLength(0);
   });
 });

@@ -14,7 +14,7 @@
  * `key={projection}` re-binds the controls cleanly on a projection switch, and the outgoing pose is
  * re-applied without a transition so the view does not jump.
  */
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { OrthographicCamera, PerspectiveCamera, CameraControls } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import CameraControlsImpl from "camera-controls";
@@ -26,6 +26,22 @@ import { useReducedMotion } from "../hooks/useReducedMotion";
 
 const ACTION = CameraControlsImpl.ACTION;
 
+export function controlBindings(
+  viewMode: "overview" | "floor" | "plan" | "section",
+  projection: "perspective" | "ortho",
+  tool: "orbit" | "select" | "place",
+  cameraOverride: boolean,
+) {
+  const cameraOwnsLeft = cameraOverride || tool === "orbit";
+  const plan = viewMode === "plan";
+  return {
+    left: cameraOwnsLeft ? (plan ? ACTION.TRUCK : ACTION.ROTATE) : ACTION.NONE,
+    right: ACTION.TRUCK,
+    wheel: projection === "ortho" ? ACTION.ZOOM : ACTION.DOLLY,
+    oneTouch: cameraOwnsLeft ? (plan ? ACTION.TOUCH_TRUCK : ACTION.TOUCH_ROTATE) : ACTION.NONE,
+  };
+}
+
 export function Rig() {
   const runtime = useHouseRuntime();
   const reduced = useReducedMotion();
@@ -33,15 +49,17 @@ export function Rig() {
   const viewMode = useHouseStore((s) => s.viewMode);
   const tool = useHouseStore((s) => s.tool);
   const cameraOverride = useHouseStore((s) => s.cameraOverride);
-  /**
-   * Who owns the left button. Passed as a **prop** rather than written onto the instance, because
-   * drei builds a fresh `CameraControlsImpl` whenever the default camera changes (`useMemo` on
-   * `explCamera`) — so an instance captured earlier can be a corpse. Disabling the corpse is
-   * exactly the bug this replaces: the flag read back as `false` while the live controls kept
-   * orbiting. As a prop, React applies it to whichever instance is current.
-   */
-  const cameraOwnsPointer = cameraOverride || tool === "orbit";
+  // Input bindings are props because Drei can replace its controls object when the default camera
+  // changes. The callback ref also keeps the imperative API pointed at that live instance.
   const controlsRef = useRef<CameraControlsImpl | null>(null);
+  const bindings = controlBindings(viewMode, projection, tool, cameraOverride);
+  const publishControls = useCallback(
+    (controls: CameraControlsImpl | null) => {
+      controlsRef.current = controls;
+      runtime.controls = controls;
+    },
+    [runtime],
+  );
   const invalidate = useThree((s) => s.invalidate);
   const poseRef = useRef<{ position: THREE.Vector3; target: THREE.Vector3 } | null>(null);
 
@@ -58,22 +76,9 @@ export function Rig() {
     };
   }, [runtime, reduced, projection]);
 
-  // Deliberately without a dependency array: it runs after every commit, so `runtime.controls`
-  // cannot go stale when drei swaps the instance under us. The effect above only fires on a
-  // projection change, which is how the stale handle survived unnoticed.
-  useEffect(() => {
-    runtime.controls = controlsRef.current;
-  });
-
-  // The focused room's low wall cuts follow the camera. Re-resolving writes plane constants only
-  // when the set of near-side walls changes, so an idle demand-rendered scene stays idle.
-  useEffect(() => {
-    const controls = controlsRef.current;
-    if (!controls) return;
-    const refresh = () => runtime.refreshFocusClipping?.();
-    controls.addEventListener("update", refresh);
-    return () => controls.removeEventListener("update", refresh);
-  }, [runtime, projection]);
+  // A prop binds to whichever controls instance Drei currently owns. Reading the ref once in an
+  // effect missed internal instance replacement, leaving focus cuts attached to a stale camera.
+  const refreshFocusClipping = useCallback(() => runtime.refreshFocusClipping?.(), [runtime]);
 
   // Remember the outgoing pose so the projection switch is seamless. The controls instance is
   // captured on mount rather than read in the cleanup, because by cleanup time `<CameraControls>`
@@ -130,16 +135,10 @@ export function Rig() {
       controls.maxPolarAngle = 0;
       void controls.rotatePolarTo(0, false);
       controls.azimuthRotateSpeed = 0;
-      controls.mouseButtons.left = ACTION.TRUCK;
-      controls.mouseButtons.wheel = ACTION.ZOOM;
-      controls.touches.one = ACTION.TOUCH_TRUCK;
     } else {
       controls.minPolarAngle = 0;
       controls.maxPolarAngle = Math.PI * 0.98;
       controls.azimuthRotateSpeed = 1;
-      controls.mouseButtons.left = ACTION.ROTATE;
-      controls.mouseButtons.wheel = projection === "ortho" ? ACTION.ZOOM : ACTION.DOLLY;
-      controls.touches.one = ACTION.TOUCH_ROTATE;
     }
     invalidate();
   }, [viewMode, projection, invalidate]);
@@ -154,8 +153,13 @@ export function Rig() {
       )}
       <CameraControls
         key={projection}
-        ref={controlsRef}
-        enabled={cameraOwnsPointer}
+        ref={publishControls}
+        enabled
+        onUpdate={refreshFocusClipping}
+        mouseButtons-left={bindings.left}
+        mouseButtons-right={bindings.right}
+        mouseButtons-wheel={bindings.wheel}
+        touches-one={bindings.oneTouch}
         makeDefault
         smoothTime={reduced ? 0 : 0.25}
         draggingSmoothTime={reduced ? 0 : 0.125}

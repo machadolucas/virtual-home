@@ -647,3 +647,16 @@ Rooms open from directly above with roofs, floor ceilings and upper floors out o
 equipment focus cuts camera-side and intervening wall assemblies low, preserving back walls and
 mount surfaces for context. The reveal is temporary, resets with Overview and pauses during
 editing. The layer controls keep their saved settings.
+Select and place reserve left-drag for their tool while wheel zoom and right-drag pan remain usable;
+holding Space temporarily returns left-drag to the camera.
+
+### Live fixtures
+
+Equipment labels show their main linked reading. Clicking a label expands its other linked readings;
+battery-linked equipment includes its percentage. The placement's chosen silhouette survives save
+and reload. Live lights tint nearby model surfaces with their Home Assistant brightness and colour.
+
+For downlights and ground spike spots, placement editing includes **Spotlight direction**. Choose
+**Aim in 3D view**, point at a surface and click to set the beam direction. The preview arrow does not
+move the equipment. Yaw/pitch fields provide the same operation on phones and for keyboard users.
+**Reset direction** restores the fixture default; normal Save/Cancel and Undo apply.

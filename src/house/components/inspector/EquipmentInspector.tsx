@@ -8,7 +8,7 @@
  * recovering after a battery change is not evidence of maintenance.
  */
 import { useStore } from "zustand";
-import type { PlacementId } from "@/house/model/types";
+import type { PlacementId, PlacementLinkedEntity } from "@/house/model/types";
 import {
   classifyBattery,
   classifyState,
@@ -47,7 +47,15 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
         </p>
       </header>
 
-      <HaState entity={entity} connection={connection} />
+      <HaState entity={entity} connection={connection} separateBattery={placement.linkedEntities?.some((link) => link.role === "battery_level" || link.deviceClass === "battery") ?? false} />
+      {(placement.linkedEntities?.length ?? 0) > 0 ? (
+        <section aria-label="Sensor readings" className="rounded-md border border-line p-2">
+          <h3 className="mb-2 text-xs font-medium text-ink-2">Sensor readings</h3>
+          <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 text-xs">
+            {placement.linkedEntities!.map((link) => <LinkedReading key={link.entityId} link={link} connected={connection === "open"} />)}
+          </dl>
+        </section>
+      ) : null}
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
         <Row label="X" value={`${placement.position[0].toFixed(3)} m`} />
@@ -73,7 +81,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => void runtime.camera?.frameEquipment(placement.id)}
+          onClick={() => runtime.select({ kind: "equipment", id: placement.id }, { frame: true })}
           className="min-h-9 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
           Show me
@@ -86,8 +94,11 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
               equipmentId: placement.equipmentId,
               modelId: placement.modelId,
               name: placement.name,
+              category: placement.category,
+              entityId: placement.entityId,
               physical: [...placement.position],
               rotationYDeg: placement.rotationYDeg,
+              lightAim: placement.lightAim ?? null,
               mount: placement.mount,
               floorId: placement.floorId,
               roomId: placement.roomId,
@@ -117,8 +128,10 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
 function HaState({
   entity,
   connection,
+  separateBattery,
 }: {
   entity: EntityState | undefined;
+  separateBattery: boolean;
   connection: ReturnType<typeof haStore.getState>["connection"];
 }) {
   // Staleness is time-based, so this card re-evaluates on a slow shared tick rather than on
@@ -149,7 +162,7 @@ function HaState({
                   : `${entity?.state ?? "—"}${entity?.unit ? ` ${entity.unit}` : ""}`
           }
         />
-        <Row
+        {!separateBattery ? <Row
           label="Battery"
           value={
             battery === "unknown"
@@ -157,13 +170,14 @@ function HaState({
               : `${entity?.battery}%${entity?.batteryType ? ` (${entity.batteryType})` : ""}`
           }
         />
+        : null}
         <Row
           label="Last update"
           value={entity ? new Date(entity.lastUpdated).toLocaleString() : "—"}
         />
         <Row label="Freshness" value={cls} />
       </dl>
-      {battery === "low" || battery === "critical" ? (
+      {!separateBattery && (battery === "low" || battery === "critical") ? (
         <p className="mt-2 text-xs text-due">
           Battery {battery}. Replacing it is a recorded completion — telemetry coming back is not
           proof on its own.
@@ -184,4 +198,11 @@ function mountLabel(mount: { kind: string; surfaceId?: string }): string {
     default:
       return "floor";
   }
+}
+
+
+function LinkedReading({ link, connected }: { link: PlacementLinkedEntity; connected: boolean }) {
+  const entity = useStore(haStore, (state) => state.entities[link.entityId]);
+  const value = !connected || !entity || entity.state === "unknown" ? "—" : entity.state === "unavailable" ? "Unavailable" : `${entity.state}${entity.unit ?? link.unit ? ` ${entity.unit ?? link.unit}` : ""}`;
+  return <><dt className="min-w-0 break-words text-ink-3">{link.name ?? link.entityId}</dt><dd className="m-0 font-medium text-ink">{value}</dd></>;
 }

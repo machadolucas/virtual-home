@@ -17,6 +17,12 @@ export interface EntityState {
   batteryType?: string | null;
   unit?: string | null;
   deviceClass?: string | null;
+  /** Normalized light attributes retained by the server for live fixture rendering. */
+  brightness?: number | null;
+  rgbColor?: [number, number, number] | null;
+  hsColor?: [number, number] | null;
+  colorTempKelvin?: number | null;
+  colorTempMireds?: number | null;
 }
 
 export type ConnectionState = "idle" | "connecting" | "open" | "retrying" | "closed";
@@ -48,13 +54,7 @@ export const haStore = createStore<HaStore>()(
         let next: Record<string, EntityState> | null = null;
         for (const e of events) {
           const prev = s.entities[e.entityId];
-          if (
-            prev &&
-            prev.state === e.state &&
-            prev.lastUpdated === e.lastUpdated &&
-            prev.battery === e.battery
-          )
-            continue;
+          if (prev && sameEntityState(prev, e)) continue;
           (next ??= { ...s.entities })[e.entityId] = e;
         }
         return next ? { entities: next, lastEventAt: Date.now() } : {};
@@ -65,6 +65,27 @@ export const haStore = createStore<HaStore>()(
     reset: () => set({ entities: {}, lastEventAt: null, lastSeq: null, connection: "idle" }),
   })),
 );
+
+function sameTuple(a: readonly number[] | null | undefined, b: readonly number[] | null | undefined) {
+  if (a == null || b == null) return a === b;
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function sameEntityState(a: EntityState, b: EntityState): boolean {
+  return (
+    a.state === b.state &&
+    a.lastUpdated === b.lastUpdated &&
+    a.battery === b.battery &&
+    a.batteryType === b.batteryType &&
+    a.unit === b.unit &&
+    a.deviceClass === b.deviceClass &&
+    a.brightness === b.brightness &&
+    sameTuple(a.rgbColor, b.rgbColor) &&
+    sameTuple(a.hsColor, b.hsColor) &&
+    a.colorTempKelvin === b.colorTempKelvin &&
+    a.colorTempMireds === b.colorTempMireds
+  );
+}
 
 // ---------------------------------------------------------------------------
 // presentation classification
@@ -105,6 +126,9 @@ export function classifyState(
   if (connection !== "open") return "disconnected";
   if (entity.state === "unavailable") return "unavailable";
   if (entity.state === "unknown") return "unknown";
+  // A connected HA stream is authoritative for event-driven lights. A lamp can remain steadily
+  // on or off for days without emitting another state change.
+  if (entity.entityId.startsWith("light.")) return "live";
   if (now - entity.lastUpdated > staleMs(entity.deviceClass)) return "stale";
   return "live";
 }

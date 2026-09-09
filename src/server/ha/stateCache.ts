@@ -34,6 +34,12 @@ export const KEPT_ATTRIBUTES: readonly string[] = [
   "battery_level",
   "battery",
   "battery_type",
+  "brightness",
+  "rgb_color",
+  "hs_color",
+  "color_temp_kelvin",
+  "color_temp_mireds",
+  "color_temp",
 ];
 
 /** Link states that still mean "this link points at something real". */

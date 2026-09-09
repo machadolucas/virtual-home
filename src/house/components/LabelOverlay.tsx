@@ -18,7 +18,8 @@ import type { LabelAnchor } from "../hooks/useLabelProjection";
 import { DESKTOP_POOL, PHONE_POOL, useLabelProjection } from "../hooks/useLabelProjection";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { useIsPhone } from "../hooks/useReducedMotion";
-import { classifyBattery, classifyState, haStore } from "@/house/store/haStore";
+import { haStore } from "@/house/store/haStore";
+import { equipmentLabelReading } from "@/house/model/equipmentLabel";
 
 /**
  * The pooled label chip, as arbitrary variants on the host (the buttons are created
@@ -110,6 +111,7 @@ export function useLabelAnchors(): LabelAnchor[] {
         text: p.name,
         selection: { kind: "equipment", id: p.id },
         entityId: p.entityId,
+        linkedEntities: p.linkedEntities ?? [],
       });
     }
 
@@ -184,27 +186,24 @@ export function LabelProjector({ hostRef, anchors }: LabelProjectorProps) {
 
   useLabelProjection(hostRef, anchorsRef, runtime, {
     sizes: phone ? PHONE_POOL : DESKTOP_POOL,
-    badgeText: (anchor) => {
-      if (!anchor.entityId) return null;
-      const ha = haStore.getState();
-      const entity = ha.entities[anchor.entityId];
-      const cls = classifyState(entity, ha.connection, Date.now());
-      if (cls === "unlinked") return null;
-      if (cls === "disconnected") return { text: "—", className: "vh-label-disconnected" };
-      if (cls === "unavailable") return { text: "unavailable", className: "vh-label-unavailable" };
-      if (cls === "unknown") return { text: "—", className: "vh-label-unknown" };
-      const battery = classifyBattery(entity?.battery);
-      const value = entity ? `${entity.state}${entity.unit ? ` ${entity.unit}` : ""}` : "—";
-      const suffix =
-        battery === "unknown"
-          ? ""
-          : battery === "ok"
-            ? ""
-            : ` · battery ${entity?.battery}%`;
-      return {
-        text: `${value}${suffix}`,
-        className: cls === "stale" ? "vh-label-stale" : `vh-label-${battery}`,
+    subscribeBadgeChanges: (refresh) => {
+      const entities = haStore.subscribe((state) => state.entities, refresh);
+      const connection = haStore.subscribe((state) => state.connection, refresh);
+      return () => {
+        entities();
+        connection();
       };
+    },
+    badgeText: (anchor, expanded) => {
+      const ha = haStore.getState();
+      return equipmentLabelReading(
+        anchor.entityId,
+        anchor.linkedEntities ?? [],
+        ha.entities,
+        ha.connection,
+        Date.now(),
+        expanded,
+      );
     },
   });
 

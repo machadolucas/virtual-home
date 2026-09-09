@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { RefObject } from "react";
-import type { ExplodeGroup, Selection } from "@/house/model/types";
+import type { ExplodeGroup, PlacementLinkedEntity, Selection } from "@/house/model/types";
 import type { HouseRuntime } from "../runtime";
 
 export type LabelKind = "building" | "room" | "equipment" | "route";
@@ -30,6 +30,7 @@ export interface LabelAnchor {
   selection: Selection;
   /** HA entity behind this anchor, if any — badges are written from the HA store. */
   entityId?: string | null;
+  linkedEntities?: readonly PlacementLinkedEntity[];
 }
 
 export interface LabelTier {
@@ -87,6 +88,7 @@ export const PHONE_POOL: LabelPoolSizes = { labels: 16, badges: 8 };
 interface PooledLabel {
   el: HTMLButtonElement;
   anchorId: string | null;
+  badgeEnabled: boolean;
 }
 
 export class LabelPool {
@@ -109,7 +111,7 @@ export class LabelPool {
         if (entry?.anchorId) onActivate(entry.anchorId);
       });
       host.appendChild(el);
-      this.labels.push({ el, anchorId: null });
+      this.labels.push({ el, anchorId: null, badgeEnabled: false });
     }
     for (let i = 0; i < sizes.badges; i++) {
       const el = document.createElement("div");
@@ -124,6 +126,7 @@ export class LabelPool {
     for (const entry of this.labels) {
       entry.el.hidden = true;
       entry.anchorId = null;
+      entry.badgeEnabled = false;
     }
     for (const badge of this.badges) badge.hidden = true;
   }
@@ -142,11 +145,17 @@ interface Candidate {
   y: number;
   depth: number;
   count: number;
+  selected: boolean;
 }
 
 export interface LabelProjectionOptions {
   sizes?: LabelPoolSizes;
-  badgeText?: (anchor: LabelAnchor) => { text: string; className: string } | null;
+  badgeText?: (anchor: LabelAnchor, expanded: boolean) => {
+    text: string;
+    className: string;
+    batteryPercent?: number;
+  } | null;
+  subscribeBadgeChanges?: (refresh: () => void) => () => void;
 }
 
 export function useLabelProjection(
@@ -157,15 +166,29 @@ export function useLabelProjection(
 ): void {
   const poolRef = useRef<LabelPool | null>(null);
   const tierRef = useRef<LabelTier["name"] | null>(null);
-  const dirtyRef = useRef<Set<string>>(new Set());
+  const expandedRef = useRef<Set<string>>(new Set());
+  const badgeTextRef = useRef(opts.badgeText);
+  const badgeText = opts.badgeText;
+  const subscribeBadgeChanges = opts.subscribeBadgeChanges;
   const sizes = useMemo(() => opts.sizes ?? DESKTOP_POOL, [opts.sizes]);
+
+  useEffect(() => {
+    badgeTextRef.current = badgeText;
+  }, [badgeText]);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     const pool = new LabelPool(host, sizes, (anchorId) => {
       const anchor = anchorsRef.current?.find((a) => a.id === anchorId);
-      if (anchor) runtime.select(anchor.selection);
+      if (!anchor) return;
+      if (anchor.kind === "equipment" && (anchor.linkedEntities?.length ?? 0) > 1) {
+        const expanded = expandedRef.current;
+        if (expanded.has(anchorId)) expanded.delete(anchorId);
+        else expanded.add(anchorId);
+        refreshVisibleLabels(pool, anchorsRef.current ?? [], tierRef.current, badgeTextRef.current, expanded);
+      }
+      runtime.select(anchor.selection);
     });
     poolRef.current = pool;
     return () => {
@@ -174,12 +197,20 @@ export function useLabelProjection(
     };
   }, [hostRef, anchorsRef, runtime, sizes]);
 
-  // HA updates mark anchors dirty; the next projection frame drains the set and writes text and
-  // class only. No `invalidate()` — a badge change must not wake the GPU.
   useEffect(() => {
-    const dirty = dirtyRef.current;
-    return () => dirty.clear();
-  }, []);
+    if (!subscribeBadgeChanges) return;
+    return subscribeBadgeChanges(() => {
+      const pool = poolRef.current;
+      if (pool)
+        refreshVisibleLabels(
+          pool,
+          anchorsRef.current ?? [],
+          tierRef.current,
+          badgeTextRef.current,
+          expandedRef.current,
+        );
+    });
+  }, [anchorsRef, subscribeBadgeChanges]);
 
   useFrame(({ camera, size }) => {
     const pool = poolRef.current;
@@ -194,15 +225,23 @@ export function useLabelProjection(
 
     const cells = new Map<number, Candidate>();
     const v = new THREE.Vector3();
+    const selection = runtime.store.getState().selection;
 
     for (const anchor of anchors) {
-      if (!tier.kinds.has(anchor.kind)) continue;
+      const selected =
+        anchor.kind === "equipment" &&
+        selection?.kind === "equipment" &&
+        anchor.selection.kind === "equipment" &&
+        selection.id === anchor.selection.id;
+      // A focused equipment marker always gets its reading, even if the camera lands within a
+      // semantic-zoom hysteresis band intended for room labels.
+      if (!tier.kinds.has(anchor.kind) && !selected) continue;
       if (!isGroupOnScreen(runtime, anchor.group)) continue;
       const offset = runtime.offsets.get(anchor.group) ?? 0;
       v.set(anchor.world[0], anchor.world[1] + offset, anchor.world[2]);
       // Clipped away by the cutaway? Then its label is gone too.
       if (runtime.clip && !runtime.clip.keeps(anchor.group, v)) continue;
-      if (isBehindEnvelope(runtime, anchor, camera)) continue;
+      if (!selected && isBehindEnvelope(runtime, anchor, camera)) continue;
 
       v.project(camera);
       if (v.z < -1 || v.z > 1) continue;
@@ -212,13 +251,13 @@ export function useLabelProjection(
 
       const cell = (Math.floor(x / CELL_PX) << 12) ^ Math.floor(y / CELL_PX);
       const prev = cells.get(cell);
-      if (!prev) cells.set(cell, { anchor, x, y, depth: v.z, count: 1 });
-      else if (v.z < prev.depth)
-        cells.set(cell, { anchor, x, y, depth: v.z, count: prev.count + 1 });
+      if (!prev) cells.set(cell, { anchor, x, y, depth: v.z, count: 1, selected });
+      else if ((selected && !prev.selected) || (selected === prev.selected && v.z < prev.depth))
+        cells.set(cell, { anchor, x, y, depth: v.z, count: prev.count + 1, selected });
       else prev.count++;
     }
 
-    write(pool, cells, tier, opts.badgeText);
+    write(pool, cells, tier, badgeTextRef.current, expandedRef.current);
   });
 }
 
@@ -227,13 +266,14 @@ function write(
   cells: Map<number, Candidate>,
   tier: LabelTier,
   badgeText?: LabelProjectionOptions["badgeText"],
+  expanded = new Set<string>(),
 ): void {
   const sorted = [...cells.values()].sort((a, b) => a.depth - b.depth);
   let labelIndex = 0;
   let badgeIndex = 0;
 
   for (const candidate of sorted) {
-    if (candidate.count > 1) {
+    if (candidate.count > 1 && !candidate.selected) {
       const badge = pool.badges[badgeIndex++];
       if (!badge) continue;
       badge.hidden = false;
@@ -245,15 +285,10 @@ function write(
     if (!slot) continue;
     const { anchor } = candidate;
     slot.anchorId = anchor.id;
+    slot.badgeEnabled = anchor.kind === "equipment" || tier.badges || candidate.selected;
     slot.el.hidden = false;
     slot.el.style.transform = `translate3d(${Math.round(candidate.x)}px, ${Math.round(candidate.y)}px, 0)`;
-    const badge = tier.badges && badgeText ? badgeText(anchor) : null;
-    const text = badge ? `${anchor.text} · ${badge.text}` : anchor.text;
-    if (slot.el.textContent !== text) slot.el.textContent = text;
-    const className = `vh-label vh-label-${anchor.kind}${tier.compact ? " vh-label-compact" : ""}${
-      badge ? ` ${badge.className}` : ""
-    }`;
-    if (slot.el.className !== className) slot.el.className = className;
+    writeLabelText(slot, anchor, tier, badgeText, expanded.has(anchor.id));
     slot.el.setAttribute("data-anchor", anchor.id);
     slot.el.setAttribute("aria-label", anchor.secondary ? `${anchor.text} (${anchor.secondary})` : anchor.text);
   }
@@ -261,12 +296,80 @@ function write(
   for (let i = labelIndex; i < pool.labels.length; i++) {
     const slot = pool.labels[i];
     if (!slot) continue;
-    slot.el.hidden = true;
-    slot.anchorId = null;
+      slot.el.hidden = true;
+      slot.anchorId = null;
+      slot.badgeEnabled = false;
   }
   for (let i = badgeIndex; i < pool.badges.length; i++) {
     const badge = pool.badges[i];
     if (badge) badge.hidden = true;
+  }
+}
+
+function writeLabelText(
+  slot: PooledLabel,
+  anchor: LabelAnchor,
+  tier: LabelTier,
+  badgeText: LabelProjectionOptions["badgeText"],
+  expanded: boolean,
+): void {
+  slot.el.style.maxWidth = "calc(100% - 16px)";
+  slot.el.style.whiteSpace = expanded ? "normal" : "nowrap";
+  slot.el.style.overflowWrap = "anywhere";
+  slot.el.style.width = expanded ? "min(22rem, calc(100% - 16px))" : "";
+  slot.el.style.borderRadius = expanded ? "0.5rem" : "";
+  const badge = slot.badgeEnabled && badgeText ? badgeText(anchor, expanded) : null;
+  const prefix = badge?.text ? `${anchor.text} · ${badge.text}` : anchor.text;
+  const battery = badge?.batteryPercent;
+  const contentKey = `${prefix}\0${battery ?? ""}`;
+  if (slot.el.dataset.contentKey !== contentKey) {
+    slot.el.dataset.contentKey = contentKey;
+    if (battery === undefined) {
+      slot.el.textContent = prefix;
+      delete slot.el.dataset.batteryLevel;
+      delete slot.el.dataset.captureText;
+    } else {
+      const level = Math.round(Math.min(100, Math.max(0, battery)));
+      const icon = document.createElement("span");
+      icon.className = "vh-battery-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.style.cssText = "display:inline-flex;align-items:center;gap:1px;margin-left:.35rem;vertical-align:middle";
+      const body = document.createElement("span");
+      body.style.cssText = "display:inline-flex;width:.75rem;height:.45rem;padding:1px;border:1px solid currentColor;border-radius:2px";
+      const fill = document.createElement("span");
+      fill.style.cssText = `display:block;width:${level}%;height:100%;background:currentColor`;
+      const cap = document.createElement("span");
+      cap.style.cssText = "display:block;width:2px;height:.22rem;border-radius:0 1px 1px 0;background:currentColor";
+      body.append(fill);
+      icon.append(body, cap);
+      slot.el.replaceChildren(document.createTextNode(`${prefix} · `), icon, document.createTextNode(` ${level}%`));
+      slot.el.dataset.batteryLevel = String(level);
+      const filled = Math.round(level / 25);
+      slot.el.dataset.captureText = `${prefix} · [${"█".repeat(filled)}${"░".repeat(4 - filled)}] ${level}%`;
+    }
+  }
+  const className = `vh-label vh-label-${anchor.kind}${tier.compact ? " vh-label-compact" : ""}${
+    badge ? ` ${badge.className}` : ""
+  }`;
+  if (slot.el.className !== className) slot.el.className = className;
+  if (anchor.kind === "equipment" && (anchor.linkedEntities?.length ?? 0) > 1)
+    slot.el.setAttribute("aria-expanded", String(expanded));
+  else slot.el.removeAttribute("aria-expanded");
+}
+
+function refreshVisibleLabels(
+  pool: LabelPool,
+  anchors: readonly LabelAnchor[],
+  tierName: LabelTier["name"] | null,
+  badgeText: LabelProjectionOptions["badgeText"],
+  expanded: ReadonlySet<string>,
+): void {
+  if (!tierName) return;
+  const tier = TIER_CONTENT[tierName];
+  for (const slot of pool.labels) {
+    if (slot.el.hidden || !slot.anchorId) continue;
+    const anchor = anchors.find((candidate) => candidate.id === slot.anchorId);
+    if (anchor) writeLabelText(slot, anchor, tier, badgeText, expanded.has(anchor.id));
   }
 }
 

@@ -494,6 +494,30 @@ fragments are excluded from picking and highlight outlines. Camera movement upda
 focus cuts; idle demand rendering remains idle. Cuts use loaded geometry centres, so geometry-less
 surfaces cannot contribute their own occlusion bounds.
 
+Select and place tools reserve the left button (and one-finger drag) for picking or aiming. Camera
+controls remain active: the wheel still zooms and right-button drag still trucks the view. Holding
+Space temporarily restores the view-appropriate left gesture (orbit, or truck in plan view).
+
 Focus reveal is suspended while placement or route editing is active, restoring normal mount
 picking. Ending the edit restores focus. Clearing focus or choosing Overview restores normal view
 controls. No package geometry or physical placement coordinates are changed.
+
+### Live equipment lighting and physical beam direction
+
+Linked `light.*` entities illuminate nearby model surfaces while Home Assistant is connected and the
+state is `on`. Brightness scales the illumination; RGB, hue/saturation and colour-temperature values
+supply its colour. Unknown/unavailable values emit no light. Light state is event-driven: an unchanged
+`on` state remains valid while the stream stays connected. Downlight and spike-spot symbols use a
+narrow cone; other fixtures use a local point light. Sources follow the placement's explode offset
+and floor visibility. The rendering is illustrative, with bounded distance and no shadow maps; it is
+not a photometric simulation. A fixed pool of eight point lights and eight spotlights prioritizes the
+selected equipment and nearby visible fixtures (two of each in performance mode). Fixed slots avoid
+shader recompilation when a light changes state. Unchanged sensor updates do not request a frame.
+
+`asset_placement.light_aim_yaw_deg` and `light_aim_pitch_deg` are nullable physical beam angles,
+added by migration 0007 without rebuilding the table. `lightAim` in the placement API uses degrees:
+yaw zero faces site +Z and +90 faces +X; pitch −90 points down and +90 points up. Null uses the
+fixture's default. They are independent of body yaw and mounting coordinates. Omitted fields from
+older API clients preserve an existing direction; explicit null resets it. Beam angles participate in
+normal placement save, undo and cancellation. Mouse aiming picks model surfaces in physical space;
+hover previews never mutate the draft. The aiming arrow is excluded from PNG downloads.

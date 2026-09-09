@@ -330,12 +330,14 @@ export function createRestDataApi(opts: RestDataApiOptions = {}): HouseDataApi {
             equipmentId: placement.equipmentId,
             position: placement.position,
             rotationYDeg: placement.rotationYDeg,
+            lightAim: placement.lightAim ?? null,
             floorId: placement.floorId,
             roomId: placement.roomId,
             // The mount round-trips now: a wall-mounted sensor keeps *which* wall it is on.
             mount: placement.mount,
             locationNote: placement.locationNote || null,
             photoId: placement.photoId,
+            symbol: placement.symbol,
           },
         }),
       });

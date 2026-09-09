@@ -99,6 +99,14 @@ describe("symbol inference", () => {
     expect(defaultSymbol({ category: "vehicle", mountKind: "floor" })).toBe("generic");
   });
 
+  it("recovers imported sensors and lights from their HA domain", () => {
+    expect(defaultSymbol({ category: "appliance", entityId: "sensor.utility_temperature" })).toBe("sensor");
+    expect(defaultSymbol({ category: "appliance", entityId: "binary_sensor.utility_motion" })).toBe("sensor");
+    expect(defaultSymbol({ category: "appliance", entityId: "light.floor", mountKind: "floor" })).toBe("floor_lamp");
+    expect(defaultSymbol({ category: "appliance", entityId: "light.eave", mountKind: "ceiling", isOutdoor: true })).toBe("downlight");
+    expect(defaultSymbol({ category: "appliance", entityId: "light.path", mountKind: "floor", isOutdoor: true })).toBe("lamp_post");
+  });
+
   it("is inference only — nothing about it is written back", () => {
     // The stored value stays null; the view decides each render. This is what keeps a guess about
     // appearance from becoming a recorded fact about the house.

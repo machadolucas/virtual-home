@@ -6,10 +6,12 @@
  * of it, which is what keeps HA traffic and camera motion off the React render path.
  */
 import type * as THREE from "three";
+import type CameraControlsImpl from "camera-controls";
 import type { ManifestIndex } from "./model/manifestIndex";
 import type { ExplodeGroup, Selection } from "./model/types";
 import type { ClipGroups } from "./scene/clipGroups";
 import type { Highlighter } from "./scene/highlight";
+import type { EquipmentLightLayer } from "./scene/equipmentLights";
 import type { MarkerLayer } from "./scene/markers";
 import type { PickResult, Picker } from "./scene/picker";
 import type { RouteLayer } from "./scene/routes";
@@ -45,12 +47,13 @@ export interface HouseRuntime {
   highlighter: Highlighter | null;
   picker: Picker | null;
   markers: MarkerLayer | null;
+  equipmentLights: EquipmentLightLayer | null;
   routes: RouteLayer | null;
   camera: CameraApi | null;
   /** The active three camera, published by `SceneRoot` for the picker and the editors. */
   camera3d: THREE.Camera | null;
   /** The default camera controls, so the tool can decide who owns the left button. */
-  controls: { enabled: boolean } | null;
+  controls: CameraControlsImpl | null;
   /**
    * Hand the camera to the pointer, or take it away.
    *
@@ -106,6 +109,7 @@ export function createRuntime(init: {
     highlighter: null,
     picker: null,
     markers: null,
+    equipmentLights: null,
     routes: null,
     camera: null,
     camera3d: null,

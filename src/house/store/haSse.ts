@@ -115,6 +115,11 @@ export function connectHaSse(opts: HaSseOptions = {}): HaSseHandle {
         batteryType: stringOrNull(attributes.battery_type),
         unit: stringOrNull(attributes.unit_of_measurement),
         deviceClass: stringOrNull(attributes.device_class),
+        brightness: numberOrNull(attributes.brightness),
+        rgbColor: numberTupleOrNull(attributes.rgb_color, 3),
+        hsColor: numberTupleOrNull(attributes.hs_color, 2),
+        colorTempKelvin: numberOrNull(attributes.color_temp_kelvin),
+        colorTempMireds: numberOrNull(attributes.color_temp_mireds ?? attributes.color_temp),
       });
     }
     if (typeof frame.seq === "number") haStore.getState().setSeq(frame.seq);
@@ -283,4 +288,13 @@ function numberOrNull(value: unknown): number | null {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function numberTupleOrNull(value: unknown, size: 2): [number, number] | null;
+function numberTupleOrNull(value: unknown, size: 3): [number, number, number] | null;
+function numberTupleOrNull(value: unknown, size: 2 | 3): [number, number] | [number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== size) return null;
+  const tuple = value.map(numberOrNull);
+  if (!tuple.every((part): part is number => part !== null)) return null;
+  return size === 2 ? [tuple[0]!, tuple[1]!] : [tuple[0]!, tuple[1]!, tuple[2]!];
 }

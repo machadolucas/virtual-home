@@ -541,7 +541,7 @@ test("equipment that is not placed yet can be placed, outdoors, from the tree pa
   }
 });
 
-test("the place tool locks the camera, so dragging aims instead of orbiting", async ({
+test("the place tool reserves left-drag for aiming while other navigation remains available", async ({
   browser,
 }) => {
   /**
@@ -591,8 +591,13 @@ test("the place tool locks the camera, so dragging aims instead of orbiting", as
     await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.45, { steps: 12 });
     await page.mouse.up();
 
-    // The mechanism, asserted directly: the camera does not hold the left button.
+    // The mechanism, asserted directly: the camera does not hold the left button, while the
+    // controls instance keeps wheel zoom and right-button trucking available.
     expect(await vh(page).controlsEnabled()).toBe(false);
+    const bindings = await vh(page).controlBindings();
+    expect(bindings?.left).toBe(0); // CameraControls.ACTION.NONE
+    expect(bindings?.right).not.toBe(0);
+    expect(bindings?.wheel).not.toBe(0);
 
     const after = await vh(page).camera();
     for (const axis of [0, 1, 2] as const) {
@@ -610,7 +615,7 @@ test("the place tool locks the camera, so dragging aims instead of orbiting", as
     await page.mouse.up();
     await page.keyboard.up("Space");
 
-    expect(await vh(page).controlsEnabled()).toBe(false); // released again on key-up
+    expect(await vh(page).controlsEnabled()).toBe(false); // left button released again on key-up
 
     const orbited = await vh(page).camera();
     const moved = ([0, 1, 2] as const).some(
