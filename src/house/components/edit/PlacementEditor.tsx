@@ -356,6 +356,7 @@ export function PlacementEditor() {
       solarPanel: editing.solarPanel ?? null,
       ledLengthM: editing.ledLengthM ?? null,
       detectionRangeM: editing.detectionRangeM ?? null,
+      treeHeightM: editing.treeHeightM ?? null,
       mount: editing.mount,
       floorId: editing.floorId,
       roomId: editing.roomId,

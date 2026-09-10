@@ -164,6 +164,16 @@ describe("symbol geometry", () => {
     expect(SYMBOL_LABEL.motion_sensor).toBe("Motion sensor");
     expect(SYMBOL_LABEL.led_bar_vertical).toBe("LED bar (vertical)");
     expect(SYMBOL_LABEL.led_bar_horizontal).toBe("LED bar (horizontal)");
+    expect(SYMBOL_LABEL.tree).toBe("Tree");
+  });
+
+  it("authors a floor-anchored tree at its five-metre default envelope", () => {
+    const box = symbolGeometry("tree").boundingBox!;
+    const size = box.getSize(new THREE.Vector3());
+    expect(size.x).toBeCloseTo(3, 6);
+    expect(size.y).toBeCloseTo(5, 6);
+    expect(size.z).toBeCloseTo(3, 6);
+    expect(box.min.y).toBeCloseTo(0, 6);
   });
 });
 
@@ -248,6 +258,28 @@ describe("marker layer with symbols", () => {
       mesh.getMatrixAt(0, matrix);
       const euler = new THREE.Euler().setFromRotationMatrix(matrix);
       expect(THREE.MathUtils.radToDeg(euler.y)).toBeCloseTo(90, 6);
+    } finally {
+      markers.dispose();
+    }
+  });
+
+  it("scales a tree to its configured physical height and gives it a wall-mode cut plane", () => {
+    const built = buildScene(FIXTURE_DIR);
+    const markers = new MarkerLayer(built.index, built.clip);
+    try {
+      markers.set(
+        [placement({ id: "oak", symbol: "tree", treeHeightM: 10 })],
+        () => "unlinked",
+        () => "f-lower",
+        () => "tree",
+      );
+      const mesh = markers.meshes[0]!;
+      const matrix = new THREE.Matrix4();
+      const scale = new THREE.Vector3();
+      mesh.getMatrixAt(0, matrix);
+      matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
+      expect(scale.toArray()).toEqual([2, 2, 2]);
+      expect((mesh.material as THREE.Material).clippingPlanes).toHaveLength(3);
     } finally {
       markers.dispose();
     }

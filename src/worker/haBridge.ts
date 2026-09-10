@@ -29,7 +29,7 @@ import {
 import {
   applyStatesTx,
   applyStateChangedTx,
-  interestingEntityIds,
+  interestingEntityIdsForStates,
   readCanonicalBatteryStates,
   type HaStateRecord,
 } from "@/server/ha/stateCache";
@@ -170,8 +170,11 @@ export function startHaBridge(options: HaBridgeOptions): HaBridge {
     let written: HaStateRecord[];
     try {
       written = writeTx(handle.db, (tx) => {
-        // One `interestingEntityIds` query per flush rather than per event.
-        const wanted = interestingEntityIds(tx);
+        // Resolve the live set once per flush, including sensors whose type exists only in state.
+        const wanted = interestingEntityIdsForStates(
+          tx,
+          events.flatMap((event) => event.new_state ? [event.new_state] : []),
+        );
         const records: HaStateRecord[] = [];
         for (const event of events) {
           const outcome = applyStateChangedTx(tx, event, at, wanted);

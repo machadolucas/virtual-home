@@ -58,7 +58,7 @@ export interface ViewSlice {
   performanceMode: boolean;
   /** Split detailed equipment lights across conservative shader-sized render passes. */
   detailedLightBatched: boolean;
-  /** Requested detailed equipment-light budget for this viewer session. */
+  /** Requested detailed equipment-light budget, remembered on this device. */
   detailedLightLimit: number;
   /** In batched mode, allocate only as many slots as installed visible light fixtures need. */
   detailedLightAll: boolean;

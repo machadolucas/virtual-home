@@ -19,6 +19,8 @@ export interface SwitchProps {
   hint?: ReactNode;
   /** Place the control beside the leading edge of its label. Defaults to the trailing edge. */
   controlPosition?: "start" | "end";
+  /** Preserve 44 px phone targets while using a denser 32 px desktop row. */
+  compact?: boolean;
   className?: string;
 }
 
@@ -44,6 +46,7 @@ export function Switch({
   label,
   hint,
   controlPosition = "end",
+  compact = false,
   className,
 }: SwitchProps) {
   const generated = useId();
@@ -97,6 +100,7 @@ export function Switch({
     <div
       className={cn(
         "flex min-h-11 items-start py-1.5",
+        compact && "md:min-h-8 md:py-1",
         controlPosition === "start" ? "justify-start gap-2" : "justify-between gap-4",
         className,
       )}

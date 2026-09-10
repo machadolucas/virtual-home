@@ -14,6 +14,7 @@ import { e2eBaseUrl } from "./fixtures";
 import {
   houseClientIp,
   openHouse,
+  openRenderingCategory,
   vh,
   waitForHook,
   waitForStableFrames,
@@ -64,7 +65,7 @@ async function darkHouse(browser: Browser): Promise<{ context: BrowserContext; p
  * server action is a POST to the current URL, which is the honest thing to wait on before a reload.
  */
 async function withSavedBackground(page: Page, interact: () => Promise<void>): Promise<void> {
-  await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  await openRenderingCategory(page, "Background");
   const write = page.waitForResponse(
     (response) => response.request().method() === "POST" && response.url().includes("/house"),
     { timeout: 15_000 },

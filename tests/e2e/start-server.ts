@@ -258,10 +258,13 @@ async function seedHaImportDevices(handle: DbHandle): Promise<void> {
         const entityId = `${kind === "occupancy" ? "binary_sensor" : "sensor"}.e2e_${viewport}_${kind}`;
         tx.insert(haEntity).values({ registryId: `${deviceId}-${kind}`, deviceId,
           entityId,
-          domain: kind === "occupancy" ? "binary_sensor" : "sensor", deviceClass: kind,
+          domain: kind === "occupancy" ? "binary_sensor" : "sensor",
+          // Match real HA: illuminance metadata is commonly present only on state attributes.
+          deviceClass: kind === "illuminance" ? null : kind,
           entityCategory: kind === "battery" || kind === "signal" ? "diagnostic" : null,
           disabledBy: kind === "signal" ? "user" : null,
-          unitOfMeasurement: ({ temperature: "°C", humidity: "%", illuminance: "lx", battery: "%" } as Record<string, string>)[kind] ?? null,
+          unitOfMeasurement: kind === "illuminance" ? null :
+            ({ temperature: "°C", humidity: "%", battery: "%" } as Record<string, string>)[kind] ?? null,
           liveState: kind === "occupancy" ? "off" : kind === "humidity" ? "unavailable" : "23", liveRestored: false, liveAtMs: at,
           firstSeenMs: at, lastSeenMs: at }).run();
         if (kind === "illuminance") {

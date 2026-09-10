@@ -27,6 +27,8 @@ export interface EditDraft {
   ledLengthM?: number | null;
   /** Physical detection reach in metres; null/absent uses the symbol's default. */
   detectionRangeM?: number | null;
+  /** Physical tree height in metres; null/absent uses the symbol's default. */
+  treeHeightM?: number | null;
   /** Physical panel dimensions and roof-relative tilt. */
   solarPanel?: SolarPanelConfig | null;
   mount: PlacementMount;

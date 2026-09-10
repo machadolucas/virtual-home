@@ -6,7 +6,7 @@ import { Button, Switch } from "@/ui";
 import { DETAILED_LIGHT_SLIDER_MAX, SINGLE_PASS_LIGHT_MAX } from "../model/detailedLightBudget";
 import { useHouseStore, useShallow } from "../hooks/useHouseStore";
 
-/** Session-scoped light-detail budget. The renderer supplies the conservative recommendation after WebGL init. */
+/** Device-local light-detail budget. The renderer supplies the conservative recommendation after WebGL init. */
 export function DetailedLightControl() {
   const id = useId();
   const helpId = `${id}-help`;
@@ -67,23 +67,28 @@ export function DetailedLightControl() {
           <span className="text-[11px] font-medium text-ink-2">Performance mode: 2 detailed</span>
         ) : null}
       </div>
-      <Switch checked={batched} onCheckedChange={setBatched} controlPosition="start" label="Batched lighting" />
-      {batched ? <Switch checked={all} onCheckedChange={setAll} controlPosition="start" label="All installed lights" /> : null}
-      {!batched ? (
-        <Switch checked={experimental} onCheckedChange={setExperimental} controlPosition="start" label="Try higher limits" />
-      ) : null}
-      <p id={helpId} className="max-w-sm text-[11px] leading-4 text-ink-3">
-        {batched ? (
-          <>Up to {hardwareMax} lights per pass, based conservatively on WebGL shader resources. Additional lights render in extra passes. All installed lights removes the total cap; cost grows with the number of fixtures.</>
-        ) : (
-          <>
-            Recommended: {hardwareMax}, based on WebGL shader resources, not an FPS benchmark.
-            Higher limits allow testing up to 64; rejected shaders automatically restore the recommendation.
-          </>
-        )}
-        {performanceMode ? " Performance mode caps detailed lighting at 2." : " Lights beyond a selected budget keep their simpler surface glow."}
-      </p>
-      {capabilities ? <p className="text-[10px] text-ink-3">WebGL: {capabilities.textures} texture units · {capabilities.varyings} varying vectors</p> : null}
+      <div className="grid gap-x-5 md:grid-cols-3">
+        <Switch checked={batched} onCheckedChange={setBatched} controlPosition="start" label="Batched lighting" compact />
+        {batched ? <Switch checked={all} onCheckedChange={setAll} controlPosition="start" label="All installed lights" compact /> : null}
+        {!batched ? (
+          <Switch checked={experimental} onCheckedChange={setExperimental} controlPosition="start" label="Try higher limits" compact />
+        ) : null}
+      </div>
+      <details className="text-[11px] leading-4 text-ink-3">
+        <summary className="cursor-pointer py-1 font-medium text-ink-2">Budget details and diagnostics</summary>
+        <p id={helpId} className="max-w-2xl">
+          {batched ? (
+            <>Up to {hardwareMax} lights per pass, based conservatively on WebGL shader resources. Additional lights render in extra passes. All installed lights removes the total cap; cost grows with the number of fixtures.</>
+          ) : (
+            <>
+              Recommended: {hardwareMax}, based on WebGL shader resources, not an FPS benchmark.
+              Higher limits allow testing up to 64; rejected shaders automatically restore the recommendation.
+            </>
+          )}
+          {performanceMode ? " Performance mode caps detailed lighting at 2." : " Lights beyond a selected budget keep their simpler surface glow."}
+        </p>
+        {capabilities ? <p className="mt-1 text-[10px]">WebGL: {capabilities.textures} texture units · {capabilities.varyings} varying vectors</p> : null}
+      </details>
       {error ? <p role="alert" className="text-xs text-ink-2">{error}</p> : null}
     </fieldset>
   );

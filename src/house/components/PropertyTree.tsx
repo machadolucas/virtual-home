@@ -365,8 +365,8 @@ export function PropertyTree() {
               setFocusId(node.id);
               activate(node);
             }}
-            style={{ paddingLeft: `${node.depth * 12 + 8}px` }}
-            className={`flex min-h-8 cursor-default items-center gap-1.5 rounded pr-2 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${
+            style={{ paddingLeft: `${node.depth * 9 + 5}px` }}
+            className={`flex min-h-7 cursor-default items-center gap-1 rounded pr-1.5 text-[13px] outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${
               isSelected ? "bg-accent-soft text-accent-text" : "hover:bg-surface-3"
             }`}
           >
@@ -375,7 +375,7 @@ export function PropertyTree() {
               tabIndex={-1}
               aria-label={isExpandable ? `${isExpanded ? "Collapse" : "Expand"} ${node.label}` : undefined}
               disabled={!isExpandable}
-              className="w-3 shrink-0 text-ink-3 disabled:pointer-events-none"
+              className="w-3 shrink-0 text-xs text-ink-3 disabled:pointer-events-none"
               onClick={(event) => {
                 if (!isExpandable) return;
                 event.stopPropagation();
@@ -386,7 +386,7 @@ export function PropertyTree() {
             </button>
             <span className="truncate">{node.label}</span>
             {node.secondary ? (
-              <span className="truncate text-xs text-ink-3">{node.secondary}</span>
+              <span className="truncate text-[11px] text-ink-3">{node.secondary}</span>
             ) : null}
           </div>
         );

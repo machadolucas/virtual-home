@@ -600,7 +600,7 @@ Rendering offers Live time (default when the model has a geographic anchor), an 
 preview, morning/noon/night shortcuts, and constant Studio lighting. Geographic location comes from
 `coordinateSystem.geoAnchor`; north bearing is clockwise from model -Z towards +X. With no valid
 anchor the viewer uses Studio and asks for coordinates. Latitude, longitude and north overrides are
-transient view state: no household coordinates are baked into code or written to the immutable
+browser-local rendering preferences: no household coordinates are baked into code or written to the immutable
 package. The panel labels inferred/unknown north; sun/shadow orientation is only as accurate as that
 input. Manual civil times use the displayed browser IANA time zone through `domain/time.ts`.
 
@@ -624,7 +624,9 @@ on resizing/unmount, with no continuous temporal shadow accumulation or preserve
 
 The placement editor's searchable **Shown as** picker includes lantern posts; wall, floor and ceiling
 spots; square floor-heating coils; switches and remotes; kitchen/laundry appliances; plumbing fixtures;
-electric and wood-fired sauna heaters; TVs; server racks, routers, NVRs, NAS units and media players.
+electric and wood-fired sauna heaters; TVs; server racks, routers, NVRs, NAS units, media players and
+yard trees. Trees remain ordinary equipment records, so their species/name, notes, issues, documents
+and maintenance history use the existing equipment features without requiring a Home Assistant link.
 These remain lightweight procedural silhouettes, instanced by symbol and presentation group. Their
 envelopes use representative physical metre dimensions while retaining the placement as their mount
 reference. A lantern
@@ -645,14 +647,20 @@ Dimensions persist in an additive placement JSON column; older panels and LED ba
 saved physical scale and formats. Panels in the same presentation group share one draw call,
 even when their dimensions differ.
 
-### Equipment optical dimensions
+### Equipment configurable dimensions
 
-Placement fields `ledLengthM` (0.05–20 m) and `detectionRangeM` (0.1–30 m) are optional physical metre
-values stored independently from immutable model geometry. Omission during an update preserves the
-stored value; explicit null restores the display defaults (1 m and 5 m). API validation rejects
-non-finite or out-of-range values and rounds to millimetres. Migration 0010 adds two nullable columns.
+Placement fields `ledLengthM` (0.05–20 m), `detectionRangeM` (0.1–30 m) and `treeHeightM`
+(0.5–30 m) are optional physical metre values stored independently from immutable model geometry.
+Omission during an update preserves the stored value; explicit null restores the display defaults
+(1 m, 5 m and 5 m). API validation rejects non-finite or out-of-range values and rounds to
+millimetres. Migrations 0010 and 0012 add the nullable columns.
 LED bars scale along their long axis only. Motion-sensor and camera bodies follow the existing
 `lightAim` yaw/pitch format, as do their selection-only, non-persistent cone meshes.
+
+The tree silhouette is a floor-anchored five-metre deciduous tree by default. Its trunk and crown
+scale proportionally to the saved height. Horizontal/vertical section planes always clip it with its
+presentation group; All cut and Contextual wall modes also lower trees to the same cap as walls, so
+foliage does not obscure an opened dollhouse view. All up and Closed restore the complete crown.
 
 Wall snapping treats a semantic surface as potentially multi-planar: exterior surfaces can wrap
 around corners or bays. The picked triangle selects the mounting plane, and only coplanar triangles
@@ -678,3 +686,18 @@ and clipping changes invalidate the cache immediately. A single trailing frame r
 camera pose. No timer keeps an idle view rendering. A read-only local CPU benchmark on the installed
 model with 200 synthetic targets over 15 passes reduced raw occlusion time from 1,370 ms to 20 ms
 with matching visibility results; this is a CPU geometry benchmark, not an end-to-end FPS claim.
+
+### Interactive furniture placement
+
+The furniture catalog renders miniature SVG projections of the same procedural model geometry,
+using the default physical dimensions. It creates no additional WebGL contexts. Selecting a type
+opens a draft in the details pane; pointer hover draws an unsaved translucent preview on upward-facing
+visible model surfaces. A click confirms the position, and Save persists it. Escape/collapse/Cancel
+clear the preview and restore the prior tool and exploded view. Busy writes cannot be dismissed.
+
+Wall and door collision checks include geometry hidden by inside-view controls. They compare the
+furniture's rotated physical envelope against actual wall triangles, with a small contact tolerance,
+so diagonal walls do not block their entire bounding box. Wall triangles are cached per loaded scene;
+hover is coalesced to one update per animation frame. Preview geometry does not cast shadows and is
+excluded from PNG export. Numeric resizing and repositioning use the same collision check before
+saving. Collision is conservative for the empty part of an L-shaped sofa's rectangular envelope.

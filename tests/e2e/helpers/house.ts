@@ -309,6 +309,19 @@ export async function openHouseSession(
   return { context, page };
 }
 
+export type RenderingCategory = "Light" | "Environment" | "Quality" | "Background";
+
+/** Open the responsive rendering surface and focus one of its task-sized categories. */
+export async function openRenderingCategory(page: Page, category: RenderingCategory): Promise<void> {
+  const desktopControls = page.getByRole("region", { name: "View controls", exact: true });
+  if (await desktopControls.isVisible()) {
+    await desktopControls.getByRole("tab", { name: "Rendering", exact: true }).click();
+  } else {
+    await page.getByText("Rendering", { exact: true }).click();
+  }
+  await page.getByRole("tab", { name: category, exact: true }).click();
+}
+
 /**
  * A random client address per context — `fixtures.ts`'s `nextClientIp()`, under the name the house
  * specs read with. The randomness (and why a counter collides across projects and across runs) is

@@ -69,6 +69,7 @@ export const PLACEMENT_SYMBOLS = [
   "nas",
   "media_player",
   "solar_panel",
+  "tree",
 ] as const;
 
 export type PlacementSymbol = (typeof PLACEMENT_SYMBOLS)[number];
@@ -122,6 +123,7 @@ export const SYMBOL_LABEL: { readonly [S in PlacementSymbol]: string } = {
   nas: "NAS",
   media_player: "Media player",
   solar_panel: "Solar panel",
+  tree: "Tree",
 };
 
 /** Low segment counts on purpose: these are context geometry, not hero assets. */
@@ -144,6 +146,15 @@ function rotatedZ(geometry: THREE.BufferGeometry, radians: number) {
 
 function scaled(geometry: THREE.BufferGeometry, x: number, y: number, z: number) {
   geometry.scale(x, y, z);
+  return geometry;
+}
+
+function tinted(geometry: THREE.BufferGeometry, color: THREE.ColorRepresentation) {
+  const count = geometry.getAttribute("position").count;
+  const tint = new THREE.Color(color);
+  const values = new Float32Array(count * 3);
+  for (let index = 0; index < count; index += 1) tint.toArray(values, index * 3);
+  geometry.setAttribute("color", new THREE.BufferAttribute(values, 3));
   return geometry;
 }
 
@@ -600,6 +611,20 @@ function buildRaw(symbol: PlacementSymbol): THREE.BufferGeometry {
       return mergeGeometries(parts)!;
     }
 
+    case "tree":
+      // A five-metre deciduous tree: tapered trunk, a few visible branches and an irregular,
+      // layered crown. The placement layer scales the whole silhouette to the saved height, so
+      // a young fruit tree stays slender while a mature yard tree gains an appropriate canopy.
+      return mergeGeometries([
+        tinted(translated(new THREE.CylinderGeometry(0.18, 0.28, 2.65, 9), 0, 1.325, 0), 0x70513b),
+        tinted(translated(rotatedZ(new THREE.CylinderGeometry(0.07, 0.12, 1.25, 7), -0.7), -0.38, 2.65, 0.04), 0x70513b),
+        tinted(translated(rotatedZ(new THREE.CylinderGeometry(0.06, 0.1, 1.15, 7), 0.75), 0.4, 2.75, -0.08), 0x70513b),
+        tinted(translated(rotatedX(new THREE.CylinderGeometry(0.055, 0.09, 1.05, 7), 0.7), 0.02, 2.7, 0.38), 0x70513b),
+        tinted(translated(scaled(new THREE.SphereGeometry(1, 8, 5), 1.35, 1.1, 1.2), -0.45, 3.75, 0), 0x477443),
+        tinted(translated(scaled(new THREE.SphereGeometry(1, 8, 5), 1.28, 1.05, 1.25), 0.55, 3.85, -0.12), 0x527f48),
+        tinted(translated(scaled(new THREE.SphereGeometry(1, 8, 5), 1.18, 1.0, 1.12), 0.05, 4.45, 0.25), 0x5d8b4f),
+      ])!;
+
     case "generic":
     default:
       // What every marker used to be. Kept as the honest default for anything unclassified.
@@ -614,6 +639,7 @@ const FLOOR_ANCHORED_SYMBOLS = new Set<PlacementSymbol>([
   "network_switch", "fan", "humidifier", "radiator", "floor_heating", "dishwasher", "fridge",
   "freezer", "washing_machine", "dryer", "toilet", "sauna_heater_electric",
   "sauna_heater_wood", "tv", "server_rack", "router", "nvr", "nas", "media_player",
+  "tree",
 ]);
 
 function fitPhysicalEnvelope(symbol: PlacementSymbol, geometry: THREE.BufferGeometry): THREE.BufferGeometry {

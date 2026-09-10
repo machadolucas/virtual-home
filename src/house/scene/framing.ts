@@ -19,6 +19,7 @@ import type { Box, BuildingId, FloorId, Placement, RoomId, Route, Selection } fr
 import { defaultLightAim } from "../model/equipmentLight";
 import { isDirectionalSymbol, isLedBar, ledLength } from "../model/equipmentOptics";
 import { DEFAULT_SOLAR_PANEL_CONFIG } from "../model/solarPanel";
+import { treeScale } from "../model/tree";
 import { isPlacementSymbol, symbolGeometry } from "./symbols";
 import type { SceneIndex } from "./SceneIndex";
 
@@ -58,6 +59,7 @@ export function equipmentBox3(p: Pick<Placement, "position"> & Partial<Placement
     rotation.set(THREE.MathUtils.degToRad(-aim.pitchDeg), THREE.MathUtils.degToRad(aim.yawDeg), 0, "YXZ");
   }
   if (isLedBar(p.symbol)) scale.set(p.symbol === "led_bar_horizontal" ? ledLength(p.ledLengthM) : 1, p.symbol === "led_bar_vertical" ? ledLength(p.ledLengthM) : 1, 1);
+  if (p.symbol === "tree") scale.setScalar(treeScale(p.treeHeightM));
   const transform = new THREE.Matrix4().compose(new THREE.Vector3(...p.position), new THREE.Quaternion().setFromEuler(rotation), scale);
   return box.union(symbolGeometry(p.symbol).boundingBox!.clone().applyMatrix4(transform).expandByScalar(0.2));
 }

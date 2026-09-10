@@ -30,6 +30,8 @@ export class ClipGroups {
   readonly planes = new Map<ExplodeGroup, [THREE.Plane, THREE.Plane]>();
   /** One fixed third plane per surface material for the transient low-wall focus cut. */
   private readonly focusPlanes = new Map<string, THREE.Plane[]>();
+  /** Tree silhouettes use the same low cap as walls while an interior view is open. */
+  private readonly treePlanes = new Map<ExplodeGroup, THREE.Plane[]>();
   private readonly surfaceGroups = new Map<string, ExplodeGroup>();
 
   constructor(groups: Iterable<ExplodeGroup>) {
@@ -75,11 +77,44 @@ export class ClipGroups {
     else apply(mat);
   }
 
+  /** Attach the group cut planes and a third plane controlled by the Sims-style wall mode. */
+  attachTree(object: THREE.Object3D, group: ExplodeGroup): void {
+    const mat = (object as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+    if (!mat) return;
+    const planes = this.ensure(group);
+    const apply = (m: THREE.Material) => {
+      const tree = new THREE.Plane(new THREE.Vector3(0, -1, 0), OFF);
+      m.clippingPlanes = [planes[0], planes[1], tree];
+      m.clipIntersection = false;
+      m.clipShadows = false;
+      const list = this.treePlanes.get(group);
+      if (list) list.push(tree);
+      else this.treePlanes.set(group, [tree]);
+    };
+    if (Array.isArray(mat)) mat.forEach(apply);
+    else apply(mat);
+  }
+
   /** Cut only the supplied wall surfaces down to `worldY`; all others keep their plane off. */
   setFocusCuts(cuts: ReadonlyMap<string, number>): boolean {
     let changed = false;
     for (const [surfaceId, planes] of this.focusPlanes) {
       const next = cuts.get(surfaceId) ?? OFF;
+      for (const plane of planes) {
+        if (Math.abs(plane.constant - next) < 1e-6) continue;
+        plane.normal.set(0, -1, 0);
+        plane.constant = next;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /** Lower trees along with cut/contextual walls; omitted groups keep their full height. */
+  setTreeCuts(cuts: ReadonlyMap<ExplodeGroup, number>): boolean {
+    let changed = false;
+    for (const [group, planes] of this.treePlanes) {
+      const next = cuts.get(group) ?? OFF;
       for (const plane of planes) {
         if (Math.abs(plane.constant - next) < 1e-6) continue;
         plane.normal.set(0, -1, 0);

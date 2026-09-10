@@ -74,6 +74,9 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
           label="Height above floor"
           value={`${placement.mount.height.toFixed(3)} m`}
         />
+        {placement.symbol === "tree" ? (
+          <Row label="Tree height" value={`${(placement.treeHeightM ?? 5).toFixed(1)} m`} />
+        ) : null}
       </dl>
 
       {placement.locationNote ? (
@@ -110,6 +113,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
               solarPanel: placement.solarPanel ?? null,
               ledLengthM: placement.ledLengthM ?? null,
               detectionRangeM: placement.detectionRangeM ?? null,
+              treeHeightM: placement.treeHeightM ?? null,
               mount: placement.mount,
               floorId: placement.floorId,
               roomId: placement.roomId,

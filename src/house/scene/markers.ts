@@ -18,6 +18,7 @@ import { overlayGroup, type SceneIndex } from "./SceneIndex";
 import { isDirectionalSymbol, isLedBar, ledLength } from "@/house/model/equipmentOptics";
 import { defaultLightAim, isSpotlightSymbol } from "@/house/model/equipmentLight";
 import { DEFAULT_SOLAR_PANEL_CONFIG } from "@/house/model/solarPanel";
+import { treeScale } from "@/house/model/tree";
 import { symbolGeometry, type PlacementSymbol } from "./symbols";
 
 export const MARKER_CAPACITY = 256;
@@ -53,7 +54,7 @@ const keyOf = (group: ExplodeGroup, symbol: PlacementSymbol): MarkerKey => `${gr
 
 export class MarkerLayer {
   private readonly material: THREE.MeshStandardMaterial;
-  private readonly groups = new Map<MarkerKey, MarkerGroupState & { group: ExplodeGroup }>();
+  private readonly groups = new Map<MarkerKey, MarkerGroupState & { group: ExplodeGroup; symbol: PlacementSymbol }>();
   private readonly matrix = new THREE.Matrix4();
   private readonly quaternion = new THREE.Quaternion();
   private readonly euler = new THREE.Euler();
@@ -72,9 +73,11 @@ export class MarkerLayer {
     const key = keyOf(group, symbol);
     let state = this.groups.get(key);
     if (!state) {
+      const material = symbol === "tree" ? this.material.clone() : this.material;
+      if (symbol === "tree") material.vertexColors = true;
       const mesh = new THREE.InstancedMesh(
         symbolGeometry(symbol),
-        this.material,
+        material,
         MARKER_CAPACITY,
       );
       // These are compact fixture symbols, not hollow light housings. Their solid silhouette
@@ -89,9 +92,10 @@ export class MarkerLayer {
       );
       mesh.count = 0;
       mesh.frustumCulled = false; // instances span a whole floor
-      this.clip.attach(mesh, group);
+      if (symbol === "tree") this.clip.attachTree(mesh, group);
+      else this.clip.attach(mesh, group);
       overlayGroup(this.index, group).add(mesh);
-      state = { mesh, ids: [], group };
+      state = { mesh, ids: [], group, symbol };
       this.groups.set(key, state);
     }
     return state;
@@ -124,10 +128,11 @@ export class MarkerLayer {
         this.euler.set(THREE.MathUtils.degToRad(-aim.pitchDeg), THREE.MathUtils.degToRad(aim.yawDeg), 0, "YXZ");
       }
       if (isLedBar(symbol)) this.unitScale.set(symbol === "led_bar_horizontal" ? ledLength(p.ledLengthM) : 1, symbol === "led_bar_vertical" ? ledLength(p.ledLengthM) : 1, 1);
+      if (symbol === "tree") this.unitScale.setScalar(treeScale(p.treeHeightM));
       this.quaternion.setFromEuler(this.euler);
       this.matrix.compose(this.position, this.quaternion, this.unitScale);
       state.mesh.setMatrixAt(i, this.matrix);
-      this.color.setHex(markerColor(stateOf(p)));
+      this.color.setHex(symbol === "tree" ? 0xffffff : markerColor(stateOf(p)));
       state.mesh.setColorAt(i, this.color);
       state.ids.push(p.id);
       state.mesh.count = i + 1;
@@ -144,6 +149,7 @@ export class MarkerLayer {
     for (const state of this.groups.values()) {
       const i = state.ids.indexOf(placementId);
       if (i < 0 || !state.mesh.instanceColor) continue;
+      if (state.symbol === "tree") return false;
       const attr = state.mesh.instanceColor;
       this.color.setHex(hex);
       if (
@@ -174,6 +180,10 @@ export class MarkerLayer {
     for (const state of this.groups.values()) {
       state.mesh.removeFromParent();
       state.mesh.dispose();
+      if (state.mesh.material !== this.material) {
+        const materials = Array.isArray(state.mesh.material) ? state.mesh.material : [state.mesh.material];
+        for (const material of materials) material.dispose();
+      }
     }
     this.groups.clear();
     this.material.dispose();

@@ -150,6 +150,12 @@ user override lands in `options["sensor"]` and otherwise only the state's attrib
 `resolveEntityMeta(entity, state)` implements that fallback chain (registry field → registry option
 → state attribute), and battery selection goes through it.
 
+Outdoor illuminance discovery uses the same state-attribute fallback. The first full snapshot, or
+the first `state_changed` event from a newly registered sensor, may therefore add an enabled lux
+sensor to the small latest-state cache even when its registry row has no measurement metadata. This
+breaks the bootstrap cycle: the cached attributes make it eligible for the source selector and keep
+it watched before the household selects it.
+
 ## Identity rules
 
 Precedence when matching a synced record to a cached row (`entityIdentity()`):

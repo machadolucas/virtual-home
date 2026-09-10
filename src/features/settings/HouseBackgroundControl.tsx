@@ -133,7 +133,11 @@ export function HouseBackgroundControl({
   const activePreset = presetIdOf(confirmed);
 
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
+    <div className={cn(
+      "flex flex-col gap-2",
+      layout === "compact" && "md:grid md:grid-cols-[minmax(12rem,16rem)_minmax(16rem,1fr)_auto] md:items-start md:gap-x-4 md:gap-y-1",
+      className,
+    )}>
       <SegmentedControl
         ariaLabel="3D background"
         size="sm"
@@ -152,25 +156,27 @@ export function HouseBackgroundControl({
       />
 
       {mode === "theme" ? (
-        <p className="text-[11px] leading-4 text-ink-3">
+        <p className={cn("text-[11px] leading-4 text-ink-3", layout === "compact" && "md:col-start-1")}>
           The view follows the interface theme — light on paper, dark on a deep neutral.
         </p>
       ) : null}
 
       {mode === "solid" ? (
-        <ColorRow
-          label="Background colour"
-          value={drafts.solid.color}
-          onChange={(color) => {
-            const next = { mode: "solid" as const, color };
-            setDrafts((d) => ({ ...d, solid: next }));
-            commit(next);
-          }}
-        />
+        <div className={layout === "compact" ? "md:col-start-1" : undefined}>
+          <ColorRow
+            label="Background colour"
+            value={drafts.solid.color}
+            onChange={(color) => {
+              const next = { mode: "solid" as const, color };
+              setDrafts((d) => ({ ...d, solid: next }));
+              commit(next);
+            }}
+          />
+        </div>
       ) : null}
 
       {mode === "gradient" ? (
-        <div className="flex flex-col gap-2">
+        <div className={cn("flex flex-col gap-2", layout === "compact" && "md:col-start-1")}>
           <ColorRow
             label="Gradient start"
             value={drafts.gradient.from}
@@ -214,7 +220,7 @@ export function HouseBackgroundControl({
         </div>
       ) : null}
 
-      <fieldset className="flex flex-col gap-1">
+      <fieldset className={cn("flex flex-col gap-1", layout === "compact" && "md:col-start-2 md:row-span-2 md:row-start-1")}>
         <legend className="text-[11px] font-medium uppercase tracking-wide text-ink-3">
           Presets
         </legend>
@@ -248,7 +254,7 @@ export function HouseBackgroundControl({
         </div>
       </fieldset>
 
-      <div className="flex items-center gap-2">
+      <div className={cn("flex items-center gap-2", layout === "compact" && "md:col-start-3 md:row-start-1")}>
         <Button
           size="sm"
           variant="ghost"
@@ -263,7 +269,7 @@ export function HouseBackgroundControl({
         {call.pending ? <span className="text-[11px] text-ink-3">Saving…</span> : null}
       </div>
 
-      <p className="text-[11px] leading-4 text-ink-3">
+      <p className={cn("text-[11px] leading-4 text-ink-3", layout === "compact" && "md:col-span-2 md:col-start-2")}>
         This is a household setting, like the time zone: both of you see the same view.
       </p>
     </div>

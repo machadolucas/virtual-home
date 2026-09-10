@@ -70,14 +70,15 @@ missing.
 ### House workspace controls
 
 The desktop right panel has one scroll region for details, equipment placement or route editing.
-Floor shortcuts float at the bottom-left of the canvas, grouped by building as vertical stacks that
-match their physical floor order. Their icon-only buttons retain accessible names and hover labels.
+Floor shortcuts and Sims-style wall modes float together at the bottom-left of the canvas. Floors
+are grouped by building as vertical stacks that match their physical order; wall modes form a
+compact adjacent icon group. Every icon-only button retains an accessible name and hover label.
 Choosing a floor frames it in the regular perspective view, leaves orbit controls available, and
 retains lower supporting floors in that building and every other building. The bottom View controls
-panel contains View (Sims-style wall mode, cutaway, explode), Layers (visibility and route legend),
-and Rendering (performance, background, daylight and shadows) tabs. Wall mode is
+panel contains View (cutaway and explode), Layers (visibility and route legend),
+and Rendering (performance, background, daylight and shadows) tabs. The floating wall mode is
 one of All cut, Contextual, All up, or All up + roof/ceiling; Show inside is the quick contextual
-preset. Camera presets and Download image remain available when the bottom panel is collapsed.
+preset. Doors are completely hidden in both cut modes and return with All up or the closed mode. Camera presets and Download image remain available when the bottom panel is collapsed.
 Immediate visibility settings use switches. Controls use compact desktop spacing and retain larger
 phone touch targets.
 
@@ -683,7 +684,7 @@ Equipment labels show their main linked reading. Clicking a label expands its ot
 battery-linked equipment includes its percentage. The placement's chosen silhouette survives save
 and reload. Live lights tint nearby model surfaces with their Home Assistant brightness and colour.
 Rotating the camera does not swap which lights illuminate the scene. Every active light also has a
-luminous source core. Rendering offers a session-only detailed-light slider from 0 to 256 (default 64), plus
+luminous source core. Rendering offers a device-local detailed-light slider from 0 to 256 (default 64), plus
 **All installed lights**, which removes the total cap and allocates only the installed visible fixtures.
 More lights cost more render passes and shadow memory; performance mode retains two. Batched lighting is the default and the conservative WebGL
 recommendation becomes the number of lights rendered per pass, not a measure of GPU speed. Each pass
@@ -697,7 +698,8 @@ the same fidelity when a contribution must be rendered again.
 Turning Batched lighting off restores the legacy single-pass renderer and clamps the total to the
 hardware recommendation. Its "Try higher limits" control unlocks testing up to 64 and "Use
 recommended" restores the estimate. Shader compilation rejection automatically restores that
-recommendation and shows a recovery message. Limits and overrides last for this session. Lights beyond
+recommendation and shows a recovery message. The budget, batching and experimental choices are remembered
+in this browser. Lights beyond
 the detailed budget keep their source and simpler surface glows. Brightness and colour
 changes reuse existing shadows. Occluded equipment markers and labels start hidden and can be shown
 from Layers.
@@ -714,7 +716,8 @@ not attachment surfaces.
 
 Daylight controls live under Rendering: Live time follows the model location; Studio keeps a steady
 architectural light; date/time and morning/noon/night shortcuts preview another time. The time zone
-is shown beside the input. Location/north overrides are view-only and disclose model north certainty.
+is shown beside the input. Location/north overrides affect rendering only, are remembered in this browser,
+and disclose model north certainty.
 The optional outdoor-condition controls list worker-cached Home Assistant illuminance and weather
 entities. Selections are remembered per browser by stable entity-registry id, then resolved to the
 entity's current renameable id on each page load. In Live time, fresh lux adjusts global brightness
@@ -723,16 +726,25 @@ Unknown, unavailable, stale, removed or disconnected sources fall back to calcul
 are never interpreted as zero. The calibrated normal global illumination is now 100%, matching the
 previous 150% appearance.
 Soft shadows can be switched to crisp shadows. Performance mode reduces the site shadow map.
+Rendering is split into Light, Environment, Quality and Background sub-tabs so the desktop tray
+does not become a long scrolling form. Performance mode, detailed-light settings, time mode and
+manual preview date, illumination intensity, shadow softness, location and north are device-local.
+The background remains a shared household setting, and Home Assistant source choices retain their
+separate stable-identity browser preferences. Reset device settings restores only the device-local
+rendering choices; camera, floor focus and editing state remain transient.
 Expanded sensor labels use font-independent SVG icons, including a complete thermometer for
 temperature, with their text readings retained for screen readers.
 
 Global illumination intensity in Rendering → Daylight and shadows (phone: Rendering)
 scales sunlight, moonlit fill and ambient/studio light from 0–300%, with 100% as the
-default. It is a view-only override independent of time; equipment light brightness
+default. It is a rendering-only override independent of time, remembered in this browser; equipment light brightness
 is unchanged. PNG captures use the adjusted illumination.
 
 Equipment placement's **Shown as** picker offers household appliances, plumbing, sauna heaters,
-network/media equipment and lamp variants. Wall/floor/ceiling spots expose **Spotlight direction**:
+network/media equipment, lamp variants and trees. A tree keeps all normal equipment notes,
+documents, issues and maintenance records without needing a Home Assistant link. Its placement
+offers a 0.5–30 m physical height and scales its trunk and crown together. Dollhouse wall modes cut
+trees with the walls so the yard cannot obscure interior focus. Wall/floor/ceiling spots expose **Spotlight direction**:
 enter yaw/pitch or use **Aim in 3D view** on desktop. Aiming points from the actual fixture head.
 Choose **Solar panel** to reveal width, length, thickness and tilt fields. Click a visible roof to
 align its slope, then adjust position/rotation numerically as needed. Panel dimensions are metres;
@@ -770,3 +782,10 @@ The discreet counter in the viewer's bottom-right corner measures actual rendere
 sustained motion and shows **idle** when the demand-rendered scene settles. It does not force the
 viewer to render. Hidden floors now also hide their 3D equipment models; disabling occlusion only
 allows seeing equipment through visible geometry, not equipment on floors deliberately hidden.
+
+Furniture starts from **Add furniture**, a searchable catalog with actual model miniatures. Choosing
+an item activates a hover preview in the model; click a floor or other upward-facing surface to place
+it. Red previews indicate a wall/door collision and cannot be committed. The details pane contains
+physical size and rotation fields, **Reposition in 3D**, Save and Cancel. Clicking saved furniture
+opens that same pane. Numerical positioning remains available for keyboard and phone use. Furniture
+keeps its own records and has no equipment-documentation overhead.

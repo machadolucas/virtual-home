@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import sharp from "sharp";
-import { openHouse, waitForStableFrames } from "./helpers/house";
+import { openHouse, openRenderingCategory, waitForStableFrames } from "./helpers/house";
 import { emitHaBatch, installSyntheticHa, openSyntheticHa } from "./helpers/liveHa";
 
 test("all active lights remain represented without camera-dependent slot swapping", async ({ page }, testInfo) => {
@@ -18,7 +18,7 @@ test("all active lights remain represented without camera-dependent slot swappin
     await route.fulfill({ json: new URL(route.request().url()).searchParams.has("options") ? { placeable: [] } : { placements, stale: [], partialFields: [] } });
   });
   await openHouse(page, { sel: "room:r-l-a" });
-  await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  await openRenderingCategory(page, "Light");
   await page.getByRole("switch", { name: "Batched lighting", exact: true }).click();
   const legacySlider = page.getByRole("slider", { name: "Detailed lights", exact: true });
   await legacySlider.fill(String(Math.min(16, Number(await legacySlider.getAttribute("max")))));
@@ -27,7 +27,7 @@ test("all active lights remain represented without camera-dependent slot swappin
   await expect.poll(() => page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.intensity > 0).length)).toBe(40);
   await waitForStableFrames(page, 900);
   const before = await page.evaluate(() => window.__vh!.renderedLights());
-  await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  await openRenderingCategory(page, "Light");
   const limit = page.getByRole("slider", { name: "Detailed lights", exact: true });
   const maximum = Number(await limit.getAttribute("max"));
   expect(before.filter((l) => l.castShadow).length).toBe(Math.min(16, maximum));
@@ -100,8 +100,9 @@ test("an overflow wall lamp visibly illuminates several surfaces at night", asyn
     await route.fulfill({ json: new URL(route.request().url()).searchParams.has("options") ? { placeable: [] } : { placements, stale: [], partialFields: [] } });
   });
   await openHouse(page, { sel: "room:r-l-a" });
-  await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  await openRenderingCategory(page, "Light");
   await page.getByRole("slider", { name: "Detailed lights", exact: true }).fill("6");
+  await page.getByRole("tab", { name: "Environment", exact: true }).click();
   const controls = page.getByRole("group", { name: "Daylight and shadows", exact: true });
   await controls.getByText("Location and north", { exact: true }).click();
   await controls.getByLabel("Latitude", { exact: true }).fill("45");

@@ -174,6 +174,8 @@ export interface Placement {
   ledLengthM?: number | null;
   /** Physical detection reach in metres; null/absent uses the symbol's default. */
   detectionRangeM?: number | null;
+  /** Physical tree height in metres; null/absent uses the five-metre default. */
+  treeHeightM?: number | null;
   /** Physical panel dimensions and roof-relative tilt. Present only for solar-panel symbols. */
   solarPanel?: SolarPanelConfig | null;
   mount: PlacementMount;

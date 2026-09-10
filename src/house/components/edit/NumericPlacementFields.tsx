@@ -8,6 +8,12 @@
 import { isLedBar, ledLength } from "@/house/model/equipmentOptics";
 import { SolarPanelFields } from "./SolarPanelFields";
 import { DEFAULT_SOLAR_PANEL_CONFIG } from "@/house/model/solarPanel";
+import {
+  DEFAULT_TREE_HEIGHT_M,
+  MAX_TREE_HEIGHT_M,
+  MIN_TREE_HEIGHT_M,
+  treeHeight,
+} from "@/house/model/tree";
 import { resolveNumeric } from "@/house/scene/snap";
 import {
   defaultSymbol,
@@ -205,6 +211,7 @@ export function NumericPlacementFields() {
             updateDraft({
               symbol: value === INFERRED ? null : value,
               ...(value === "solar_panel" ? { solarPanel: editing.solarPanel ?? { ...DEFAULT_SOLAR_PANEL_CONFIG } } : {}),
+              ...(value === "tree" ? { treeHeightM: editing.treeHeightM ?? DEFAULT_TREE_HEIGHT_M } : {}),
             });
           }}
           options={[
@@ -228,6 +235,25 @@ export function NumericPlacementFields() {
           if (Number.isFinite(value) && value >= 0.05 && value <= 20) updateDraft({ ledLengthM: value }, { coalesce: true });
         }} className="min-h-9 rounded-md border border-line px-2 max-sm:min-h-11" />
         <span className="text-ink-3">A 2 m bar emits twice the light of a 1 m bar at the same HA brightness.</span>
+      </label>}
+
+      {editing.symbol === "tree" && <label className="flex flex-col gap-1 text-xs">
+        <span>Tree height (m)</span>
+        <input
+          aria-label="Tree height (m)"
+          type="number"
+          min={MIN_TREE_HEIGHT_M}
+          max={MAX_TREE_HEIGHT_M}
+          step="0.1"
+          value={treeHeight(editing.treeHeightM)}
+          onChange={(event) => {
+            const value = event.currentTarget.valueAsNumber;
+            if (Number.isFinite(value) && value >= MIN_TREE_HEIGHT_M && value <= MAX_TREE_HEIGHT_M)
+              updateDraft({ treeHeightM: value }, { coalesce: true });
+          }}
+          className="min-h-9 rounded-md border border-line px-2 max-sm:min-h-11"
+        />
+        <span className="text-ink-3">The crown and trunk scale together from 0.5 to 30 metres.</span>
       </label>}
 
       <label className="flex flex-col gap-0.5 text-xs">

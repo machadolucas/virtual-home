@@ -153,25 +153,29 @@ describe("placement mount round trip", () => {
     expect(cleared.placement.symbol).toBeNull();
   });
 
-  it("round-trips LED length and detection range through storage and reload", async () => {
+  it("round-trips configurable equipment dimensions through storage and reload", async () => {
     const created = await bodyOf<{ placement: PersistedPlacement }>(
       await put({
         position: [1.5, 1.4, 1.5],
         symbol: "led_bar_vertical",
         ledLengthM: 1.2344,
         detectionRangeM: 7.6544,
+        treeHeightM: 6.7894,
       }),
     );
     expect(created.placement.ledLengthM).toBe(1.234);
     expect(created.placement.detectionRangeM).toBe(7.654);
+    expect(created.placement.treeHeightM).toBe(6.789);
 
     const row = h.handle.db.select().from(assetPlacement).all()[0];
     expect(row?.ledLengthM).toBe(1.234);
     expect(row?.detectionRangeM).toBe(7.654);
+    expect(row?.treeHeightM).toBe(6.789);
 
     const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
     expect(listed.placements[0]?.ledLengthM).toBe(1.234);
     expect(listed.placements[0]?.detectionRangeM).toBe(7.654);
+    expect(listed.placements[0]?.treeHeightM).toBe(6.789);
   });
 
   it.each([
@@ -181,6 +185,9 @@ describe("placement mount round trip", () => {
     ["detection range above range", { detectionRangeM: 30.001 }],
     ["non-number LED length", { ledLengthM: "NaN" }],
     ["non-number detection range", { detectionRangeM: "Infinity" }],
+    ["tree height below range", { treeHeightM: 0.499 }],
+    ["tree height above range", { treeHeightM: 30.001 }],
+    ["non-number tree height", { treeHeightM: "NaN" }],
   ])("refuses invalid optical dimensions: %s", async (_label, fields) => {
     const res = await put({ position: [1.5, 1.4, 1.5], ...fields });
     expect(res.status).toBe(400);
@@ -201,15 +208,16 @@ describe("placement mount round trip", () => {
     expect(h.handle.db.select().from(assetPlacement).all()).toHaveLength(0);
   });
 
-  it("preserves stored optical dimensions when an older client omits them", async () => {
+  it("preserves stored configurable dimensions when an older client omits them", async () => {
     const created = await bodyOf<{ placement: PersistedPlacement }>(
-      await put({ position: [1.5, 1.4, 1.5], ledLengthM: 2.5, detectionRangeM: 8 }),
+      await put({ position: [1.5, 1.4, 1.5], ledLengthM: 2.5, detectionRangeM: 8, treeHeightM: 9 }),
     );
     const updated = await bodyOf<{ placement: PersistedPlacement }>(
       await put({ id: created.placement.id, position: [1.6, 1.4, 1.5] }),
     );
     expect(updated.placement.ledLengthM).toBe(2.5);
     expect(updated.placement.detectionRangeM).toBe(8);
+    expect(updated.placement.treeHeightM).toBe(9);
   });
 
   it("round-trips solar-panel dimensions and tilt through storage and reload", async () => {

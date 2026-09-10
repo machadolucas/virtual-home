@@ -10,6 +10,8 @@ export interface TabItem {
   /** Small trailing count (e.g. number of rows behind the tab). */
   count?: number;
   icon?: ReactNode;
+  /** Keep the accessible label but show only the icon on narrow phone controls. */
+  phoneIconOnly?: boolean;
   disabled?: boolean;
 }
 
@@ -22,6 +24,8 @@ export interface TabsProps {
   ariaLabel: string;
   children?: ReactNode;
   className?: string;
+  /** Tighter 32 px tab row for dense desktop workspace controls. */
+  density?: "default" | "compact";
 }
 
 /**
@@ -39,6 +43,7 @@ export function Tabs({
   ariaLabel,
   children,
   className,
+  density = "default",
 }: TabsProps) {
   return (
     <RadixTabs.Root
@@ -63,13 +68,14 @@ export function Tabs({
               "data-[state=active]:border-accent data-[state=active]:font-semibold",
               "data-[state=active]:text-ink",
               "disabled:pointer-events-none disabled:opacity-55",
-              "md:min-h-9",
+              density === "compact" ? "md:min-h-8 md:py-1" : "md:min-h-9",
+              item.phoneIconOnly && "max-sm:flex-1 max-sm:px-0",
               focusRingInset,
               "[&_svg]:size-4",
             )}
           >
             {item.icon}
-            {item.label}
+            <span className={cn(item.phoneIconOnly && "max-sm:sr-only")}>{item.label}</span>
             {typeof item.count === "number" ? (
               <span className="vh-tnum rounded-full bg-surface-3 px-1.5 text-xs text-ink-2">
                 {item.count}

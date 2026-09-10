@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openHouseSession, waitForStableFrames } from "./helpers/house";
 
-test("new equipment shapes expose spotlight aiming and solar dimensions survive save and reload", async ({ browser }, testInfo) => {
+test("equipment shapes expose aiming and configurable solar/tree dimensions survive reload", async ({ browser }, testInfo) => {
   const { context, page } = await openHouseSession(browser);
   let placementId: string | undefined;
   try {
@@ -41,8 +41,21 @@ test("new equipment shapes expose spotlight aiming and solar dimensions survive 
     await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
     await expect(page.getByLabel("Panel width (m)", { exact: true })).toHaveValue("1.2");
     await expect(page.getByLabel("Panel tilt (°)", { exact: true })).toHaveValue("30");
+
+    await page.getByRole("combobox", { name: "Shown as", exact: true }).click();
+    await page.getByRole("option", { name: "Tree", exact: true }).click();
+    await expect(page.getByLabel("Tree height (m)", { exact: true })).toHaveValue("5");
+    await page.getByLabel("Tree height (m)", { exact: true }).fill("8.4");
+    await page.getByRole("button", { name: "Save placement", exact: true }).click();
+    await page.reload();
+    await page.waitForFunction(() => window.__vh?.status().phase === "ready");
+    const treeReloaded = await (await page.request.get(endpoint)).json();
+    expect(treeReloaded.placements.find((p: { id: string }) => p.id === placementId)).toMatchObject({
+      symbol: "tree",
+      treeHeightM: 8.4,
+    });
     await waitForStableFrames(page);
-    await testInfo.attach("solar-panel-controls.png", { body: await page.screenshot(), contentType: "image/png" });
+    await testInfo.attach("tree-equipment.png", { body: await page.screenshot(), contentType: "image/png" });
   } finally {
     if (placementId) await page.request.delete(`/api/house-model/fixture-house/placements/${placementId}`);
     await context.close();

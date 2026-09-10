@@ -330,7 +330,7 @@ export function SceneRoot() {
       // same click both positioned the thing and re-selected whatever surface was under it, so
       // saving left the wall selected instead of the equipment just placed.
       const state = runtime.store.getState();
-      if (state.tool === "place" && !state.cameraOverride && state.editing !== null) return;
+      if (state.furnishingsEditing || (state.tool === "place" && !state.cameraOverride && state.editing !== null)) return;
 
       runtime.select(selectionOf(hit, state.selection));
     };

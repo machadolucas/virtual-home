@@ -14,6 +14,16 @@ import type { DaylightHaEntity } from "@/house/model/daylight";
  * show the source immediately and the viewer uses calculated daylight until its first reading.
  */
 export function readDaylightHaEntities(tx: Db): DaylightHaEntity[] {
+  const effectiveDeviceClass = sql<string | null>`coalesce(
+    ${haEntity.deviceClass},
+    ${haEntity.originalDeviceClass},
+    json_extract(${haEntityState.attributesJson}, '$.device_class')
+  )`;
+  const effectiveUnit = sql<string | null>`coalesce(
+    ${haEntity.unitOfMeasurement},
+    json_extract(${haEntityState.attributesJson}, '$.unit_of_measurement')
+  )`;
+
   return tx
     .select({
       registryId: haEntity.registryId,
@@ -21,8 +31,8 @@ export function readDaylightHaEntities(tx: Db): DaylightHaEntity[] {
       name: haEntity.name,
       deviceName: haDevice.nameByUser,
       fallbackDeviceName: haDevice.name,
-      deviceClass: haEntity.deviceClass,
-      unit: haEntity.unitOfMeasurement,
+      deviceClass: effectiveDeviceClass,
+      unit: effectiveUnit,
       state: haEntityState.state,
       lastUpdatedMs: haEntityState.lastUpdatedMs,
     })
@@ -38,8 +48,8 @@ export function readDaylightHaEntities(tx: Db): DaylightHaEntity[] {
         isNull(haDevice.disabledBy),
         or(
           and(
-            eq(haEntity.deviceClass, "illuminance"),
-            sql`(${haEntity.unitOfMeasurement} IS NULL OR lower(trim(${haEntity.unitOfMeasurement})) IN ('lx', 'lux', 'klx', 'klux'))`,
+            sql`lower(trim(${effectiveDeviceClass})) = 'illuminance'`,
+            sql`(${effectiveUnit} IS NULL OR lower(trim(${effectiveUnit})) IN ('lx', 'lux', 'klx', 'klux'))`,
           ),
           eq(haEntity.domain, "weather"),
         ),
@@ -51,7 +61,7 @@ export function readDaylightHaEntities(tx: Db): DaylightHaEntity[] {
       registryId: row.registryId,
       entityId: row.entityId,
       name: row.name ?? row.deviceName ?? row.fallbackDeviceName ?? row.entityId,
-      kind: row.deviceClass === "illuminance" ? "illuminance" : "weather",
+      kind: row.deviceClass?.trim().toLowerCase() === "illuminance" ? "illuminance" : "weather",
       state: row.state,
       lastUpdatedMs: row.lastUpdatedMs,
       deviceClass: row.deviceClass,

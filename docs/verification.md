@@ -152,3 +152,22 @@ under one account). That is what `workers: 1` in `playwright.config.ts` exists t
   correctness, not a hardware-independent frame-rate guarantee.
 - The browser harness refuses to build in the running macOS production checkout. Run it from a
   separate checkout as documented in `tests/e2e/README.md`.
+
+## 2026-09-10 — viewer controls, trees and interactive furniture
+
+- Rendering preferences have validated browser persistence and reset coverage, including All installed
+  lights. Desktop/phone reload checks pass. Outdoor lux discovery covers HA metadata present only in
+  cached state attributes, live discovery, unavailable fallback and source restoration.
+- Tree geometry, physical height, framing, clipping and authenticated save/reload are covered by
+  synthetic unit/API fixtures and desktop/phone placement regressions. Migration 0012 adds one column.
+- Floating floor/wall modes, door hiding/restoration, compact rendering categories, keyboard access,
+  collapse/cancel guards, PNG capture and phone controls have targeted coverage. A stable rendering
+  tray height prevents setting changes from resizing the canvas.
+- Furniture catalog miniatures use the actual procedural geometry without extra WebGL contexts.
+  Desktop/phone catalog, resize, save/reload, cancellation, visibility and deletion checks pass.
+  Pointer checks cover hover without draft mutation, click placement, clicking a saved object to edit,
+  repositioning and rejection of wall collisions, including hidden walls in physical collision tests.
+- Lighting regressions pass for 80 shadowed lights, cache reuse, PNG export and idle rendering, plus
+  batched/single-pass image comparison. Software-GPU warm-up allows 45 seconds both for the initial
+  budget and the additional All-light batches. Browser fixtures remain isolated from production.
+- `pnpm check`: 121 test files passed; 1,597 tests passed and 23 existing tests skipped.

@@ -1,0 +1,1 @@
+ALTER TABLE `asset_placement` ADD `tree_height_m` real;

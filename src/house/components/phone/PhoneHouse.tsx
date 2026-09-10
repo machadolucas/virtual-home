@@ -26,8 +26,7 @@ import {
 } from "lucide-react";
 import { displayNameForNode } from "@/house/model/labelPreferences";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
-import { DaylightControl } from "../DaylightControl";
-import { DetailedLightControl } from "../DetailedLightControl";
+import { RenderingControls } from "../ViewToolbar";
 import { HouseCanvasLazy } from "../HouseCanvasLazy";
 import { HouseErrorBoundary } from "../HouseErrorBoundary";
 import { PlacementEditor } from "../edit/PlacementEditor";
@@ -35,7 +34,7 @@ import { Inspector } from "../inspector/Inspector";
 import { DownloadImageButton } from "../DownloadImageButton";
 import { LocateSheet } from "./LocateSheet";
 import { Switch } from "@/ui";
-import { FurnishingsPanel } from "../furnishings/FurnishingsPanel";
+import { FurnishingsPanel, FurnitureInspector } from "../furnishings/FurnishingsPanel";
 
 export function PhoneHouse() {
   const runtime = useHouseRuntime();
@@ -154,13 +153,13 @@ export function PhoneHouse() {
           <Sun aria-hidden="true" className="size-4 text-ink-3" />
           Rendering
         </summary>
-        <div className="flex flex-col gap-4 border-t border-line p-3">
-          <DetailedLightControl />
-          <DaylightControl />
+        <div className="border-t border-line">
+          <RenderingControls />
         </div>
       </details>
 
       <FurnishingsPanel />
+      <FurnitureInspector />
 
       {equipmentId ? <LocateSheet placementId={equipmentId} /> : null}
 

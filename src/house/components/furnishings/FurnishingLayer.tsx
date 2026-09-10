@@ -9,6 +9,7 @@ import type { Furnishing } from "@/house/model/types";
 import { isVisibleUp } from "@/house/scene/applyVisibility";
 import { disposeFurnishingGeometries, furnishingGeometry } from "@/house/scene/furnishingGeometry";
 import { useHouseRuntime, useHouseStore } from "../../hooks/useHouseStore";
+import { useFurnitureEditor } from "./FurnitureEditorContext";
 import { useFurnishings } from "./FurnishingsProvider";
 
 export function FurnishingLayer() {
@@ -17,7 +18,7 @@ export function FurnishingLayer() {
   const shown = useHouseStore((s) => s.layers.furnishings);
   const gl = useThree((s) => s.gl);
   const rendered = preview ? [...items.filter((x) => x.id !== preview.id), preview] : items;
-  const signature = rendered.map((x) => `${x.id}:${x.kind}:${x.floorId}:${x.position.join(",")}:${x.widthM}:${x.depthM}:${x.heightM}:${x.rotationYDeg}`).join("|");
+  const signature = items.filter((x) => x.id !== preview?.id).map((x) => `${x.id}:${x.kind}:${x.floorId}:${x.position.join(",")}:${x.widthM}:${x.depthM}:${x.heightM}:${x.rotationYDeg}`).join("|");
 
   useEffect(() => {
     gl.shadowMap.needsUpdate = true;
@@ -30,17 +31,19 @@ export function FurnishingLayer() {
   }, [gl, runtime, signature, shown]);
 
   useEffect(() => () => disposeFurnishingGeometries(), []);
+  useEffect(() => runtime.invalidate(), [runtime, preview]);
 
   if (!shown) return null;
-  return <group name="furnishings">{rendered.map((item) => <FurnishingObject key={item.id || "__preview"} item={item} />)}</group>;
+  return <group name="furnishings">{rendered.map((item) => <FurnishingObject key={item.id || "__preview"} item={item} preview={item === preview} />)}</group>;
 }
 
-function FurnishingObject({ item }: { item: Furnishing }) {
+function FurnishingObject({ item, preview }: { item: Furnishing; preview: boolean }) {
   const runtime = useHouseRuntime();
   const fingerprint = useHouseStore((s) => s.fingerprint);
   const { requestEdit } = useFurnishings();
+  const { previewInvalid, draft } = useFurnitureEditor();
   const root = useRef<THREE.Group>(null);
-  const material = useMemo(() => new THREE.MeshStandardMaterial({ color: colorFor(item.kind), roughness: 0.72 }), [item.kind]);
+  const material = useMemo(() => new THREE.MeshStandardMaterial({ color: preview ? (previewInvalid ? 0xd94d4d : 0x4cad9b) : colorFor(item.kind), roughness: 0.85, transparent: preview, opacity: preview ? .65 : 1 }), [item.kind, preview, previewInvalid]);
 
   useEffect(() => {
     const group = root.current;
@@ -58,13 +61,13 @@ function FurnishingObject({ item }: { item: Furnishing }) {
     group.position.y = item.position[1] + (runtime.offsets.get(item.floorId) ?? 0);
   });
 
-  return <group ref={root} name={`furnishing:${item.id}`} userData={{ furnishingSize: [item.widthM, item.heightM, item.depthM] }} position={[item.position[0], item.position[1], item.position[2]]} rotation={[0, THREE.MathUtils.degToRad(item.rotationYDeg), 0]} onClick={(event) => { event.stopPropagation(); if (item.id) requestEdit(item.id); }}>
+  return <group ref={root} name={preview ? "vh-furniture-preview" : `furnishing:${item.id}`} userData={{ furnishingId: item.id, furnishingSize: [item.widthM, item.heightM, item.depthM] }} position={[item.position[0], item.position[1], item.position[2]]} rotation={[0, THREE.MathUtils.degToRad(item.rotationYDeg), 0]} onClick={(event) => { event.stopPropagation(); if (item.id && !draft) requestEdit(item.id); }}>
     <mesh
       geometry={furnishingGeometry(item.kind)}
       material={material}
       scale={[item.widthM, item.heightM, item.depthM]}
-      castShadow
-      receiveShadow
+      castShadow={!preview}
+      receiveShadow={!preview}
       dispose={null}
     />
   </group>;

@@ -97,6 +97,20 @@ describe("SceneIndex (fixture)", () => {
     expect(clip.setFocusCuts(new Map())).toBe(true);
     expect(clip.keepsSurface("f-lower", "wall-a", new THREE.Vector3(0, 1.5, 0))).toBe(true);
   });
+
+  it("lowers tree geometry with the wall modes and restores its full height", () => {
+    const clip = new ClipGroups(["f-lower"]);
+    const material = new THREE.MeshBasicMaterial();
+    const tree = new THREE.Mesh(new THREE.BoxGeometry(3, 5, 3), material);
+    clip.attachTree(tree, "f-lower");
+
+    expect(material.clippingPlanes).toHaveLength(3);
+    expect(clip.setTreeCuts(new Map([["f-lower", 0.9]]))).toBe(true);
+    expect(material.clippingPlanes![2]!.distanceToPoint(new THREE.Vector3(0, 0.5, 0))).toBeGreaterThanOrEqual(0);
+    expect(material.clippingPlanes![2]!.distanceToPoint(new THREE.Vector3(0, 1.5, 0))).toBeLessThan(0);
+    expect(clip.setTreeCuts(new Map())).toBe(true);
+    expect(material.clippingPlanes![2]!.distanceToPoint(new THREE.Vector3(0, 5, 0))).toBeGreaterThanOrEqual(0);
+  });
 });
 
 describe("applyColors (fixture)", () => {

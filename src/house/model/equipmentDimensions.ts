@@ -29,6 +29,7 @@ export const PHYSICAL_SYMBOL_SIZE: Readonly<Record<string, Vec3>> = {
   security_camera: [0.1, 0.12, 0.28],
   fan: [0.45, 1.2, 0.35],
   humidifier: [0.25, 0.5, 0.25],
+  tree: [3, 5, 3],
   radiator: [1, 0.6, 0.12],
   floor_heating: [1, 0.02, 1],
   dishwasher: [0.6, 0.8, 0.6],

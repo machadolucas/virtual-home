@@ -52,6 +52,7 @@ import { ToolPalette } from "./ToolPalette";
 import { SetupState } from "./SetupState";
 import { ViewControls } from "./ViewControls";
 import { FloorControls } from "./ViewToolbar";
+import { rememberRenderingPreferences } from "../store/renderingPreferences";
 import { PlaceableList } from "./edit/PlaceableList";
 import { RouteCreateControl } from "./routeEditor/RouteCreateControl";
 import { RoutePath3D } from "./routeEditor/RoutePath3D";
@@ -71,7 +72,8 @@ import {
 import { PlanEditor2D } from "./routeEditor/PlanEditor2D";
 import { WallElevationEditor2D } from "./routeEditor/WallElevationEditor2D";
 import { FurnishingsProvider, useFurnishings } from "./furnishings/FurnishingsProvider";
-import { FurnishingsPanel } from "./furnishings/FurnishingsPanel";
+import { FurnishingsPanel, FurnitureInspector } from "./furnishings/FurnishingsPanel";
+import { FurnitureEditorProvider, useFurnitureEditor } from "./furnishings/FurnitureEditorContext";
 import { DaylightHaProvider } from "./DaylightHaContext";
 
 export interface HouseWorkspaceProps {
@@ -130,7 +132,7 @@ export function HouseWorkspace({
     <HouseRuntimeContext.Provider value={runtime}>
       <DaylightHaProvider entities={daylightHaEntities}>
         <FurnishingsProvider>
-          <WorkspaceBody runtime={runtime} />
+          <FurnitureEditorProvider><WorkspaceBody runtime={runtime} /></FurnitureEditorProvider>
         </FurnishingsProvider>
       </DaylightHaProvider>
     </HouseRuntimeContext.Provider>
@@ -146,6 +148,13 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
   const [helpOpen, setHelpOpen] = useState(false);
   const phone = useIsPhone();
   const { busy: furnishingsBusy } = useFurnishings();
+  const furnitureEditor = useFurnitureEditor();
+  const furnitureOpen = !!furnitureEditor.draft || furnitureEditor.catalogOpen;
+
+  useEffect(() => {
+    try { return rememberRenderingPreferences(runtime.store, window.localStorage); }
+    catch { /* Some browsers deny access to localStorage entirely. */ }
+  }, [runtime]);
 
   const { reload } = useModelPackage(runtime);
   useDataHydration(runtime);
@@ -285,7 +294,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
       {/* An editor with nowhere to render is a trap: with the inspector collapsed (a choice that
           persists across reloads) pressing `E` locked the explode view and offered no Save, no
           Cancel and no numeric fields — only Esc got out. Editing forces the panel open. */}
-      {panels.collapsed.inspector && !state.editing && !state.routeDraft ? (
+      {panels.collapsed.inspector && !state.editing && !state.routeDraft && !furnitureOpen ? (
         <PanelRail
           side="right"
           label="Show the inspector"
@@ -298,13 +307,15 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
           className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface"
         >
           <PanelHeader
-            title={state.editing ? (state.adjusting ? "Adjust placement" : "Place equipment") : state.routeDraft ? "Edit route" : "Details"}
+            title={furnitureOpen ? (furnitureEditor.draft ? "Furniture details" : "Furniture catalog") : state.editing ? (state.adjusting ? "Adjust placement" : "Place equipment") : state.routeDraft ? "Edit route" : "Details"}
             collapseLabel="Collapse the inspector"
             icon={<PanelRightClose aria-hidden="true" />}
-            disabled={state.editorSaving}
+            disabled={state.editorSaving || furnishingsBusy}
             onCollapse={() => {
               const current = runtime.store.getState();
-              if (current.editorSaving) return;
+              if (current.editorSaving || furnishingsBusy) return;
+              furnitureEditor.cancel();
+              furnitureEditor.setCatalogOpen(false);
               current.cancelEdit();
               current.cancelRouteDraft();
               runtime.setSnapIndicator(null);
@@ -316,7 +327,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
             aria-label={state.editing ? "Equipment placement" : state.routeDraft ? "Route editing" : "Selected item details"}
             className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3"
           >
-            {state.editing ? <PlacementEditor /> : state.routeDraft ? (
+            {furnitureOpen ? <FurnitureInspector /> : state.editing ? <PlacementEditor /> : state.routeDraft ? (
               <>
                 <RouteEditors />
                 <RouteCreateControl />
@@ -711,6 +722,7 @@ function useShortcutHandlers(
               solarPanel: placement.solarPanel ?? null,
               ledLengthM: placement.ledLengthM ?? null,
               detectionRangeM: placement.detectionRangeM ?? null,
+              treeHeightM: placement.treeHeightM ?? null,
           mount: placement.mount,
           floorId: placement.floorId,
           roomId: placement.roomId,
@@ -838,7 +850,8 @@ function useToolCamera(runtime: HouseRuntime): void {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== "Space" || event.repeat) return;
+      if (event.code !== "Space" || event.repeat || event.defaultPrevented) return;
+      if ((event.target as HTMLElement | null)?.closest('button, a[href], [role="tab"], [role="radio"], [role="switch"]')) return;
       if (isTypingTarget(event.target)) return;
       event.preventDefault();
       setCameraOverride(true);

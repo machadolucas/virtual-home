@@ -62,7 +62,7 @@ export interface VhHook {
   lights(): import("../scene/equipmentLights").EquipmentLightSpec[];
   detectionGuide(): { visible: boolean; position: number[]; direction: number[] };
   equipmentCount(): number;
-  furnishings(): Array<{ id: string; visible: boolean; size: [number, number, number] }>;
+  furnishings(): Array<{ id: string; visible: boolean; size: [number, number, number]; position: number[]; preview: boolean }>;
   occlusionStats(): { queries: number; batches: number };
   daylight(): { position: number[]; intensity: number; shadowMapSize: number; shadowMapAllocated: boolean; radius: number } | null;
   lightProjections(): import("../scene/equipmentLights").RenderedEquipmentLightProjection[];
@@ -290,16 +290,18 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
     },
 
     furnishings() {
-      const out: Array<{ id: string; visible: boolean; size: [number, number, number] }> = [];
+      const out: Array<{ id: string; visible: boolean; size: [number, number, number]; position: number[]; preview: boolean }> = [];
       runtime.scene?.updateMatrixWorld(true);
       runtime.scene?.traverse((object) => {
-        if (!object.name.startsWith("furnishing:")) return;
+        if (!object.name.startsWith("furnishing:") && object.name !== "vh-furniture-preview") return;
         const physical = object.userData.furnishingSize as [number, number, number] | undefined;
         const size = physical
           ? new THREE.Vector3(physical[0], physical[1], physical[2])
           : new THREE.Box3().setFromObject(object).getSize(new THREE.Vector3());
         out.push({
-          id: object.name.slice("furnishing:".length),
+          id: String(object.userData.furnishingId ?? object.name.slice("furnishing:".length)),
+          position: object.position.toArray(),
+          preview: object.name === "vh-furniture-preview",
           visible: isVisibleUp(object),
           size: [size.x, size.y, size.z],
         });

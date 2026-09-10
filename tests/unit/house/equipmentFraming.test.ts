@@ -16,3 +16,9 @@ it("includes resizable LED bars and solar panels in the frame", () => {
   const panel = equipmentBox3({ position: [0, 0, 0], symbol: "solar_panel", solarPanel: { widthM: 2, lengthM: 4, thicknessM: 0.04, tiltDeg: 0 } });
   expect(panel.getSize(new THREE.Vector3()).z).toBeGreaterThan(4);
 });
+
+it("includes the configured tree crown in the frame", () => {
+  const tree = equipmentBox3({ position: [2, 0, 3], symbol: "tree", treeHeightM: 12 });
+  expect(tree.max.y).toBeGreaterThan(12);
+  expect(tree.getSize(new THREE.Vector3()).x).toBeGreaterThan(7);
+});

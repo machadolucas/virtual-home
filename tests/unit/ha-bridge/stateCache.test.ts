@@ -3,9 +3,12 @@
  * ~3300 entities and a handful of links, so "is this entity interesting" decides both how big this
  * table gets and how many rows the outbox grows per minute.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// `src/server/queries/**` carries the build-time Next server boundary, which throws under Vitest.
+vi.mock("server-only", () => ({}));
 import type { DbHandle } from "@/db/client";
 import { applySnapshot } from "@/server/ha/registryCache";
+import { readDaylightHaEntities } from "@/server/queries/ha/daylight";
 import {
   KEPT_ATTRIBUTES,
   applyStateChanged,
@@ -64,6 +67,83 @@ describe("state cache", () => {
     expect(renderable.has("sensor.outdoor_lux")).toBe(true);
     expect(renderable.has("weather.home")).toBe(true);
     expect(interesting.has("sensor.hidden_lux")).toBe(false);
+  });
+
+  it("discovers illuminance from state attributes when the registry omits its metadata", () => {
+    const entityId = "sensor.synthetic_outdoor_lux";
+    registry.entities.push({
+      id: "reg-synthetic-outdoor-lux",
+      entity_id: entityId,
+      unique_id: "synthetic-outdoor-lux",
+      platform: "synthetic",
+      device_id: null,
+      disabled_by: null,
+      hidden_by: null,
+    });
+    registry.states.set(entityId, {
+      entity_id: entityId,
+      state: "124.5",
+      attributes: {
+        friendly_name: "Synthetic outdoor illuminance",
+        device_class: "illuminance",
+        unit_of_measurement: "lx",
+      },
+      last_changed: new Date(T0 - 1_000).toISOString(),
+      last_updated: new Date(T0 - 1_000).toISOString(),
+    });
+
+    applySnapshot(handle, snapshotOf(registry), T0 + 1_000);
+    const written = applyStates(handle, [...registry.states.values()], T0 + 1_000, {
+      onlyInteresting: true,
+    });
+
+    expect(written.some((record) => record.entityId === entityId)).toBe(true);
+    expect(interestingEntityIds(handle.db).has(entityId)).toBe(true);
+    expect(readDaylightHaEntities(handle.db)).toContainEqual({
+      registryId: "reg-synthetic-outdoor-lux",
+      entityId,
+      name: entityId,
+      kind: "illuminance",
+      state: "124.5",
+      lastUpdatedMs: T0 - 1_000,
+      deviceClass: "illuminance",
+      unit: "lx",
+    });
+  });
+
+  it("starts caching a newly registered illuminance sensor on its first state event", () => {
+    const entityId = "sensor.new_outdoor_lux";
+    registry.entities.push({
+      id: "reg-new-outdoor-lux",
+      entity_id: entityId,
+      unique_id: "new-outdoor-lux",
+      platform: "synthetic",
+      device_id: null,
+      disabled_by: null,
+      hidden_by: null,
+    });
+    applySnapshot(handle, snapshotOf(registry), T0 + 1_000);
+
+    const interesting = applyStateChanged(
+      handle,
+      {
+        entity_id: entityId,
+        old_state: null,
+        new_state: {
+          entity_id: entityId,
+          state: "75",
+          attributes: { device_class: "illuminance", unit_of_measurement: "lx" },
+          last_changed: new Date(T0 + 2_000).toISOString(),
+          last_updated: new Date(T0 + 2_000).toISOString(),
+        },
+      },
+      T0 + 2_000,
+    );
+
+    expect(interesting).toBe(true);
+    expect(readDaylightHaEntities(handle.db).map((entity) => entity.registryId)).toContain(
+      "reg-new-outdoor-lux",
+    );
   });
 
   it("adds a directly linked entity", () => {

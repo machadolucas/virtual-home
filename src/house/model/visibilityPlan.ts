@@ -179,6 +179,18 @@ export function computeVisibility(index: ManifestIndex, v: VisibilityInput): Vis
     }
   }
 
+  // Door leaves and frames disappear in inside-cut modes, even when their wall is behind the
+  // camera. Their physical geometry remains indexed for placement collision checks.
+  if (v.wallMode === "cut" || v.wallMode === "contextual") {
+    for (const element of index.elements.values()) {
+      if (element.kind !== "door") continue;
+      for (const ref of element.nodeRefs) nodes.set(nodeKey(ref.assetId, ref.nodeName), false);
+      for (const sid of index.surfacesByElement.get(element.id) ?? []) {
+        for (const ref of index.surfaces.get(sid)?.nodeRefs ?? []) nodes.set(nodeKey(ref.assetId, ref.nodeName), false);
+      }
+    }
+  }
+
   return { assets, nodes };
 }
 

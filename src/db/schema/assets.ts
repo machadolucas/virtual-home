@@ -147,6 +147,8 @@ export const assetPlacement = sqliteTable(
     ledLengthM: real("led_length_m"),
     /** Physical camera or sensor detection reach. Null lets the renderer use its default. */
     detectionRangeM: real("detection_range_m"),
+    /** Physical tree height. Null lets the renderer use its five-metre default. */
+    treeHeightM: real("tree_height_m"),
     placementKind: text("placement_kind").$type<PlacementKind>().notNull().default("body"),
     /**
      * The mount, previously a coverage gap (`docs/model-contract.md` §3.1): a wall-mounted sensor

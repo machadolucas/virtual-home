@@ -140,8 +140,52 @@ function conditionRuleEntityIds(tx: Db): string[] {
 
 /** Outdoor readings are a small, opt-in viewer source set and must stay live before selection. */
 function environmentalEntityIds(tx: Db): string[] {
+  const effectiveDeviceClass = sql<string | null>`coalesce(
+    ${haEntity.deviceClass},
+    ${haEntity.originalDeviceClass},
+    json_extract(${haEntityState.attributesJson}, '$.device_class')
+  )`;
+  const effectiveUnit = sql<string | null>`coalesce(
+    ${haEntity.unitOfMeasurement},
+    json_extract(${haEntityState.attributesJson}, '$.unit_of_measurement')
+  )`;
+
   return tx
     .select({ entityId: haEntity.entityId })
+    .from(haEntity)
+    .leftJoin(haEntityState, eq(haEntityState.registryId, haEntity.registryId))
+    .leftJoin(haDevice, eq(haDevice.deviceId, haEntity.deviceId))
+    .where(
+      and(
+        isNull(haEntity.removedAtMs),
+        isNull(haEntity.disabledBy),
+        isNull(haEntity.hiddenBy),
+        isNull(haDevice.removedAtMs),
+        isNull(haDevice.disabledBy),
+        sql`((lower(trim(${effectiveDeviceClass})) = 'illuminance' AND (${effectiveUnit} IS NULL OR lower(trim(${effectiveUnit})) IN ('lx', 'lux', 'klx', 'klux'))) OR ${haEntity.domain} = 'weather')`,
+      ),
+    )
+    .all()
+    .map((row) => row.entityId);
+}
+
+interface EnvironmentalRegistryMeta {
+  domain: string;
+  deviceClass: string | null;
+  originalDeviceClass: string | null;
+  unit: string | null;
+}
+
+/** Enabled registry rows that may become environmental sources based on live state attributes. */
+function environmentalRegistryMeta(tx: Db): Map<string, EnvironmentalRegistryMeta> {
+  const rows = tx
+    .select({
+      entityId: haEntity.entityId,
+      domain: haEntity.domain,
+      deviceClass: haEntity.deviceClass,
+      originalDeviceClass: haEntity.originalDeviceClass,
+      unit: haEntity.unitOfMeasurement,
+    })
     .from(haEntity)
     .leftJoin(haDevice, eq(haDevice.deviceId, haEntity.deviceId))
     .where(
@@ -151,11 +195,33 @@ function environmentalEntityIds(tx: Db): string[] {
         isNull(haEntity.hiddenBy),
         isNull(haDevice.removedAtMs),
         isNull(haDevice.disabledBy),
-        sql`((${haEntity.deviceClass} = 'illuminance' AND (${haEntity.unitOfMeasurement} IS NULL OR lower(trim(${haEntity.unitOfMeasurement})) IN ('lx', 'lux', 'klx', 'klux'))) OR ${haEntity.domain} = 'weather')`,
       ),
     )
-    .all()
-    .map((row) => row.entityId);
+    .all();
+  return new Map(rows.map(({ entityId, ...meta }) => [entityId, meta]));
+}
+
+function isEnvironmentalState(
+  meta: EnvironmentalRegistryMeta | undefined,
+  state: NormalizedState,
+): boolean {
+  if (!meta) return false;
+  if (meta.domain === "weather") return true;
+  const attrClass = state.attributes["device_class"];
+  const deviceClass =
+    meta.deviceClass ??
+    meta.originalDeviceClass ??
+    (typeof attrClass === "string" ? attrClass : null);
+  if (deviceClass?.trim().toLowerCase() !== "illuminance") return false;
+  const attrUnit = state.attributes["unit_of_measurement"];
+  const unit = meta.unit ?? (typeof attrUnit === "string" ? attrUnit : null);
+  return unit === null || ["lx", "lux", "klx", "klux"].includes(unit.trim().toLowerCase());
+}
+
+function normalizedState(state: HaState | NormalizedState): NormalizedState {
+  return typeof (state as NormalizedState).entityId === "string"
+    ? (state as NormalizedState)
+    : normalizeState(state as HaState);
 }
 
 /**
@@ -169,6 +235,27 @@ export function interestingEntityIds(tx: Db): Set<string> {
     ...conditionRuleEntityIds(tx),
     ...environmentalEntityIds(tx),
   ]);
+}
+
+/**
+ * The live interesting set plus environmental sensors identified only by state attributes.
+ * HA commonly omits measurement metadata from the entity-registry list, so a fresh snapshot or
+ * the first event from a newly added sensor must be allowed to bootstrap its own cached state.
+ */
+export function interestingEntityIdsForStates(
+  tx: Db,
+  states: readonly (HaState | NormalizedState)[],
+): Set<string> {
+  const wanted = interestingEntityIds(tx);
+  if (states.length === 0) return wanted;
+  const meta = environmentalRegistryMeta(tx);
+  for (const state of states) {
+    const normalized = normalizedState(state);
+    if (isEnvironmentalState(meta.get(normalized.entityId), normalized)) {
+      wanted.add(normalized.entityId);
+    }
+  }
+  return wanted;
 }
 
 /**
@@ -247,17 +334,14 @@ export function applyStatesTx(
   options: ApplyStatesOptions = {},
 ): HaStateRecord[] {
   const onlyInteresting = options.onlyInteresting ?? true;
-  const wanted = onlyInteresting ? interestingEntityIds(tx) : null;
+  const normalized = states.map(normalizedState);
+  const wanted = onlyInteresting ? interestingEntityIdsForStates(tx, normalized) : null;
   const registryIds = registryIdByEntityId(tx);
 
   const written: HaStateRecord[] = [];
-  for (const state of states) {
-    const normalized =
-      typeof (state as NormalizedState).entityId === "string"
-        ? (state as NormalizedState)
-        : normalizeState(state as HaState);
-    if (wanted && !wanted.has(normalized.entityId)) continue;
-    const record = toRecord(normalized, registryIds.get(normalized.entityId) ?? null, nowMs);
+  for (const state of normalized) {
+    if (wanted && !wanted.has(state.entityId)) continue;
+    const record = toRecord(state, registryIds.get(state.entityId) ?? null, nowMs);
     upsert(tx, record);
     written.push(record);
   }
@@ -286,11 +370,13 @@ export function applyStateChangedTx(
   wanted?: ReadonlySet<string>,
 ): StateChangeOutcome {
   const entityId = event.entity_id;
-  const interesting = (wanted ?? interestingEntityIds(tx)).has(entityId);
+  const next = event.new_state ?? null;
+  const normalized = next === null ? null : normalizeState(next);
+  const interesting = (wanted ?? interestingEntityIdsForStates(tx, normalized ? [normalized] : []))
+    .has(entityId);
   if (!interesting) return { entityId, interesting: false, record: null, removed: false };
 
-  const next = event.new_state ?? null;
-  if (next === null) {
+  if (normalized === null) {
     // The entity was removed from HA. Drop the cached row rather than inventing 'unavailable'.
     tx.delete(haEntityState).where(eq(haEntityState.entityId, entityId)).run();
     return { entityId, interesting: true, record: null, removed: true };
@@ -303,7 +389,7 @@ export function applyStateChangedTx(
       .where(and(eq(haEntity.entityId, entityId), isNull(haEntity.removedAtMs)))
       .get()?.registryId ?? null;
 
-  const record = toRecord(normalizeState(next), registryId, nowMs);
+  const record = toRecord(normalized, registryId, nowMs);
   upsert(tx, record);
   return { entityId, interesting: true, record, removed: false };
 }

@@ -54,7 +54,11 @@ export function useKeyboardShortcuts(
     if (!root || !enabled) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isTypingTarget(event.target)) return;
+      if (event.defaultPrevented || isTypingTarget(event.target)) return;
+      // Native root listeners run before React/Radix handlers: leave widget keys alone.
+      if (event.key !== "Escape" && (event.target as HTMLElement | null)?.closest(
+        'button, a[href], [role="tab"], [role="radio"], [role="slider"], [role="switch"], [role="combobox"]',
+      )) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
 
       const shift = event.shiftKey;

@@ -67,6 +67,21 @@ describe("computeVisibility (fixture)", () => {
     expect(isGroupVisible(index, plan, "f-lower", focused)).toBe(true);
   });
 
+  it("hides complete door geometry in both cut modes and restores it with walls up", () => {
+    const doors = [...index.elements.values()].filter((element) => element.kind === "door");
+    expect(doors.length).toBeGreaterThan(0);
+    for (const wallMode of ["cut", "contextual"] as const) {
+      const plan = computeVisibility(index, baseInput({ wallMode }, inventory, loadedAssetIds));
+      for (const door of doors) for (const ref of door.nodeRefs)
+        expect(plan.nodes.get(nodeKey(ref.assetId, ref.nodeName))).toBe(false);
+    }
+    for (const wallMode of ["up", "closed"] as const) {
+      const plan = computeVisibility(index, baseInput({ wallMode }, inventory, loadedAssetIds));
+      for (const door of doors) for (const ref of door.nodeRefs)
+        expect(plan.nodes.get(nodeKey(ref.assetId, ref.nodeName))).not.toBe(false);
+    }
+  });
+
   it("shows everything in the overview", () => {
     const plan = computeVisibility(index, baseInput({}, inventory, loadedAssetIds));
     for (const [id, visible] of plan.assets) {

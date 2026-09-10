@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import sharp from "sharp";
-import { openHouseSession, waitForStableFrames, idleFrames } from "./helpers/house";
+import { openHouseSession, openRenderingCategory, waitForStableFrames, idleFrames } from "./helpers/house";
 
 async function imageDownload(page: Page): Promise<Buffer> {
   const downloaded = page.waitForEvent("download");
@@ -45,12 +45,20 @@ test("compact controls are separate and collapsing placement cancels it", async 
   try {
     const inspector = page.getByRole("complementary", { name: "Inspector", exact: true });
     const controls = page.getByRole("region", { name: "View controls", exact: true });
+    const wallModes = page.getByRole("radiogroup", { name: "Wall display", exact: true });
+    await expect(wallModes).toBeVisible();
+    await expect(controls.getByRole("radiogroup", { name: "Wall display", exact: true })).toHaveCount(0);
+    await wallModes.getByRole("radio", { name: "Contextual", exact: true }).click();
+    await expect(wallModes.getByRole("radio", { name: "Contextual", exact: true })).toHaveAttribute("aria-checked", "true");
+    const treeRows = page.getByRole("tree", { name: "Property structure", exact: true }).getByRole("treeitem");
+    expect((await treeRows.first().boundingBox())!.height).toBeLessThanOrEqual(29);
     await expect(inspector.getByRole("switch", { name: "Roof (H)" })).toHaveCount(0);
     await controls.getByRole("tab", { name: "Layers", exact: true }).click();
     await expect(controls.getByRole("switch", { name: "Roof (H)" })).toBeVisible();
-    await controls.getByRole("tab", { name: "Rendering", exact: true }).click();
-    await expect(controls.getByRole("radiogroup", { name: "3D background" })).toBeVisible();
+    await openRenderingCategory(page, "Light");
     await expect(controls.getByRole("slider", { name: "Detailed lights" })).toBeVisible();
+    await controls.getByRole("tab", { name: "Background", exact: true }).click();
+    await expect(controls.getByRole("radiogroup", { name: "3D background" })).toBeVisible();
     await page.getByRole("button", { name: "Collapse the view controls", exact: true }).click();
     await expect(controls.getByRole("button", { name: "Download image", exact: true })).toBeVisible();
     await expect(controls.getByRole("button", { name: "Overview (R)" })).toBeVisible();
@@ -86,7 +94,7 @@ test("solid and gradient backgrounds are baked into the PNG", async ({ browser }
   test.skip(testInfo.project.name === "phone", "Background settings live in the desktop controls.");
   const { context, page } = await openHouseSession(browser);
   try {
-    await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+    await openRenderingCategory(page, "Background");
     await page.getByRole("button", { name: "Warm paper, light", exact: true }).click();
     await expect(page.getByTestId("vh-canvas-host")).toHaveAttribute("style", /background-color/);
     await waitForStableFrames(page);
@@ -133,24 +141,24 @@ test("hovering an elevated surface shows a ground projection without changing th
   } finally { await context.close(); }
 });
 
-test("rendering controls share the available desktop width", async ({ browser }, testInfo) => {
+test("rendering controls use focused keyboard-accessible categories without desktop panel scrolling", async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name === "phone", "Phone has its compact floor and equipment view.");
   const { context, page } = await openHouseSession(browser);
   try {
     const controls = page.getByRole("region", { name: "View controls", exact: true });
-    await controls.getByRole("tab", { name: "Rendering", exact: true }).click();
+    await openRenderingCategory(page, "Light");
+    const categories = controls.getByRole("tablist", { name: "Rendering settings", exact: true });
+    await expect(categories.getByRole("tab")).toHaveCount(4);
+    await expect(controls.getByRole("slider", { name: "Detailed lights", exact: true })).toBeVisible();
+    await expect(controls.getByRole("radiogroup", { name: "3D background" })).toBeHidden();
+    await categories.getByRole("tab", { name: "Light", exact: true }).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(categories.getByRole("tab", { name: "Environment", exact: true })).toHaveAttribute("data-state", "active");
+    await categories.getByRole("tab", { name: "Quality", exact: true }).click();
     const performance = controls.getByRole("switch", { name: "Performance mode (pixel ratio 1)", exact: true });
-    const background = controls.getByRole("radiogroup", { name: "3D background", exact: true });
-    const detailedLights = controls.getByRole("slider", { name: "Detailed lights", exact: true });
     await expect(performance).toBeVisible();
-    await expect(background).toBeVisible();
-    await expect(detailedLights).toBeVisible();
-    expect(Number(await detailedLights.inputValue())).toBeLessThanOrEqual(
-      Number(await detailedLights.getAttribute("max")),
-    );
-    const p = (await performance.boundingBox())!;
-    const b = (await detailedLights.boundingBox())!;
-    expect(b.x).toBeGreaterThan(p.x + p.width);
+    const renderingPanel = controls.getByRole("tabpanel", { name: "Quality", exact: true });
+    expect(await renderingPanel.evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true);
     const palette = (await page.getByRole("radiogroup", { name: "Pointer tool", exact: true }).boundingBox())!;
     expect(palette.width).toBeLessThan(60);
     await testInfo.attach("compact-rendering-controls.png", { body: await page.screenshot(), contentType: "image/png" });
@@ -168,8 +176,12 @@ test("phone keeps light detail and daylight overrides in a collapsed rendering d
     await expect(shadows).toBeHidden();
     await expect(detail).toBeHidden();
     await lighting.click();
-    await expect(shadows).toBeVisible();
     await expect(detail).toBeVisible();
+    const categories = page.getByRole("tablist", { name: "Rendering settings", exact: true });
+    const categoryBox = (await categories.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(categoryBox.x).toBeGreaterThanOrEqual(0);
+    expect(categoryBox.x + categoryBox.width).toBeLessThanOrEqual(viewport.width);
     await detail.fill("2");
     await expect(detail).toHaveValue("2");
     await page.getByRole("switch", { name: "Batched lighting", exact: true }).click();
@@ -179,19 +191,21 @@ test("phone keeps light detail and daylight overrides in a collapsed rendering d
     await expect(detail).toHaveAttribute("max", "64");
     await detail.fill("48");
     await expect(detail).toHaveValue("48");
-    await expect(page.getByRole("button", { name: "Live time", exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "Environment", exact: true }).click();
+    await expect(page.getByRole("radio", { name: "Live time", exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "Quality", exact: true }).click();
+    await expect(shadows).toBeVisible();
     await expect(page.getByRole("button", { name: "All", exact: true }).locator("svg")).toHaveCount(1);
   } finally {
     await context.close();
   }
 });
 
-test("global illumination intensity scales scene lighting and settles back to idle", async ({ browser }, testInfo) => {
+test("global illumination intensity scales scene lighting and settles back to idle", async ({ browser }) => {
   const { context, page } = await openHouseSession(browser);
   try {
-    if (testInfo.project.name === "phone") await page.getByText("Rendering", { exact: true }).click();
-    else await page.getByRole("tab", { name: "Rendering", exact: true }).click();
-    await page.getByRole("button", { name: "Studio", exact: true }).click();
+    await openRenderingCategory(page, "Environment");
+    await page.getByRole("radio", { name: "Studio", exact: true }).click();
     const intensity = page.getByRole("slider", { name: "Global illumination intensity", exact: true });
     await expect(intensity).toHaveValue("100");
     await intensity.fill("50");

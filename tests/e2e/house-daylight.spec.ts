@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
 import sharp from "sharp";
 import { emitHaBatch, installSyntheticHa, openSyntheticHa } from "./helpers/liveHa";
-import { openHouse, waitForStableFrames } from "./helpers/house";
+import { openHouse, openRenderingCategory, waitForStableFrames } from "./helpers/house";
 
 test("daylight preview changes sunlight, shadows and night brightness then returns idle", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "phone", "Desktop rendering controls; shared canvas lighting.");
   await openHouse(page);
-  await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  await openRenderingCategory(page, "Environment");
   const controls = page.getByRole("group", { name: "Daylight and shadows", exact: true });
   await controls.getByText("Location and north", { exact: true }).click();
   await controls.getByLabel("Latitude", { exact: true }).fill("45");
@@ -40,12 +40,14 @@ test("daylight preview changes sunlight, shadows and night brightness then retur
   expect(nightTotal).toBeLessThan(dayTotal * 0.75);
   await testInfo.attach("daylight-noon.png", { body: noonImage, contentType: "image/png" });
   await testInfo.attach("daylight-night.png", { body: nightImage, contentType: "image/png" });
-  await controls.getByRole("switch", { name: "Soft shadows", exact: true }).click();
+  await page.getByRole("tab", { name: "Quality", exact: true }).click();
+  await page.getByRole("switch", { name: "Soft shadows", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.radius)).toBe(0);
   await page.getByRole("switch", { name: /Performance mode/ }).click();
   await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.shadowMapSize)).toBe(512);
-  await controls.getByRole("button", { name: "Live time", exact: true }).click();
-  await expect(controls.getByRole("button", { name: "Live time", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("tab", { name: "Environment", exact: true }).click();
+  await controls.getByRole("radio", { name: "Live time", exact: true }).click();
+  await expect(controls.getByRole("radio", { name: "Live time", exact: true })).toBeChecked();
   await expect(date).not.toHaveValue("2026-03-20T00:00");
   await waitForStableFrames(page);
   const before = await page.evaluate(() => window.__vh!.invalidateCount());
@@ -74,7 +76,7 @@ test("outdoor lux and weather tune Live time, fall back safely, and survive relo
     await route.fulfill({ response, json: manifest });
   });
   await openHouse(page);
-  await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  await openRenderingCategory(page, "Environment");
   const controls = page.getByRole("group", { name: "Daylight and shadows", exact: true });
   await controls.getByText("Outdoor conditions", { exact: true }).click();
   const calculated = (await page.evaluate(() => window.__vh!.daylight()))!.intensity;
@@ -95,11 +97,11 @@ test("outdoor lux and weather tune Live time, fall back safely, and survive relo
   await emitConditions("1", "rainy");
   await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.intensity ?? Infinity)).toBeLessThan(bright / 2);
 
-  await controls.getByRole("button", { name: "Studio", exact: true }).click();
+  await controls.getByRole("radio", { name: "Studio", exact: true }).click();
   const studio = (await page.evaluate(() => window.__vh!.daylight()))!.intensity;
   await emitConditions("100000", "sunny");
   await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.intensity ?? 0)).toBeCloseTo(studio);
-  await controls.getByRole("button", { name: "Live time", exact: true }).click();
+  await controls.getByRole("radio", { name: "Live time", exact: true }).click();
 
   await emitConditions("unavailable", "unavailable");
   await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.intensity ?? 0)).toBeCloseTo(calculated);
@@ -110,7 +112,7 @@ test("outdoor lux and weather tune Live time, fall back safely, and survive relo
   await page.waitForFunction(() => window.__vh?.status().phase === "ready");
   await openSyntheticHa(page);
   await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.intensity ?? Infinity)).toBeLessThan(calculated * 0.8);
-  await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  await openRenderingCategory(page, "Environment");
   await page.getByRole("group", { name: "Daylight and shadows", exact: true }).getByText("Outdoor conditions", { exact: true }).click();
   await expect(page.getByRole("combobox", { name: "Outdoor illuminance source" })).toContainText("E2E desktop motion");
   await expect(page.getByRole("combobox", { name: "Weather source" })).toContainText("E2E desktop weather");

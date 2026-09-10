@@ -5,6 +5,7 @@
  * fields, in full, on every change.
  */
 import { HouseBackgroundControl } from "@/features/settings/HouseBackgroundControl";
+import { useState } from "react";
 import {
   BetweenHorizontalEnd,
   Armchair,
@@ -25,12 +26,17 @@ import {
   StickyNote,
   Tags,
   EyeOff,
+  ImageIcon,
+  Lightbulb,
+  SlidersHorizontal,
+  Sun,
   Trees,
   type LucideIcon,
 } from "lucide-react";
 import { ALL_LAYERS, type LayerId, type WallMode } from "@/house/model/types";
 import { displayNameForNode } from "@/house/model/labelPreferences";
-import { Switch } from "@/ui";
+import { Button, Switch, Tabs, TabsPanel } from "@/ui";
+import { resetRenderingPreferences } from "@/house/store/renderingPreferences";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { DaylightControl } from "./DaylightControl";
 import { DetailedLightControl } from "./DetailedLightControl";
@@ -57,7 +63,7 @@ const LAYER_ICONS: Record<LayerId, LucideIcon> = {
   annotations: StickyNote,
 };
 
-export function ViewToolbar({ section }: { section: "view" | "layers" | "rendering" | "presets" }) {
+export function ViewToolbar({ section }: { section: "layers" | "rendering" | "presets" }) {
   const runtime = useHouseRuntime();
   const state = useHouseStore(
     useShallow((s) => ({
@@ -65,11 +71,8 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
       roofVisible: s.roofVisible,
       ceilingsVisible: s.ceilingsVisible,
       edgesVisible: s.edgesVisible,
-      performanceMode: s.performanceMode,
-      background: s.background,
       layers: s.layers,
       explodeGap: s.explode.gap,
-      wallMode: s.wallMode,
       areaLabelsVisible: s.areaLabelsVisible,
       equipmentOcclusion: s.equipmentOcclusion,
     })),
@@ -77,47 +80,15 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
   const setRoofVisible = useHouseStore((s) => s.setRoofVisible);
   const setCeilingsVisible = useHouseStore((s) => s.setCeilingsVisible);
   const setEdgesVisible = useHouseStore((s) => s.setEdgesVisible);
-  const setPerformanceMode = useHouseStore((s) => s.setPerformanceMode);
-  const setBackground = useHouseStore((s) => s.setBackground);
   const setLayer = useHouseStore((s) => s.setLayer);
   const applyDollhouse = useHouseStore((s) => s.applyDollhouse);
   const applyOverview = useHouseStore((s) => s.applyOverview);
   const setProjection = useHouseStore((s) => s.setProjection);
-  const setWallMode = useHouseStore((s) => s.setWallMode);
   const setEquipmentOcclusion = useHouseStore((s) => s.setEquipmentOcclusion);
   const setAreaLabelsVisible = useHouseStore((s) => s.setAreaLabelsVisible);
 
   return (
-    <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
-      {section === "view" ? (
-      <fieldset className="flex min-w-0 flex-col gap-2">
-        <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">Walls</legend>
-        <div role="radiogroup" aria-label="Wall display" className="flex flex-wrap gap-1">
-          {WALL_MODES.map((mode) => (
-            <button
-              key={mode.value}
-              type="button"
-              role="radio"
-              aria-checked={state.wallMode === mode.value}
-              onClick={() => setWallMode(mode.value)}
-              title={`${mode.label}: ${mode.description}`}
-              className={`inline-flex size-11 items-center justify-center rounded-md border transition-colors md:size-8 [&_svg]:size-4 ${
-                state.wallMode === mode.value
-                  ? "border-accent bg-accent-soft text-accent-text"
-                  : "border-line bg-surface text-ink hover:bg-surface-3"
-              }`}
-            >
-              <mode.icon aria-hidden="true" />
-              <span className="sr-only">{mode.label}</span>
-            </button>
-          ))}
-        </div>
-        <p className="max-w-md text-[11px] leading-4 text-ink-3">
-          Contextual lowers the walls between the camera and the selected room as you rotate.
-        </p>
-      </fieldset>
-
-      ) : null}
+    <div className={section === "rendering" ? "min-w-0 w-full" : "flex flex-wrap items-start gap-x-4 gap-y-2"}>
       {section === "presets" ? (
       <fieldset className="flex flex-col gap-1">
         <legend className="sr-only">
@@ -189,20 +160,76 @@ export function ViewToolbar({ section }: { section: "view" | "layers" | "renderi
 
       </>
       ) : null}
-      {section === "rendering" ? (
-      <fieldset className="grid min-w-0 flex-1 grid-cols-1 items-start gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-        <legend className="sr-only">
-          Rendering
-        </legend>
-        <Toggle icon={Gauge} checked={state.performanceMode} onChange={setPerformanceMode} label="Performance mode (pixel ratio 1)" />
-        <DetailedLightControl />
-        <div className="min-w-0">
-          <p className="mb-2 text-xs font-medium text-ink-2">Background</p>
-          <HouseBackgroundControl value={state.background} onPreview={setBackground} />
-        </div>
-        <DaylightControl />
-      </fieldset>
-      ) : null}
+      {section === "rendering" ? <RenderingControls /> : null}
+    </div>
+  );
+}
+
+type RenderingSection = "light" | "environment" | "quality" | "background";
+
+const RENDERING_TABS = [
+  { value: "light", label: "Light", icon: <Lightbulb aria-hidden="true" />, phoneIconOnly: true },
+  { value: "environment", label: "Environment", icon: <Sun aria-hidden="true" />, phoneIconOnly: true },
+  { value: "quality", label: "Quality", icon: <SlidersHorizontal aria-hidden="true" />, phoneIconOnly: true },
+  { value: "background", label: "Background", icon: <ImageIcon aria-hidden="true" />, phoneIconOnly: true },
+] as const;
+
+/** One focused rendering task at a time; shared by the desktop tray and phone disclosure. */
+export function RenderingControls() {
+  const runtime = useHouseRuntime();
+  const [section, setSection] = useState<RenderingSection>("light");
+  const { performanceMode, background } = useHouseStore(
+    useShallow((s) => ({ performanceMode: s.performanceMode, background: s.background })),
+  );
+  const setPerformanceMode = useHouseStore((s) => s.setPerformanceMode);
+  const setBackground = useHouseStore((s) => s.setBackground);
+
+  return (
+    <div className="min-w-0">
+      <Tabs
+        items={RENDERING_TABS}
+        value={section}
+        onValueChange={(value) => setSection(value as RenderingSection)}
+        ariaLabel="Rendering settings"
+        density="compact"
+        className="min-w-0"
+      >
+        <TabsPanel value="light" className="p-2">
+          <DetailedLightControl />
+        </TabsPanel>
+        <TabsPanel value="environment" className="p-2">
+          <DaylightControl section="environment" />
+        </TabsPanel>
+        <TabsPanel value="quality" className="p-2">
+          <div className="grid items-start gap-x-5 md:grid-cols-2">
+            <Toggle
+              icon={Gauge}
+              checked={performanceMode}
+              onChange={setPerformanceMode}
+              label="Performance mode (pixel ratio 1)"
+            />
+            <DaylightControl section="quality" />
+          </div>
+        </TabsPanel>
+        <TabsPanel value="background" className="p-2">
+          <HouseBackgroundControl
+            value={background}
+            onPreview={setBackground}
+            className="max-w-2xl"
+          />
+        </TabsPanel>
+      </Tabs>
+      <div className="flex items-center justify-between gap-3 border-t border-line px-2 py-1">
+        <p className="text-[10px] leading-4 text-ink-3">Rendering settings are remembered on this device.</p>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => resetRenderingPreferences(runtime.store)}
+        >
+          <RotateCcw aria-hidden="true" className="size-3.5" />
+          Reset device settings
+        </Button>
+      </div>
     </div>
   );
 }
@@ -222,13 +249,15 @@ const WALL_MODES: ReadonlyArray<{
 /** Compact floor-by-building controls that stay on the model rather than in the bottom drawer. */
 export function FloorControls() {
   const runtime = useHouseRuntime();
-  const { index, activeFloorId, isolateFloor, setProjection, labelPreferences } = useHouseStore(
+  const { index, activeFloorId, isolateFloor, setProjection, labelPreferences, wallMode, setWallMode } = useHouseStore(
     useShallow((s) => ({
       index: s.index,
       activeFloorId: s.activeFloorId,
       isolateFloor: s.isolateFloor,
       setProjection: s.setProjection,
       labelPreferences: s.labelPreferences,
+      wallMode: s.wallMode,
+      setWallMode: s.setWallMode,
     })),
   );
   if (!index) return null;
@@ -304,6 +333,30 @@ export function FloorControls() {
             </div>
           );
         })}
+        <fieldset className="ml-0.5 flex shrink-0 flex-col items-center gap-1 border-l border-line pl-1.5">
+          <legend className="sr-only">Wall display</legend>
+          <div role="radiogroup" aria-label="Wall display" className="grid grid-cols-2 gap-1">
+            {WALL_MODES.map((mode) => (
+              <button
+                key={mode.value}
+                type="button"
+                role="radio"
+                aria-checked={wallMode === mode.value}
+                aria-label={mode.label}
+                title={`${mode.label}: ${mode.description}`}
+                onClick={() => setWallMode(mode.value)}
+                className={`inline-flex size-8 items-center justify-center rounded-md border transition-colors [&_svg]:size-4 ${
+                  wallMode === mode.value
+                    ? "border-accent bg-accent-soft text-accent-text"
+                    : "border-line bg-surface text-ink hover:bg-surface-3"
+                }`}
+              >
+                <mode.icon aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+          <span className="text-[9px] font-medium uppercase tracking-wide text-ink-3">Walls</span>
+        </fieldset>
       </div>
     </section>
   );
@@ -393,7 +446,8 @@ function Toggle({
           {label}
         </span>
       }
-      className="min-h-8 py-0 text-xs"
+      compact
+      className="text-xs"
     />
   );
 }
