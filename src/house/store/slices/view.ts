@@ -52,8 +52,11 @@ export interface ViewSlice {
   performanceMode: boolean;
   /** Requested detailed equipment-light budget for this viewer session. */
   detailedLightLimit: number;
-  /** Renderer-reported safe ceiling; initialized conservatively until WebGL is ready. */
+  /** Conservative shader-resource recommendation; initialized until WebGL is ready. */
   detailedLightHardwareMax: number;
+  detailedLightExperimental: boolean;
+  detailedLightError: string | null;
+  detailedLightCapabilities: { textures: number; varyings: number } | null;
   /**
    * The 3D background. Household-level and persisted, but held here so the control can be
    * optimistic: the canvas host repaints on the keystroke and the write reverts it on failure.
@@ -75,6 +78,9 @@ export interface ViewSlice {
   setPerformanceMode(v: boolean): void;
   setDetailedLightLimit(limit: number): void;
   setDetailedLightHardwareMax(limit: number): void;
+  setDetailedLightExperimental(enabled: boolean): void;
+  setDetailedLightError(message: string | null): void;
+  setDetailedLightCapabilities(capabilities: { textures: number; varyings: number }): void;
   setBackground(background: HouseBackground): void;
   /** Presets are *store writes*, so the toolbar checkboxes stay in sync by construction. */
   applyDollhouse(): void;
@@ -98,6 +104,9 @@ export const initialView = {
   performanceMode: false,
   detailedLightLimit: 16,
   detailedLightHardwareMax: 12,
+  detailedLightExperimental: false,
+  detailedLightError: null as string | null,
+  detailedLightCapabilities: null as { textures: number; varyings: number } | null,
   background: DEFAULT_HOUSE_BACKGROUND as HouseBackground,
 };
 
@@ -173,9 +182,12 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
   setEdgesVisible: (edgesVisible) => set({ edgesVisible }),
   setPerformanceMode: (performanceMode) => set({ performanceMode }),
   setDetailedLightLimit: (detailedLightLimit) =>
-    set({ detailedLightLimit: boundedLightCount(detailedLightLimit) }),
+    set({ detailedLightLimit: boundedLightCount(detailedLightLimit), detailedLightError: null }),
   setDetailedLightHardwareMax: (detailedLightHardwareMax) =>
     set({ detailedLightHardwareMax: boundedLightCount(detailedLightHardwareMax) }),
+  setDetailedLightExperimental: (detailedLightExperimental) => set((s) => ({ detailedLightExperimental, detailedLightLimit: Math.min(s.detailedLightLimit, s.detailedLightHardwareMax), detailedLightError: null })),
+  setDetailedLightError: (detailedLightError) => set({ detailedLightError }),
+  setDetailedLightCapabilities: (detailedLightCapabilities) => set({ detailedLightCapabilities }),
   setBackground: (background) => set({ background }),
 
   applyDollhouse: () => set({ ...DOLLHOUSE_PRESET, wallMode: "contextual", wallModeExplicit: true, activeFloorId: null }),

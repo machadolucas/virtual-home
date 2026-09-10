@@ -13,6 +13,7 @@ import {
   lightSourcePosition,
 } from "../model/equipmentLight";
 import { isLedBar, ledLength, ledSource } from "../model/equipmentOptics";
+import { DetailedLightTrial } from "../scene/detailedLightTrial";
 import { defaultSymbol, isPlacementSymbol } from "../scene/symbols";
 import { isVisibleUp } from "../scene/applyVisibility";
 import {
@@ -61,6 +62,22 @@ export function useEquipmentLights() {
     let hardwareIndex: typeof runtime.index = null;
     let hardwareAssets = -1;
     let hardwareLimit = detailedLightHardwareLimit(gl.capabilities.maxTextures, gl.capabilities.maxVaryings);
+    const previousShaderError = gl.debug.onShaderError;
+    const previousShaderChecks = gl.debug.checkShaderErrors;
+    const trial = new DetailedLightTrial(() => {
+      requestedLimit = hardwareLimit;
+      runtime.store.getState().setDetailedLightLimit(hardwareLimit);
+      runtime.store.getState().setDetailedLightError(
+        `WebGL rejected this detailed-light setting. Restored the recommended ${hardwareLimit}. Try a smaller increase.`,
+      );
+      update();
+    });
+    gl.debug.checkShaderErrors = true;
+    gl.debug.onShaderError = (context, program, vertex, fragment) => {
+      if (trial.reject()) return;
+      if (previousShaderError) previousShaderError(context, program, vertex, fragment);
+      else console.error("Viewer shader failed", context.getProgramInfoLog(program));
+    };
     const update = () => {
       const state = runtime.store.getState();
       layer.root.traverse((object) => {
@@ -77,6 +94,10 @@ export function useEquipmentLights() {
           }
         }
         hardwareLimit = detailedLightHardwareLimit(gl.capabilities.maxTextures, gl.capabilities.maxVaryings, textureSlots);
+        if (!state.detailedLightCapabilities || state.detailedLightCapabilities.textures !== gl.capabilities.maxTextures ||
+            state.detailedLightCapabilities.varyings !== gl.capabilities.maxVaryings) {
+          state.setDetailedLightCapabilities({ textures: gl.capabilities.maxTextures, varyings: gl.capabilities.maxVaryings });
+        }
         if (state.detailedLightHardwareMax !== hardwareLimit) state.setDetailedLightHardwareMax(hardwareLimit);
       }
       const nextShadowInputs = [index, index?.assets.size, [...(index?.hiddenGroups ?? [])].sort().join(","),
@@ -121,9 +142,10 @@ export function useEquipmentLights() {
       candidates.sort((a, b) =>
         Number(b.id === selected) - Number(a.id === selected) || a.id.localeCompare(b.id));
       const budget = detailedLightBudget(
-        Math.min(requestedLimit, hardwareLimit, state.performanceMode ? 2 : Infinity),
+        Math.min(requestedLimit, state.detailedLightExperimental ? 64 : hardwareLimit, state.performanceMode ? 2 : Infinity),
         pointCount, spotCount,
       );
+      if (!trial.configure(budget.point, budget.spot, hardwareLimit, state.detailedLightExperimental)) return;
       const detailedIds = new Set([
         ...candidates.filter((candidate) => !candidate.spot).slice(0, budget.point),
         ...candidates.filter((candidate) => candidate.spot).slice(0, budget.spot),
@@ -182,6 +204,9 @@ export function useEquipmentLights() {
     const timer = setInterval(update, 30_000);
     return () => {
       clearInterval(timer);
+      trial.dispose();
+      gl.debug.onShaderError = previousShaderError;
+      gl.debug.checkShaderErrors = previousShaderChecks;
       if (budgetTimer !== null) clearTimeout(budgetTimer);
       offStore(); offHa();
       refresh.current = null;

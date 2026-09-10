@@ -676,7 +676,10 @@ and reload. Live lights tint nearby model surfaces with their Home Assistant bri
 Rotating the camera does not swap which lights illuminate the scene. When many lights are on,
 additional fixtures illuminate several nearby surfaces with simpler glows to keep shadow-rendering
 cost bounded. Every active light also has a luminous source core. Rendering offers a session-only
-detailed-light limit up to the WebGL device's safe hardware maximum; performance mode retains two.
+detailed-light limit up to a conservative WebGL recommendation; performance mode retains two.
+"Try higher limits" unlocks testing up to 64 and "Use recommended" restores the estimate. Shader
+compilation rejection automatically restores that recommendation and shows a recovery message.
+The estimate describes resource headroom, not GPU speed; limits and overrides last for this session.
 Lights beyond the detailed budget keep their source and simpler surface glows. Brightness and colour
 changes reuse existing shadows. Occluded equipment markers and labels start hidden and can be shown
 from Layers.

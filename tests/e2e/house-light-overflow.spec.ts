@@ -41,10 +41,40 @@ test("all active lights remain represented without camera-dependent slot swappin
   await limit.fill("0");
   await waitForStableFrames(page, 900);
   expect(await page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.castShadow).length)).toBe(0);
-  await page.getByRole("button", { name: "Device maximum", exact: true }).click();
+  await page.getByRole("button", { name: "Use recommended", exact: true }).click();
   await waitForStableFrames(page, 900);
   expect(await page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.castShadow).length)).toBe(Math.min(40, maximum));
   expect(errors.filter((error) => /THREE|shader|WebGL/i.test(error))).toEqual([]);
+  const baseline = await sharp(await canvas.screenshot()).removeAlpha().raw().toBuffer();
+  const textureUnits = await canvas.evaluate((element) => {
+    const gl = (element as HTMLCanvasElement).getContext("webgl2")!;
+    return gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) as number;
+  });
+  await page.getByRole("switch", { name: "Try higher limits", exact: true }).click();
+  await expect(limit).toHaveAttribute("max", "64");
+  await limit.fill("64");
+  await waitForStableFrames(page, 900);
+  const rejected = await page.getByRole("alert").filter({ hasText: "WebGL rejected" }).isVisible();
+  if (textureUnits < 41) expect(rejected).toBe(true);
+  await testInfo.attach("light-trial.json", { body: JSON.stringify({ textureUnits, recommended: maximum, rejected }), contentType: "application/json" });
+  if (rejected) {
+    await expect(limit).toHaveValue(String(maximum));
+    expect(await page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.castShadow).length)).toBe(Math.min(40, maximum));
+    // Three caches failed programs: repeating the same budget must also recover.
+    await limit.fill("64");
+    await expect(limit).toHaveValue(String(maximum));
+  } else {
+    await expect(limit).toHaveValue("64");
+    expect(await page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.castShadow).length)).toBe(40);
+  }
+  await page.getByRole("switch", { name: "Try higher limits", exact: true }).click();
+  await expect(limit).toHaveAttribute("max", String(maximum));
+  await waitForStableFrames(page, 900);
+  const restored = await sharp(await canvas.screenshot()).removeAlpha().raw().toBuffer();
+  expect(restored.length).toBe(baseline.length);
+  let difference = 0;
+  for (let i = 0; i < baseline.length; i++) difference += Math.abs(restored[i]! - baseline[i]!);
+  expect(difference / baseline.length).toBeLessThan(2);
   await testInfo.attach("all-lights-on.png", { body: await page.screenshot(), contentType: "image/png" });
   await expect(page.getByTestId("viewer-frame-rate")).toHaveText("idle");
 });

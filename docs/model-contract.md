@@ -530,8 +530,14 @@ The rendering is illustrative rather than photometric. Detailed lights cast shad
 closed door geometry stop light leaking into adjacent rooms. Cutaway/focus clipping is excluded
 from the shadow pass, leaving the model's full wall and door geometry as occluders even when the
 camera sees a low wall stub. Rendering's Detailed lights slider chooses a total budget (default 16,
-performance mode caps it at 2). The device maximum reserves texture samplers for daylight and model
-maps, and varying vectors for standard-material inputs; it is also bounded to 64. Installed visible
+performance mode caps it at 2). The recommended limit reserves texture samplers for daylight and model
+maps, and varying vectors for standard-material inputs. This is a conservative resource estimate,
+not an FPS benchmark or measured device maximum. "Try higher limits" unlocks 0–64, with reported
+WebGL texture-unit/varying limits shown for diagnostics. A rejected experimental shader restores the
+recommendation after the frame; failed point/spot layouts are remembered to prevent silent failures
+when Three reuses a cached program. The previous shader-error handler is restored on unmount.
+The current single-pass renderer still has actual shader-resource limits; fixed-position shadow
+caching saves drawing work but cannot remove those limits. Installed visible
 fixture types, including off fixtures, divide that total, so a view with only point fixtures can use
 all slots for point lights. Selection and then stable equipment IDs determine priority. Camera movement
 does not reassign lights. Additional sources use brighter, wider surface illumination: point lights

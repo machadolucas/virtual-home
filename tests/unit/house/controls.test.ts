@@ -107,7 +107,22 @@ describe("viewer rendering defaults", () => {
       equipmentOcclusion: true,
       detailedLightLimit: 16,
       detailedLightHardwareMax: 12,
+      detailedLightExperimental: false,
+      detailedLightError: null,
     });
+  });
+
+  it("lets experimental limits exceed the recommendation and restores it when disabled", () => {
+    const store = createHouseStore();
+    store.getState().setDetailedLightExperimental(true);
+    expect(store.getState().detailedLightLimit).toBe(12);
+    store.getState().setDetailedLightLimit(48);
+    expect(store.getState().detailedLightLimit).toBe(48);
+    store.getState().setDetailedLightExperimental(false);
+    expect(store.getState().detailedLightLimit).toBe(12);
+    store.getState().setDetailedLightError("Rejected");
+    store.getState().setDetailedLightLimit(10);
+    expect(store.getState().detailedLightError).toBeNull();
   });
 
   it("rounds and clamps requested and hardware light counts", () => {
