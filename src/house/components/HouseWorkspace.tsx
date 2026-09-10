@@ -723,6 +723,7 @@ function useShortcutHandlers(
               ledLengthM: placement.ledLengthM ?? null,
               detectionRangeM: placement.detectionRangeM ?? null,
               treeHeightM: placement.treeHeightM ?? null,
+              equipmentSize: placement.equipmentSize ?? null,
           mount: placement.mount,
           floorId: placement.floorId,
           roomId: placement.roomId,

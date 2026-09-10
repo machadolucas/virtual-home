@@ -29,6 +29,7 @@ import type {
   SurfaceSchema,
 } from "./schema";
 import type { SolarPanelConfig } from "./solarPanel";
+import type { EquipmentSize } from "./equipmentSize";
 
 export type Manifest = z.infer<typeof ManifestSchema>;
 export type Building = z.infer<typeof BuildingSchema>;
@@ -62,6 +63,7 @@ export const FURNISHING_KINDS = [
   "sofa", "sofa_l", "bed_single", "bed_double", "bedside_table", "chair",
   "dining_table", "computer_desk", "bicycle", "shelves", "cabinet",
   "kitchen_counter", "rug", "bench",
+  "tv_rack", "stool", "outdoor_wheelie_bin",
 ] as const;
 export type FurnishingKind = (typeof FURNISHING_KINDS)[number];
 
@@ -176,6 +178,8 @@ export interface Placement {
   detectionRangeM?: number | null;
   /** Physical tree height in metres; null/absent uses the five-metre default. */
   treeHeightM?: number | null;
+  /** Physical dimensions for explicitly resizable equipment, currently outdoor wood storage. */
+  equipmentSize?: EquipmentSize | null;
   /** Physical panel dimensions and roof-relative tilt. Present only for solar-panel symbols. */
   solarPanel?: SolarPanelConfig | null;
   mount: PlacementMount;

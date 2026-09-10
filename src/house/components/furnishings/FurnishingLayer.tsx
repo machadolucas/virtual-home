@@ -8,6 +8,7 @@ import * as THREE from "three";
 import type { Furnishing } from "@/house/model/types";
 import { isVisibleUp } from "@/house/scene/applyVisibility";
 import { disposeFurnishingGeometries, furnishingGeometry } from "@/house/scene/furnishingGeometry";
+import { furnishingRaycast } from "@/house/scene/furnishingRaycast";
 import { useHouseRuntime, useHouseStore } from "../../hooks/useHouseStore";
 import { useFurnitureEditor } from "./FurnitureEditorContext";
 import { useFurnishings } from "./FurnishingsProvider";
@@ -42,8 +43,13 @@ function FurnishingObject({ item, preview }: { item: Furnishing; preview: boolea
   const fingerprint = useHouseStore((s) => s.fingerprint);
   const { requestEdit } = useFurnishings();
   const { previewInvalid, draft } = useFurnitureEditor();
+  const tool = useHouseStore((s) => s.tool);
   const root = useRef<THREE.Group>(null);
   const material = useMemo(() => new THREE.MeshStandardMaterial({ color: preview ? (previewInvalid ? 0xd94d4d : 0x4cad9b) : colorFor(item.kind), roughness: 0.85, transparent: preview, opacity: preview ? .65 : 1 }), [item.kind, preview, previewInvalid]);
+  const raycast = useMemo(
+    () => furnishingRaycast((point) => runtime.clip?.keeps(item.floorId, point) !== false),
+    [item.floorId, runtime],
+  );
 
   useEffect(() => {
     const group = root.current;
@@ -61,10 +67,11 @@ function FurnishingObject({ item, preview }: { item: Furnishing; preview: boolea
     group.position.y = item.position[1] + (runtime.offsets.get(item.floorId) ?? 0);
   });
 
-  return <group ref={root} name={preview ? "vh-furniture-preview" : `furnishing:${item.id}`} userData={{ furnishingId: item.id, furnishingSize: [item.widthM, item.heightM, item.depthM] }} position={[item.position[0], item.position[1], item.position[2]]} rotation={[0, THREE.MathUtils.degToRad(item.rotationYDeg), 0]} onClick={(event) => { event.stopPropagation(); if (item.id && !draft) requestEdit(item.id); }}>
+  return <group ref={root} name={preview ? "vh-furniture-preview" : `furnishing:${item.id}`} userData={{ furnishingId: item.id, furnishingSize: [item.widthM, item.heightM, item.depthM] }} position={[item.position[0], item.position[1], item.position[2]]} rotation={[0, THREE.MathUtils.degToRad(item.rotationYDeg), 0]} onClick={(event) => { if (tool !== "select") return; event.stopPropagation(); if (item.id && !draft) requestEdit(item.id); }}>
     <mesh
       geometry={furnishingGeometry(item.kind)}
       material={material}
+      raycast={raycast}
       scale={[item.widthM, item.heightM, item.depthM]}
       castShadow={!preview}
       receiveShadow={!preview}

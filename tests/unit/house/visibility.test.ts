@@ -10,6 +10,8 @@ import {
   cameraFacingRoomWalls,
   focusContextFor,
   focusCutSurfaceIds,
+  focusCutYForSurface,
+  preservesFocusCutSurface,
 } from "@/house/model/focusContext";
 import { buildManifestIndex, nodeKey } from "@/house/model/manifestIndex";
 import { DEFAULT_LAYERS, type LayerId } from "@/house/model/types";
@@ -312,6 +314,10 @@ describe("computeVisibility (fixture)", () => {
       ]),
     );
     expect(cuts).not.toContain("s-w-l-bc--r-l-b");
+    expect(focusCutYForSurface(local, "synthetic-wall-top", 0.9, 0)).toBe(-0.01);
+    expect(focusCutYForSurface(local, "s-w-l-ab--r-l-a", 0.9, 0)).toBe(0.9);
+    expect(preservesFocusCutSurface(local, "synthetic-wall-top", "synthetic-wall-top")).toBe(false);
+    expect(preservesFocusCutSurface(local, "s-w-l-ab--r-l-a", "s-w-l-ab--r-l-a")).toBe(true);
   });
 });
 

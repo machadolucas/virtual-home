@@ -9,6 +9,7 @@ import type {
   Vec3,
 } from "@/house/model/types";
 import type { SolarPanelConfig } from "@/house/model/solarPanel";
+import type { EquipmentSize } from "@/house/model/equipmentSize";
 import type { HouseStore, Mutators } from "../createHouseStore";
 
 /** The draft is the authority. Coordinates are ALWAYS physical site metres. */
@@ -29,6 +30,8 @@ export interface EditDraft {
   detectionRangeM?: number | null;
   /** Physical tree height in metres; null/absent uses the symbol's default. */
   treeHeightM?: number | null;
+  /** Physical dimensions for explicitly resizable equipment. */
+  equipmentSize?: EquipmentSize | null;
   /** Physical panel dimensions and roof-relative tilt. */
   solarPanel?: SolarPanelConfig | null;
   mount: PlacementMount;

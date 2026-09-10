@@ -271,10 +271,10 @@ export function FloorControls() {
   return (
     <section
       aria-label="Floor focus"
-      className="pointer-events-auto absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] rounded-lg border border-line bg-surface/95 p-1 shadow-pop backdrop-blur"
+      className="pointer-events-auto absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] overflow-hidden rounded-lg border border-line bg-surface/95 shadow-pop backdrop-blur"
     >
-      <div className="flex items-end gap-1.5 overflow-x-auto">
-        <div className="flex flex-col items-center gap-1">
+      <div className="flex items-end gap-1 overflow-x-auto p-1">
+        <div className="flex flex-col items-center gap-0.5">
           <FloorIconButton
             label="All"
             icon={House}
@@ -296,9 +296,9 @@ export function FloorControls() {
               key={building.id}
               role="group"
               aria-label={buildingName}
-              className="flex shrink-0 flex-col items-center gap-1"
+              className="flex shrink-0 flex-col items-center gap-0.5"
             >
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-0.5 rounded-md bg-surface-2 p-0.5">
               {(index.floorsByBuilding.get(building.id) ?? [])
                 .slice()
                 .sort((a, b) => b.elevation - a.elevation)
@@ -333,31 +333,34 @@ export function FloorControls() {
             </div>
           );
         })}
-        <fieldset className="ml-0.5 flex shrink-0 flex-col items-center gap-1 border-l border-line pl-1.5">
-          <legend className="sr-only">Wall display</legend>
-          <div role="radiogroup" aria-label="Wall display" className="grid grid-cols-2 gap-1">
-            {WALL_MODES.map((mode) => (
-              <button
-                key={mode.value}
-                type="button"
-                role="radio"
-                aria-checked={wallMode === mode.value}
-                aria-label={mode.label}
-                title={`${mode.label}: ${mode.description}`}
-                onClick={() => setWallMode(mode.value)}
-                className={`inline-flex size-8 items-center justify-center rounded-md border transition-colors [&_svg]:size-4 ${
-                  wallMode === mode.value
-                    ? "border-accent bg-accent-soft text-accent-text"
-                    : "border-line bg-surface text-ink hover:bg-surface-3"
-                }`}
-              >
-                <mode.icon aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-          <span className="text-[9px] font-medium uppercase tracking-wide text-ink-3">Walls</span>
-        </fieldset>
       </div>
+      <fieldset className="flex items-center gap-1 border-t border-line bg-surface-2/80 px-1 py-1">
+        <legend className="sr-only">Wall display</legend>
+        <span aria-hidden="true" className="px-1 text-[9px] font-semibold uppercase tracking-wide text-ink-3">Walls</span>
+        <div role="radiogroup" aria-label="Wall display" className="flex items-center gap-0.5 rounded-md border border-line bg-surface p-0.5">
+          {WALL_MODES.map((mode) => (
+            <button
+              key={mode.value}
+              type="button"
+              role="radio"
+              aria-checked={wallMode === mode.value}
+              aria-label={mode.label}
+              title={`${mode.label}: ${mode.description}`}
+              onClick={() => {
+                setWallMode(mode.value);
+                if (mode.value === "closed") void runtime.camera?.overview();
+              }}
+              className={`inline-flex size-11 items-center justify-center rounded-sm border border-transparent transition-colors md:size-8 [&_svg]:size-4 ${
+                wallMode === mode.value
+                  ? "border-accent bg-accent-soft text-accent-text"
+                  : "text-ink-2 hover:bg-surface-3 hover:text-ink"
+              }`}
+            >
+              <mode.icon aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+      </fieldset>
     </section>
   );
 }

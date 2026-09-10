@@ -9,6 +9,9 @@ import { useHouseRuntime, useHouseStore } from "../../hooks/useHouseStore";
 import { setPanelCollapsed } from "../../hooks/usePanelLayout";
 import { initialPosition } from "../edit/startPlacement";
 import { useFurnishings } from "./FurnishingsProvider";
+import { snapValue } from "../../model/geometry2d";
+import { intersectHorizontalPlane } from "../../scene/picker";
+import { pickObjectSupport, placementYaw } from "../../scene/objectPlacement";
 import type { HouseStore } from "../../store/createHouseStore";
 
 interface Editor {
@@ -110,11 +113,25 @@ export function FurnitureEditorProvider({ children }: { children: React.ReactNod
       const { picker, camera3d, index: sceneIndex, clip } = runtime;
       if (!picker || !camera3d || !sceneIndex || !clip) return null;
       if (needsCollisionRefresh) { clearFurnishingCollisionCache(sceneIndex); needsCollisionRefresh = false; }
-      const hit = picker.pick(event.clientX, event.clientY, el.getBoundingClientRect(), camera3d, sceneIndex, clip);
+      const modelHit = picker.pick(event.clientX, event.clientY, el.getBoundingClientRect(), camera3d, sceneIndex, clip);
+      const support = pickObjectSupport(runtime, event.clientX, event.clientY, items, draft.id);
+      const hit = support && (!modelHit || support.distance < modelHit.distance) ? support : modelHit;
       if (!hit || !hit.normal || hit.normal.y < .75) return null;
       const floorId = hit.floorId ?? draft.floorId;
-      const position = roundedPosition([hit.point.x, hit.point.y - (runtime.offsets.get(floorId) ?? 0), hit.point.z]);
+      const config = runtime.store.getState().snap;
+      const grid = config.enabled && !event.altKey ? config.grid : 0;
+      const position = roundedPosition([snapValue(hit.point.x, grid), hit.point.y - (runtime.offsets.get(floorId) ?? 0), snapValue(hit.point.z, grid)]);
       return { ...draft, floorId, position, roomId: roomAt(sceneIndex.manifest, floorId, position[0], position[2]) };
+    };
+    let anchor: Furnishing | null = null;
+    let down: { x: number; y: number } | null = null;
+    const proposed = (event: PointerEvent) => {
+      if (!anchor || !down) return solve(event);
+      if (Math.hypot(event.clientX - down.x, event.clientY - down.y) < 8) return anchor;
+      const rect = el.getBoundingClientRect();
+      const point = intersectHorizontalPlane((event.clientX - rect.left) / rect.width * 2 - 1,
+        -(event.clientY - rect.top) / rect.height * 2 + 1, runtime.camera3d!, anchor.position[1]);
+      return point ? { ...anchor, rotationYDeg: placementYaw(anchor.position, point.toArray(), anchor.rotationYDeg) } : anchor;
     };
     let frame = 0;
     let latest: PointerEvent | null = null;
@@ -123,26 +140,30 @@ export function FurnitureEditorProvider({ children }: { children: React.ReactNod
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        const candidate = latest ? solve(latest) : null;
+        const candidate = latest ? proposed(latest) : null;
         setHover(candidate);
         setError(candidate && runtime.index ? furnishingPlacementError(candidate, runtime.index) : "Point at a floor or an upward-facing surface.");
       });
     };
-    let down: { x: number; y: number } | null = null;
-    const onDown = (event: PointerEvent) => { if (event.button === 0) down = { x: event.clientX, y: event.clientY }; };
+    const onDown = (event: PointerEvent) => {
+      if (event.button !== 0 || runtime.store.getState().cameraOverride) return;
+      anchor = solve(event); down = { x: event.clientX, y: event.clientY };
+      setHover(anchor);
+    };
     const onUp = (event: PointerEvent) => {
-      if (event.button !== 0 || !down || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8) { down = null; return; }
-      down = null;
-      const candidate = solve(event);
+      if (event.button !== 0 || !down) return;
+      const candidate = proposed(event);
+      down = null; anchor = null;
+      if (frame) cancelAnimationFrame(frame); frame = 0;
       const problem = candidate && runtime.index ? furnishingPlacementError(candidate, runtime.index) : "Choose a floor or an upward-facing surface.";
       if (!candidate || problem) { setError(problem); return; }
       setDraft(candidate); setHover(null); setPlacing(false); setError(null);
       runtime.store.getState().setTool("select");
     };
-    const leave = () => { if (frame) cancelAnimationFrame(frame); frame = 0; latest = null; down = null; setHover(null); };
+    const leave = () => { if (frame) cancelAnimationFrame(frame); frame = 0; latest = null; down = null; anchor = null; setHover(null); };
     el.addEventListener("pointermove", onMove); el.addEventListener("pointerdown", onDown); el.addEventListener("pointerup", onUp); el.addEventListener("pointerleave", leave);
     return () => { leave(); el.removeEventListener("pointermove", onMove); el.removeEventListener("pointerdown", onDown); el.removeEventListener("pointerup", onUp); el.removeEventListener("pointerleave", leave); };
-  }, [busy, draft, placing, runtime]);
+  }, [busy, draft, placing, runtime, items]);
 
   const change = (next: Furnishing) => { setDraft(next); setHover(null); setPlacing(false); setError(null); runtime.store.getState().setTool("select"); };
   return <Context.Provider value={{ draft, placing, error, previewInvalid, catalogOpen, setCatalogOpen, begin, change, cancel,

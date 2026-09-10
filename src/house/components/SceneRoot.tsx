@@ -13,6 +13,7 @@
  * there is exactly one picking implementation (ours, clip-aware), and React never reconciles the
  * shell. R3F still owns the render loop, camera, controls, lights and the marker/route layers.
  */
+import { pickEquipmentBody } from "../scene/objectPlacement";
 import { useEffect, useRef } from "react";
 import { useThree } from "@react-three/fiber";
 import { groupsOf } from "@/house/model/explodeGroups";
@@ -299,7 +300,10 @@ export function SceneRoot() {
         index,
         clip,
       );
-      const next = hoverSelectionOf(hit);
+      const tool = runtime.store.getState().tool;
+      const body = tool !== "place" ? pickEquipmentBody(runtime, event.clientX, event.clientY) : null;
+      const candidate: Selection | null = body && (!hit || body.distance < hit.distance) ? { kind: "equipment", id: body.id } : hoverSelectionOf(hit);
+      const next = tool === "select" ? candidate : tool === "orbit" && candidate?.kind === "equipment" ? candidate : null;
       const current = runtime.store.getState().hover;
       if (sameSelection(current, next)) return;
       runtime.store.getState().setHover(next);
@@ -332,10 +336,16 @@ export function SceneRoot() {
       const state = runtime.store.getState();
       if (state.furnishingsEditing || (state.tool === "place" && !state.cameraOverride && state.editing !== null)) return;
 
-      runtime.select(selectionOf(hit, state.selection));
+      const body = pickEquipmentBody(runtime, event.clientX, event.clientY);
+      const selected: Selection | null = body && (!hit || body.distance < hit.distance) ? { kind: "equipment", id: body.id } : selectionOf(hit, state.selection);
+      if (state.tool === "place" || (state.tool === "orbit" && selected?.kind !== "equipment")) return;
+      runtime.select(selected);
     };
 
     const onDoubleClick = () => {
+      const state = runtime.store.getState();
+      if (state.tool === "place" || state.furnishingsEditing || state.editing) return;
+      if (state.tool === "orbit" && state.selection?.kind !== "equipment") return;
       void runtime.camera?.frameSelection();
     };
 

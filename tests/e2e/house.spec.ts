@@ -189,7 +189,7 @@ test("selecting in the tree writes the store and the URL, and a reload restores 
   }
 });
 
-test("clicking a room's floor anchor picks that room's floor at its own datum", async ({
+test("surface picking and hover require Select, while the floor datum stays exact", async ({
   browser,
 }) => {
   const { context, page } = await openHouseSession(browser);
@@ -223,6 +223,9 @@ test("clicking a room's floor anchor picks that room's floor at its own datum", 
     // The same surface through the real pointer path. The click has to be on bare canvas: the
     // label overlay owns the anchor itself (see `findCanvasPick`), and a click on the label would
     // select the room through the DOM without ever raycasting.
+    // Select makes room labels interactive; choose bare canvas with those hit targets active.
+    await page.getByRole("radio", { name: "Select (V)", exact: true }).click();
+    await waitForStableFrames(page, 250);
     const target = await findCanvasPick(
       page,
       screen!,
@@ -230,6 +233,32 @@ test("clicking a room's floor anchor picks that room's floor at its own datum", 
         candidate.roomId === SUNKEN_ROOM.id && candidate.surfaceId === SUNKEN_ROOM.floor,
     );
     expect(target.pick.point[1]).toBeCloseTo(SUNKEN_ROOM.elevation, 2);
+    const canvasBounds = (await page.locator("canvas").boundingBox())!;
+    const client = { x: canvasBounds.x + target.x, y: canvasBounds.y + target.y };
+
+    // Orbit owns bare-surface gestures. Moving over or clicking a surface must neither tint it nor
+    // select it; equipment markers remain the intentional exception covered by equipment tests.
+    await page.getByRole("radio", { name: "Orbit the camera (C)", exact: true }).click();
+    await vh(page).select(null);
+    await page.mouse.move(client.x, client.y);
+    await expect.poll(() => vh(page).hover()).toBeNull();
+    await clickCanvasAt(page, target.x, target.y);
+    await expect.poll(() => vh(page).selection()).toBeNull();
+
+    await page.getByRole("radio", { name: "Select (V)", exact: true }).click();
+    // The Orbit click leaves the pointer at `target`. Leave and re-enter so the canvas receives a
+    // fresh pointer-move after the tool switch instead of relying on a same-coordinate move.
+    await page.mouse.move(client.x + 1, client.y);
+    await page.mouse.move(client.x, client.y);
+    await expect.poll(() => vh(page).hover()).toEqual({ kind: "surface", id: SUNKEN_ROOM.floor });
+    await page.getByRole("radio", { name: "Orbit the camera (C)", exact: true }).click();
+    await expect.poll(() => vh(page).hover()).toBeNull();
+
+    await page.getByRole("radio", { name: "Select (V)", exact: true }).click();
+    await page.mouse.move(client.x + 1, client.y);
+    await page.mouse.move(client.x, client.y);
+    await expect.poll(() => vh(page).hover()).toEqual({ kind: "surface", id: SUNKEN_ROOM.floor });
+
     await clickCanvasAt(page, target.x, target.y);
     await expect.poll(() => vh(page).selection()).toEqual({ kind: "room", id: SUNKEN_ROOM.id });
   } finally {
@@ -347,6 +376,21 @@ test("floor focus keeps lower support and hides only higher floors in that build
     await page.getByRole("button", { name: "Lower floor", exact: true }).click();
     await expect.poll(() => api.visible("fixture-upper", "f-upper")).toBe(false);
     expect(await api.visible("fixture-lower", "f-lower")).toBe(true);
+    await expect(page.getByRole("radio", { name: "Contextual", exact: true })).toBeChecked();
+    expect(await api.visible("fixture-roof", "e-roof-fx")).toBe(false);
+
+    await page.getByRole("radio", { name: "All up + roof/ceiling", exact: true }).click();
+    await expect(page.getByRole("button", { name: "All", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => api.visible("fixture-upper", "f-upper")).toBe(true);
+    expect(await api.visible("fixture-roof", "e-roof-fx")).toBe(true);
+    expect(await api.selection()).toBeNull();
+
+    // A new floor choice always opens the shell again; a visible roof must never sit over a
+    // building whose upper floor has just been removed.
+    await page.getByRole("button", { name: "Lower floor", exact: true }).click();
+    await expect(page.getByRole("radio", { name: "Contextual", exact: true })).toBeChecked();
+    await expect.poll(() => api.visible("fixture-upper", "f-upper")).toBe(false);
+    expect(await api.visible("fixture-roof", "e-roof-fx")).toBe(false);
 
     await page.getByRole("button", { name: "All", exact: true }).click();
     await expect.poll(() => api.visible("fixture-upper", "f-upper")).toBe(true);
@@ -362,6 +406,10 @@ test("wall modes open the shell, cut context without a selection, and fully clos
   const { context, page } = await openHouseSession(browser);
   try {
     const api = vh(page);
+    const wallModes = page.getByRole("radiogroup", { name: "Wall display", exact: true });
+    expect(await wallModes.getByRole("radio").evaluateAll((radios) =>
+      radios.map((radio) => radio.getAttribute("aria-label")),
+    )).toEqual(["All cut", "Contextual", "All up", "All up + roof/ceiling"]);
     const walls = ["s-e-l-ext--r-l-a", "s-w-l-ab--r-l-a", "s-w-l-bc--r-l-b"];
     const cutWalls = async () => {
       const rows = await Promise.all(walls.map(async (id) => ({ id, planes: await api.clipPlanes(id) })));
@@ -567,7 +615,7 @@ test("equipment that is not placed yet can be placed, outdoors, from the tree pa
   }
 });
 
-test("the place tool reserves left-drag for aiming while other navigation remains available", async ({
+test("the place tool anchors then rotates a draft without orbiting the camera", async ({
   browser,
 }) => {
   /**
@@ -608,14 +656,26 @@ test("the place tool reserves left-drag for aiming while other navigation remain
     };
 
     const before = await settled();
+    const originalDraft = await vh(page).placementDraft();
+    expect(originalDraft).not.toBeNull();
     const canvas = page.locator("canvas").first();
     const box = (await canvas.boundingBox())!;
 
-    // A real drag across the middle of the view — the gesture that used to spin the house.
+    // Hover previews only. Pointer-down fixes the placement anchor, movement previews a snapped
+    // body angle, and pointer-up commits both together so the persisted draft never contains a
+    // half-finished gesture.
     await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.55);
+    expect(await vh(page).placementDraft()).toEqual(originalDraft);
     await page.mouse.down();
+    expect(await vh(page).placementDraft()).toEqual(originalDraft);
     await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.45, { steps: 12 });
+    expect(await vh(page).placementDraft()).toEqual(originalDraft);
     await page.mouse.up();
+    const committedDraft = await vh(page).placementDraft();
+    expect(committedDraft).not.toBeNull();
+    expect(committedDraft!.position).not.toEqual(originalDraft!.position);
+    expect(committedDraft!.rotationYDeg % 45).toBe(0);
+    expect(committedDraft!.rotationYDeg).not.toBe(originalDraft!.rotationYDeg);
 
     // The mechanism, asserted directly: the camera does not hold the left button, while the
     // controls instance keeps wheel zoom and right-button trucking available.

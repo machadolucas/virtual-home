@@ -149,6 +149,8 @@ export const assetPlacement = sqliteTable(
     detectionRangeM: real("detection_range_m"),
     /** Physical tree height. Null lets the renderer use its five-metre default. */
     treeHeightM: real("tree_height_m"),
+    /** Validated JSON dimensions for equipment types that explicitly support resizing. */
+    equipmentDimensionsJson: text("equipment_dimensions_json"),
     placementKind: text("placement_kind").$type<PlacementKind>().notNull().default("body"),
     /**
      * The mount, previously a coverage gap (`docs/model-contract.md` §3.1): a wall-mounted sensor

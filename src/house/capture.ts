@@ -26,7 +26,7 @@ export async function captureHouseView(opts: CaptureHouseViewOptions): Promise<B
 
   const hidden: Array<{ object: THREE.Object3D; visible: boolean }> = [];
   scene.traverse((object) => {
-    if (object.name !== "vh-snap-indicator" && object.name !== "vh-route-handles" && object.name !== "vh-furniture-preview") return;
+    if (object.name !== "vh-snap-indicator" && object.name !== "vh-route-handles" && object.name !== "vh-furniture-preview" && object.name !== "vh-equipment-preview") return;
     hidden.push({ object, visible: object.visible });
     object.visible = false;
   });

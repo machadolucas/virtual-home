@@ -18,6 +18,9 @@ export const FURNISHING_KINDS = [
   "kitchen_counter",
   "rug",
   "bench",
+  "tv_rack",
+  "stool",
+  "outdoor_wheelie_bin",
 ] as const;
 export type FurnishingKind = (typeof FURNISHING_KINDS)[number];
 

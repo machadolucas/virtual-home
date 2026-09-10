@@ -143,7 +143,7 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
 
   setViewMode: (viewMode) => set({ viewMode }),
 
-  setTool: (tool) => set({ tool }),
+  setTool: (tool) => set({ tool, hover: null }),
 
   setCameraOverride: (cameraOverride) => set({ cameraOverride }),
 
@@ -176,12 +176,13 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
   setProjection: (projection) => set({ projection }),
 
   setWallMode: (wallMode, wallModeExplicit = true) =>
-    set({
+    set((s) => ({
+      ...(wallMode === "closed" ? completePropertyView(s) : {}),
       wallMode,
       wallModeExplicit,
       roofVisible: wallMode === "closed",
       ceilingsVisible: wallMode === "closed",
-    }),
+    })),
 
   setCut: (cut) => set((s) => ({ cut: { ...s.cut, ...cut } })),
 
@@ -194,17 +195,25 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
     set((s) => (s.explode.locked && explode.gap !== 0 ? {} : { explode: { ...s.explode, ...explode } })),
 
   setRoofVisible: (visible) =>
-    set((s) => ({
-      roofVisible: visible,
-      wallMode: visible && s.ceilingsVisible ? "closed" : s.wallMode === "closed" ? "up" : s.wallMode,
-      wallModeExplicit: true,
-    })),
+    set((s) => {
+      const closesShell = visible && s.ceilingsVisible;
+      return {
+        ...(visible ? completePropertyView(s) : {}),
+        roofVisible: visible,
+        wallMode: closesShell ? "closed" : s.wallMode === "closed" ? "up" : s.wallMode,
+        wallModeExplicit: true,
+      };
+    }),
   setCeilingsVisible: (visible) =>
-    set((s) => ({
-      ceilingsVisible: visible,
-      wallMode: visible && s.roofVisible ? "closed" : s.wallMode === "closed" ? "up" : s.wallMode,
-      wallModeExplicit: true,
-    })),
+    set((s) => {
+      const closesShell = visible && s.roofVisible;
+      return {
+        ...(closesShell ? completePropertyView(s) : {}),
+        ceilingsVisible: visible,
+        wallMode: closesShell ? "closed" : s.wallMode === "closed" ? "up" : s.wallMode,
+        wallModeExplicit: true,
+      };
+    }),
   setEdgesVisible: (edgesVisible) => set({ edgesVisible }),
   setPerformanceMode: (performanceMode) => set({ performanceMode }),
   setDetailedLightBatched: (detailedLightBatched) =>
@@ -246,4 +255,14 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
 export function boundedLightCount(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(DETAILED_LIGHT_SLIDER_MAX, Math.max(0, Math.round(value)));
+}
+
+/** A closed shell represents the complete property, never a roof over a hidden upper floor. */
+function completePropertyView(state: HouseStore) {
+  return {
+    activeFloorId: null,
+    focusSelection: null,
+    selection: state.selection?.kind === "floor" ? null : state.selection,
+    viewMode: "overview" as ViewMode,
+  };
 }

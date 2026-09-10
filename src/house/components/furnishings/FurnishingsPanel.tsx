@@ -40,7 +40,7 @@ export function FurnitureInspector() {
   if (editor.catalogOpen && !editor.draft) return <FurnitureCatalog onChoose={editor.begin} onClose={() => editor.setCatalogOpen(false)} />;
   if (!editor.draft) return null;
   return <>
-    <p className="mb-2 flex items-start gap-2 rounded-md bg-accent-soft p-2 text-xs text-accent-text"><Move3D className="size-4 shrink-0" aria-hidden="true" />{editor.placing ? "Move over a surface to preview. Click to place; red means a wall is in the way. Right-drag pans and the wheel zooms." : "Resize here, or choose Reposition in 3D to move this item. Save applies your changes."}</p>
+    <p className="mb-2 flex items-start gap-2 rounded-md bg-accent-soft p-2 text-xs text-accent-text"><Move3D className="size-4 shrink-0" aria-hidden="true" />{editor.placing ? "Move over a surface to preview. Click to place on the grid; hold and drag to rotate in 45° steps. Alt bypasses the grid. Red means a wall is in the way. Right-drag pans and the wheel zooms." : "Resize here, or choose Reposition in 3D to move this item. Save applies your changes."}</p>
     <FurnishingForm draft={editor.draft} floors={[...(index?.floors.values() ?? [])].map((f) => ({ id:f.id, name:f.name, elevation:f.elevation }))}
       busy={busy} error={editor.error} onChange={editor.change} onUsePick={editor.reposition} onCancel={editor.cancel} onSave={editor.save} />
   </>;

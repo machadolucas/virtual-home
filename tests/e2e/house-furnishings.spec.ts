@@ -82,6 +82,7 @@ test("desktop pointer placement previews without mutating fields and rejects wal
   test.skip(testInfo.project.name === "phone", "Pointer placement is exercised on desktop; phone uses numeric coordinates.");
   const { context, page } = await openHouseSession(browser);
   let furnishingId: string | null = null;
+  let hiddenFurnishingId: string | null = null;
   try {
     const status = await page.evaluate(() => window.__vh!.status());
     const endpoint = `/api/house-model/${status.modelId}/furnishings`;
@@ -95,11 +96,25 @@ test("desktop pointer placement previews without mutating fields and rejects wal
     } });
     expect(created.ok()).toBe(true);
     furnishingId = (await created.json()).furnishing.id;
+    const hiddenCreated = await page.request.put(endpoint, { data: {
+      fingerprint: status.fingerprint,
+      viewMode: "normal",
+      furnishing: {
+        kind: "bed_double", name: "E2E hidden upper bed", floorId: "f-upper",
+        position: [2.3, 2.7, 2.7], rotationYDeg: 0, widthM: 1.6, depthM: 2, heightM: 0.6,
+      },
+    } });
+    expect(hiddenCreated.ok()).toBe(true);
+    hiddenFurnishingId = (await hiddenCreated.json()).furnishing.id;
     await page.reload();
     await page.waitForFunction(() => window.__vh?.status().phase === "ready");
     await page.getByRole("button", { name: "Show inside (D)" }).click();
     await page.getByRole("button", { name: "Lower floor", exact: true }).click();
     await waitForStableFrames(page, 1_000);
+    await expect.poll(async () => page.evaluate(
+      (id) => window.__vh!.furnishings().find((item) => item.id === id)?.visible,
+      hiddenFurnishingId,
+    )).toBe(false);
 
     await page.locator("summary").filter({ hasText: "Furniture" }).click();
     await page.getByRole("button", { name: "Add furniture" }).click();
@@ -107,25 +122,39 @@ test("desktop pointer placement previews without mutating fields and rejects wal
     const originalDraft = await coordinateValues(page);
     const newTarget = await floorTarget(page, [[2.05, 0, 3.1], [2.2, 0, 3.15], [2.35, 0, 3.2]]);
     expect(newTarget).not.toBeNull();
+    const anchor = snappedFloorPoint(newTarget!.point);
     await page.mouse.move(newTarget!.x, newTarget!.y);
     await expect.poll(async () => {
       const position = await page.evaluate(() => window.__vh!.furnishings().find((item) => item.preview)?.position);
-      return position ? Math.max(...position.map((value, axis) => Math.abs(value - newTarget!.point[axis]!))) : Infinity;
+      return position ? Math.max(...position.map((value, axis) => Math.abs(value - anchor[axis]!))) : Infinity;
     }).toBeLessThan(0.02);
     expect(await coordinateValues(page)).toEqual(originalDraft);
-    await page.mouse.click(newTarget!.x, newTarget!.y);
-    // A click may quantize the canvas pointer differently from hover by a CSS pixel.
+
+    // Pressing chooses the snapped anchor; dragging around it changes yaw without moving the body
+    // to the drag endpoint. The diagonal is deliberately long enough to survive CSS-pixel rounding.
+    const dragEndpointWorld: [number, number, number] = [anchor[0] + 0.7, anchor[1], anchor[2] + 0.7];
+    const dragEndpoint = await canvasPoint(page, dragEndpointWorld);
+    await page.mouse.move(newTarget!.x, newTarget!.y);
+    await page.mouse.down();
+    await page.mouse.move(dragEndpoint.x, dragEndpoint.y, { steps: 6 });
+    await page.mouse.up();
     await expect.poll(async () => {
       const fields = (await coordinateValues(page)).map(Number);
-      return Math.max(...fields.map((value, axis) => Math.abs(value - newTarget!.point[axis]!)));
+      return Math.max(...fields.map((value, axis) => Math.abs(value - anchor[axis]!)));
     }).toBeLessThan(0.02);
+    await expect(page.getByLabel("Yaw (degrees)", { exact: true })).toHaveValue("45");
+    const committed = (await coordinateValues(page)).map(Number);
+    expect(Math.hypot(committed[0]! - dragEndpointWorld[0], committed[2]! - dragEndpointWorld[2])).toBeGreaterThan(0.8);
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect.poll(async () => page.evaluate(() => window.__vh!.furnishings().filter((item) => item.preview).length)).toBe(0);
 
-    // Clicking the rendered furnishing itself opens the right-side editor.
+    // Cancel restores Orbit. Furniture only responds in Select, and the hidden upper bed must not
+    // intercept the click intended for the visible lower-floor chair.
+    await page.getByRole("radio", { name: "Select (V)" }).click();
     const chair = await canvasPoint(page, [2.3, 0.45, 2.7]);
     await page.mouse.click(chair.x, chair.y);
     await expect(page.getByRole("heading", { name: "Edit furniture", exact: true })).toBeVisible();
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue("E2E pointer chair");
     await page.getByLabel("Width", { exact: true }).fill("1.2");
     await page.getByRole("button", { name: "Reposition in 3D", exact: true }).click();
     const beforeReposition = await coordinateValues(page);
@@ -146,12 +175,18 @@ test("desktop pointer placement previews without mutating fields and rejects wal
     });
   } finally {
     if (furnishingId) await page.request.delete(`/api/house-model/fixture-house/furnishings?id=${furnishingId}`);
+    if (hiddenFurnishingId) await page.request.delete(`/api/house-model/fixture-house/furnishings?id=${hiddenFurnishingId}`);
     await context.close();
   }
 });
 
 async function coordinateValues(page: Page): Promise<string[]> {
   return Promise.all(["X", "Y", "Z"].map((axis) => page.getByLabel(axis, { exact: true }).inputValue()));
+}
+
+function snappedFloorPoint(point: number[]): [number, number, number] {
+  const snap = (value: number) => Math.round(value / 0.05) * 0.05;
+  return [snap(point[0]!), point[1]!, snap(point[2]!)];
 }
 
 async function canvasPoint(page: Page, world: [number, number, number]) {

@@ -171,3 +171,22 @@ under one account). That is what `workers: 1` in `playwright.config.ts` exists t
   batched/single-pass image comparison. Software-GPU warm-up allows 45 seconds both for the initial
   budget and the additional All-light batches. Browser fixtures remain isolated from production.
 - `pnpm check`: 121 test files passed; 1,597 tests passed and 23 existing tests skipped.
+
+## 2026-09-10 — object placement, picking and additional models
+
+- `pnpm check`: 124 files passed; 1,614 tests passed and 23 existing skips. Synthetic coverage
+  includes visible/clipped furniture raycasts, support-face picking, 45-degree yaw, wall collision,
+  instance bounds after moving equipment, source wall-cap clipping and floor/roof invariants.
+- Desktop browser regressions pass for hidden upstairs furniture not intercepting a lower-floor
+  click; furniture grid placement, fixed-anchor rotation, collision rejection and draft isolation;
+  dryer placement on a washing machine and on a cabinet, saved free-mount height, and body rotation.
+  Existing arbitrary model-surface attachment and numeric adjustments also pass.
+- Floor focus, closed view, ordered wall modes, camera navigation and Select-only surface hover/click
+  pass browser checks. Tests account for room labels becoming clickable in Select mode.
+- Desktop and phone tests pass for equipment and furniture edits, configurable tree/panel dimensions,
+  new wood-storage dimension save/reload, cancellation and furniture layer visibility. Screenshots
+  were reviewed for the compact floating controls and phone model display.
+- Migration 0013 adds equipment dimensions and extends the furnishing-kind CHECK. Its furnishing
+  rebuild is safe because that table has no inbound foreign keys; a regression seeds a furnishing
+  before 0013 and verifies the existing record survives. Production model inspection was read-only;
+  no household geometry or identifiers were added to fixtures.

@@ -49,6 +49,14 @@ export const PHYSICAL_SYMBOL_SIZE: Readonly<Record<string, Vec3>> = {
   nvr: [0.32, 0.08, 0.24],
   nas: [0.2, 0.28, 0.25],
   media_player: [0.2, 0.05, 0.2],
+  hot_water_tank: [0.65, 1.86, 0.65],
+  ventilation_machine: [0.46, 0.57, 1.02],
+  wall_speaker: [0.25, 0.35, 0.18],
+  tower_speaker: [0.25, 1, 0.3],
+  wood_stove_oven: [0.6, 0.9, 0.6],
+  electric_stove_oven: [0.6, 0.85, 0.6],
+  outdoor_barbecue: [0.75, 1.1, 0.55],
+  outdoor_wood_storage: [1, 2.2, 2.5],
 };
 
 /** Visible light-source locations, relative to the unchanged placement/mount origin. */

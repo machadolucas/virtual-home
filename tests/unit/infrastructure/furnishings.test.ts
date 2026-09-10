@@ -63,4 +63,13 @@ describe("model-only furnishings", () => {
     expect((await put({ ...input, heightM: 15.01 })).status).toBe(400);
     expect(h.handle.db.select().from(furnishing).all()).toHaveLength(0);
   });
+
+  it.each(["tv_rack", "stool", "outdoor_wheelie_bin"] as const)(
+    "persists the %s catalog kind",
+    async (kind) => {
+      const created = await bodyOf<{ furnishing: Furnishing }>(await put({ ...input, kind }));
+      expect(created.furnishing.kind).toBe(kind);
+      expect(h.handle.db.select().from(furnishing).all()[0]?.kind).toBe(kind);
+    },
+  );
 });

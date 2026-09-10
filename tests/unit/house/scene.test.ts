@@ -435,6 +435,14 @@ describe("explode (fixture)", () => {
     expect(world.y).toBeCloseTo(3.2 + 2.5, 6);
     // the stored coordinate is byte-identical: the offset lives on the group only
     expect(placement.position).toEqual([2, 3.2, 2]);
+    // Moving an instance must invalidate old bounds used by body picking and support snapping.
+    const mesh = markers.meshes[0]!;
+    mesh.computeBoundingSphere();
+    const oldCenter = mesh.boundingSphere!.center.clone();
+    markers.set([{ ...placement, position: [20, 3.2, 20] }], () => "live", () => "f-upper");
+    expect(mesh.boundingSphere).toBeNull();
+    mesh.computeBoundingSphere();
+    expect(mesh.boundingSphere!.center.distanceTo(oldCenter)).toBeGreaterThan(20);
     markers.dispose();
   });
 });

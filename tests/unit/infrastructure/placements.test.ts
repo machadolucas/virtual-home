@@ -157,25 +157,29 @@ describe("placement mount round trip", () => {
     const created = await bodyOf<{ placement: PersistedPlacement }>(
       await put({
         position: [1.5, 1.4, 1.5],
-        symbol: "led_bar_vertical",
+        symbol: "outdoor_wood_storage",
         ledLengthM: 1.2344,
         detectionRangeM: 7.6544,
         treeHeightM: 6.7894,
+        equipmentSize: { widthM: 1.2344, depthM: 2.3456, heightM: 2.2222 },
       }),
     );
     expect(created.placement.ledLengthM).toBe(1.234);
     expect(created.placement.detectionRangeM).toBe(7.654);
     expect(created.placement.treeHeightM).toBe(6.789);
+    expect(created.placement.equipmentSize).toEqual({ widthM: 1.234, depthM: 2.346, heightM: 2.222 });
 
     const row = h.handle.db.select().from(assetPlacement).all()[0];
     expect(row?.ledLengthM).toBe(1.234);
     expect(row?.detectionRangeM).toBe(7.654);
     expect(row?.treeHeightM).toBe(6.789);
+    expect(JSON.parse(row?.equipmentDimensionsJson ?? "null")).toEqual({ widthM: 1.234, depthM: 2.346, heightM: 2.222 });
 
     const listed = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
     expect(listed.placements[0]?.ledLengthM).toBe(1.234);
     expect(listed.placements[0]?.detectionRangeM).toBe(7.654);
     expect(listed.placements[0]?.treeHeightM).toBe(6.789);
+    expect(listed.placements[0]?.equipmentSize).toEqual({ widthM: 1.234, depthM: 2.346, heightM: 2.222 });
   });
 
   it.each([
@@ -188,6 +192,9 @@ describe("placement mount round trip", () => {
     ["tree height below range", { treeHeightM: 0.499 }],
     ["tree height above range", { treeHeightM: 30.001 }],
     ["non-number tree height", { treeHeightM: "NaN" }],
+    ["equipment width below range", { equipmentSize: { widthM: 0.099, depthM: 2.5, heightM: 2.2 } }],
+    ["equipment depth above range", { equipmentSize: { widthM: 1, depthM: 20.001, heightM: 2.2 } }],
+    ["equipment height above range", { equipmentSize: { widthM: 1, depthM: 2.5, heightM: 10.001 } }],
   ])("refuses invalid optical dimensions: %s", async (_label, fields) => {
     const res = await put({ position: [1.5, 1.4, 1.5], ...fields });
     expect(res.status).toBe(400);
@@ -210,14 +217,15 @@ describe("placement mount round trip", () => {
 
   it("preserves stored configurable dimensions when an older client omits them", async () => {
     const created = await bodyOf<{ placement: PersistedPlacement }>(
-      await put({ position: [1.5, 1.4, 1.5], ledLengthM: 2.5, detectionRangeM: 8, treeHeightM: 9 }),
+      await put({ position: [1.5, 1.4, 1.5], symbol: "outdoor_wood_storage", ledLengthM: 2.5, detectionRangeM: 8, treeHeightM: 9, equipmentSize: { widthM: 1.2, depthM: 3, heightM: 2.4 } }),
     );
     const updated = await bodyOf<{ placement: PersistedPlacement }>(
-      await put({ id: created.placement.id, position: [1.6, 1.4, 1.5] }),
+      await put({ id: created.placement.id, position: [1.6, 1.4, 1.5], symbol: "outdoor_wood_storage" }),
     );
     expect(updated.placement.ledLengthM).toBe(2.5);
     expect(updated.placement.detectionRangeM).toBe(8);
     expect(updated.placement.treeHeightM).toBe(9);
+    expect(updated.placement.equipmentSize).toEqual({ widthM: 1.2, depthM: 3, heightM: 2.4 });
   });
 
   it("round-trips solar-panel dimensions and tilt through storage and reload", async () => {

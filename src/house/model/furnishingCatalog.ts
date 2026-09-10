@@ -15,4 +15,7 @@ export const FURNISHING_CATALOG: Array<{ kind: FurnishingKind; label: string; si
   { kind: "kitchen_counter", label: "Kitchen counter", size: [1.8,.65,.92] },
   { kind: "rug", label: "Rug", size: [2,1.4,.02] },
   { kind: "bench", label: "Bench", size: [1.3,.45,.5] },
+  { kind: "tv_rack", label: "TV rack", size: [1.4,.42,.5] },
+  { kind: "stool", label: "Stool", size: [.4,.4,.48] },
+  { kind: "outdoor_wheelie_bin", label: "Outdoor wheelie bin", size: [.58,.74,1.07] },
 ];

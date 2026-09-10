@@ -22,3 +22,15 @@ it("includes the configured tree crown in the frame", () => {
   expect(tree.max.y).toBeGreaterThan(12);
   expect(tree.getSize(new THREE.Vector3()).x).toBeGreaterThan(7);
 });
+
+it("includes a resized outdoor wood-storage shack in the frame", () => {
+  const storage = equipmentBox3({
+    position: [0, 0, 0],
+    symbol: "outdoor_wood_storage",
+    equipmentSize: { widthM: 2, depthM: 4, heightM: 3 },
+  });
+  const size = storage.getSize(new THREE.Vector3());
+  expect(size.x).toBeGreaterThan(2);
+  expect(size.y).toBeGreaterThan(3);
+  expect(size.z).toBeGreaterThan(4);
+});

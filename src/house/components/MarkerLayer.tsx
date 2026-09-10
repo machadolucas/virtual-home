@@ -82,6 +82,7 @@ export function MarkerButtons({ hostRef }: { hostRef: React.RefObject<HTMLDivEle
   const runtime = useHouseRuntime();
   const placements = useHouseStore((s) => s.placements);
   const equipmentVisible = useHouseStore((s) => s.layers.equipment);
+  const placing = useHouseStore((s) => s.tool === "place");
   const selection = useHouseStore((s) => s.selection);
   const touch = useIsTouch();
   const [, forceBadgeTick] = useState(0);
@@ -107,6 +108,8 @@ export function MarkerButtons({ hostRef }: { hostRef: React.RefObject<HTMLDivEle
             key={p.id}
             type="button"
             data-placement={p.id}
+            style={{ pointerEvents: placing ? "none" : "auto" }}
+            disabled={placing}
             hidden
             aria-pressed={selected}
             aria-label={markerLabel(p)}

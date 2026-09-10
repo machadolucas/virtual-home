@@ -396,6 +396,7 @@ export function createRestDataApi(opts: RestDataApiOptions = {}): HouseDataApi {
             ledLengthM: placement.ledLengthM,
             detectionRangeM: placement.detectionRangeM,
             treeHeightM: placement.treeHeightM,
+            equipmentSize: placement.equipmentSize,
             solarPanel: placement.solarPanel ?? null,
             floorId: placement.floorId,
             roomId: placement.roomId,

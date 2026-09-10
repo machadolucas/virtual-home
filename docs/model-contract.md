@@ -359,6 +359,12 @@ Selection and hover use `material.emissive` + `emissiveIntensity`, never `materi
 highlight can never leak into a persisted colour and the override stays the single writer of
 `color`.
 
+Low-wall and contextual cuts apply to the whole physical wall assembly. A `wall-top` surface is
+the source wall's cap, not a generated cap at the cut height, so it is clipped wholly below the
+floor while that assembly is cut. This prevents sloping or malformed source caps from leaving a
+floating diagonal wedge beneath the normal wall cut; the runtime does not rewrite the immutable
+model geometry.
+
 ## 5. Rendering invariants
 
 `frameloop="demand"`: nothing renders unless something asks. The complete list of triggers that
@@ -625,7 +631,8 @@ on resizing/unmount, with no continuous temporal shadow accumulation or preserve
 The placement editor's searchable **Shown as** picker includes lantern posts; wall, floor and ceiling
 spots; square floor-heating coils; switches and remotes; kitchen/laundry appliances; plumbing fixtures;
 electric and wood-fired sauna heaters; TVs; server racks, routers, NVRs, NAS units, media players and
-yard trees. Trees remain ordinary equipment records, so their species/name, notes, issues, documents
+yard trees; hot-water tanks; ventilation machines; wall and tower speakers; wood/electric stoves
+with ovens; outdoor barbecues; and outdoor wood storage. Trees remain ordinary equipment records, so their species/name, notes, issues, documents
 and maintenance history use the existing equipment features without requiring a Home Assistant link.
 These remain lightweight procedural silhouettes, instanced by symbol and presentation group. Their
 envelopes use representative physical metre dimensions while retaining the placement as their mount
@@ -662,6 +669,13 @@ scale proportionally to the saved height. Horizontal/vertical section planes alw
 presentation group; All cut and Contextual wall modes also lower trees to the same cap as walls, so
 foliage does not obscure an opened dollhouse view. All up and Closed restore the complete crown.
 
+Hot-water tanks use an upright 0.65 × 0.65 × 1.86 m cylinder. Ventilation machines use a
+0.46 m width, 1.02 m depth and 0.57 m height envelope. Speaker, stove/oven and barbecue symbols
+retain representative domestic sizes. Outdoor wood storage defaults to 1 m width, 2.5 m depth and
+2.2 m height; its optional `equipmentSize` persists independently and scales the open-fronted shack
+on the matching physical axes. Width/depth accept 0.1–20 m and height 0.1–10 m. Migration 0013 adds
+one nullable validated JSON column; missing or malformed legacy data falls back to the default size.
+
 Wall snapping treats a semantic surface as potentially multi-planar: exterior surfaces can wrap
 around corners or bays. The picked triangle selects the mounting plane, and only coplanar triangles
 supply the guide extents. Numeric adjustments recover that plane from the saved physical position,
@@ -690,7 +704,8 @@ with matching visibility results; this is a CPU geometry benchmark, not an end-t
 ### Interactive furniture placement
 
 The furniture catalog renders miniature SVG projections of the same procedural model geometry,
-using the default physical dimensions. It creates no additional WebGL contexts. Selecting a type
+using the default physical dimensions. It includes TV racks, stools and Finnish-style outdoor
+wheelie bins alongside the existing room furniture. It creates no additional WebGL contexts. Selecting a type
 opens a draft in the details pane; pointer hover draws an unsaved translucent preview on upward-facing
 visible model surfaces. A click confirms the position, and Save persists it. Escape/collapse/Cancel
 clear the preview and restore the prior tool and exploded view. Busy writes cannot be dismissed.
@@ -701,3 +716,21 @@ so diagonal walls do not block their entire bounding box. Wall triangles are cac
 hover is coalesced to one update per animation frame. Preview geometry does not cast shadows and is
 excluded from PNG export. Numeric resizing and repositioning use the same collision check before
 saving. Collision is conservative for the empty part of an L-shaped sofa's rectangular envelope.
+
+### Object placement gestures and stacking
+
+Furniture uses the same enabled 5 cm grid as equipment; Alt temporarily bypasses it. Pressing the
+left button establishes a fixed placement anchor. Dragging around that anchor previews a body yaw
+snapped to 45-degree increments; release applies it to the unsaved draft. Pointer cancellation or
+exit clears the preview. Hover and rotation previews never persist or mutate draft coordinates.
+Equipment and furniture can land on visible upward-facing equipment/furniture triangles. Hidden,
+clipped, and self geometry are excluded. Equipment stores the resulting physical position as a free
+mount with floor-relative height, preserving existing server formats. Stacking is a placement aid,
+not a parent-child attachment: moving the support later does not move objects already placed on it.
+
+Equipment hover previews use the actual symbol geometry and configurable scale, with a red collision
+state. Wall collision uses its rotated physical envelope and the same cached wall/door triangles as
+furniture, excluding intentional contact with the attached surface and original wall-top caps.
+Numerical equipment edits are checked on Save as well. Preview meshes cast no shadows and are
+excluded from downloaded images. Move mode picks fixtures only; Select picks property surfaces and
+furniture; Place reserves pointer input for positioning. Tool changes clear stale surface hover.

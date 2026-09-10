@@ -166,6 +166,17 @@ export function vh(page: Page) {
         },
         undefined,
       ),
+    hover: (): Promise<VhSelectionValue | null> =>
+      evalHook(
+        page,
+        ({ hook }) => {
+          const hovered = hook.hover();
+          return hovered ? { kind: hovered.kind as string, id: hovered.id as string } : null;
+        },
+        undefined,
+      ),
+    placementDraft: (): Promise<{ position: [number, number, number]; rotationYDeg: number } | null> =>
+      evalHook(page, ({ hook }) => hook.placementDraft(), undefined),
 
     controlsEnabled: (): Promise<boolean | null> =>
       evalHook(page, ({ hook }) => hook.controlsEnabled(), undefined),

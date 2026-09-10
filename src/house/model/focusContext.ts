@@ -172,3 +172,26 @@ export function focusCutSurfaceIds(
     for (const sid of index.surfacesByElement.get(elementId) ?? []) ids.add(sid);
   return [...ids];
 }
+
+/**
+ * A wall-top is the cap of the uncut source wall, not a replacement cap for the low wall. Clip it
+ * wholly below the floor while its wall assembly is cut. This also prevents a malformed sloping
+ * cap from leaving a diagonal wedge below the ordinary focus height.
+ */
+export function focusCutYForSurface(
+  index: ManifestIndex,
+  surfaceId: SurfaceId,
+  cutY: number,
+  floorY: number,
+): number {
+  return index.surfaces.get(surfaceId)?.role === "wall-top" ? floorY - 0.01 : cutY;
+}
+
+/** The selected wall face may stay whole in contextual view, but its source cap never may. */
+export function preservesFocusCutSurface(
+  index: ManifestIndex,
+  surfaceId: SurfaceId,
+  preserveSurfaceId: SurfaceId | null,
+): boolean {
+  return surfaceId === preserveSurfaceId && index.surfaces.get(surfaceId)?.role !== "wall-top";
+}

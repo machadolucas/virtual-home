@@ -88,6 +88,14 @@ describe("symbol geometry", () => {
     for (const symbol of ["floor_lamp", "lamp_post", "floor_spot"] as const) {
       expect(sizeOf(symbol)[1], symbol).toBeCloseTo(1.5, 6);
     }
+    expectSize("hot_water_tank", [0.65, 1.86, 0.65]);
+    expectSize("ventilation_machine", [0.46, 0.57, 1.02]);
+    expectSize("wall_speaker", [0.25, 0.35, 0.18]);
+    expectSize("tower_speaker", [0.25, 1, 0.3]);
+    expectSize("wood_stove_oven", [0.6, 0.9, 0.6]);
+    expectSize("electric_stove_oven", [0.6, 0.85, 0.6]);
+    expectSize("outdoor_barbecue", [0.75, 1.1, 0.55]);
+    expectSize("outdoor_wood_storage", [1, 2.2, 2.5]);
   });
 
   it("normalizes a solar panel to configurable dimensions and anchors it on its bottom", () => {
@@ -165,6 +173,14 @@ describe("symbol geometry", () => {
     expect(SYMBOL_LABEL.led_bar_vertical).toBe("LED bar (vertical)");
     expect(SYMBOL_LABEL.led_bar_horizontal).toBe("LED bar (horizontal)");
     expect(SYMBOL_LABEL.tree).toBe("Tree");
+    expect(SYMBOL_LABEL.hot_water_tank).toBe("Hot-water tank");
+    expect(SYMBOL_LABEL.ventilation_machine).toBe("Ventilation machine");
+    expect(SYMBOL_LABEL.wall_speaker).toBe("Wall speaker");
+    expect(SYMBOL_LABEL.tower_speaker).toBe("Tower speaker");
+    expect(SYMBOL_LABEL.wood_stove_oven).toBe("Wood stove with oven");
+    expect(SYMBOL_LABEL.electric_stove_oven).toBe("Electric stove with oven");
+    expect(SYMBOL_LABEL.outdoor_barbecue).toBe("Outdoor barbecue");
+    expect(SYMBOL_LABEL.outdoor_wood_storage).toBe("Outdoor wood storage");
   });
 
   it("authors a floor-anchored tree at its five-metre default envelope", () => {

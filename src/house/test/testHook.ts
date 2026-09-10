@@ -41,6 +41,9 @@ export interface VhHook {
   pickables(): number;
   select(selection: Selection | null): void;
   selection(): Selection | null;
+  /** Read-only pointer hover state for mode-gating regressions. */
+  hover(): Selection | null;
+  placementDraft(): { position: [number, number, number]; rotationYDeg: number } | null;
   /** Whether the camera controls currently accept the left button, or `null` if not mounted. */
   controlsEnabled(): boolean | null;
   controlBindings(): { left: number; right: number; wheel: number } | null;
@@ -187,6 +190,15 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
 
     selection() {
       return runtime.store.getState().selection;
+    },
+
+    hover() {
+      return runtime.store.getState().hover;
+    },
+
+    placementDraft() {
+      const draft = runtime.store.getState().editing;
+      return draft ? { position: [...draft.physical] as [number, number, number], rotationYDeg: draft.rotationYDeg } : null;
     },
 
     /**

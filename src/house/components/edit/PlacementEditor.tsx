@@ -34,11 +34,16 @@ import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouse
 import { useIsPhone } from "../../hooks/useReducedMotion";
 import { NumericPlacementFields } from "./NumericPlacementFields";
 import { draftSymbol, SpotlightAimFields } from "./SpotlightAimFields";
+import { useFurnishings } from "../furnishings/FurnishingsProvider";
+import { pickObjectSupport, placementYaw } from "../../scene/objectPlacement";
+import { equipmentPreviewShape, equipmentWallError } from "../../scene/equipmentPlacement";
+import { clearFurnishingCollisionCache } from "../../scene/furnishingPlacement";
 import { UndoBar } from "./UndoBar";
 
 export function PlacementEditor() {
   const runtime = useHouseRuntime();
   const phone = useIsPhone();
+  const { items: furnishings } = useFurnishings();
   const { editing, snap, index, fingerprint, modelId, editError } = useHouseStore(
     useShallow((s) => ({
       editing: s.editing,
@@ -103,7 +108,7 @@ export function PlacementEditor() {
       const hit = picker.pick(event.clientX, event.clientY, rect, camera, sceneIndex, clip, {
         candidates: dragCandidates(sceneIndex, editing.floorId),
       });
-      const solution = resolveSnap({
+      let solution = resolveSnap({
         hit,
         freePoint: intersectHorizontalPlane(
           ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -117,6 +122,17 @@ export function PlacementEditor() {
         meshOf: (id) => sceneIndex.surfaceMesh.get(id),
         anchorOf: (id) => index.roomAnchors.get(id)?.point,
       });
+      const support = pickObjectSupport(runtime, event.clientX, event.clientY, furnishings, editing.placementId);
+      if (support && (!hit || support.distance < hit.distance)) {
+        const floorId = support.floorId ?? editing.floorId;
+        const roomId = support.roomId;
+        const base = (roomId ? index.rooms.get(roomId)?.floorElevation : null) ?? index.floors.get(floorId)?.elevation ?? 0;
+        const grid = snap.enabled && !event.altKey ? snap.grid : 0;
+        const physical: [number, number, number] = [snapValue(support.point.x, grid),
+          snapValue(support.point.y - (runtime.offsets.get(floorId) ?? 0), 0), snapValue(support.point.z, grid)];
+        solution = { physical, rotationYDeg: editing.rotationYDeg, floorId, roomId, surfaceId: null,
+          mount: { kind: "free", height: physical[1] - base }, indicator: { kind: "free", point: physical } };
+      }
       solution.indicator.ground = projectGroundReference({
         point: solution.physical, floorId: solution.floorId, roomId: solution.roomId,
         manifest: index, sceneIndex,
@@ -148,35 +164,65 @@ export function PlacementEditor() {
       return !aiming && s.tool === "place" && !s.cameraOverride && !s.editorSaving;
     };
 
+    const shape = equipmentPreviewShape(editing);
+    const material = new THREE.MeshStandardMaterial({ color: 0x4cad9b, transparent: true, opacity: .65, roughness: .9, depthWrite: false });
+    const preview = new THREE.Mesh(shape.geometry, material);
+    preview.name = "vh-equipment-preview";
+    preview.scale.copy(shape.scale);
+    preview.visible = false;
+    runtime.scene?.add(preview);
+    clearFurnishingCollisionCache(sceneIndex);
+    let anchor: ReturnType<typeof solveAt> | null = null;
+    let down: { x: number; y: number } | null = null;
+    let frame = 0;
+    let latest: PointerEvent | null = null;
+    const proposed = (event: PointerEvent) => {
+      if (!anchor || !down) return solveAt(event);
+      if (Math.hypot(event.clientX - down.x, event.clientY - down.y) < 8) return anchor;
+      const rect = el.getBoundingClientRect();
+      const target = intersectHorizontalPlane((event.clientX - rect.left) / rect.width * 2 - 1,
+        -(event.clientY - rect.top) / rect.height * 2 + 1, camera, anchor.physical[1]);
+      return target ? { ...anchor, rotationYDeg: placementYaw(anchor.physical, target.toArray(), anchor.rotationYDeg), panelOrientation: null } : anchor;
+    };
+    const asDraft = (solution: ReturnType<typeof solveAt>) => ({ ...editing, ...solution,
+      rotationYDeg: solution.panelOrientation?.rotationYDeg ?? solution.rotationYDeg,
+      ...(solution.panelOrientation ? { solarPanel: { ...(editing.solarPanel ?? DEFAULT_SOLAR_PANEL_CONFIG), tiltDeg: solution.panelOrientation.tiltDeg } } : {}),
+    });
+    const paint = (solution: ReturnType<typeof solveAt>) => {
+      const proposedDraft = asDraft(solution);
+      const problem = equipmentWallError(proposedDraft, sceneIndex);
+      preview.position.set(...solution.physical);
+      preview.rotation.set(equipmentPreviewShape(proposedDraft).tilt, THREE.MathUtils.degToRad(proposedDraft.rotationYDeg), 0, "YXZ");
+      preview.visible = equipmentVisible;
+      material.color.setHex(problem ? 0xd94d4d : 0x4cad9b);
+      setIndicator(solution.indicator);
+      setEditError(problem);
+      runtime.invalidate();
+      return problem;
+    };
     const onDown = (event: PointerEvent) => {
       if (event.button !== 0 || !placing()) return;
+      anchor = solveAt(event); down = { x: event.clientX, y: event.clientY };
       dragging.current = true;
-      const solution = solveAt(event);
-      setIndicator(solution.indicator);
-      commit(solution);
+      paint(anchor);
     };
-
-    // Hover previews. Aiming used to be blind — the indicator and the readout only appeared once
-    // the button was already down, so the only way to find out where a click would land was to
-    // click. Now the solve runs on every move and the draft changes only while pressed.
     const onMove = (event: PointerEvent) => {
-      if (!placing()) {
-        if (!dragging.current) setIndicator(null);
-        return;
-      }
-      const solution = solveAt(event);
-      setIndicator(solution.indicator);
-      if (dragging.current) commit(solution);
+      if (!placing()) { preview.visible = false; setIndicator(null); return; }
+      latest = event;
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; if (latest) paint(proposed(latest)); });
     };
-
-    const onUp = () => {
-      dragging.current = false;
+    const onUp = (event: PointerEvent) => {
+      if (event.button !== 0 || !down || !placing()) return;
+      if (frame) cancelAnimationFrame(frame); frame = 0;
+      const solution = proposed(event);
+      if (!paint(solution)) commit(solution);
+      anchor = null; down = null; dragging.current = false;
     };
-
-    /** Leaving the canvas ends the preview; a stale ring under no cursor is a lie. */
     const onLeave = () => {
-      dragging.current = false;
-      setIndicator(null);
+      if (frame) cancelAnimationFrame(frame); frame = 0; latest = null;
+      anchor = null; down = null; dragging.current = false;
+      preview.visible = false; setIndicator(null); runtime.invalidate();
     };
 
     el.addEventListener("pointerdown", onDown);
@@ -190,9 +236,11 @@ export function PlacementEditor() {
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onLeave);
       el.removeEventListener("pointerleave", onLeave);
+      onLeave();
+      preview.removeFromParent(); material.dispose();
       setIndicator(null);
     };
-  }, [runtime, editing, index, snap, phone, aiming, updateDraft, setIndicator]);
+  }, [runtime, editing, index, snap, phone, aiming, updateDraft, setIndicator, setEditError, furnishings, equipmentVisible]);
 
   /**
    * A spotlight has its own beam aim, separate from the marker's body rotation. The arrow is an
@@ -323,6 +371,8 @@ export function PlacementEditor() {
       setEditError("The coordinates must be numbers.");
       return;
     }
+    const collision = runtime.index ? equipmentWallError(editing, runtime.index) : null;
+    if (collision) { setEditError(collision); return; }
     // No room is a legitimate answer, not an error: a yard lamp, an eave spot or anything on the
     // terrace sits outside every room footprint. The package's `rooms` are interior only, so
     // requiring one made every outdoor fixture unplaceable. The row then anchors to the floor —
@@ -357,6 +407,7 @@ export function PlacementEditor() {
       ledLengthM: editing.ledLengthM ?? null,
       detectionRangeM: editing.detectionRangeM ?? null,
       treeHeightM: editing.treeHeightM ?? null,
+      equipmentSize: editing.equipmentSize ?? null,
       mount: editing.mount,
       floorId: editing.floorId,
       roomId: editing.roomId,
@@ -441,7 +492,7 @@ export function PlacementEditor() {
         </p>
       ) : (
         <p className="text-xs text-ink-2">
-          Drag on the 3D view to place. Hold <kbd className="rounded bg-surface-2 px-1">Alt</kbd>{" "}
+          Click to place; hold and drag around the anchor to rotate in 45° steps. Hold <kbd className="rounded bg-surface-2 px-1">Alt</kbd>{" "}
           to ignore the grid, <kbd className="rounded bg-surface-2 px-1">Shift</kbd> to constrain
           to one axis.
         </p>

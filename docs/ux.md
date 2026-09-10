@@ -71,14 +71,17 @@ missing.
 
 The desktop right panel has one scroll region for details, equipment placement or route editing.
 Floor shortcuts and Sims-style wall modes float together at the bottom-left of the canvas. Floors
-are grouped by building as vertical stacks that match their physical order; wall modes form a
-compact adjacent icon group. Every icon-only button retains an accessible name and hover label.
+are grouped by building as compact vertical stacks that match their physical order. Beneath them,
+wall modes form one linear spectrum: All cut → Contextual → All up → All up + roof/ceiling. Every
+icon-only button retains an accessible name and hover label.
 Choosing a floor frames it in the regular perspective view, leaves orbit controls available, and
 retains lower supporting floors in that building and every other building. The bottom View controls
 panel contains View (cutaway and explode), Layers (visibility and route legend),
 and Rendering (performance, background, daylight and shadows) tabs. The floating wall mode is
 one of All cut, Contextual, All up, or All up + roof/ceiling; Show inside is the quick contextual
-preset. Doors are completely hidden in both cut modes and return with All up or the closed mode. Camera presets and Download image remain available when the bottom panel is collapsed.
+preset. Closing the shell clears floor isolation and framing focus so the roof is never shown over
+a missing upper floor; choosing a floor opens the shell in Contextual mode. Doors are completely
+hidden in both cut modes and return with All up or the closed mode. Camera presets and Download image remain available when the bottom panel is collapsed.
 Immediate visibility settings use switches. Controls use compact desktop spacing and retain larger
 phone touch targets.
 
@@ -674,7 +677,7 @@ equipment labels visible; phones expose the same switch beside the model.
 Furniture is a separate model layer and a separate lightweight record. The property panel (and the
 phone House screen) can add regular or L-shaped sofas, single or double beds, bedside tables,
 chairs, dining tables, computer desks, bicycles, shelves, cabinets/wardrobes, kitchen counters,
-rugs and benches. Every object previews while its physical X/Y/Z position, width, depth, height or
+rugs, benches, TV racks, stools and outdoor wheelie bins. Every object previews while its physical X/Y/Z position, width, depth, height or
 yaw is edited; Save persists it, Cancel restores the previous view and saved object. Furniture has
 no maintenance, documents or Home Assistant controls. A package revision keeps these records by
 stable `modelId`; a removed floor is shown in the list as needing reassignment rather than dropping
@@ -750,6 +753,10 @@ Choose **Solar panel** to reveal width, length, thickness and tilt fields. Click
 align its slope, then adjust position/rotation numerically as needed. Panel dimensions are metres;
 other equipment silhouettes use representative physical dimensions so appliances and standing
 fixtures read at a credible scale against the house. Every panel remains a separate equipment placement.
+Additional equipment silhouettes cover an upright hot-water tank, ventilation machine, wall and
+tower speakers, wood/electric stoves with ovens and an outdoor barbecue. Outdoor wood storage uses
+an open-fronted shack with visible stacked logs; its Width, Depth and Height fields default to
+1 × 2.5 × 2.2 m and persist with the placement.
 
 Home Assistant import rows keep their selection, device details and import action in aligned columns.
 **Hide already imported** filters linked devices from the registry list. Selected-device entity choices
@@ -789,3 +796,10 @@ it. Red previews indicate a wall/door collision and cannot be committed. The det
 physical size and rotation fields, **Reposition in 3D**, Save and Cancel. Clicking saved furniture
 opens that same pane. Numerical positioning remains available for keyboard and phone use. Furniture
 keeps its own records and has no equipment-documentation overhead.
+
+Equipment and furniture placement share a grid and a press-and-turn gesture: click to position, or
+hold the button and move around that point to rotate in 45° increments before releasing. Alt ignores
+the grid. Hover previews show the full model and red indicates a wall collision. Equipment can be
+placed on a washing machine, cabinet or other visible support; the saved height remains physical.
+Moving a support later does not automatically carry items on it. Select mode opens furniture details;
+Move mode keeps fixture clicks available but never selects or highlights property surfaces.

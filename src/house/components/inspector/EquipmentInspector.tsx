@@ -77,6 +77,12 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
         {placement.symbol === "tree" ? (
           <Row label="Tree height" value={`${(placement.treeHeightM ?? 5).toFixed(1)} m`} />
         ) : null}
+        {placement.symbol === "outdoor_wood_storage" && placement.equipmentSize ? (
+          <Row
+            label="Size"
+            value={`${placement.equipmentSize.widthM} × ${placement.equipmentSize.depthM} × ${placement.equipmentSize.heightM} m`}
+          />
+        ) : null}
       </dl>
 
       {placement.locationNote ? (
@@ -114,6 +120,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
               ledLengthM: placement.ledLengthM ?? null,
               detectionRangeM: placement.detectionRangeM ?? null,
               treeHeightM: placement.treeHeightM ?? null,
+              equipmentSize: placement.equipmentSize ?? null,
               mount: placement.mount,
               floorId: placement.floorId,
               roomId: placement.roomId,

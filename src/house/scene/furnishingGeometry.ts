@@ -150,6 +150,40 @@ function rawGeometry(kind: FurnishingKind): THREE.BufferGeometry {
         box(0, 0.82, 0.33, 0.94, 0.36, 0.1),
       ];
       break;
+    case "tv_rack":
+      parts = [
+        box(0, 0.08, 0, 1, 0.16, 0.9),
+        box(-0.47, 0.47, 0, 0.06, 0.78, 0.86),
+        box(0.47, 0.47, 0, 0.06, 0.78, 0.86),
+        box(0, 0.86, 0, 1, 0.12, 0.94),
+        box(0, 0.47, 0.18, 0.9, 0.06, 0.5),
+        box(-0.23, 0.3, -0.46, 0.42, 0.32, 0.05),
+        box(0.23, 0.3, -0.46, 0.42, 0.32, 0.05),
+      ];
+      break;
+    case "stool":
+      parts = [
+        ...fourLegs(0.62, 0.62, 0.75, 0.08),
+        at(new THREE.CylinderGeometry(0.48, 0.43, 0.18, 14), 0, 0.84, 0),
+        box(0, 0.4, 0, 0.58, 0.06, 0.08),
+        box(0, 0.4, 0, 0.08, 0.06, 0.58),
+      ];
+      break;
+    case "outdoor_wheelie_bin": {
+      const leftWheel = new THREE.CylinderGeometry(0.12, 0.12, 0.09, 12);
+      const rightWheel = leftWheel.clone();
+      leftWheel.rotateZ(Math.PI / 2);
+      rightWheel.rotateZ(Math.PI / 2);
+      parts = [
+        box(0, 0.48, 0.03, 0.86, 0.83, 0.72),
+        box(0, 0.9, -0.02, 0.96, 0.1, 0.88),
+        box(0, 0.71, 0.4, 0.72, 0.08, 0.08),
+        at(leftWheel, -0.48, 0.13, 0.27),
+        at(rightWheel, 0.48, 0.13, 0.27),
+        box(0, 0.12, 0.3, 0.65, 0.07, 0.08),
+      ];
+      break;
+    }
   }
   return mergeGeometries(parts)!;
 }

@@ -7,6 +7,8 @@
  */
 import { isLedBar, ledLength } from "@/house/model/equipmentOptics";
 import { SolarPanelFields } from "./SolarPanelFields";
+import { EquipmentSizeFields } from "./EquipmentSizeFields";
+import { DEFAULT_WOOD_STORAGE_SIZE } from "@/house/model/equipmentSize";
 import { DEFAULT_SOLAR_PANEL_CONFIG } from "@/house/model/solarPanel";
 import {
   DEFAULT_TREE_HEIGHT_M,
@@ -212,6 +214,10 @@ export function NumericPlacementFields() {
               symbol: value === INFERRED ? null : value,
               ...(value === "solar_panel" ? { solarPanel: editing.solarPanel ?? { ...DEFAULT_SOLAR_PANEL_CONFIG } } : {}),
               ...(value === "tree" ? { treeHeightM: editing.treeHeightM ?? DEFAULT_TREE_HEIGHT_M } : {}),
+              equipmentSize:
+                value === "outdoor_wood_storage"
+                  ? editing.equipmentSize ?? { ...DEFAULT_WOOD_STORAGE_SIZE }
+                  : null,
             });
           }}
           options={[
@@ -228,6 +234,7 @@ export function NumericPlacementFields() {
       </label>
 
       <SolarPanelFields />
+      <EquipmentSizeFields />
       {isLedBar(editing.symbol) && <label className="flex flex-col gap-1 text-xs">
         <span>LED bar length (m)</span>
         <input aria-label="LED bar length (m)" type="number" min="0.05" max="20" step="0.05" value={ledLength(editing.ledLengthM)} onChange={(event) => {

@@ -47,6 +47,12 @@ import {
   type SolarPanelConfig,
 } from "@/house/model/solarPanel";
 import type { Placement, PlacementLinkedEntity, PlacementMount } from "@/house/model/types";
+import {
+  canonicalEquipmentSize,
+  DEFAULT_WOOD_STORAGE_SIZE,
+  equipmentSizeFromJson,
+  EquipmentSizeSchema,
+} from "@/house/model/equipmentSize";
 import { authed, badRequest, conflict, HttpError } from "@/server/api/handler";
 import { currentPackageForRequest, NO_STORE } from "@/server/house-model/http";
 import { manifestIndexOf } from "@/server/house-model/package";
@@ -238,6 +244,7 @@ const PlacementSchema = z.object({
   ledLengthM: FiniteSchema.min(0.05).max(20).nullish(),
   detectionRangeM: FiniteSchema.min(0.1).max(30).nullish(),
   treeHeightM: FiniteSchema.min(0.5).max(30).nullish(),
+  equipmentSize: EquipmentSizeSchema.nullish(),
   solarPanel: SolarPanelConfigSchema.nullish(),
   floorId: IdSchema,
   roomId: IdSchema.nullish(),
@@ -375,6 +382,7 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
       ledLengthM: assetPlacement.ledLengthM,
       detectionRangeM: assetPlacement.detectionRangeM,
       treeHeightM: assetPlacement.treeHeightM,
+      equipmentDimensionsJson: assetPlacement.equipmentDimensionsJson,
       placementKind: assetPlacement.placementKind,
       mountKind: assetPlacement.mountKind,
       mountSurfaceId: assetPlacement.mountSurfaceId,
@@ -442,6 +450,10 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
       ledLengthM: row.ledLengthM,
       detectionRangeM: row.detectionRangeM,
       treeHeightM: row.treeHeightM,
+      equipmentSize:
+        row.symbol === "outdoor_wood_storage"
+          ? equipmentSizeFromJson(row.equipmentDimensionsJson) ?? { ...DEFAULT_WOOD_STORAGE_SIZE }
+          : null,
       entityId: linkedEntities.get(row.assetId)?.[0]?.entityId ?? null,
       linkedEntities: linkedEntities.get(row.assetId) ?? [],
       symbol: row.symbol,
@@ -572,6 +584,10 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     p.symbol === "solar_panel"
       ? canonicalSolarPanelConfig(p.solarPanel ?? DEFAULT_SOLAR_PANEL_CONFIG)
       : null;
+  const equipmentSize =
+    p.symbol === "outdoor_wood_storage" && p.equipmentSize
+      ? canonicalEquipmentSize(p.equipmentSize)
+      : null;
 
   // A client-supplied id addresses an existing row; without one this is a new placement, and the
   // natural key (asset, kind) decides whether it replaces one. Splitting the two keeps a re-`PUT`
@@ -607,6 +623,9 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     ...(p.treeHeightM === undefined
       ? {}
       : { treeHeightM: p.treeHeightM === null ? null : mm(p.treeHeightM) }),
+    ...(p.equipmentSize === undefined
+      ? p.symbol === "outdoor_wood_storage" ? {} : { equipmentDimensionsJson: null }
+      : { equipmentDimensionsJson: equipmentSize === null ? null : JSON.stringify(equipmentSize) }),
     mountKind,
     mountSurfaceId,
     mountHeightM,
@@ -662,6 +681,7 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
       ledLengthM: assetPlacement.ledLengthM,
       detectionRangeM: assetPlacement.detectionRangeM,
       treeHeightM: assetPlacement.treeHeightM,
+      equipmentDimensionsJson: assetPlacement.equipmentDimensionsJson,
       solarPanelJson: assetPlacement.solarPanelJson,
     })
     .from(assetPlacement)
@@ -691,6 +711,10 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     ledLengthM: stored?.ledLengthM ?? null,
     detectionRangeM: stored?.detectionRangeM ?? null,
     treeHeightM: stored?.treeHeightM ?? null,
+    equipmentSize:
+      p.symbol === "outdoor_wood_storage"
+        ? equipmentSizeFromJson(stored?.equipmentDimensionsJson ?? null) ?? { ...DEFAULT_WOOD_STORAGE_SIZE }
+        : null,
     mount: clientMount(mountKind, mountSurfaceId, mountHeightM, mountOffsetM),
     floorId: p.floorId,
     roomId: mountRoomId,

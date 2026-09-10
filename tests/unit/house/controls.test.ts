@@ -83,6 +83,38 @@ describe("wall display presets", () => {
       wallModeExplicit: true,
       roofVisible: true,
       ceilingsVisible: true,
+      activeFloorId: null,
+      selection: null,
+      focusSelection: null,
+      viewMode: "overview",
+    });
+  });
+
+  it("never closes the roof over a floor-isolated building", () => {
+    const store = createHouseStore();
+    store.getState().isolateFloor("f-lower");
+    expect(store.getState()).toMatchObject({
+      activeFloorId: "f-lower",
+      wallMode: "contextual",
+      roofVisible: false,
+      ceilingsVisible: false,
+    });
+
+    store.getState().setRoofVisible(true);
+    expect(store.getState()).toMatchObject({
+      activeFloorId: null,
+      selection: null,
+      focusSelection: null,
+      viewMode: "overview",
+      roofVisible: true,
+    });
+    store.getState().setCeilingsVisible(true);
+    expect(store.getState()).toMatchObject({
+      activeFloorId: null,
+      selection: null,
+      focusSelection: null,
+      viewMode: "overview",
+      wallMode: "closed",
     });
   });
 
@@ -97,6 +129,15 @@ describe("wall display presets", () => {
       focusSelection: null,
       viewMode: "overview",
     });
+  });
+});
+
+describe("pointer tool transitions", () => {
+  it("clears stale hover immediately when the pointer tool changes", () => {
+    const store = createHouseStore();
+    store.getState().setHover({ kind: "surface", id: "wall-a" });
+    store.getState().setTool("select");
+    expect(store.getState()).toMatchObject({ tool: "select", hover: null });
   });
 });
 

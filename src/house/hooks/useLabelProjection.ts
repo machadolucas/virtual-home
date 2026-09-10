@@ -186,6 +186,8 @@ export function useLabelProjection(
     const pool = new LabelPool(host, sizes, (anchorId) => {
       const anchor = anchorsRef.current?.find((a) => a.id === anchorId);
       if (!anchor) return;
+      const tool = runtime.store.getState().tool;
+      if (tool === "place" || (tool === "orbit" && anchor.kind !== "equipment")) return;
       const reading = badgeTextRef.current?.(anchor, expandedRef.current.has(anchorId));
       if (anchor.kind === "equipment" && reading?.expandable) {
         const expanded = expandedRef.current;
@@ -247,7 +249,7 @@ export function useLabelProjection(
 
     const cells = new Map<number, Candidate>();
     const v = new THREE.Vector3();
-    const { selection, equipmentOcclusion } = runtime.store.getState();
+    const { selection, equipmentOcclusion, tool } = runtime.store.getState();
     if (equipmentOcclusion && runtime.index) occlusion.beginFrame(runtime.index, runtime.clip, camera, runtime.occlusionRevision, runtime.invalidate);
 
     for (const anchor of anchors) {
@@ -283,7 +285,7 @@ export function useLabelProjection(
       else prev.count++;
     }
 
-    write(pool, cells, tier, badgeTextRef.current, expandedRef.current);
+    write(pool, cells, tier, badgeTextRef.current, expandedRef.current, tool);
   });
 }
 
@@ -293,6 +295,7 @@ function write(
   tier: LabelTier,
   badgeText?: LabelProjectionOptions["badgeText"],
   expanded = new Set<string>(),
+  tool: "orbit" | "select" | "place" = "select",
 ): void {
   const sorted = [...cells.values()].sort((a, b) => a.depth - b.depth);
   let labelIndex = 0;
@@ -313,6 +316,7 @@ function write(
     slot.anchorId = anchor.id;
     slot.badgeEnabled = anchor.kind === "equipment" || tier.badges || candidate.selected;
     slot.el.hidden = false;
+    slot.el.style.pointerEvents = tool === "select" || (tool === "orbit" && anchor.kind === "equipment") ? "auto" : "none";
     slot.el.style.transform = `translate3d(${Math.round(candidate.x)}px, ${Math.round(candidate.y)}px, 0)`;
     writeLabelText(slot, anchor, tier, badgeText, expanded.has(anchor.id));
     slot.el.setAttribute("data-anchor", anchor.id);

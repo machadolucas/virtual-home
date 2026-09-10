@@ -15,10 +15,10 @@ import type { ExplodeGroup, Placement, PlacementId } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
 import { getViewerPalette, type MarkerStateClass } from "./palette";
 import { overlayGroup, type SceneIndex } from "./SceneIndex";
-import { isDirectionalSymbol, isLedBar, ledLength } from "@/house/model/equipmentOptics";
+import { isDirectionalSymbol, isLedBar } from "@/house/model/equipmentOptics";
+import { equipmentSymbolScale } from "@/house/model/equipmentScale";
 import { defaultLightAim, isSpotlightSymbol } from "@/house/model/equipmentLight";
 import { DEFAULT_SOLAR_PANEL_CONFIG } from "@/house/model/solarPanel";
-import { treeScale } from "@/house/model/tree";
 import { symbolGeometry, type PlacementSymbol } from "./symbols";
 
 export const MARKER_CAPACITY = 256;
@@ -122,13 +122,11 @@ export class MarkerLayer {
       this.position.set(p.position[0], p.position[1], p.position[2]);
       const panel = symbol === "solar_panel" ? p.solarPanel ?? DEFAULT_SOLAR_PANEL_CONFIG : null;
       this.euler.set(THREE.MathUtils.degToRad(panel?.tiltDeg ?? 0), THREE.MathUtils.degToRad(p.rotationYDeg ?? 0), 0, "YXZ");
-      this.unitScale.set(panel?.widthM ?? 1, panel?.thicknessM ?? 1, panel?.lengthM ?? 1);
+      this.unitScale.fromArray(equipmentSymbolScale(p));
       if (isDirectionalSymbol(symbol)) {
         const aim = p.lightAim ?? defaultLightAim(symbol, p.rotationYDeg);
         this.euler.set(THREE.MathUtils.degToRad(-aim.pitchDeg), THREE.MathUtils.degToRad(aim.yawDeg), 0, "YXZ");
       }
-      if (isLedBar(symbol)) this.unitScale.set(symbol === "led_bar_horizontal" ? ledLength(p.ledLengthM) : 1, symbol === "led_bar_vertical" ? ledLength(p.ledLengthM) : 1, 1);
-      if (symbol === "tree") this.unitScale.setScalar(treeScale(p.treeHeightM));
       this.quaternion.setFromEuler(this.euler);
       this.matrix.compose(this.position, this.quaternion, this.unitScale);
       state.mesh.setMatrixAt(i, this.matrix);
@@ -139,6 +137,9 @@ export class MarkerLayer {
     }
     for (const state of this.groups.values()) {
       state.mesh.instanceMatrix.needsUpdate = true;
+      // Picking and stacking use instance bounds; discard bounds from the previous placement set.
+      state.mesh.boundingSphere = null;
+      state.mesh.boundingBox = null;
       if (state.mesh.instanceColor) state.mesh.instanceColor.needsUpdate = true;
     }
   }

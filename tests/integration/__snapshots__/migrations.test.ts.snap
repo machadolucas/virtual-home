@@ -1058,7 +1058,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`created_at_ms\` integer NOT NULL,
 	\`created_by\` text,
 	\`updated_at_ms\` integer NOT NULL,
-	\`updated_by\` text, \`symbol\` text, \`light_aim_yaw_deg\` real, \`light_aim_pitch_deg\` real, \`solar_panel_json\` text, \`led_length_m\` real, \`detection_range_m\` real, \`tree_height_m\` real,
+	\`updated_by\` text, \`symbol\` text, \`light_aim_yaw_deg\` real, \`light_aim_pitch_deg\` real, \`solar_panel_json\` text, \`led_length_m\` real, \`detection_range_m\` real, \`tree_height_m\` real, \`equipment_dimensions_json\` text,
 	FOREIGN KEY (\`asset_id\`) REFERENCES \`asset\`(\`id\`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (\`model_revision_id\`) REFERENCES \`model_revision\`(\`id\`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (\`photo_attachment_id\`) REFERENCES \`attachment\`(\`id\`) ON UPDATE no action ON DELETE set null,
@@ -1390,7 +1390,7 @@ exports[`migrations > produces the expected schema 1`] = `
   },
   {
     "name": "furnishing",
-    "sql": "CREATE TABLE \`furnishing\` (
+    "sql": "CREATE TABLE "furnishing" (
 	\`id\` text PRIMARY KEY NOT NULL,
 	\`model_id\` text NOT NULL,
 	\`model_node_id\` text NOT NULL,
@@ -1411,7 +1411,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`updated_by\` text,
 	FOREIGN KEY (\`created_by\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (\`updated_by\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict,
-	CONSTRAINT "ck_furnishing_kind" CHECK(kind IN ('sofa', 'sofa_l', 'bed_single', 'bed_double', 'bedside_table', 'chair', 'dining_table', 'computer_desk', 'bicycle', 'shelves', 'cabinet', 'kitchen_counter', 'rug', 'bench')),
+	CONSTRAINT "ck_furnishing_kind" CHECK(kind IN ('sofa', 'sofa_l', 'bed_single', 'bed_double', 'bedside_table', 'chair', 'dining_table', 'computer_desk', 'bicycle', 'shelves', 'cabinet', 'kitchen_counter', 'rug', 'bench', 'tv_rack', 'stool', 'outdoor_wheelie_bin')),
 	CONSTRAINT "ck_furnishing_width" CHECK(width_m > 0),
 	CONSTRAINT "ck_furnishing_depth" CHECK(depth_m > 0),
 	CONSTRAINT "ck_furnishing_height" CHECK(height_m > 0),

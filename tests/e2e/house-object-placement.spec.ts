@@ -1,5 +1,67 @@
-import { expect, test } from "@playwright/test";
-import { openHouseSession } from "./helpers/house";
+import { expect, test, type Page } from "@playwright/test";
+import { openHouseSession, waitForStableFrames } from "./helpers/house";
+
+test("equipment stacks on equipment and furniture, previews without changing draft, and rotates on drag", async ({ browser }, info) => {
+  test.skip(info.project.name === "phone", "Pointer placement is a desktop interaction.");
+  const { context, page } = await openHouseSession(browser);
+  const ids: string[] = [];
+  let furnitureId: string | undefined;
+  try {
+    const status = await page.evaluate(() => window.__vh!.status());
+    const endpoint = `/api/house-model/${status.modelId}/placements`;
+    const available = await (await page.request.get(`${endpoint}?options=placeable`)).json();
+    for (const [name, symbol, position] of [["Eave spot", "washing_machine", [2,0,2]], ["Porch light", "dryer", [1,0,2]]] as const) {
+      const equipment = available.placeable.find((p: { name: string }) => p.name === name);
+      expect(equipment).toBeTruthy();
+      const response = await page.request.put(endpoint, { data: { fingerprint:status.fingerprint,viewMode:"normal",placement:{ equipmentId:equipment.assetId,
+        symbol, position, floorId:"f-lower",roomId:"r-l-a",mount:{kind:"floor",height:0} } } });
+      expect(response.ok()).toBe(true); ids.push((await response.json()).placement.id);
+    }
+    const furniture = await page.request.put(`/api/house-model/${status.modelId}/furnishings`, { data: {
+      fingerprint:status.fingerprint,viewMode:"normal",furnishing:{kind:"cabinet",name:"Support cabinet",floorId:"f-lower",roomId:"r-l-a",position:[1,0,3],rotationYDeg:0,widthM:.9,depthM:.8,heightM:1.2},
+    } });
+    expect(furniture.ok()).toBe(true); furnitureId=(await furniture.json()).furnishing.id;
+    await page.reload(); await page.waitForFunction(() => window.__vh?.status().phase === "ready");
+    await page.getByRole("button", {name:"Lower floor",exact:true}).click();
+    await page.evaluate(id => window.__vh!.select({kind:"equipment",id}), ids[1]!);
+    await page.getByRole("button",{name:"Adjust placement (E)",exact:true}).click();
+    await waitForStableFrames(page,700);
+    const before = await page.getByLabel("Y (m)",{exact:true}).inputValue();
+    const target=await screen(page,[2,.85,2]);
+    await page.mouse.move(target.x,target.y);
+    await expect(page.getByLabel("Placement preview",{exact:true})).toBeVisible();
+    await expect(page.getByLabel("Y (m)",{exact:true})).toHaveValue(before);
+    await page.mouse.click(target.x,target.y);
+    await expect.poll(async()=>Number(await page.getByLabel("Y (m)",{exact:true}).inputValue())).toBeCloseTo(.85,2);
+    await page.getByRole("button",{name:"Save placement",exact:true}).click();
+    await expect(page.getByRole("heading",{name:"Adjust placement",exact:true})).toBeHidden();
+    const saved=(await (await page.request.get(endpoint)).json()).placements.find((p:{id:string})=>p.id===ids[1]);
+    expect(saved.position[1]).toBeCloseTo(.85,2); expect(saved.mount.kind).toBe("free");
+    await page.reload(); await page.waitForFunction(()=>window.__vh?.status().phase==="ready");
+    await page.getByRole("button",{name:"Lower floor",exact:true}).click();
+    await page.evaluate(id=>window.__vh!.select({kind:"equipment",id}),ids[1]!);
+    await page.getByRole("button",{name:"Adjust placement (E)",exact:true}).click();
+    await waitForStableFrames(page,700);
+    const cabinet=await screen(page,[1,1.2,3]);
+    await page.mouse.click(cabinet.x,cabinet.y);
+    await expect.poll(async()=>Number(await page.getByLabel("Y (m)",{exact:true}).inputValue())).toBeCloseTo(1.2,2);
+    // Drag after pressing a clear floor point: position anchors there while yaw turns.
+    const anchor=await screen(page,[1,0,2]); const turn=await screen(page,[1.6,0,2.6]);
+    await page.mouse.move(anchor.x,anchor.y);await page.mouse.down();await page.mouse.move(turn.x,turn.y,{steps:8});await page.mouse.up();
+    await expect.poll(async()=>Number(await page.getByLabel("Rotation around Y (°)",{exact:true}).inputValue())).toBe(45);
+    await expect.poll(async()=>Number(await page.getByLabel("X (m)",{exact:true}).inputValue())).toBeCloseTo(1,1);
+    await info.attach("equipment-stacking-and-rotation",{body:await page.screenshot(),contentType:"image/png"});
+    await page.getByRole("button",{name:"Cancel (Esc)",exact:true}).click();
+  } finally {
+    for(const id of ids) await page.request.delete(`/api/house-model/fixture-house/placements/${id}`);
+    if(furnitureId) await page.request.delete(`/api/house-model/fixture-house/furnishings?id=${furnitureId}`);
+    await context.close();
+  }
+});
+
+async function screen(page:Page, position:[number,number,number]) {
+  return page.evaluate(p=>{const rect=document.querySelector("canvas")!.getBoundingClientRect();const point=window.__vh!.screenOf(p)!;return{x:Math.round(rect.left+point[0]),y:Math.round(rect.top+point[1])};},position);
+}
 
 test("other model objects accept precise attachment without changing the draft on hover", async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name === "phone", "Mouse placement; phone uses numeric coordinates.");

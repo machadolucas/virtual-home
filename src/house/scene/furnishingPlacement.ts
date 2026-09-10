@@ -2,12 +2,12 @@ import * as THREE from "three";
 import type { Furnishing, Vec3 } from "../model/types";
 import type { SceneIndex } from "./SceneIndex";
 
-interface WallTriangles { bounds: THREE.Box3; vertices: THREE.Vector3[] }
+interface WallTriangles { surfaceId?: string; bounds: THREE.Box3; vertices: THREE.Vector3[] }
 const cache = new WeakMap<SceneIndex, { count: number; walls: WallTriangles[] }>();
 
 /** Physical wall triangles, including walls temporarily hidden/cut for an inside view. The
  * oriented furniture box is tested against triangles, not a diagonal wall's oversized AABB. */
-function wallTriangles(index: SceneIndex): WallTriangles[] {
+export function wallTriangles(index: SceneIndex): WallTriangles[] {
   const previous = cache.get(index);
   if (previous?.count === index.assets.size) return previous.walls;
   const walls: WallTriangles[] = [];
@@ -16,6 +16,7 @@ function wallTriangles(index: SceneIndex): WallTriangles[] {
     for (const mesh of asset.meshes) {
       const sid = index.meshSurfaceId.get(mesh);
       const surface = sid ? index.manifest.surfaces.get(sid) : undefined;
+      if (surface?.role === "wall-top") continue;
       const element = surface?.elementId ? index.manifest.elements.get(surface.elementId) : undefined;
       if (surface?.kind !== "wall" && !element?.kind.includes("wall") && element?.kind !== "door") continue;
       mesh.updateWorldMatrix(true, false);
@@ -28,14 +29,14 @@ function wallTriangles(index: SceneIndex): WallTriangles[] {
         const point = new THREE.Vector3().fromBufferAttribute(position, indices ? indices.getX(i) : i).applyMatrix4(mesh.matrixWorld);
         vertices.push(point); bounds.expandByPoint(point);
       }
-      walls.push({ bounds, vertices });
+      walls.push({ surfaceId: sid, bounds, vertices });
     }
   }
   cache.set(index, { count: index.assets.size, walls });
   return walls;
 }
 
-export function furnishingWallCollision(item: Furnishing, walls: readonly WallTriangles[]): boolean {
+export function furnishingWallCollision(item: Furnishing, walls: readonly WallTriangles[], excludeSurfaceId?: string | null): boolean {
   const origin = new THREE.Vector3(...item.position);
   const inverseYaw = new THREE.Matrix4().makeRotationY(-THREE.MathUtils.degToRad(item.rotationYDeg));
   // A tiny tolerance lets furniture touch a wall without treating contact as penetration.
@@ -44,6 +45,7 @@ export function furnishingWallCollision(item: Furnishing, walls: readonly WallTr
   const worldBounds = box.clone().applyMatrix4(new THREE.Matrix4().makeRotationY(THREE.MathUtils.degToRad(item.rotationYDeg)).setPosition(origin));
   const triangle = new THREE.Triangle();
   for (const wall of walls) {
+    if (excludeSurfaceId && wall.surfaceId === excludeSurfaceId) continue;
     if (!worldBounds.intersectsBox(wall.bounds)) continue;
     for (let i = 0; i + 2 < wall.vertices.length; i += 3) {
       triangle.a.copy(wall.vertices[i]!).sub(origin).applyMatrix4(inverseYaw);

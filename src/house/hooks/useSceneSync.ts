@@ -23,6 +23,8 @@ import {
   cameraFacingRoomWalls,
   focusContextFor,
   focusCutSurfaceIds,
+  focusCutYForSurface,
+  preservesFocusCutSurface,
 } from "@/house/model/focusContext";
 import { roomAt } from "@/house/model/manifestIndex";
 import { computeVisibility, isGroupVisible } from "@/house/model/visibilityPlan";
@@ -132,7 +134,10 @@ export function useSceneSync(): void {
             )
             .map((surface) => surface.id);
           const cap = floor.elevation + 0.9 + (runtime.offsets.get(floor.id) ?? 0);
-          for (const sid of focusCutSurfaceIds(manifest, wallFaces)) cuts.set(sid, cap);
+          const floorY = floor.elevation + (runtime.offsets.get(floor.id) ?? 0);
+          for (const sid of focusCutSurfaceIds(manifest, wallFaces)) {
+            cuts.set(sid, focusCutYForSurface(manifest, sid, cap, floorY));
+          }
           treeCuts.set(floor.id, cap);
         }
         const wallsChanged = runtime.clip.setFocusCuts(cuts);
@@ -169,7 +174,12 @@ export function useSceneSync(): void {
           wallCentres(focus.floorId),
         );
         for (const sid of focusCutSurfaceIds(manifest, facing)) {
-          if (sid !== focus.preserveSurfaceId) cuts.set(sid, cap);
+          if (!preservesFocusCutSurface(manifest, sid, focus.preserveSurfaceId)) {
+            cuts.set(
+              sid,
+              focusCutYForSurface(manifest, sid, cap, room.floorElevation + groupOffset),
+            );
+          }
         }
       }
       const wallsChanged = runtime.clip.setFocusCuts(cuts);
@@ -349,6 +359,7 @@ export function useSceneSync(): void {
                 ledLengthM: draft.ledLengthM ?? null,
                 detectionRangeM: draft.detectionRangeM ?? null,
                 treeHeightM: draft.treeHeightM ?? null,
+                equipmentSize: draft.equipmentSize ?? null,
                 mount: draft.mount,
                 floorId: draft.floorId,
                 roomId: draft.roomId,

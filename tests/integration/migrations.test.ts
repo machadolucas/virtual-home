@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { openDatabase, type DbHandle } from "@/db/client";
-import { runMigrations } from "@/db/migrate";
+import { resolveMigrationsFolder, runMigrations } from "@/db/migrate";
 import { HOUSEHOLD_SETTING_ID } from "@/db/schema";
 import { testDb } from "../helpers/db";
 
@@ -115,6 +115,80 @@ describe("migrations", () => {
 
   it("enables foreign keys on the in-memory handle too", () => {
     expect(handle.sqlite.pragma("foreign_keys", { simple: true })).toBe(1);
+  });
+
+  it("preserves existing furnishings while expanding the furnishing kind check", () => {
+    const sourceFolder = resolveMigrationsFolder();
+    const legacyFolder = fs.mkdtempSync(path.join(os.tmpdir(), "vh-migrations-before-0013-"));
+    fs.cpSync(sourceFolder, legacyFolder, { recursive: true });
+    const journalPath = path.join(legacyFolder, "meta", "_journal.json");
+    const journal = JSON.parse(fs.readFileSync(journalPath, "utf8")) as {
+      entries: Array<{ idx: number }>;
+    };
+    journal.entries = journal.entries.filter((entry) => entry.idx < 13);
+    fs.writeFileSync(journalPath, `${JSON.stringify(journal, null, 2)}\n`);
+
+    const previousMigrationsFolder = process.env.VH_MIGRATIONS_DIR;
+    const legacy = openDatabase(":memory:");
+    try {
+      process.env.VH_MIGRATIONS_DIR = legacyFolder;
+      runMigrations(legacy);
+      legacy.sqlite
+        .prepare(
+          `INSERT INTO furnishing (
+             id, model_id, model_node_id, floor_id, room_id, kind, name,
+             pos_x, pos_y, pos_z, rot_yaw_deg, width_m, depth_m, height_m,
+             created_at_ms, created_by, updated_at_ms, updated_by
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "f-existing",
+          "model-existing",
+          "room-existing",
+          "floor-existing",
+          "room-existing",
+          "bench",
+          "Existing bench",
+          1.25,
+          0,
+          -2.5,
+          15,
+          1.4,
+          0.45,
+          0.5,
+          1_000,
+          null,
+          2_000,
+          null,
+        );
+
+      const tables = legacy.sqlite
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
+        .all() as Array<{ name: string }>;
+      const furnishingDependants = tables.flatMap(({ name }) =>
+        (legacy.sqlite.pragma(`foreign_key_list(${JSON.stringify(name)})`) as Array<{
+          table: string;
+        }>).filter((foreignKey) => foreignKey.table === "furnishing"),
+      );
+      expect(furnishingDependants).toEqual([]);
+
+      process.env.VH_MIGRATIONS_DIR = sourceFolder;
+      expect(runMigrations(legacy).newlyApplied).toBe(1);
+      expect(legacy.sqlite.prepare(`SELECT * FROM furnishing WHERE id = ?`).get("f-existing"))
+        .toMatchObject({
+          kind: "bench",
+          name: "Existing bench",
+          pos_x: 1.25,
+          pos_z: -2.5,
+          width_m: 1.4,
+          updated_at_ms: 2_000,
+        });
+    } finally {
+      legacy.close();
+      if (previousMigrationsFolder === undefined) delete process.env.VH_MIGRATIONS_DIR;
+      else process.env.VH_MIGRATIONS_DIR = previousMigrationsFolder;
+      fs.rmSync(legacyFolder, { recursive: true, force: true });
+    }
   });
 
   it("produces the expected schema", () => {

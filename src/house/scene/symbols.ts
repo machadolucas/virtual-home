@@ -70,6 +70,14 @@ export const PLACEMENT_SYMBOLS = [
   "media_player",
   "solar_panel",
   "tree",
+  "hot_water_tank",
+  "ventilation_machine",
+  "wall_speaker",
+  "tower_speaker",
+  "wood_stove_oven",
+  "electric_stove_oven",
+  "outdoor_barbecue",
+  "outdoor_wood_storage",
 ] as const;
 
 export type PlacementSymbol = (typeof PLACEMENT_SYMBOLS)[number];
@@ -124,6 +132,14 @@ export const SYMBOL_LABEL: { readonly [S in PlacementSymbol]: string } = {
   media_player: "Media player",
   solar_panel: "Solar panel",
   tree: "Tree",
+  hot_water_tank: "Hot-water tank",
+  ventilation_machine: "Ventilation machine",
+  wall_speaker: "Wall speaker",
+  tower_speaker: "Tower speaker",
+  wood_stove_oven: "Wood stove with oven",
+  electric_stove_oven: "Electric stove with oven",
+  outdoor_barbecue: "Outdoor barbecue",
+  outdoor_wood_storage: "Outdoor wood storage",
 };
 
 /** Low segment counts on purpose: these are context geometry, not hero assets. */
@@ -625,6 +641,86 @@ function buildRaw(symbol: PlacementSymbol): THREE.BufferGeometry {
         tinted(translated(scaled(new THREE.SphereGeometry(1, 8, 5), 1.18, 1.0, 1.12), 0.05, 4.45, 0.25), 0x5d8b4f),
       ])!;
 
+    case "hot_water_tank":
+      return mergeGeometries([
+        translated(new THREE.CylinderGeometry(0.28, 0.3, 1.7, 14), 0, 0.88, 0),
+        translated(new THREE.SphereGeometry(0.275, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0, 1.73, 0),
+        translated(new THREE.CylinderGeometry(0.025, 0.025, 0.16, 7), -0.12, 1.81, 0),
+        translated(new THREE.CylinderGeometry(0.025, 0.025, 0.16, 7), 0.12, 1.81, 0),
+        translated(new THREE.BoxGeometry(0.16, 0.2, 0.035), 0, 0.42, 0.292),
+      ])!;
+
+    case "ventilation_machine": {
+      const parts: THREE.BufferGeometry[] = [
+        translated(new THREE.BoxGeometry(0.46, 0.54, 0.96), 0, 0.285, 0),
+        translated(new THREE.BoxGeometry(0.38, 0.38, 0.025), 0, 0.29, 0.493),
+      ];
+      for (const x of [-0.14, 0.14]) for (const z of [-0.3, 0.3]) {
+        parts.push(translated(new THREE.CylinderGeometry(0.055, 0.055, 0.1, 10), x, 0.57, z));
+      }
+      return mergeGeometries(parts)!;
+    }
+
+    case "wall_speaker":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.25, 0.35, 0.16), 0, 0, 0.08),
+        translated(rotatedX(new THREE.CylinderGeometry(0.075, 0.055, 0.025, 12), Math.PI / 2), 0, -0.07, 0.17),
+        translated(rotatedX(new THREE.CylinderGeometry(0.035, 0.025, 0.025, 10), Math.PI / 2), 0, 0.09, 0.17),
+      ])!;
+
+    case "tower_speaker":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.25, 0.96, 0.28), 0, 0.5, 0),
+        ...[-0.27, 0.02, 0.29].map((y) =>
+          translated(rotatedX(new THREE.CylinderGeometry(0.075, 0.055, 0.025, 12), Math.PI / 2), 0, y + 0.5, 0.15)),
+        translated(rotatedX(new THREE.CylinderGeometry(0.03, 0.022, 0.025, 10), Math.PI / 2), 0, 0.87, 0.15),
+      ])!;
+
+    case "wood_stove_oven":
+      return mergeGeometries([
+        translated(new THREE.BoxGeometry(0.58, 0.77, 0.56), 0, 0.405, 0),
+        translated(new THREE.BoxGeometry(0.46, 0.27, 0.025), 0, 0.59, 0.293),
+        translated(new THREE.BoxGeometry(0.42, 0.24, 0.025), 0, 0.27, 0.293),
+        translated(new THREE.CylinderGeometry(0.07, 0.07, 0.18, 10), 0, 0.88, -0.16),
+        translated(new THREE.BoxGeometry(0.6, 0.06, 0.6), 0, 0.8, 0),
+      ])!;
+
+    case "electric_stove_oven": {
+      const parts: THREE.BufferGeometry[] = [
+        translated(new THREE.BoxGeometry(0.6, 0.8, 0.58), 0, 0.41, 0),
+        translated(new THREE.BoxGeometry(0.48, 0.37, 0.025), 0, 0.34, 0.302),
+        translated(new THREE.BoxGeometry(0.6, 0.05, 0.6), 0, 0.825, 0),
+      ];
+      for (const x of [-0.16, 0.16]) for (const z of [-0.16, 0.16])
+        parts.push(translated(new THREE.CylinderGeometry(0.09, 0.09, 0.012, 12), x, 0.856, z));
+      return mergeGeometries(parts)!;
+    }
+
+    case "outdoor_barbecue":
+      return mergeGeometries([
+        translated(new THREE.CylinderGeometry(0.34, 0.3, 0.22, 12), 0, 0.72, 0),
+        translated(new THREE.SphereGeometry(0.34, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0, 0.83, 0),
+        translated(new THREE.CylinderGeometry(0.025, 0.025, 0.62, 7), -0.22, 0.31, -0.13),
+        translated(new THREE.CylinderGeometry(0.025, 0.025, 0.62, 7), 0.22, 0.31, -0.13),
+        translated(new THREE.CylinderGeometry(0.025, 0.025, 0.62, 7), 0, 0.31, 0.2),
+        translated(new THREE.BoxGeometry(0.7, 0.05, 0.25), 0, 0.65, -0.37),
+        translated(new THREE.BoxGeometry(0.22, 0.035, 0.045), 0, 1.05, 0),
+      ])!;
+
+    case "outdoor_wood_storage": {
+      const parts: THREE.BufferGeometry[] = [
+        translated(new THREE.BoxGeometry(0.06, 1, 0.06), -0.47, 0.5, -0.46),
+        translated(new THREE.BoxGeometry(0.06, 1, 0.06), 0.47, 0.5, -0.46),
+        translated(new THREE.BoxGeometry(0.06, 1, 0.06), -0.47, 0.5, 0.46),
+        translated(new THREE.BoxGeometry(0.06, 1, 0.06), 0.47, 0.5, 0.46),
+        translated(new THREE.BoxGeometry(1, 0.06, 1.08), 0, 1.04, 0),
+        translated(new THREE.BoxGeometry(0.94, 0.9, 0.04), 0, 0.5, 0.48),
+      ];
+      for (const y of [0.14, 0.3, 0.46, 0.62, 0.78]) for (const x of [-0.34, -0.11, 0.12, 0.35])
+        parts.push(translated(rotatedX(new THREE.CylinderGeometry(0.055, 0.055, 0.82, 7), Math.PI / 2), x, y, 0));
+      return mergeGeometries(parts)!;
+    }
+
     case "generic":
     default:
       // What every marker used to be. Kept as the honest default for anything unclassified.
@@ -640,6 +736,8 @@ const FLOOR_ANCHORED_SYMBOLS = new Set<PlacementSymbol>([
   "freezer", "washing_machine", "dryer", "toilet", "sauna_heater_electric",
   "sauna_heater_wood", "tv", "server_rack", "router", "nvr", "nas", "media_player",
   "tree",
+  "hot_water_tank", "ventilation_machine", "tower_speaker", "wood_stove_oven",
+  "electric_stove_oven", "outdoor_barbecue", "outdoor_wood_storage",
 ]);
 
 function fitPhysicalEnvelope(symbol: PlacementSymbol, geometry: THREE.BufferGeometry): THREE.BufferGeometry {
