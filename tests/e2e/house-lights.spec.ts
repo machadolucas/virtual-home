@@ -82,7 +82,7 @@ test("HA lights fade, settle idle, and illuminate through bounded wall-occluded 
   await waitForStableFrames(page, 900);
   const canvas = page.locator("canvas").first();
   const off = await sharp(await canvas.screenshot()).removeAlpha().raw().toBuffer();
-  const programs = await page.evaluate(() => window.__vh!.renderInfo().programs);
+
   // Reproduce the long-idle case: the first R3F delta must not consume the whole rapid fade.
   await page.waitForTimeout(1_000);
   const beforeFade = await page.evaluate(() => window.__vh!.invalidateCount());
@@ -130,6 +130,8 @@ test("HA lights fade, settle idle, and illuminate through bounded wall-occluded 
   for (let i = 0; i < off.length; i += 3) if (Math.abs(off[i]! - on[i]!) + Math.abs(off[i + 1]! - on[i + 1]!) + Math.abs(off[i + 2]! - on[i + 2]!) > 15) changed++;
   expect(changed).toBeGreaterThan(100);
   await testInfo.attach("live-downlight.png", { body: litImage, contentType: "image/png" });
+  // Batched direct-light programs compile on first use, then HA changes reuse that layout.
+  const programs = await page.evaluate(() => window.__vh!.renderInfo().programs);
   const shadowPasses = await page.evaluate(() => window.__vh!.shadowPassCount());
   await emit("on", 64, [20, 80, 255]);
   await expect.poll(() => page.evaluate(() => window.__vh!.lights()[0]?.brightness)).toBeCloseTo(64 / 255);

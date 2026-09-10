@@ -101,11 +101,12 @@ describe("wall display presets", () => {
 });
 
 describe("viewer rendering defaults", () => {
-  it("starts with occlusion enabled and a conservative device-capped light budget", () => {
+  it("starts with occlusion and batched lighting enabled for a 64-light total budget", () => {
     const store = createHouseStore();
     expect(store.getState()).toMatchObject({
       equipmentOcclusion: true,
-      detailedLightLimit: 16,
+      detailedLightBatched: true,
+      detailedLightLimit: 64,
       detailedLightHardwareMax: 12,
       detailedLightExperimental: false,
       detailedLightError: null,
@@ -114,6 +115,7 @@ describe("viewer rendering defaults", () => {
 
   it("lets experimental limits exceed the recommendation and restores it when disabled", () => {
     const store = createHouseStore();
+    store.getState().setDetailedLightBatched(false);
     store.getState().setDetailedLightExperimental(true);
     expect(store.getState().detailedLightLimit).toBe(12);
     store.getState().setDetailedLightLimit(48);
@@ -123,6 +125,25 @@ describe("viewer rendering defaults", () => {
     store.getState().setDetailedLightError("Rejected");
     store.getState().setDetailedLightLimit(10);
     expect(store.getState().detailedLightError).toBeNull();
+  });
+
+  it("restores the conservative single-pass state when batching is disabled", () => {
+    const store = createHouseStore();
+    store.getState().setDetailedLightBatched(false);
+    store.getState().setDetailedLightExperimental(true);
+    store.getState().setDetailedLightLimit(48);
+    store.getState().setDetailedLightBatched(true);
+    store.getState().setDetailedLightLimit(64);
+    store.getState().setDetailedLightError("Rejected");
+
+    store.getState().setDetailedLightBatched(false);
+
+    expect(store.getState()).toMatchObject({
+      detailedLightBatched: false,
+      detailedLightLimit: 12,
+      detailedLightExperimental: false,
+      detailedLightError: null,
+    });
   });
 
   it("rounds and clamps requested and hardware light counts", () => {

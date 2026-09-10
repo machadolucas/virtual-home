@@ -50,6 +50,8 @@ export interface ViewSlice {
   ceilingsVisible: boolean;
   edgesVisible: boolean;
   performanceMode: boolean;
+  /** Split detailed equipment lights across conservative shader-sized render passes. */
+  detailedLightBatched: boolean;
   /** Requested detailed equipment-light budget for this viewer session. */
   detailedLightLimit: number;
   /** Conservative shader-resource recommendation; initialized until WebGL is ready. */
@@ -76,6 +78,7 @@ export interface ViewSlice {
   setCeilingsVisible(v: boolean): void;
   setEdgesVisible(v: boolean): void;
   setPerformanceMode(v: boolean): void;
+  setDetailedLightBatched(enabled: boolean): void;
   setDetailedLightLimit(limit: number): void;
   setDetailedLightHardwareMax(limit: number): void;
   setDetailedLightExperimental(enabled: boolean): void;
@@ -102,7 +105,8 @@ export const initialView = {
   ceilingsVisible: true,
   edgesVisible: true,
   performanceMode: false,
-  detailedLightLimit: 16,
+  detailedLightBatched: true,
+  detailedLightLimit: 64,
   detailedLightHardwareMax: 12,
   detailedLightExperimental: false,
   detailedLightError: null as string | null,
@@ -181,6 +185,17 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
     })),
   setEdgesVisible: (edgesVisible) => set({ edgesVisible }),
   setPerformanceMode: (performanceMode) => set({ performanceMode }),
+  setDetailedLightBatched: (detailedLightBatched) =>
+    set((s) =>
+      detailedLightBatched
+        ? { detailedLightBatched }
+        : {
+            detailedLightBatched,
+            detailedLightLimit: Math.min(s.detailedLightLimit, s.detailedLightHardwareMax),
+            detailedLightExperimental: false,
+            detailedLightError: null,
+          },
+    ),
   setDetailedLightLimit: (detailedLightLimit) =>
     set({ detailedLightLimit: boundedLightCount(detailedLightLimit), detailedLightError: null }),
   setDetailedLightHardwareMax: (detailedLightHardwareMax) =>

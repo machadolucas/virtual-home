@@ -22,6 +22,7 @@ export interface EquipmentLightSpec {
   direction: Vec3;
   color: Vec3;
   brightness: number;
+  roomId?: string;
 }
 
 export interface EquipmentLightBudget {
@@ -409,6 +410,7 @@ export class EquipmentLightLayer {
       light.target.position.z !== spec.position[2] + spec.direction[2]
     );
     if (moved || aimed || !light.shadow.map) light.shadow.needsUpdate = true;
+    light.userData.vhRoom = spec.roomId ?? "";
     light.position.fromArray(spec.position);
     if (light instanceof THREE.SpotLight) {
       light.target.position.copy(light.position).add(new THREE.Vector3(...spec.direction));
@@ -441,6 +443,8 @@ export class EquipmentLightLayer {
   invalidateShadows(): void {
     for (const light of [...this.points, ...this.spots]) light.shadow.needsUpdate = true;
   }
+
+  get detailedLights(): readonly (THREE.PointLight | THREE.SpotLight)[] { return [...this.points, ...this.spots]; }
 
   get shadowsDirty(): boolean {
     return [...this.points, ...this.spots].some((light) => light.castShadow && light.shadow.needsUpdate);

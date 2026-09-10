@@ -673,14 +673,22 @@ equipment labels visible; phones expose the same switch beside the model.
 Equipment labels show their main linked reading. Clicking a label expands its other linked readings;
 battery-linked equipment includes its percentage. The placement's chosen silhouette survives save
 and reload. Live lights tint nearby model surfaces with their Home Assistant brightness and colour.
-Rotating the camera does not swap which lights illuminate the scene. When many lights are on,
-additional fixtures illuminate several nearby surfaces with simpler glows to keep shadow-rendering
-cost bounded. Every active light also has a luminous source core. Rendering offers a session-only
-detailed-light limit up to a conservative WebGL recommendation; performance mode retains two.
-"Try higher limits" unlocks testing up to 64 and "Use recommended" restores the estimate. Shader
-compilation rejection automatically restores that recommendation and shows a recovery message.
-The estimate describes resource headroom, not GPU speed; limits and overrides last for this session.
-Lights beyond the detailed budget keep their source and simpler surface glows. Brightness and colour
+Rotating the camera does not swap which lights illuminate the scene. Every active light also has a
+luminous source core. Rendering offers a session-only detailed-light total up to 64 by default;
+performance mode retains two. Batched lighting is the default and the conservative WebGL
+recommendation becomes the number of lights rendered per pass, not a measure of GPU speed. Each pass
+is a full-resolution, linear HDR screen-space contribution. Contributions are cached until the camera,
+geometry, material or relevant lights change; they are never baked into surface UV lighting. Real
+shadows are reused while valid and geometry updates invalidate dependent lighting and shadow data.
+Nearby surfaces receive direct PBR light, while surfaces outside a finite light's reach use a cheaper
+unlit depth/occlusion-preserving path for that pass. Cached-target memory uses bounded eviction with
+the same fidelity when a contribution must be rendered again.
+
+Turning Batched lighting off restores the legacy single-pass renderer and clamps the total to the
+hardware recommendation. Its "Try higher limits" control unlocks testing up to 64 and "Use
+recommended" restores the estimate. Shader compilation rejection automatically restores that
+recommendation and shows a recovery message. Limits and overrides last for this session. Lights beyond
+the detailed budget keep their source and simpler surface glows. Brightness and colour
 changes reuse existing shadows. Occluded equipment markers and labels start hidden and can be shown
 from Layers.
 

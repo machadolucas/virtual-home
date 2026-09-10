@@ -9,19 +9,21 @@ import { useHouseStore, useShallow } from "../hooks/useHouseStore";
 export function DetailedLightControl() {
   const id = useId();
   const helpId = `${id}-help`;
-  const { requested, hardwareMax, performanceMode, experimental, error, capabilities } = useHouseStore(
+  const { requested, hardwareMax, performanceMode, batched, experimental, error, capabilities } = useHouseStore(
     useShallow((s) => ({
       requested: s.detailedLightLimit,
       hardwareMax: s.detailedLightHardwareMax,
       performanceMode: s.performanceMode,
+      batched: s.detailedLightBatched,
       experimental: s.detailedLightExperimental,
       error: s.detailedLightError,
       capabilities: s.detailedLightCapabilities,
     })),
   );
+  const setBatched = useHouseStore((s) => s.setDetailedLightBatched);
   const setLimit = useHouseStore((s) => s.setDetailedLightLimit);
   const setExperimental = useHouseStore((s) => s.setDetailedLightExperimental);
-  const ceiling = experimental ? 64 : hardwareMax;
+  const ceiling = batched || experimental ? 64 : hardwareMax;
   const selected = Math.min(requested, ceiling);
 
   return (
@@ -47,23 +49,34 @@ export function DetailedLightControl() {
         className="block min-h-9 w-full accent-accent max-sm:min-h-11"
       />
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={hardwareMax === 0 || selected === hardwareMax}
-          onClick={() => setLimit(hardwareMax)}
-        >
-          <Gauge className="size-3.5" aria-hidden="true" />
-          Use recommended
-        </Button>
+        {!batched ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={hardwareMax === 0 || selected === hardwareMax}
+            onClick={() => setLimit(hardwareMax)}
+          >
+            <Gauge className="size-3.5" aria-hidden="true" />
+            Use recommended
+          </Button>
+        ) : null}
         {performanceMode ? (
           <span className="text-[11px] font-medium text-ink-2">Performance mode: 2 detailed</span>
         ) : null}
       </div>
-      <Switch checked={experimental} onCheckedChange={setExperimental} controlPosition="start" label="Try higher limits" />
+      <Switch checked={batched} onCheckedChange={setBatched} controlPosition="start" label="Batched lighting" />
+      {!batched ? (
+        <Switch checked={experimental} onCheckedChange={setExperimental} controlPosition="start" label="Try higher limits" />
+      ) : null}
       <p id={helpId} className="max-w-sm text-[11px] leading-4 text-ink-3">
-        Recommended: {hardwareMax}, based on WebGL shader resources, not an FPS benchmark.
-        Higher limits allow testing up to 64; rejected shaders automatically restore the recommendation.
+        {batched ? (
+          <>Up to {hardwareMax} lights per pass, based conservatively on WebGL shader resources. Extra lights render in additional passes.</>
+        ) : (
+          <>
+            Recommended: {hardwareMax}, based on WebGL shader resources, not an FPS benchmark.
+            Higher limits allow testing up to 64; rejected shaders automatically restore the recommendation.
+          </>
+        )}
         {performanceMode ? " Performance mode caps detailed lighting at 2." : " Extra lights keep their surface glow."}
       </p>
       {capabilities ? <p className="text-[10px] text-ink-3">WebGL: {capabilities.textures} texture units · {capabilities.varyings} varying vectors</p> : null}

@@ -13,6 +13,7 @@ import {
   lightSourcePosition,
 } from "../model/equipmentLight";
 import { isLedBar, ledLength, ledSource } from "../model/equipmentOptics";
+import { BatchedLighting } from "../scene/batchedLighting";
 import { DetailedLightTrial } from "../scene/detailedLightTrial";
 import { defaultSymbol, isPlacementSymbol } from "../scene/symbols";
 import { isVisibleUp } from "../scene/applyVisibility";
@@ -56,12 +57,20 @@ export function useEquipmentLights() {
     gl.shadowMap.autoUpdate = false;
     gl.shadowMap.type = THREE.PCFShadowMap;
     runtime.equipmentLights = layer;
+    if (!gl.extensions.has("EXT_color_buffer_float")) runtime.store.getState().setDetailedLightBatched(false);
+    const batching = new BatchedLighting(gl, scene, () => ({
+      enabled: runtime.store.getState().detailedLightBatched && !runtime.store.getState().performanceMode,
+      size: runtime.store.getState().detailedLightHardwareMax,
+      lights: layer.detailedLights,
+    }));
+    runtime.batchedLighting = batching;
     let requestedLimit = runtime.store.getState().detailedLightLimit;
     let budgetTimer: ReturnType<typeof setTimeout> | null = null;
     let shadowInputs: unknown[] = [];
     let hardwareIndex: typeof runtime.index = null;
     let hardwareAssets = -1;
     let hardwareLimit = detailedLightHardwareLimit(gl.capabilities.maxTextures, gl.capabilities.maxVaryings);
+    let batchRecovery: ReturnType<typeof setTimeout> | null = null;
     const previousShaderError = gl.debug.onShaderError;
     const previousShaderChecks = gl.debug.checkShaderErrors;
     const trial = new DetailedLightTrial(() => {
@@ -74,12 +83,27 @@ export function useEquipmentLights() {
     });
     gl.debug.checkShaderErrors = true;
     gl.debug.onShaderError = (context, program, vertex, fragment) => {
+      if (runtime.store.getState().detailedLightBatched) {
+        batchRecovery ??= setTimeout(() => {
+          batchRecovery = null;
+          requestedLimit = hardwareLimit;
+          runtime.store.getState().setDetailedLightBatched(false);
+          runtime.store.getState().setDetailedLightLimit(hardwareLimit);
+          runtime.store.getState().setDetailedLightError("Batched lighting is unavailable on this renderer. Restored single-pass lighting.");
+          update();
+        }, 0);
+      }
       if (trial.reject()) return;
       if (previousShaderError) previousShaderError(context, program, vertex, fragment);
       else console.error("Viewer shader failed", context.getProgramInfoLog(program));
     };
     const update = () => {
       const state = runtime.store.getState();
+      if (state.detailedLightBatched && !gl.extensions.has("EXT_color_buffer_float")) {
+        state.setDetailedLightBatched(false);
+        state.setDetailedLightError("Batched lighting needs floating-point render targets. Using single-pass lighting.");
+        return;
+      }
       layer.root.traverse((object) => {
         if (object instanceof THREE.PointLight || object instanceof THREE.SpotLight) object.shadow.radius = state.illumination.softShadows ? 2 : 0;
       });
@@ -135,17 +159,17 @@ export function useEquipmentLights() {
           const direction = lightDirection(symbol, p.lightAim, p.rotationYDeg);
           // Source follows the visible emitter, while the persisted coordinate remains its mount.
           const source = isLedBar(symbol) ? ledSource(p.position, symbol, ledLength(p.ledLengthM), runtime.offsets.get(group) ?? 0) : lightSourcePosition(p.position, symbol, p.rotationYDeg, runtime.offsets.get(group) ?? 0);
-          candidates.push({ id: p.id, spot: isSpotlightSymbol(symbol), position: source, direction, color: appearance.color, brightness: appearance.intensity * (isLedBar(symbol) ? ledLength(p.ledLengthM) : 1) });
+          candidates.push({ id: p.id, roomId: p.roomId ?? group, spot: isSpotlightSymbol(symbol), position: source, direction, color: appearance.color, brightness: appearance.intensity * (isLedBar(symbol) ? ledLength(p.ledLengthM) : 1) });
         }
       }
       const selected = state.selection?.kind === "equipment" ? state.selection.id : null;
       candidates.sort((a, b) =>
         Number(b.id === selected) - Number(a.id === selected) || a.id.localeCompare(b.id));
       const budget = detailedLightBudget(
-        Math.min(requestedLimit, state.detailedLightExperimental ? 64 : hardwareLimit, state.performanceMode ? 2 : Infinity),
+        Math.min(requestedLimit, state.detailedLightBatched || state.detailedLightExperimental ? 64 : hardwareLimit, state.performanceMode ? 2 : Infinity),
         pointCount, spotCount,
       );
-      if (!trial.configure(budget.point, budget.spot, hardwareLimit, state.detailedLightExperimental)) return;
+      if (!trial.configure(budget.point, budget.spot, hardwareLimit, state.detailedLightExperimental && !state.detailedLightBatched)) return;
       const detailedIds = new Set([
         ...candidates.filter((candidate) => !candidate.spot).slice(0, budget.point),
         ...candidates.filter((candidate) => candidate.spot).slice(0, budget.spot),
@@ -193,7 +217,14 @@ export function useEquipmentLights() {
     refresh.current = update;
     update();
     const offStore = runtime.store.subscribe((next, previous) => {
-      if (next.detailedLightLimit !== previous.detailedLightLimit) {
+      if (next.detailedLightBatched !== previous.detailedLightBatched || next.performanceMode !== previous.performanceMode) {
+        // The renderer switches modes immediately: shrink its pool in the same store notification,
+        // before any frame can send the previous multi-pass count through a single-pass shader.
+        if (budgetTimer !== null) clearTimeout(budgetTimer);
+        budgetTimer = null;
+        requestedLimit = next.detailedLightLimit;
+        update();
+      } else if (next.detailedLightLimit !== previous.detailedLightLimit) {
         // Keep slider feedback immediate, but compile only the settled budget during a drag.
         if (budgetTimer !== null) clearTimeout(budgetTimer);
         budgetTimer = setTimeout(() => { budgetTimer = null; requestedLimit = runtime.store.getState().detailedLightLimit; update(); }, 180);
@@ -205,6 +236,9 @@ export function useEquipmentLights() {
     return () => {
       clearInterval(timer);
       trial.dispose();
+      if (batchRecovery !== null) clearTimeout(batchRecovery);
+      batching.dispose();
+      runtime.batchedLighting = null;
       gl.debug.onShaderError = previousShaderError;
       gl.debug.checkShaderErrors = previousShaderChecks;
       if (budgetTimer !== null) clearTimeout(budgetTimer);

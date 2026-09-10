@@ -49,6 +49,7 @@ export interface HouseRuntime {
   picker: Picker | null;
   markers: MarkerLayer | null;
   equipmentLights: EquipmentLightLayer | null;
+  batchedLighting: import("./scene/batchedLighting").BatchedLighting | null;
   routes: RouteLayer | null;
   camera: CameraApi | null;
   /** The active three camera, published by `SceneRoot` for the picker and the editors. */
@@ -113,6 +114,7 @@ export function createRuntime(init: {
     picker: null,
     markers: null,
     equipmentLights: null,
+    batchedLighting: null,
     routes: null,
     camera: null,
     camera3d: null,

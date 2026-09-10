@@ -529,18 +529,28 @@ fixtures use a local point light. Sources follow the placement's explode offset 
 The rendering is illustrative rather than photometric. Detailed lights cast shadows so walls and
 closed door geometry stop light leaking into adjacent rooms. Cutaway/focus clipping is excluded
 from the shadow pass, leaving the model's full wall and door geometry as occluders even when the
-camera sees a low wall stub. Rendering's Detailed lights slider chooses a total budget (default 16,
-performance mode caps it at 2). The recommended limit reserves texture samplers for daylight and model
-maps, and varying vectors for standard-material inputs. This is a conservative resource estimate,
-not an FPS benchmark or measured device maximum. "Try higher limits" unlocks 0–64, with reported
-WebGL texture-unit/varying limits shown for diagnostics. A rejected experimental shader restores the
-recommendation after the frame; failed point/spot layouts are remembered to prevent silent failures
-when Three reuses a cached program. The previous shader-error handler is restored on unmount.
-The current single-pass renderer still has actual shader-resource limits; fixed-position shadow
-caching saves drawing work but cannot remove those limits. Installed visible
-fixture types, including off fixtures, divide that total, so a view with only point fixtures can use
-all slots for point lights. Selection and then stable equipment IDs determine priority. Camera movement
-does not reassign lights. Additional sources use brighter, wider surface illumination: point lights
+camera sees a low wall stub. Rendering's Detailed lights slider chooses a total budget (default 64;
+performance mode caps it at 2). Batched lighting is on by default. The hardware recommendation is a
+conservative per-pass shader-resource limit that reserves texture samplers for daylight and model maps
+and varying vectors for standard-material inputs; it is not an FPS benchmark or measured device
+maximum. Lights are grouped spatially and independently of camera position or intensity. Each group
+renders a full-resolution, linear HDR screen-space contribution which is then accumulated. These
+view-dependent contributions are cached, not baked into surface UVs, and are invalidated by camera,
+geometry, material or relevant light changes. Real shadow maps are reused while valid; geometry
+updates invalidate the cached contributions and shadow data that depend on them. Surfaces outside a
+finite light's range use a cheaper unlit material in that pass while retaining depth, clipping and
+occlusion, so nearby surfaces receive the same direct PBR lighting and real shadows. Cached-target
+memory is bounded; eviction costs another render but never reduces resolution, omits a light or
+changes fidelity.
+
+Turning Batched lighting off restores the legacy single-pass renderer and clamps the total to the
+hardware recommendation. In that mode, "Try higher limits" unlocks 0–64, "Use recommended" restores
+the estimate, and a rejected experimental shader restores the recommendation after the frame. Failed
+point/spot layouts are remembered to prevent silent failures when Three reuses a cached program, and
+the previous shader-error handler is restored on unmount. Installed visible fixture types, including
+off fixtures, divide the chosen total, so a view with only point fixtures can use all slots for point
+lights. Selection and then stable equipment IDs determine priority. Camera movement does not reassign
+lights. Additional sources use brighter, wider surface illumination: point lights
 sample the floor and four surrounding directions; spots sample the centre and six rays within the
 cone. Each probe stops at its first physical face, even if hidden or clipped. At most one patch is
 rendered per receiving surface (five per point source, seven per spot). This remains an approximate

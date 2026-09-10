@@ -57,6 +57,7 @@ export interface VhHook {
     shadowMapEnabled: boolean;
   };
   frameStats(): VhFrameStats;
+  frameDrivers(): { lightFading: boolean; controlsActive: boolean; controlAction: number; invalidations: number };
   invalidateCount(): number;
   lights(): import("../scene/equipmentLights").EquipmentLightSpec[];
   detectionGuide(): { visible: boolean; position: number[]; direction: number[] };
@@ -65,6 +66,7 @@ export interface VhHook {
   daylight(): { position: number[]; intensity: number; shadowMapSize: number; shadowMapAllocated: boolean; radius: number } | null;
   lightProjections(): import("../scene/equipmentLights").RenderedEquipmentLightProjection[];
   shadowPassCount(): number;
+  lightingBatches(): { rendered: number; reused: number; batches: number; litSurfaces: number; unlitSurfaces: number } | null;
   renderedLights(): import("../scene/equipmentLights").RenderedEquipmentLight[];
   shadowSurface(surfaceId: string): {
     castShadow: boolean;
@@ -293,6 +295,8 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
 
     lightProjections() { return runtime.equipmentLights?.projectedSnapshot() ?? []; },
 
+    frameDrivers() { return { lightFading: runtime.equipmentLights?.fading ?? false, controlsActive: runtime.controls?.active ?? false, controlAction: runtime.controls?.currentAction ?? 0, invalidations: runtime.invalidateCount }; },
+    lightingBatches() { return runtime.batchedLighting ? { ...runtime.batchedLighting.stats } : null; },
     shadowPassCount() {
       for (const asset of runtime.index?.assets.values() ?? []) for (const mesh of asset.meshes) {
         if (shadowObservers.has(mesh)) continue;

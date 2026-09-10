@@ -18,6 +18,10 @@ test("all active lights remain represented without camera-dependent slot swappin
     await route.fulfill({ json: new URL(route.request().url()).searchParams.has("options") ? { placeable: [] } : { placements, stale: [], partialFields: [] } });
   });
   await openHouse(page, { sel: "room:r-l-a" });
+  await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  await page.getByRole("switch", { name: "Batched lighting", exact: true }).click();
+  const legacySlider = page.getByRole("slider", { name: "Detailed lights", exact: true });
+  await legacySlider.fill(String(Math.min(16, Number(await legacySlider.getAttribute("max")))));
   await openSyntheticHa(page);
   await emitHaBatch(page, placements.map((p) => ({ topic: "ha.state", key: p.entityId, payload: { state: "on", attributes: { brightness: 180 }, lastUpdated: Date.now() } })));
   await expect.poll(() => page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.intensity > 0).length)).toBe(40);
@@ -45,7 +49,9 @@ test("all active lights remain represented without camera-dependent slot swappin
   await waitForStableFrames(page, 900);
   expect(await page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.castShadow).length)).toBe(Math.min(40, maximum));
   expect(errors.filter((error) => /THREE|shader|WebGL/i.test(error))).toEqual([]);
-  const baseline = await sharp(await canvas.screenshot()).removeAlpha().raw().toBuffer();
+  const baselineImage = await canvas.screenshot();
+  await testInfo.attach("baseline.png", { body: baselineImage, contentType: "image/png" });
+  const baseline = await sharp(baselineImage).removeAlpha().raw().toBuffer();
   const textureUnits = await canvas.evaluate((element) => {
     const gl = (element as HTMLCanvasElement).getContext("webgl2")!;
     return gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) as number;
@@ -70,7 +76,9 @@ test("all active lights remain represented without camera-dependent slot swappin
   await page.getByRole("switch", { name: "Try higher limits", exact: true }).click();
   await expect(limit).toHaveAttribute("max", String(maximum));
   await waitForStableFrames(page, 900);
-  const restored = await sharp(await canvas.screenshot()).removeAlpha().raw().toBuffer();
+  const restoredImage = await canvas.screenshot();
+  await testInfo.attach("restored.png", { body: restoredImage, contentType: "image/png" });
+  const restored = await sharp(restoredImage).removeAlpha().raw().toBuffer();
   expect(restored.length).toBe(baseline.length);
   let difference = 0;
   for (let i = 0; i < baseline.length; i++) difference += Math.abs(restored[i]! - baseline[i]!);

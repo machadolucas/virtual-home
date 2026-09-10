@@ -172,6 +172,7 @@ test("phone keeps light detail and daylight overrides in a collapsed rendering d
     await expect(detail).toBeVisible();
     await detail.fill("2");
     await expect(detail).toHaveValue("2");
+    await page.getByRole("switch", { name: "Batched lighting", exact: true }).click();
     await page.getByRole("button", { name: "Use recommended", exact: true }).click();
     await expect(detail).toHaveValue((await detail.getAttribute("max"))!);
     await page.getByRole("switch", { name: "Try higher limits", exact: true }).click();
