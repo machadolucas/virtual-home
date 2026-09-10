@@ -189,6 +189,64 @@ test("selecting in the tree writes the store and the URL, and a reload restores 
   }
 });
 
+test("the property tree groups each floor into rooms, equipment, infrastructure and furniture", async ({
+  browser,
+}) => {
+  const { context, page } = await openHouseSession(browser);
+  try {
+    const base = `**/api/house-model/${MODEL_ID}`;
+    await page.route(`${base}/placements`, async (intercept) => {
+      if (new URL(intercept.request().url()).search) return intercept.fallback();
+      await intercept.fulfill({ json: { placements: [{
+        id: "tree-equipment", modelId: MODEL_ID, equipmentId: "tree-asset", name: "Tree heat pump",
+        position: [1, 0, 1], rotationYDeg: 0, mount: { kind: "floor", height: 0 },
+        floorId: "f-lower", roomId: "r-l-a", surfaceId: null, locationNote: "", photoId: null,
+        entityId: null, symbol: "heat_pump_indoor", category: "hvac",
+      }] } });
+    });
+    await page.route(`${base}/routes`, (intercept) => intercept.fulfill({ json: { routes: [{
+      id: "tree-route", modelId: MODEL_ID, name: "Cross-floor supply", system: "water", kind: "pipe",
+      points: [[1, 0, 1], [1, 2.7, 1], [2, 2.7, 1]],
+      segments: [{ floorId: "f-lower", roomId: "r-l-a" }, { floorId: "f-lower", roomId: "r-l-a" }],
+      pointPlaces: [{ floorId: "f-lower", roomId: "r-l-a" }, { floorId: "f-lower", roomId: "r-l-a" }, { floorId: "f-upper", roomId: "r-u-a" }],
+      certainty: "measured", lifecycle: "installed", endpoints: [], photoIds: [],
+    }], stale: [], partialFields: [] } }));
+    await page.route(`${base}/furnishings`, (intercept) => intercept.fulfill({ json: { furnishings: [{
+      id: "tree-chair", modelId: MODEL_ID, kind: "chair", name: "Tree reading chair",
+      position: [1, 0, 1], rotationYDeg: 0, widthM: 0.5, depthM: 0.5, heightM: 0.8,
+      floorId: "f-lower", roomId: "r-l-a",
+    }], stale: [] } }));
+
+    await page.reload();
+    await waitForHook(page);
+    await vh(page).settled();
+
+    const tree = page.getByRole("tree", { name: "Property structure" });
+    for (const section of ["Rooms", "Equipment", "Infrastructure", "Furniture"]) {
+      await expect(tree.getByRole("treeitem", { name: section, exact: true }).first()).toBeVisible();
+    }
+    await page.locator('[data-node="section:f-lower:equipment"]').click();
+    await expect(page.locator('[data-node="equipment:tree-equipment"]')).toContainText("Tree heat pump");
+
+    for (const floorId of ["f-lower", "f-upper"]) {
+      await page.locator(`[data-node="section:${floorId}:infrastructure"]`).click();
+      await page.locator(`[data-node="route-group:${floorId}:pipe"]`).click();
+    }
+    await expect(page.getByRole("treeitem", { name: /Cross-floor supply/ })).toHaveCount(2);
+
+    await page.getByRole("button", { name: "Lower floor", exact: true }).click();
+    await page.locator('[data-node="route:f-upper:tree-route"]').click();
+    await expect.poll(() => vh(page).selection()).toEqual({ kind: "route", id: "tree-route" });
+    await expect.poll(() => new URL(page.url()).searchParams.get("floor")).toBeNull();
+
+    await page.locator('[data-node="section:f-lower:furniture"]').click();
+    await page.locator('[data-node="furnishing:tree-chair"]').click();
+    await expect(page.getByRole("heading", { name: "Edit furniture", exact: true })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
 test("surface picking and hover require Select, while the floor datum stays exact", async ({
   browser,
 }) => {

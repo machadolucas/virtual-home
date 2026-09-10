@@ -241,6 +241,8 @@ export interface RouteEndpoint {
   uv?: Vec2;
 }
 
+export interface RoutePointPlace { floorId: FloorId | null; roomId: RoomId | null }
+
 export interface Route {
   id: RouteId;
   modelId: string;
@@ -249,8 +251,12 @@ export interface Route {
   kind: RouteKind;
   /** Physical site coordinates, metres. Presentation transforms are never stored. */
   points: Vec3[];
+  /** Per-vertex place, including the destination of a cross-floor riser. Older local drafts
+   * without this array use the outgoing span's place as a compatibility fallback. */
+  pointPlaces?: RoutePointPlace[];
+  pointKinds?: Array<"vertex" | "junction" | "valve" | "outlet" | "penetration">;
   /** One entry per span: `points.length - 1` entries. */
-  segments: Array<{ floorId: FloorId | null; roomId: RoomId | null }>;
+  segments: RoutePointPlace[];
   certainty: RouteCertainty;
   lifecycle: RouteLifecycle;
   widthM?: number;

@@ -172,3 +172,12 @@ Rows use the package's stable `modelId` rather than a revision foreign key. Pack
 retain semantic ids, so furnishings carry forward without generating reconciliation work. If a
 floor disappears, the record remains visible in the editor list and is marked for reassignment; it
 does not render against an invented floor and is never silently deleted.
+
+## D-029 Object placement uses procedural-part collision envelopes
+Equipment and furniture collision checks use the disconnected physical parts of their rendered
+procedural geometry, transformed into site coordinates. A single envelope would turn the space
+under a table or between shelves into a solid obstacle. Rugs and floor-heating markers are underlays
+and do not reserve volume. A small contact tolerance permits stacking and face mounting; overlap is
+checked both during pointer preview and before numeric Save. Visible vertical equipment and furniture
+faces may support free-mounted equipment, which faces the picked outward normal and is offset by its
+own rear extent plus the normal mounting standoff.

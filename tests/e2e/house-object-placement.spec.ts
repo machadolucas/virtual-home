@@ -10,11 +10,13 @@ test("equipment stacks on equipment and furniture, previews without changing dra
     const status = await page.evaluate(() => window.__vh!.status());
     const endpoint = `/api/house-model/${status.modelId}/placements`;
     const available = await (await page.request.get(`${endpoint}?options=placeable`)).json();
-    for (const [name, symbol, position] of [["Eave spot", "washing_machine", [2,0,2]], ["Porch light", "dryer", [1,0,2]]] as const) {
+    const camera = await page.evaluate(() => window.__vh!.camera());
+    const fridgeYaw = Math.atan2(camera.position[0]-2,camera.position[2]-2)*180/Math.PI;
+    for (const [name, symbol, position] of [["Eave spot", "fridge", [2,0,2]], ["Porch light", "freezer", [1,0,2]]] as const) {
       const equipment = available.placeable.find((p: { name: string }) => p.name === name);
       expect(equipment).toBeTruthy();
       const response = await page.request.put(endpoint, { data: { fingerprint:status.fingerprint,viewMode:"normal",placement:{ equipmentId:equipment.assetId,
-        symbol, position, floorId:"f-lower",roomId:"r-l-a",mount:{kind:"floor",height:0} } } });
+        symbol, position, rotationYDeg:symbol==="fridge"?fridgeYaw:0, floorId:"f-lower",roomId:"r-l-a",mount:{kind:"floor",height:0} } } });
       expect(response.ok()).toBe(true); ids.push((await response.json()).placement.id);
     }
     const furniture = await page.request.put(`/api/house-model/${status.modelId}/furnishings`, { data: {
@@ -26,18 +28,57 @@ test("equipment stacks on equipment and furniture, previews without changing dra
     await page.evaluate(id => window.__vh!.select({kind:"equipment",id}), ids[1]!);
     await page.getByRole("button",{name:"Adjust placement (E)",exact:true}).click();
     await waitForStableFrames(page,700);
+    // Numeric edits and Save use the same collision policy as the pointer preview.
+    await page.getByLabel("X (m)",{exact:true}).fill("2");
+    await page.getByLabel("Y (m)",{exact:true}).fill("0");
+    await page.getByLabel("Z (m)",{exact:true}).fill("2");
+    await page.getByRole("button",{name:"Save placement",exact:true}).click();
+    await expect(page.getByRole("alert").filter({hasText:"Overlaps furniture or equipment"})).toBeVisible();
+    await expect(page.getByRole("heading",{name:"Adjust placement",exact:true})).toBeVisible();
+    await page.getByLabel("X (m)",{exact:true}).fill("1");
     const before = await page.getByLabel("Y (m)",{exact:true}).inputValue();
-    const target=await screen(page,[2,.85,2]);
+    const target=await screen(page,[2,1.86,2]);
     await page.mouse.move(target.x,target.y);
     await expect(page.getByLabel("Placement preview",{exact:true})).toBeVisible();
     await expect(page.getByLabel("Y (m)",{exact:true})).toHaveValue(before);
     await page.mouse.click(target.x,target.y);
-    await expect.poll(async()=>Number(await page.getByLabel("Y (m)",{exact:true}).inputValue())).toBeCloseTo(.85,2);
+    await expect.poll(async()=>Number(await page.getByLabel("Y (m)",{exact:true}).inputValue())).toBeCloseTo(1.86,2);
     await page.getByRole("button",{name:"Save placement",exact:true}).click();
     await expect(page.getByRole("heading",{name:"Adjust placement",exact:true})).toBeHidden();
     const saved=(await (await page.request.get(endpoint)).json()).placements.find((p:{id:string})=>p.id===ids[1]);
-    expect(saved.position[1]).toBeCloseTo(.85,2); expect(saved.mount.kind).toBe("free");
+    expect(saved.position[1]).toBeCloseTo(1.86,2); expect(saved.mount.kind).toBe("free");
     await page.reload(); await page.waitForFunction(()=>window.__vh?.status().phase==="ready");
+    await page.getByRole("button",{name:"Lower floor",exact:true}).click();
+    await page.evaluate(id=>window.__vh!.select({kind:"equipment",id}),ids[1]!);
+    await page.getByRole("button",{name:"Adjust placement (E)",exact:true}).click();
+    await waitForStableFrames(page,700);
+    // A compact control attaches to the fridge's vertical front face. Hover shows the whole
+    // candidate without changing numeric fields; clicking commits an outward-facing free mount.
+    await page.getByRole("combobox",{name:"Shown as",exact:true}).click();
+    await page.getByRole("option",{name:"Remote control",exact:true}).click();
+    const canvasRegion=page.getByRole("application",{name:"House 3D view"});
+    await canvasRegion.focus();
+    for(let i=0;i<8;i++) await page.keyboard.press("ArrowDown");
+    await waitForStableFrames(page,500);
+    const beforeFace = await Promise.all(["X","Y","Z"].map(axis=>page.getByLabel(`${axis} (m)`,{exact:true}).inputValue()));
+    const fridgeFace=await screen(page,[2,.9,2]);
+    await page.mouse.move(fridgeFace.x,fridgeFace.y);
+    await expect(page.getByLabel("Placement preview",{exact:true})).toBeVisible();
+    expect(await Promise.all(["X","Y","Z"].map(axis=>page.getByLabel(`${axis} (m)`,{exact:true}).inputValue()))).toEqual(beforeFace);
+    await page.mouse.click(fridgeFace.x,fridgeFace.y);
+    await expect(page.getByRole("radio",{name:"Free / other surface",exact:true})).toBeChecked();
+    const attached=await Promise.all(["X","Y","Z"].map(axis=>page.getByLabel(`${axis} (m)`,{exact:true}).inputValue().then(Number)));
+    await info.attach("remote-on-fridge-door",{body:await page.screenshot(),contentType:"image/png"});
+    expect(attached[1]).toBeGreaterThan(.2); expect(attached[1]).toBeLessThan(1.7);
+    const dx=attached[0]!-2,dz=attached[2]!-2,distance=Math.hypot(dx,dz);
+    expect(distance).toBeGreaterThan(.29); expect(distance).toBeLessThan(.4);
+    const yaw=Number(await page.getByLabel("Rotation around Y (°)",{exact:true}).inputValue())*Math.PI/180;
+    expect(Math.abs(Math.atan2(Math.sin(yaw-fridgeYaw*Math.PI/180),Math.cos(yaw-fridgeYaw*Math.PI/180)))).toBeLessThan(.08);
+    await page.getByRole("button",{name:"Save placement",exact:true}).click();
+    await expect(page.getByRole("heading",{name:"Adjust placement",exact:true})).toBeHidden();
+    await page.reload(); await page.waitForFunction(()=>window.__vh?.status().phase==="ready");
+    const attachedReloaded=(await (await page.request.get(endpoint)).json()).placements.find((p:{id:string})=>p.id===ids[1]);
+    expect(attachedReloaded).toMatchObject({symbol:"remote_control",mount:{kind:"free"},position:attached});
     await page.getByRole("button",{name:"Lower floor",exact:true}).click();
     await page.evaluate(id=>window.__vh!.select({kind:"equipment",id}),ids[1]!);
     await page.getByRole("button",{name:"Adjust placement (E)",exact:true}).click();

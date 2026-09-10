@@ -29,6 +29,10 @@ export function applyVisibility(
       changed++;
     }
     for (const [name, node] of entry.nodes) {
+      if (node.userData.vhInvalidWallCap) {
+        if (node.visible) { node.visible = false; changed++; }
+        continue;
+      }
       const decision = plan.nodes.get(nodeKey(assetId, name));
       if (decision === undefined) {
         if (!node.visible && node !== entry.root) {

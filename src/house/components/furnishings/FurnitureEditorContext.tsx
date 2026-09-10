@@ -1,10 +1,10 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Furnishing, FurnishingKind } from "../../model/types";
 import { FURNISHING_CATALOG } from "../../model/furnishingCatalog";
 import { roomAt } from "../../model/manifestIndex";
-import { clearFurnishingCollisionCache, furnishingPlacementError, roundedPosition } from "../../scene/furnishingPlacement";
+import { clearFurnishingCollisionCache, furnishingCollisionShape, furnishingPlacementError, roundedPosition } from "../../scene/furnishingPlacement";
 import { useHouseRuntime, useHouseStore } from "../../hooks/useHouseStore";
 import { setPanelCollapsed } from "../../hooks/usePanelLayout";
 import { initialPosition } from "../edit/startPlacement";
@@ -12,6 +12,7 @@ import { useFurnishings } from "./FurnishingsProvider";
 import { snapValue } from "../../model/geometry2d";
 import { intersectHorizontalPlane } from "../../scene/picker";
 import { pickObjectSupport, placementYaw } from "../../scene/objectPlacement";
+import { equipmentCollisionShape } from "../../scene/equipmentPlacement";
 import type { HouseStore } from "../../store/createHouseStore";
 
 interface Editor {
@@ -38,13 +39,15 @@ export function FurnitureEditorProvider({ children }: { children: React.ReactNod
   const runtime = useHouseRuntime();
   const { items, busy, save, setPreview, registerEditHandler } = useFurnishings();
   const index = useHouseStore((s) => s.index);
+  const placements = useHouseStore((s) => s.placements);
   const [draft, setDraft] = useState<Furnishing | null>(null);
   const [hover, setHover] = useState<Furnishing | null>(null);
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const original = useRef<{ explode: HouseStore["explode"]; tool: HouseStore["tool"] } | null>(null);
-  const previewInvalid = !!((hover ?? draft) && runtime.index && furnishingPlacementError((hover ?? draft)!, runtime.index));
+  const obstacles = useMemo(() => [...items.map(furnishingCollisionShape), ...placements.map(equipmentCollisionShape)], [items, placements]);
+  const previewInvalid = !!((hover ?? draft) && runtime.index && furnishingPlacementError((hover ?? draft)!, runtime.index, obstacles));
 
   const restore = useCallback(() => {
     const state = runtime.store.getState();
@@ -142,7 +145,7 @@ export function FurnitureEditorProvider({ children }: { children: React.ReactNod
         frame = 0;
         const candidate = latest ? proposed(latest) : null;
         setHover(candidate);
-        setError(candidate && runtime.index ? furnishingPlacementError(candidate, runtime.index) : "Point at a floor or an upward-facing surface.");
+        setError(candidate && runtime.index ? furnishingPlacementError(candidate, runtime.index, obstacles) : "Point at a floor or an upward-facing surface.");
       });
     };
     const onDown = (event: PointerEvent) => {
@@ -155,7 +158,7 @@ export function FurnitureEditorProvider({ children }: { children: React.ReactNod
       const candidate = proposed(event);
       down = null; anchor = null;
       if (frame) cancelAnimationFrame(frame); frame = 0;
-      const problem = candidate && runtime.index ? furnishingPlacementError(candidate, runtime.index) : "Choose a floor or an upward-facing surface.";
+      const problem = candidate && runtime.index ? furnishingPlacementError(candidate, runtime.index, obstacles) : "Choose a floor or an upward-facing surface.";
       if (!candidate || problem) { setError(problem); return; }
       setDraft(candidate); setHover(null); setPlacing(false); setError(null);
       runtime.store.getState().setTool("select");
@@ -163,14 +166,14 @@ export function FurnitureEditorProvider({ children }: { children: React.ReactNod
     const leave = () => { if (frame) cancelAnimationFrame(frame); frame = 0; latest = null; down = null; anchor = null; setHover(null); };
     el.addEventListener("pointermove", onMove); el.addEventListener("pointerdown", onDown); el.addEventListener("pointerup", onUp); el.addEventListener("pointerleave", leave);
     return () => { leave(); el.removeEventListener("pointermove", onMove); el.removeEventListener("pointerdown", onDown); el.removeEventListener("pointerup", onUp); el.removeEventListener("pointerleave", leave); };
-  }, [busy, draft, placing, runtime, items]);
+  }, [busy, draft, placing, runtime, items, obstacles]);
 
   const change = (next: Furnishing) => { setDraft(next); setHover(null); setPlacing(false); setError(null); runtime.store.getState().setTool("select"); };
   return <Context.Provider value={{ draft, placing, error, previewInvalid, catalogOpen, setCatalogOpen, begin, change, cancel,
     reposition: () => { if (!busy) { setPlacing(true); setHover(null); setError(null); runtime.store.getState().setTool("place"); } },
     save: () => {
       if (!draft || busy) return;
-      const problem = runtime.index ? furnishingPlacementError(draft, runtime.index) : "Wait for the model to load.";
+      const problem = runtime.index ? furnishingPlacementError(draft, runtime.index, obstacles) : "Wait for the model to load.";
       if (placing || problem) { setError(problem ?? "Click to place the furniture first, or enter its position."); return; }
       const { id, kind, name, position, rotationYDeg, widthM, depthM, heightM, floorId, roomId } = draft;
       void save({ kind, name, position, rotationYDeg, widthM, depthM, heightM, floorId, roomId, ...(id ? { id } : {}) }).then(() => { setDraft(null); setHover(null); setPlacing(false); setError(null); restore(); })

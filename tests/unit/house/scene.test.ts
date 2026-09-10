@@ -491,15 +491,32 @@ describe("routes (fixture)", () => {
     layer.dispose();
   });
 
-  it("adds a tube only where a diameter is known and tubes are on", () => {
+  it("adds one tube per span only where a diameter is known and tubes are on", () => {
     const built = buildScene(FIXTURE_DIR);
     const layer = new RouteLayer(built.index, built.clip);
     layer.set([route({ diameterM: 0.125 })], { tubes: true });
     const overlay = built.index.overlay.floorGroups.get("f-lower");
     expect(overlay).toBeDefined();
-    expect(overlay!.children.filter((o) => o.name.startsWith("vh-tube-")).length).toBe(1);
+    expect(overlay!.children.filter((o) => o.name.startsWith("vh-tube-")).length).toBe(2);
     layer.set([route({ diameterM: 0.125 })], { tubes: false });
     expect(overlay!.children.filter((o) => o.name.startsWith("vh-tube-")).length).toBe(0);
+    layer.dispose();
+  });
+
+  it("attaches each tube span to its own floor group", () => {
+    const built = buildScene(FIXTURE_DIR);
+    const layer = new RouteLayer(built.index, built.clip);
+    layer.set([
+      route({
+        diameterM: 0.125,
+        segments: [
+          { floorId: "f-lower", roomId: "r-l-a" },
+          { floorId: "f-upper", roomId: "r-u-a" },
+        ],
+      }),
+    ], { tubes: true });
+    expect(built.index.overlay.floorGroups.get("f-lower")?.getObjectByName("vh-tube-r1-0")).toBeDefined();
+    expect(built.index.overlay.floorGroups.get("f-upper")?.getObjectByName("vh-tube-r1-1")).toBeDefined();
     layer.dispose();
   });
 });

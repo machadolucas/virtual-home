@@ -12,6 +12,7 @@ import { allMaterialHex, materialHex } from "@/house/scene/applyColors";
 import { worldY } from "@/house/scene/explode";
 import type { PickResult } from "@/house/scene/picker";
 import type { Selection } from "@/house/model/types";
+import { routePointPlace } from "@/house/model/routePlaces";
 import type { HouseRuntime } from "../runtime";
 
 export interface VhFrameStats {
@@ -44,6 +45,13 @@ export interface VhHook {
   /** Read-only pointer hover state for mode-gating regressions. */
   hover(): Selection | null;
   placementDraft(): { position: [number, number, number]; rotationYDeg: number } | null;
+  routeDraft(): {
+    points: Array<[number, number, number]>;
+    pointPlaces: Array<{ floorId: string | null; roomId: string | null }>;
+    hover: { point: [number, number, number]; floorId: string | null; roomId: string | null } | null;
+  } | null;
+  routeGuides(): { pathSegments: number; hoverSegments: number };
+  routeSegments(): number;
   /** Whether the camera controls currently accept the left button, or `null` if not mounted. */
   controlsEnabled(): boolean | null;
   controlBindings(): { left: number; right: number; wheel: number } | null;
@@ -199,6 +207,40 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
     placementDraft() {
       const draft = runtime.store.getState().editing;
       return draft ? { position: [...draft.physical] as [number, number, number], rotationYDeg: draft.rotationYDeg } : null;
+    },
+
+    routeDraft() {
+      const state = runtime.store.getState();
+      const draft = state.routeDraft;
+      if (!draft) return null;
+      return {
+        points: draft.points.map((point) => [...point] as [number, number, number]),
+        pointPlaces: draft.points.map((_, index) => ({ ...routePointPlace(draft, index) })),
+        hover: state.routeDraftHover
+          ? { ...state.routeDraftHover, point: [...state.routeDraftHover.point] as [number, number, number] }
+          : null,
+      };
+    },
+
+    routeGuides() {
+      let pathSegments = 0;
+      let hoverSegments = 0;
+      runtime.scene?.getObjectByName("vh-route-handles")?.traverse((object) => {
+        if (!(object instanceof THREE.LineSegments)) return;
+        const count = object.geometry.getAttribute("position")?.count ?? 0;
+        if (object.name === "vh-route-draft-hover") hoverSegments += count / 2;
+        else if (object.name === "vh-route-draft-path") pathSegments += count / 2;
+      });
+      return { pathSegments, hoverSegments };
+    },
+
+    routeSegments() {
+      let segments = 0;
+      runtime.index?.overlay.root.traverse((object) => {
+        if (!(object instanceof THREE.LineSegments) || !object.name.startsWith("vh-routes-") || !isVisibleUp(object)) return;
+        segments += (object.geometry.getAttribute("position")?.count ?? 0) / 2;
+      });
+      return segments;
     },
 
     /**

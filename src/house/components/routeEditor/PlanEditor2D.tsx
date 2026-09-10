@@ -10,16 +10,19 @@
 import { useCallback, useMemo, useRef } from "react";
 import { distanceToRings, snapValue } from "@/house/model/geometry2d";
 import { floorBox } from "@/house/model/framingBoxes";
+import { roomAt } from "@/house/model/manifestIndex";
+import { routePointPlace } from "@/house/model/routePlaces";
 import type { FloorId, Vec2 } from "@/house/model/types";
 import { useHouseStore, useShallow } from "../../hooks/useHouseStore";
 
 const M = 100; // centimetres per metre
 
 export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
-  const { index, routeDraft, snap, selectedPointIndex } = useHouseStore(
+  const { index, routeDraft, routeDraftHover, snap, selectedPointIndex } = useHouseStore(
     useShallow((s) => ({
       index: s.index,
       routeDraft: s.routeDraft,
+      routeDraftHover: s.routeDraftHover,
       snap: s.snap,
       selectedPointIndex: s.selectedPointIndex,
     })),
@@ -28,6 +31,7 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
   const insertRoutePoint = useHouseStore((s) => s.insertRoutePoint);
   const deleteRoutePoint = useHouseStore((s) => s.deleteRoutePoint);
   const selectPoint = useHouseStore((s) => s.selectPoint);
+  const setRouteDraftHover = useHouseStore((s) => s.setRouteDraftHover);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragging = useRef<number | null>(null);
 
@@ -52,9 +56,33 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
 
   const onPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
     const i = dragging.current;
-    if (i === null || !routeDraft) return;
+    if (!routeDraft) return;
     const model = toModel(event);
     if (!model) return;
+    if (i === null) {
+      const last = routeDraft.points.at(-1);
+      if (!last) return;
+      const previousPlace = routePointPlace(routeDraft, routeDraft.points.length - 1);
+      const previousBase = previousPlace?.roomId
+        ? index.rooms.get(previousPlace.roomId)?.floorElevation
+        : previousPlace?.floorId
+          ? index.floors.get(previousPlace.floorId)?.elevation
+          : undefined;
+      const roomId = roomAt(index, floorId, model[0], model[1]);
+      const nextBase = roomId
+        ? index.rooms.get(roomId)?.floorElevation
+        : index.floors.get(floorId)?.elevation;
+      setRouteDraftHover({
+        point: [
+          snapValue(model[0], snap.grid),
+          (nextBase ?? last[1]) + (last[1] - (previousBase ?? last[1])),
+          snapValue(model[1], snap.grid),
+        ],
+        floorId,
+        roomId,
+      });
+      return;
+    }
     const point = routeDraft.points[i];
     if (!point) return;
     setRoutePoint(i, [
@@ -78,6 +106,14 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
         }}
         onPointerLeave={() => {
           dragging.current = null;
+          setRouteDraftHover(null);
+        }}
+        onClick={(event) => {
+          if ((event.target as Element).closest("circle") || !routeDraft || !routeDraftHover) return;
+          const nextIndex = routeDraft.points.length;
+          insertRoutePoint(nextIndex, routeDraftHover.point, routeDraftHover);
+          selectPoint(nextIndex);
+          setRouteDraftHover(null);
         }}
       >
         {rooms.map((room) => (
@@ -111,20 +147,43 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
 
         {routeDraft ? (
           <>
-            <polyline
-              points={routeDraft.points.map((p) => `${p[0] * M},${p[2] * M}`).join(" ")}
-              fill="none"
-              stroke="var(--vh-accent)"
-              strokeWidth={4}
-              strokeDasharray={
-                routeDraft.certainty === "inferred" || routeDraft.certainty === "unknown"
-                  ? "12 8"
-                  : undefined
-              }
-            />
+            {routeDraft.segments.map((segment, i) => {
+              const a = routeDraft.points[i];
+              const b = routeDraft.points[i + 1];
+              if (!a || !b || segment.floorId !== floorId) return null;
+              return (
+                <line
+                  key={`span-${i}`}
+                  x1={a[0] * M}
+                  y1={a[2] * M}
+                  x2={b[0] * M}
+                  y2={b[2] * M}
+                  stroke="var(--vh-accent)"
+                  strokeWidth={4}
+                  strokeDasharray={
+                    routeDraft.certainty === "inferred" || routeDraft.certainty === "unknown"
+                      ? "12 8"
+                      : undefined
+                  }
+                />
+              );
+            })}
+            {routeDraftHover?.floorId === floorId && routeDraft.points.at(-1) ? (
+              <line
+                x1={routeDraft.points.at(-1)![0] * M}
+                y1={routeDraft.points.at(-1)![2] * M}
+                x2={routeDraftHover.point[0] * M}
+                y2={routeDraftHover.point[2] * M}
+                stroke="var(--vh-accent)"
+                strokeOpacity={0.7}
+                strokeWidth={3}
+                strokeDasharray="8 6"
+                pointerEvents="none"
+              />
+            ) : null}
             {routeDraft.points.slice(1).map((point, i) => {
               const previous = routeDraft.points[i];
-              if (!previous) return null;
+              if (!previous || routeDraft.segments[i]?.floorId !== floorId) return null;
               const length = Math.hypot(point[0] - previous[0], point[2] - previous[2]);
               return (
                 <text
@@ -147,6 +206,8 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
               );
             })}
             {routeDraft.points.map((point, i) => {
+              const pointFloor = routePointPlace(routeDraft, i).floorId;
+              if (pointFloor !== floorId) return null;
               const clearance = nearestEdgeDistance(rooms, point[0], point[2]);
               return (
                 <g key={`p-${i}`}>
@@ -160,6 +221,8 @@ export function PlanEditor2D({ floorId }: { floorId: FloorId }) {
                     className="cursor-move"
                     onPointerDown={(event) => {
                       event.preventDefault();
+                      event.stopPropagation();
+                      setRouteDraftHover(null);
                       dragging.current = i;
                       selectPoint(i);
                     }}

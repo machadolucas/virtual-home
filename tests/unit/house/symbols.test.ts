@@ -98,6 +98,20 @@ describe("symbol geometry", () => {
     expectSize("outdoor_wood_storage", [1, 2.2, 2.5]);
   });
 
+  it("gives the hot-water tank a rectangular appliance case", () => {
+    const position = symbolGeometry("hot_water_tank").getAttribute("position");
+    const cornerSigns = new Set<string>();
+    for (let index = 0; index < position.count; index += 1) {
+      const x = position.getX(index);
+      const y = position.getY(index);
+      const z = position.getZ(index);
+      if (y > 1.7 && Math.abs(x) > 0.3 && Math.abs(z) > 0.3) {
+        cornerSigns.add(`${Math.sign(x)},${Math.sign(z)}`);
+      }
+    }
+    expect(cornerSigns).toEqual(new Set(["-1,-1", "-1,1", "1,-1", "1,1"]));
+  });
+
   it("normalizes a solar panel to configurable dimensions and anchors it on its bottom", () => {
     const box = symbolGeometry("solar_panel").boundingBox!;
     const size = box.getSize(new THREE.Vector3());

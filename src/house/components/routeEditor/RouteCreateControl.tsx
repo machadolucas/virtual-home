@@ -25,7 +25,9 @@ import { MEDIUM_LABELS, kindOfMedium, systemOfMedium } from "@/features/projects
 import { ENDPOINT_KIND_SHORT } from "@/features/projects/infraEndpoint";
 import { CERTAINTIES, LIFECYCLES, MEDIA, type RouteDto } from "@/features/projects/wire";
 import { polylineLength } from "@/house/model/geometry2d";
-import type { Route, Vec3 } from "@/house/model/types";
+import { roomAt } from "@/house/model/manifestIndex";
+import { routePointPlace } from "@/house/model/routePlaces";
+import type { FloorId, Route, Vec3 } from "@/house/model/types";
 import { NotPersistedError, type RouteSave } from "@/house/store/dataApi";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
 import { CERTAINTY_LEGEND } from "./RouteFields";
@@ -309,11 +311,18 @@ function DraftPath({
   onDiscard: () => void;
 }) {
   const selectedPointIndex = useHouseStore((s) => s.selectedPointIndex);
+  const index = useHouseStore((s) => s.index);
   const setRoutePoint = useHouseStore((s) => s.setRoutePoint);
   const insertRoutePoint = useHouseStore((s) => s.insertRoutePoint);
+  const setRoutePointPlace = useHouseStore((s) => s.setRoutePointPlace);
   const deleteRoutePoint = useHouseStore((s) => s.deleteRoutePoint);
   const selectPoint = useHouseStore((s) => s.selectPoint);
   const catalog = useEndpoints();
+  const currentPlace = routePointPlace(draft, draft.points.length - 1);
+  const currentFloorId = currentPlace.floorId ?? index?.floorOrder[0] ?? null;
+  const [targetFloorId, setTargetFloorId] = useState<FloorId | "">(
+    index?.floorOrder.find((floorId) => floorId !== currentFloorId) ?? "",
+  );
 
   const setAxis = (i: number, axis: 0 | 1 | 2, raw: string): void => {
     const value = Number(raw);
@@ -330,11 +339,40 @@ function DraftPath({
     const last = draft.points[n - 1];
     const previous = draft.points[n - 2];
     if (!last) return;
-    const dx = previous ? last[0] - previous[0] : 0.5;
-    const dz = previous ? last[2] - previous[2] : 0;
-    const length = Math.hypot(dx, dz) || 1;
+    let dx = previous ? last[0] - previous[0] : 0.5;
+    let dz = previous ? last[2] - previous[2] : 0;
+    let length = Math.hypot(dx, dz);
+    if (length === 0) {
+      dx = 0.5;
+      dz = 0;
+      length = 0.5;
+    }
     insertRoutePoint(n, [last[0] + (dx / length) * 0.5, last[1], last[2] + (dz / length) * 0.5]);
     selectPoint(n);
+  };
+
+  const continueOnFloor = (): void => {
+    if (!index || !targetFloorId || targetFloorId === currentFloorId) return;
+    const last = draft.points.at(-1);
+    if (!last) return;
+    const currentBase = currentPlace.roomId
+      ? index.rooms.get(currentPlace.roomId)?.floorElevation
+      : currentPlace.floorId
+        ? index.floors.get(currentPlace.floorId)?.elevation
+        : undefined;
+    const roomId = roomAt(index, targetFloorId, last[0], last[2]);
+    const targetBase = roomId
+      ? index.rooms.get(roomId)?.floorElevation
+      : index.floors.get(targetFloorId)?.elevation;
+    if (targetBase === undefined) return;
+    const y = targetBase + (last[1] - (currentBase ?? last[1]));
+    const riserIndex = draft.points.length;
+    // Per-point place metadata preserves the destination even though this is the final vertex.
+    insertRoutePoint(riserIndex, [last[0], y, last[2]], {
+      floorId: targetFloorId,
+      roomId,
+    });
+    selectPoint(riserIndex);
   };
 
   return (
@@ -396,6 +434,49 @@ function DraftPath({
                   −
                 </button>
               </div>
+              {index ? (
+                <div className="mt-1 grid grid-cols-2 gap-1 pl-5">
+                  <label className="flex flex-col gap-0.5 text-[10px] text-ink-3">
+                    Point floor
+                    <Select
+                      selectSize="sm"
+                      value={routePointPlace(draft, i).floorId ?? ""}
+                      onValueChange={(value) =>
+                        setRoutePointPlace(i, { floorId: value || null, roomId: null })
+                      }
+                      options={[
+                        { value: "", label: "Site / unknown floor" },
+                        ...index.floorOrder.map((floorId) => ({
+                          value: floorId,
+                          label: index.floors.get(floorId)?.name ?? floorId,
+                        })),
+                      ]}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-0.5 text-[10px] text-ink-3">
+                    Room
+                    <Select
+                      selectSize="sm"
+                      value={routePointPlace(draft, i).roomId ?? ""}
+                      onValueChange={(value) =>
+                        setRoutePointPlace(i, {
+                          floorId: routePointPlace(draft, i).floorId,
+                          roomId: value || null,
+                        })
+                      }
+                      options={[
+                        { value: "", label: "Not recorded" },
+                        ...(routePointPlace(draft, i).floorId
+                          ? (index.roomsByFloor.get(routePointPlace(draft, i).floorId!) ?? []).map((room) => ({
+                              value: room.id,
+                              label: room.name,
+                            }))
+                          : []),
+                      ]}
+                    />
+                  </label>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -404,6 +485,30 @@ function DraftPath({
             Add a point at the end
           </button>
         </div>
+        {index && index.floorOrder.length > 1 ? (
+          <div className="grid grid-cols-[1fr_auto] items-end gap-2 rounded-md border border-line bg-surface p-2">
+            <label className="flex flex-col gap-1 text-xs text-ink-2">
+              Continue on another floor
+              <Select
+                selectSize="sm"
+                value={targetFloorId}
+                onValueChange={(value) => setTargetFloorId(value as FloorId)}
+                options={index.floorOrder.map((floorId) => ({
+                  value: floorId,
+                  label: index.floors.get(floorId)?.name ?? floorId,
+                }))}
+              />
+            </label>
+            <button
+              type="button"
+              className={BUTTON}
+              disabled={!targetFloorId || targetFloorId === currentFloorId}
+              onClick={continueOnFloor}
+            >
+              Add vertical riser
+            </button>
+          </div>
+        ) : null}
         <p className="text-[11px] text-ink-3">
           A run needs at least two points, so the last two cannot be deleted. x and z are also
           draggable on the plan below; y is the height above the site datum.

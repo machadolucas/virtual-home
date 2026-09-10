@@ -75,9 +75,15 @@ function reapply(runtime: HouseRuntime): void {
   }
 
   if (index && runtime.routes) {
-    const visible = s.routes.filter(
-      (r) => s.visibleSystems[r.system] && isRunVisibleOn(r, s.renovationDate),
-    );
+    const visible = s.layers.routes
+      ? s.routes.filter(
+          (r) =>
+            r.id !== s.routeDraft?.id &&
+            s.visibleSystems[r.system] &&
+            s.visibleRouteKinds[r.kind] &&
+            isRunVisibleOn(r, s.renovationDate),
+        )
+      : [];
     runtime.routes.set(visible, { tubes: !s.performanceMode });
   }
 }

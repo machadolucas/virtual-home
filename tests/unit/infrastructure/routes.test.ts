@@ -28,6 +28,7 @@ import { infraRoute, infraRoutePoint, modelRevision } from "@/db/schema";
 import { GET, PUT } from "@/app/api/house-model/[modelId]/routes/route";
 import { DELETE } from "@/app/api/house-model/[modelId]/routes/[routeId]/route";
 import type { RouteDto } from "@/features/projects/wire";
+import { routeWrite } from "@/house/store/dataApi";
 import {
   bodyOf,
   ctx,
@@ -293,6 +294,25 @@ describe("PUT routes", () => {
 });
 
 describe("GET routes", () => {
+  it("preserves both ends of a two-floor riser through read and re-save", async () => {
+    const pointPlaces = [
+      { floorId: "f-lower", roomId: "r-l-a" },
+      { floorId: "f-upper", roomId: "r-u-a" },
+    ];
+    const createdResponse = await put(routeBody({ points: [
+      { position: [1, .4, 1], ...pointPlaces[0] },
+      { position: [1, 3.1, 1], ...pointPlaces[1] },
+    ] }));
+    expect(createdResponse.status).toBe(200);
+    const created = await bodyOf<{ route: RouteDto }>(createdResponse);
+    expect(created.route.pointPlaces).toEqual(pointPlaces);
+    const reread = await bodyOf<{ routes: RouteDto[] }>(await list());
+    expect(reread.routes[0]?.pointPlaces).toEqual(pointPlaces);
+    const saved = await put({ fingerprint: h.fingerprint, viewMode: "normal", route: routeWrite(reread.routes[0]!) });
+    expect(saved.status).toBe(200);
+    expect((await bodyOf<{ route: RouteDto }>(saved)).route.pointPlaces).toEqual(pointPlaces);
+  });
+
   it("returns nothing (not an error) before anything is drawn", async () => {
     const body = await bodyOf<{ routes: RouteDto[]; stale: string[] }>(await list());
     expect(body.routes).toEqual([]);

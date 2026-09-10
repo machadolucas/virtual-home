@@ -148,6 +148,8 @@ export function startRouteDraft(
     system: systemOfMedium(spec.medium),
     kind: kindOfMedium(spec.medium),
     points: [...points],
+    pointPlaces: roomIds.map((roomId) => ({ floorId, roomId })),
+    pointKinds: ["vertex", "vertex"],
     // One entry per span. A two-point run has exactly one.
     segments: [{ floorId, roomId: roomIds[0] }],
     certainty: spec.certainty,

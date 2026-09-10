@@ -28,7 +28,7 @@ import {
 import type { Placement } from "@/house/model/types";
 import { dragCandidates, intersectHorizontalPlane } from "@/house/scene/picker";
 import { projectGroundReference } from "@/house/scene/groundProjection";
-import { assertPhysicalY, resolveSnap, type SnapIndicatorState } from "@/house/scene/snap";
+import { assertPhysicalY, resolveSnap, WALL_STANDOFF, type SnapIndicatorState } from "@/house/scene/snap";
 import { NotPersistedError } from "@/house/store/dataApi";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
 import { useIsPhone } from "../../hooks/useReducedMotion";
@@ -36,7 +36,7 @@ import { NumericPlacementFields } from "./NumericPlacementFields";
 import { draftSymbol, SpotlightAimFields } from "./SpotlightAimFields";
 import { useFurnishings } from "../furnishings/FurnishingsProvider";
 import { pickObjectSupport, placementYaw } from "../../scene/objectPlacement";
-import { equipmentPreviewShape, equipmentWallError } from "../../scene/equipmentPlacement";
+import { equipmentFaceOffset, equipmentPreviewShape, equipmentWallError } from "../../scene/equipmentPlacement";
 import { clearFurnishingCollisionCache } from "../../scene/furnishingPlacement";
 import { UndoBar } from "./UndoBar";
 
@@ -44,7 +44,7 @@ export function PlacementEditor() {
   const runtime = useHouseRuntime();
   const phone = useIsPhone();
   const { items: furnishings } = useFurnishings();
-  const { editing, snap, index, fingerprint, modelId, editError } = useHouseStore(
+  const { editing, snap, index, fingerprint, modelId, editError, placements } = useHouseStore(
     useShallow((s) => ({
       editing: s.editing,
       snap: s.snap,
@@ -52,6 +52,7 @@ export function PlacementEditor() {
       fingerprint: s.fingerprint,
       modelId: s.modelId,
       editError: s.editError,
+      placements: s.placements,
     })),
   );
   const updateDraft = useHouseStore((s) => s.updateDraft);
@@ -128,10 +129,21 @@ export function PlacementEditor() {
         const roomId = support.roomId;
         const base = (roomId ? index.rooms.get(roomId)?.floorElevation : null) ?? index.floors.get(floorId)?.elevation ?? 0;
         const grid = snap.enabled && !event.altKey ? snap.grid : 0;
-        const physical: [number, number, number] = [snapValue(support.point.x, grid),
-          snapValue(support.point.y - (runtime.offsets.get(floorId) ?? 0), 0), snapValue(support.point.z, grid)];
-        solution = { physical, rotationYDeg: editing.rotationYDeg, floorId, roomId, surfaceId: null,
-          mount: { kind: "free", height: physical[1] - base }, indicator: { kind: "free", point: physical } };
+        const normal = support.normal?.clone().normalize();
+        if (normal && normal.y >= .75) {
+          const physical: [number, number, number] = [snapValue(support.point.x, grid),
+            snapValue(support.point.y - (runtime.offsets.get(floorId) ?? 0), 0), snapValue(support.point.z, grid)];
+          solution = { physical, rotationYDeg: editing.rotationYDeg, floorId, roomId, surfaceId: null,
+            mount: { kind: "free", height: physical[1] - base }, indicator: { kind: "free", point: physical } };
+        } else if (normal && Math.abs(normal.y) <= .25) {
+          const point = support.point.clone().addScaledVector(normal, equipmentFaceOffset(editing) + WALL_STANDOFF);
+          const physical: [number, number, number] = [snapValue(point.x, 0),
+            snapValue(point.y - (runtime.offsets.get(floorId) ?? 0), 0), snapValue(point.z, 0)];
+          solution = { physical,
+            rotationYDeg: THREE.MathUtils.radToDeg(Math.atan2(normal.x, normal.z)),
+            floorId, roomId, surfaceId: null,
+            mount: { kind: "free", height: physical[1] - base }, indicator: { kind: "free", point: physical } };
+        }
       }
       solution.indicator.ground = projectGroundReference({
         point: solution.physical, floorId: solution.floorId, roomId: solution.roomId,
@@ -190,7 +202,7 @@ export function PlacementEditor() {
     });
     const paint = (solution: ReturnType<typeof solveAt>) => {
       const proposedDraft = asDraft(solution);
-      const problem = equipmentWallError(proposedDraft, sceneIndex);
+      const problem = equipmentWallError(proposedDraft, sceneIndex, furnishings, placements);
       preview.position.set(...solution.physical);
       preview.rotation.set(equipmentPreviewShape(proposedDraft).tilt, THREE.MathUtils.degToRad(proposedDraft.rotationYDeg), 0, "YXZ");
       preview.visible = equipmentVisible;
@@ -240,7 +252,7 @@ export function PlacementEditor() {
       preview.removeFromParent(); material.dispose();
       setIndicator(null);
     };
-  }, [runtime, editing, index, snap, phone, aiming, updateDraft, setIndicator, setEditError, furnishings, equipmentVisible]);
+  }, [runtime, editing, index, snap, phone, aiming, updateDraft, setIndicator, setEditError, furnishings, placements, equipmentVisible]);
 
   /**
    * A spotlight has its own beam aim, separate from the marker's body rotation. The arrow is an
@@ -371,7 +383,7 @@ export function PlacementEditor() {
       setEditError("The coordinates must be numbers.");
       return;
     }
-    const collision = runtime.index ? equipmentWallError(editing, runtime.index) : null;
+    const collision = runtime.index ? equipmentWallError(editing, runtime.index, furnishings, placements) : null;
     if (collision) { setEditError(collision); return; }
     // No room is a legitimate answer, not an error: a yard lamp, an eave spot or anything on the
     // terrace sits outside every room footprint. The package's `rooms` are interior only, so
@@ -440,7 +452,7 @@ export function PlacementEditor() {
     } finally {
       setSaving(false);
     }
-  }, [saving, setSaving, editing, index, modelId, fingerprint, runtime, upsertPlacement, markPlaced, pushUndo, endEdit, setEditError]);
+  }, [saving, setSaving, editing, index, modelId, fingerprint, runtime, furnishings, placements, upsertPlacement, markPlaced, pushUndo, endEdit, setEditError]);
 
   /**
    * Remove the placement. The equipment record itself is untouched — this says "it is not here",
@@ -543,7 +555,7 @@ export function PlacementEditor() {
         </label>
       </fieldset>
 
-      {editError ? <p className="text-xs text-overdue">{editError}</p> : null}
+      {editError ? <p role="alert" className="text-xs text-overdue">{editError}</p> : null}
 
       <div className="sticky bottom-0 z-10 mt-auto flex shrink-0 gap-2 border-t border-line bg-surface py-2">
         <button

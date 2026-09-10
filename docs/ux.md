@@ -84,11 +84,18 @@ a missing upper floor; choosing a floor opens the shell in Contextual mode. Door
 hidden in both cut modes and return with All up or the closed mode. Camera presets and Download image remain available when the bottom panel is collapsed.
 Immediate visibility settings use switches. Controls use compact desktop spacing and retain larger
 phone touch targets.
+Infrastructure visibility is split by route type (pipes, ducts, cables, valves, outlets, switches,
+junctions, access points and other), alongside the system-colour legend. Turning one type off does
+not hide the others.
 
 Starting an edit opens the right panel. Collapsing it discards the unsaved placement or route draft
 without confirmation, restores the existing route when applicable, and returns focus to the canvas.
 Placement cancellation restores the prior exploded view. Save/remove requests disable dismissal
 until the request completes. Placement Save/Cancel actions remain pinned within the scroll region.
+Route editing clears floor isolation without moving the camera so a multi-floor run remains visible.
+The plan editor has its own floor selector. A vertical-riser action adds an endpoint on the destination
+floor at the same relative height; each following point can then be assigned a floor and room.
+Hovering the model or plan shows the next segment in 3D without adding a point until it is clicked.
 
 Download image saves a PNG of the visible model, background and labels at the current canvas
 resolution. It excludes panels and editing guides, works on desktop and phone, and reports capture
@@ -652,8 +659,12 @@ rechecks eligibility inside the same transaction as deletion and records an audi
 confirmation lists the records and explains that their owned HA links and placement setup also
 get deleted. The toolbar stacks on narrower screens so selection counts cannot overlap actions.
 
-The property tree omits the redundant address root, opens buildings and floors to show rooms by
-default, and folds a single-floor building such as the garage into one row. Property-tree focus
+The property tree omits the redundant address root and gives every floor separate **Rooms**,
+**Equipment**, **Infrastructure** and **Furniture** sections. Infrastructure is grouped into pipes,
+ducts, cables and the other recorded route kinds; a run crossing floors appears under each affected
+floor. Buildings, floors and room sections open by default, and a single-floor building such as the
+garage folds into one row. Equipment appears once in its floor section rather than being repeated
+under its room. Property-tree focus
 consistently frames buildings and outdoor areas as well as floors, rooms and equipment. Floors and
 rooms open in perspective from directly above with roofs, floor ceilings and upper floors out of
 the way. Angled
@@ -674,8 +685,9 @@ equipment labels visible; phones expose the same switch beside the model.
 
 ### Live fixtures
 
-Furniture is a separate model layer and a separate lightweight record. The property panel (and the
-phone House screen) can add regular or L-shaped sofas, single or double beds, bedside tables,
+Furniture is a separate model layer and a separate lightweight record. Furniture is listed by floor
+in the property tree; the property panel's compact furniture controls (and the phone House screen)
+can add regular or L-shaped sofas, single or double beds, bedside tables,
 chairs, dining tables, computer desks, bicycles, shelves, cabinets/wardrobes, kitchen counters,
 rugs, benches, TV racks, stools and outdoor wheelie bins. Every object previews while its physical X/Y/Z position, width, depth, height or
 yaw is edited; Save persists it, Cancel restores the previous view and saved object. Furniture has
@@ -792,7 +804,12 @@ allows seeing equipment through visible geometry, not equipment on floors delibe
 
 Furniture starts from **Add furniture**, a searchable catalog with actual model miniatures. Choosing
 an item activates a hover preview in the model; click a floor or other upward-facing surface to place
-it. Red previews indicate a wall/door collision and cannot be committed. The details pane contains
+it. Equipment can also attach to a visible vertical equipment or furniture face: the preview faces
+outward and clears the supporting body, while an item dropped on top retains exact contact. Equipment
+and furniture cannot overlap each other. Collision follows the visible procedural parts, so open space
+under tables and between shelves remains usable; rugs and floor-heating markers are underlays rather
+than solid blockers. Red previews indicate a wall, door, equipment or furniture collision and cannot
+be committed, and the same check applies to numeric Save. The details pane contains
 physical size and rotation fields, **Reposition in 3D**, Save and Cancel. Clicking saved furniture
 opens that same pane. Numerical positioning remains available for keyboard and phone use. Furniture
 keeps its own records and has no equipment-documentation overhead.

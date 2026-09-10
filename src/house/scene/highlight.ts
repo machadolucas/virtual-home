@@ -81,7 +81,7 @@ export class Highlighter {
   /** Rebuilt only when the selection changes — never per frame. */
   private updateOutline(index: SceneIndex, clip: ClipGroups, primary: SurfaceId | null): void {
     const mesh = primary ? index.surfaceMesh.get(primary) : undefined;
-    if (!mesh?.geometry) {
+    if (!mesh?.geometry || mesh.userData.vhInvalidWallCap) {
       if (this.outline) this.outline.visible = false;
       return;
     }

@@ -8,10 +8,11 @@
  * The legend states the confidence convention in words, because a solid line is *not* proof of a
  * verified concealed installation.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { colorFor, isDashed, SYSTEM_COLORS } from "@/house/scene/routes";
 import type { Route, RouteSystem } from "@/house/model/types";
+import { routePointPlace } from "@/house/model/routePlaces";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { useViewerPalette } from "../hooks/useViewerPalette";
 
@@ -75,14 +76,75 @@ export function RouteLegend() {
 export function RoutePointHandles() {
   const runtime = useHouseRuntime();
   const draft = useHouseStore((s) => s.routeDraft);
+  const hover = useHouseStore((s) => s.routeDraftHover);
   const selectedPointIndex = useHouseStore((s) => s.selectedPointIndex);
   const geometry = useMemo(() => new THREE.SphereGeometry(0.05, 10, 8), []);
   const palette = useViewerPalette();
+
+  const pathGeometry = useMemo(() => {
+    const geometry = new THREE.BufferGeometry();
+    if (!draft) return geometry;
+    const positions: number[] = [];
+    const lineDistances: number[] = [];
+    for (let i = 1; i < draft.points.length; i++) {
+      const a = withOffset(runtime, draft, i - 1, draft.points[i - 1]!);
+      const b = withOffset(runtime, draft, i, draft.points[i]!);
+      positions.push(...a, ...b);
+      lineDistances.push(0, Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]));
+    }
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("lineDistance", new THREE.Float32BufferAttribute(lineDistances, 1));
+    return geometry;
+  }, [runtime, draft]);
+  const hoverGeometry = useMemo(() => {
+    const geometry = new THREE.BufferGeometry();
+    const last = draft?.points.at(-1);
+    if (!draft || !last || !hover) return geometry;
+    const sourceOffset = runtime.offsets.get(
+      routePointPlace(draft, draft.points.length - 1).floorId ?? "site",
+    ) ?? 0;
+    const targetOffset = runtime.offsets.get(hover.floorId ?? "site") ?? 0;
+    geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(
+        [last[0], last[1] + sourceOffset, last[2], hover.point[0], hover.point[1] + targetOffset, hover.point[2]],
+        3,
+      ),
+    );
+    return geometry;
+  }, [runtime, draft, hover]);
+
+  useEffect(() => () => pathGeometry.dispose(), [pathGeometry]);
+  useEffect(() => () => hoverGeometry.dispose(), [hoverGeometry]);
 
   if (!draft) return null;
 
   return (
     <group name="vh-route-handles">
+      <lineSegments name="vh-route-draft-path" geometry={pathGeometry} frustumCulled={false} renderOrder={6}>
+        {isDashed(draft) ? (
+          <lineDashedMaterial color={colorFor(draft)} transparent opacity={0.9} dashSize={0.06} gapSize={0.04} depthTest />
+        ) : (
+          <lineBasicMaterial color={colorFor(draft)} transparent opacity={0.9} depthTest />
+        )}
+      </lineSegments>
+      <lineSegments name="vh-route-draft-xray" geometry={pathGeometry} frustumCulled={false} renderOrder={7}>
+        {isDashed(draft) ? (
+          <lineDashedMaterial color={colorFor(draft)} transparent opacity={0.2} dashSize={0.06} gapSize={0.04} depthTest={false} />
+        ) : (
+          <lineBasicMaterial color={colorFor(draft)} transparent opacity={0.2} depthTest={false} />
+        )}
+      </lineSegments>
+      {hover ? (
+        <lineSegments name="vh-route-draft-hover" geometry={hoverGeometry} frustumCulled={false} renderOrder={8}>
+          <lineBasicMaterial
+            color={palette.routeSelectedPoint}
+            transparent
+            opacity={0.8}
+            depthTest={false}
+          />
+        </lineSegments>
+      ) : null}
       {draft.points.map((point, i) => (
         <mesh
           key={`${draft.id}-${i}`}
@@ -90,6 +152,7 @@ export function RoutePointHandles() {
           position={withOffset(runtime, draft, i, point)}
           onPointerDown={(event) => {
             event.stopPropagation();
+            runtime.store.getState().setRouteDraftHover(null);
             runtime.store.getState().selectPoint(i);
           }}
         >
@@ -114,7 +177,7 @@ function withOffset(
   index: number,
   point: readonly [number, number, number],
 ): [number, number, number] {
-  const group = route.segments[Math.min(index, route.segments.length - 1)]?.floorId ?? "site";
+  const group = routePointPlace(route, index).floorId ?? "site";
   const offset = runtime.offsets.get(group) ?? 0;
   return [point[0], point[1] + offset, point[2]];
 }

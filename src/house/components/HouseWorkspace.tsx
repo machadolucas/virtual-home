@@ -61,7 +61,7 @@ import { PlacementEditor } from "./edit/PlacementEditor";
 import { SnapReadoutOverlay } from "./edit/SnapIndicator";
 import { Inspector } from "./inspector/Inspector";
 import { PhoneHouse } from "./phone/PhoneHouse";
-import { IconButton, Input } from "@/ui";
+import { IconButton, Input, Select } from "@/ui";
 import { cn } from "@/ui/cn";
 import {
   PanelLeftClose,
@@ -249,7 +249,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
             </label>
             <PropertyTree />
             <PlaceableList />
-            <FurnishingsPanel />
+            <FurnishingsPanel showItems={false} />
           </div>
         </aside>
       )}
@@ -955,10 +955,12 @@ function RouteEditors() {
   const cancelRouteDraft = useHouseStore((s) => s.cancelRouteDraft);
   const saving = useHouseStore((s) => s.editorSaving);
   const phone = useIsPhone();
+  const [heldFloor, setHeldFloor] = useState<{ routeId: string; floorId: FloorId | null } | null>(null);
   if (!routeDraft || !index) return null;
 
-  const floorId: FloorId | null =
-    activeFloorId ?? routeDraft.segments.find((seg) => seg.floorId)?.floorId ?? null;
+  const initialFloorId: FloorId | null =
+    activeFloorId ?? routeDraft.segments.find((seg) => seg.floorId)?.floorId ?? index.floorOrder[0] ?? null;
+  const floorId = heldFloor?.routeId === routeDraft.id ? heldFloor.floorId : initialFloorId;
   const wallSurfaceId =
     selection?.kind === "surface" && index.surfaces.get(selection.id)?.kind === "wall"
       ? selection.id
@@ -983,6 +985,22 @@ function RouteEditors() {
         <p className="rounded-md border border-line bg-surface-2 p-2 text-xs text-ink-2">
           The 2D route editors are read-only on a phone. Edit on a desktop.
         </p>
+      ) : null}
+      {index.floorOrder.length > 1 ? (
+        <label className="flex flex-col gap-1 text-xs text-ink-2">
+          Plan floor
+          <Select
+            selectSize="sm"
+            value={floorId ?? ""}
+            onValueChange={(value) =>
+              setHeldFloor({ routeId: routeDraft.id, floorId: (value || null) as FloorId | null })
+            }
+            options={index.floorOrder.map((id) => ({
+              value: id,
+              label: index.floors.get(id)?.name ?? id,
+            }))}
+          />
+        </label>
       ) : null}
       {floorId ? <PlanEditor2D floorId={floorId} /> : null}
       {wallSurfaceId ? <WallElevationEditor2D surfaceId={wallSurfaceId} /> : (

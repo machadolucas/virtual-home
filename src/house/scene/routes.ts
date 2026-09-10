@@ -82,7 +82,7 @@ interface Bucket {
 export class RouteLayer {
   private readonly buckets = new Map<string, Bucket>();
   private readonly tubes: THREE.Mesh[] = [];
-  private readonly tubeMaterials = new Map<number, THREE.MeshStandardMaterial>();
+  private readonly tubeMaterials = new Map<string, THREE.MeshStandardMaterial>();
 
   constructor(
     private readonly index: SceneIndex,
@@ -108,9 +108,9 @@ export class RouteLayer {
         const group = this.groupOfSegment(route, i - 1);
         const bucket = this.bucketFor(group, style);
         bucket.positions.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+        if (opts.tubes && route.diameterM && route.lifecycle !== "removed")
+          this.addTubeSegment(route, style, i - 1, a, b);
       }
-      if (opts.tubes && route.diameterM && route.points.length >= 2 && route.lifecycle !== "removed")
-        this.addTube(route, style);
     }
 
     for (const bucket of this.buckets.values()) {
@@ -160,19 +160,25 @@ export class RouteLayer {
     return bucket;
   }
 
-  private addTube(route: Route, style: RouteStyle): void {
-    const points = route.points.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
-    const curve = new THREE.CatmullRomCurve3(points, false, "catmullrom", 0);
+  private addTubeSegment(route: Route, style: RouteStyle, segmentIndex: number, a: Vec3, b: Vec3): void {
+    const start = new THREE.Vector3(a[0], a[1], a[2]);
+    const end = new THREE.Vector3(b[0], b[1], b[2]);
+    if (start.distanceToSquared(end) < 1e-10) return;
+    // A route may cross explode groups. One tube per span keeps each span attached to its semantic
+    // floor, matching the already-correct line buckets instead of floating the whole run with its
+    // first floor.
+    const curve = new THREE.LineCurve3(start, end);
     const radius = Math.max(0.01, (route.diameterM ?? 0.1) / 2);
     const geometry = new THREE.TubeGeometry(
       curve,
-      Math.max(2, points.length * 4),
+      4,
       radius,
       6,
       false,
     );
     const hex = colorFor(style);
-    let material = this.tubeMaterials.get(hex);
+    const materialKey = styleKey(style);
+    let material = this.tubeMaterials.get(materialKey);
     if (!material) {
       material = new THREE.MeshStandardMaterial({
         color: hex,
@@ -181,11 +187,11 @@ export class RouteLayer {
         transparent: true,
         opacity: opacityFor(style),
       });
-      this.tubeMaterials.set(hex, material);
+      this.tubeMaterials.set(materialKey, material);
     }
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = `vh-tube-${route.id}`;
-    const group = this.groupOfSegment(route, 0);
+    mesh.name = `vh-tube-${route.id}-${segmentIndex}`;
+    const group = this.groupOfSegment(route, segmentIndex);
     this.clip.attach(mesh, group);
     overlayGroup(this.index, group).add(mesh);
     this.tubes.push(mesh);

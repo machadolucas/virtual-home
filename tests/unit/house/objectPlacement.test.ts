@@ -28,4 +28,19 @@ describe("object placement gestures and support", () => {
     expect(pickObjectSupport(runtime,50,50,items,null)).toBeNull();
     mesh.geometry.dispose();material.dispose();
   });
+  it("returns outward normals for visible vertical equipment and furniture faces", () => {
+    const scene = new THREE.Scene(); const group = new THREE.Group(); group.name = "furnishings"; scene.add(group);
+    const object = new THREE.Group(); object.userData.furnishingId = "cabinet"; group.add(object);
+    const material = new THREE.MeshBasicMaterial();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), material); mesh.position.y = .5; object.add(mesh);
+    scene.updateMatrixWorld(true);
+    const camera = new THREE.PerspectiveCamera(50,1,.01,100); camera.position.set(0,.5,5); camera.lookAt(0,.5,0); camera.updateMatrixWorld(true);
+    const runtime = { scene, camera3d:camera, canvasEl:{ getBoundingClientRect:()=>({left:0,top:0,width:100,height:100}) },
+      index:{ hiddenGroups:new Set() }, store:{getState:()=>({placements:[]})} } as unknown as HouseRuntime;
+    const items = [{id:"cabinet",floorId:"floor",roomId:"room"}] as Furnishing[];
+    const hit = pickObjectSupport(runtime,50,50,items,null);
+    expect(hit?.point.z).toBeCloseTo(.5);
+    expect(hit?.normal?.toArray()).toEqual([0, 0, 1]);
+    mesh.geometry.dispose(); material.dispose();
+  });
 });

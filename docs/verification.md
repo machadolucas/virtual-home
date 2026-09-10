@@ -190,3 +190,22 @@ under one account). That is what `workers: 1` in `playwright.config.ts` exists t
   rebuild is safe because that table has no inbound foreign keys; a regression seeds a furnishing
   before 0013 and verifies the existing record survives. Production model inspection was read-only;
   no household geometry or identifiers were added to fixtures.
+
+## 2026-09-10 — object attachments and multi-floor infrastructure
+
+- `pnpm check`: 127 files passed; 1,639 tests passed and 23 existing skips.
+- Synthetic tests cover malformed wall caps in every wall mode, retained legitimate caps, and
+  removal of only the invalid cap's baked edge segments. Read-only model inspection confirmed the
+  reported artifact is suppressed; the source package and private geometry remain outside the repo.
+- Collision tests cover fridge/freezer overlap, a remote resting on the fridge door, penetration
+  rejection, stacking, open space under tables, and nonblocking rug/floor-heating underlays.
+- Property-tree tests cover floor sections, cross-floor route membership, furniture selection and
+  keyboard-focus recovery after moving or deleting an item. Tank geometry has a rectangular case.
+- Route tests cover provisional hover without draft mutation, point-kind preservation, per-point
+  floor/room metadata, and a real API save/read/resave round trip preserving the final riser endpoint.
+- The isolated production-build browser suite passes seven desktop/phone cases (five desktop-only
+  cases skipped on phones): furniture CRUD and pointer placement, object stacking and fridge-door
+  attachment with save/reload, arbitrary model-face attachment, property sections, and multi-floor
+  route preview/save/reload plus independent Pipes/Ducts visibility.
+- Screenshot review found and fixed a shrinking phone furniture form. A layout regression now
+  checks that the following details section cannot overlap the form; desktop/phone CRUD reruns pass.

@@ -44,6 +44,16 @@ function route(over: Partial<RouteSave> = {}): RouteSave {
 }
 
 describe("routeWrite", () => {
+  it("retains the final riser vertex's floor instead of inheriting its lower span", () => {
+    const pointPlaces = [
+      { floorId: "f-lower", roomId: "r-l-a" },
+      { floorId: "f-lower", roomId: "r-l-a" },
+      { floorId: "f-upper", roomId: "r-u-a" },
+    ];
+    const body = routeWrite(route({ pointPlaces })) as { points: Array<{ floorId: string; roomId: string }> };
+    expect(body.points.map(({ floorId, roomId }) => ({ floorId, roomId }))).toEqual(pointPlaces);
+  });
+
   it("spreads per-segment floor/room onto the points the table stores", () => {
     const body = routeWrite(route()) as { points: Array<{ floorId: string; roomId: string }> };
     expect(body.points).toHaveLength(3);

@@ -158,6 +158,49 @@ describe("editing the draft", () => {
     expect(runtime.store.getState().routes).toHaveLength(0);
     expect(runtime.store.getState().routeDraft?.points[0]).toEqual([1, 1, 1]);
   });
+
+  it("keeps a hovered next point transient until it is explicitly inserted", () => {
+    const runtime = runtimeWithPackage();
+    startRouteDraft(runtime, SPEC);
+    const before = runtime.store.getState().routeDraft?.points;
+    runtime.store.getState().setRouteDraftHover({
+      point: [7, 3.4, 2],
+      floorId: "f-upper",
+      roomId: "r-u-a",
+    });
+    expect(runtime.store.getState().routeDraft?.points).toEqual(before);
+    expect(runtime.store.getState().routeDraftHover?.floorId).toBe("f-upper");
+  });
+
+  it("preserves per-span floor ownership when inserting and deleting a middle point", () => {
+    const runtime = runtimeWithPackage();
+    startRouteDraft(runtime, SPEC);
+    const store = runtime.store.getState();
+    store.setRouteSegmentPlace(0, { floorId: "f-lower", roomId: "r-l-a" });
+    store.updateRouteDraft({ pointKinds: ["junction", "outlet"] });
+    store.insertRoutePoint(1, [3, 3.4, 2], { floorId: "f-upper", roomId: "r-u-a" });
+    expect(runtime.store.getState().routeDraft?.segments).toEqual([
+      { floorId: "f-lower", roomId: "r-l-a" },
+      { floorId: "f-upper", roomId: "r-u-a" },
+    ]);
+    expect(runtime.store.getState().routeDraft?.pointKinds).toEqual([
+      "junction",
+      "vertex",
+      "outlet",
+    ]);
+    runtime.store.getState().deleteRoutePoint(1);
+    expect(runtime.store.getState().routeDraft?.segments).toEqual([
+      { floorId: "f-lower", roomId: "r-l-a" },
+    ]);
+    expect(runtime.store.getState().routeDraft?.pointKinds).toEqual(["junction", "outlet"]);
+  });
+
+  it("filters route kinds independently", () => {
+    const runtime = runtimeWithPackage();
+    expect(runtime.store.getState().visibleRouteKinds.duct).toBe(true);
+    runtime.store.getState().toggleRouteKind("duct");
+    expect(runtime.store.getState().visibleRouteKinds).toMatchObject({ duct: false, pipe: true });
+  });
 });
 
 describe("canceling route edits", () => {

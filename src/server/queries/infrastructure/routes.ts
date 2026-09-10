@@ -135,8 +135,8 @@ export function listRoutes(db: Db, modelId: string, index: ManifestIndex): Route
     }
 
     let unknownId = false;
-    const segments: Array<{ floorId: string | null; roomId: string | null }> = [];
-    for (let i = 0; i < points.length - 1; i++) {
+    const pointPlaces: Array<{ floorId: string | null; roomId: string | null }> = [];
+    for (let i = 0; i < points.length; i++) {
       const p = points[i]!;
       let floorId = p.floorId ?? null;
       let roomId = p.roomId ?? null;
@@ -148,7 +148,7 @@ export function listRoutes(db: Db, modelId: string, index: ManifestIndex): Route
         roomId = null;
         unknownId = true;
       }
-      segments.push({ floorId, roomId });
+      pointPlaces.push({ floorId, roomId });
     }
 
     let offsetFrom: RouteDto["offsetFrom"];
@@ -181,7 +181,8 @@ export function listRoutes(db: Db, modelId: string, index: ManifestIndex): Route
       system: systemOfMedium(row.medium),
       kind: kindOfMedium(row.medium),
       points: points.map((p): Vec3 => [mm(p.posX), mm(p.posY), mm(p.posZ)]),
-      segments,
+      segments: pointPlaces.slice(0, -1),
+      pointPlaces,
       certainty: row.certainty,
       lifecycle: row.lifecycle,
       ...(size.widthM !== undefined ? { widthM: size.widthM } : {}),

@@ -14,6 +14,7 @@ import type { AnnotationDto, EndpointDto, EndpointWrite, RouteDto } from "@/feat
 import { mediumForSystem } from "@/features/projects/infraMedium";
 import type { Placement, Route, SurfaceId } from "@/house/model/types";
 import type { HouseLabelPreferences } from "@/house/model/labelPreferences";
+import { routePointPlace } from "@/house/model/routePlaces";
 
 export interface ColorOverrideWrite {
   surfaceId: SurfaceId;
@@ -498,17 +499,17 @@ export function createRestDataApi(opts: RestDataApiOptions = {}): HouseDataApi {
  * Two translations happen here, both documented under `src/features/projects/`:
  *  - `system` → `medium`, keeping an explicit medium when the caller has one, so re-saving a hot
  *    water run from the workspace does not turn it into cold water;
- *  - per-*segment* floor/room → per-*point*, which is how `infra_route_point` stores it. The last
- *    point inherits the previous span's place, because a point is only ever the start of a span.
+ *  - per-point floor/room reaches `infra_route_point` unchanged, including a riser's destination.
+ *    Legacy in-memory drafts without point places inherit the outgoing span's place.
  */
 export function routeWrite(route: RouteSave): Record<string, unknown> {
   const points = route.points.map((position, i) => {
-    const segment = route.segments[Math.min(i, Math.max(0, route.segments.length - 1))];
+    const place = routePointPlace(route, i);
     return {
       position,
       pointKind: route.pointKinds?.[i] ?? "vertex",
-      floorId: segment?.floorId ?? null,
-      roomId: segment?.roomId ?? null,
+      floorId: place.floorId,
+      roomId: place.roomId,
     };
   });
 

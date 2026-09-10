@@ -1,7 +1,8 @@
 import type { StateCreator } from "zustand";
 import type { EndpointDto } from "@/features/projects/wire";
 import type { PlaceableEquipment } from "@/house/store/dataApi";
-import type { Placement, Route, RouteId, RouteSystem } from "@/house/model/types";
+import type { FloorId, Placement, RoomId, Route, RouteId, RouteKind, RouteSystem, Vec3 } from "@/house/model/types";
+import { routePointPlace } from "@/house/model/routePlaces";
 import type { HouseStore, Mutators } from "../createHouseStore";
 
 export interface RouteSlice {
@@ -24,8 +25,11 @@ export interface RouteSlice {
    * there is nothing to go back to, and the caller removes it instead.
    */
   routeDraftOrigin: Route | null;
+  /** Unsaved pointer position for the next span. It is presentation state, never persisted. */
+  routeDraftHover: { point: Vec3; floorId: FloorId | null; roomId: RoomId | null } | null;
   selectedPointIndex: number | null;
   visibleSystems: Record<RouteSystem, boolean>;
+  visibleRouteKinds: Record<RouteKind, boolean>;
   dataError: string | null;
 
   setPlacements(placements: Placement[]): void;
@@ -45,12 +49,28 @@ export interface RouteSlice {
   beginRouteDraft(route: Route, opts?: { isNew?: boolean }): void;
   updateRouteDraft(patch: Partial<Route>): void;
   setRoutePoint(index: number, point: [number, number, number]): void;
-  insertRoutePoint(index: number, point: [number, number, number]): void;
+  insertRoutePoint(
+    index: number,
+    point: Vec3,
+    place?: { floorId: FloorId | null; roomId: RoomId | null },
+  ): void;
+  setRouteSegmentPlace(
+    index: number,
+    place: { floorId: FloorId | null; roomId: RoomId | null },
+  ): void;
+  setRoutePointPlace(
+    index: number,
+    place: { floorId: FloorId | null; roomId: RoomId | null },
+  ): void;
   deleteRoutePoint(index: number): void;
+  setRouteDraftHover(
+    hover: { point: Vec3; floorId: FloorId | null; roomId: RoomId | null } | null,
+  ): void;
   cancelRouteDraft(): void;
   endRouteDraft(): void;
   selectPoint(index: number | null): void;
   toggleSystem(system: RouteSystem): void;
+  toggleRouteKind(kind: RouteKind): void;
   setDataError(message: string | null): void;
 }
 
@@ -62,6 +82,9 @@ const ALL_SYSTEMS: RouteSystem[] = [
   "heating",
   "drainage",
   "other",
+];
+const ALL_ROUTE_KINDS: RouteKind[] = [
+  "duct", "pipe", "cable", "valve", "outlet", "switch", "junction", "access-point", "other",
 ];
 
 /**
@@ -89,9 +112,14 @@ export const createRouteSlice: StateCreator<HouseStore, Mutators, [], RouteSlice
   routeDraft: null,
   routeDraftIsNew: false,
   routeDraftOrigin: null,
+  routeDraftHover: null,
   selectedPointIndex: null,
   visibleSystems: Object.fromEntries(ALL_SYSTEMS.map((s) => [s, true])) as Record<
     RouteSystem,
+    boolean
+  >,
+  visibleRouteKinds: Object.fromEntries(ALL_ROUTE_KINDS.map((kind) => [kind, true])) as Record<
+    RouteKind,
     boolean
   >,
   dataError: null,
@@ -149,10 +177,18 @@ export const createRouteSlice: StateCreator<HouseStore, Mutators, [], RouteSlice
 
   beginRouteDraft: (route, opts) =>
     set((s) => s.editorSaving || s.furnishingsEditing ? {} : ({
-      routeDraft: route,
+      routeDraft: {
+        ...route,
+        pointPlaces: route.points.map((_, index) => routePointPlace(route, index)),
+        pointKinds: route.points.map((_, index) => route.pointKinds?.[index] ?? "vertex"),
+      },
       routeDraftIsNew: opts?.isNew ?? false,
       routeDraftOrigin: opts?.isNew ? null : route,
-      selectedPointIndex: null,
+      routeDraftHover: null,
+      selectedPointIndex: Math.max(0, route.points.length - 1),
+      // A multi-floor run must remain visible as a whole while it is being edited. Keep the
+      // camera pose, but clear semantic floor isolation so upper/lower endpoints do not vanish.
+      activeFloorId: null,
     })),
 
   updateRouteDraft: (patch) =>
@@ -166,27 +202,65 @@ export const createRouteSlice: StateCreator<HouseStore, Mutators, [], RouteSlice
       return withDraft(s, { ...s.routeDraft, points });
     }),
 
-  insertRoutePoint: (index, point) =>
+  insertRoutePoint: (index, point, place) =>
     set((s) => {
       if (s.editorSaving || !s.routeDraft) return {};
       const points = [...s.routeDraft.points];
       points.splice(index, 0, point);
-      const segments = [...s.routeDraft.segments];
-      const template = segments[Math.max(0, Math.min(index - 1, segments.length - 1))] ?? {
+      const pointKinds = s.routeDraft.points.map((_, i) => s.routeDraft!.pointKinds?.[i] ?? "vertex");
+      pointKinds.splice(Math.max(0, Math.min(index, pointKinds.length)), 0, "vertex");
+      const pointPlaces = s.routeDraft.points.map((_, i) => routePointPlace(s.routeDraft!, i));
+      const template = place ?? pointPlaces[Math.max(0, Math.min(index - 1, pointPlaces.length - 1))] ?? {
         floorId: null,
         roomId: null,
       };
-      segments.splice(Math.max(0, index - 1), 0, { ...template });
-      return withDraft(s, { ...s.routeDraft, points, segments });
+      pointPlaces.splice(Math.max(0, Math.min(index, pointPlaces.length)), 0, { ...template });
+      return withDraft(s, {
+        ...s.routeDraft,
+        points,
+        pointKinds,
+        pointPlaces,
+        segments: pointPlaces.slice(0, -1),
+      });
+    }),
+
+  setRouteSegmentPlace: (index, place) =>
+    set((s) => {
+      if (s.editorSaving || !s.routeDraft || index < 0 || index >= s.routeDraft.segments.length)
+        return {};
+      const segments = [...s.routeDraft.segments];
+      segments[index] = place;
+      const pointPlaces = s.routeDraft.points.map((_, i) => routePointPlace(s.routeDraft!, i));
+      pointPlaces[index] = place;
+      return withDraft(s, { ...s.routeDraft, segments, pointPlaces });
+    }),
+
+  setRoutePointPlace: (index, place) =>
+    set((s) => {
+      if (s.editorSaving || !s.routeDraft || index < 0 || index >= s.routeDraft.points.length)
+        return {};
+      const pointPlaces = s.routeDraft.points.map((_, i) => routePointPlace(s.routeDraft!, i));
+      pointPlaces[index] = place;
+      return withDraft(s, {
+        ...s.routeDraft,
+        pointPlaces,
+        segments: pointPlaces.slice(0, -1),
+      });
     }),
 
   deleteRoutePoint: (index) =>
     set((s) => {
       if (s.editorSaving || !s.routeDraft || s.routeDraft.points.length <= 2) return {};
       const points = s.routeDraft.points.filter((_, i) => i !== index);
-      const segments = s.routeDraft.segments.slice(0, Math.max(0, points.length - 1));
+      const pointPlaces = s.routeDraft.points
+        .map((_, i) => routePointPlace(s.routeDraft!, i))
+        .filter((_, i) => i !== index);
+      const pointKinds = s.routeDraft.points
+        .map((_, i) => s.routeDraft!.pointKinds?.[i] ?? "vertex")
+        .filter((_, i) => i !== index);
+      const segments = pointPlaces.slice(0, -1);
       return {
-        ...withDraft(s, { ...s.routeDraft, points, segments }),
+        ...withDraft(s, { ...s.routeDraft, points, pointPlaces, pointKinds, segments }),
         selectedPointIndex: null,
       };
     }),
@@ -198,7 +272,7 @@ export const createRouteSlice: StateCreator<HouseStore, Mutators, [], RouteSlice
       const routes = s.routeDraftIsNew
         ? s.routes.filter((route) => route.id !== id)
         : s.routes.map((route) => route.id === id ? (s.routeDraftOrigin ?? route) : route);
-      return { routes, routeDraft: null, routeDraftOrigin: null, routeDraftIsNew: false, selectedPointIndex: null };
+      return { routes, routeDraft: null, routeDraftOrigin: null, routeDraftIsNew: false, routeDraftHover: null, selectedPointIndex: null };
     }),
 
   endRouteDraft: () =>
@@ -206,13 +280,21 @@ export const createRouteSlice: StateCreator<HouseStore, Mutators, [], RouteSlice
       routeDraft: null,
       routeDraftIsNew: false,
       routeDraftOrigin: null,
+      routeDraftHover: null,
       selectedPointIndex: null,
     }),
+
+  setRouteDraftHover: (routeDraftHover) => set({ routeDraftHover }),
 
   selectPoint: (selectedPointIndex) => set({ selectedPointIndex }),
 
   toggleSystem: (system) =>
     set((s) => ({ visibleSystems: { ...s.visibleSystems, [system]: !s.visibleSystems[system] } })),
+
+  toggleRouteKind: (kind) =>
+    set((s) => ({
+      visibleRouteKinds: { ...s.visibleRouteKinds, [kind]: !s.visibleRouteKinds[kind] },
+    })),
 
   setDataError: (dataError) => set({ dataError }),
 });

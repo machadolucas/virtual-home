@@ -642,12 +642,16 @@ function buildRaw(symbol: PlacementSymbol): THREE.BufferGeometry {
       ])!;
 
     case "hot_water_tank":
+      // Many domestic tanks hide the insulated vessel inside a tall rectangular appliance case.
+      // Keep the plumbing identity in the small top connections and front service panel, while the
+      // outer silhouette reads like the fridge-shaped cabinet that is actually present in the room.
       return mergeGeometries([
-        translated(new THREE.CylinderGeometry(0.28, 0.3, 1.7, 14), 0, 0.88, 0),
-        translated(new THREE.SphereGeometry(0.275, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0, 1.73, 0),
-        translated(new THREE.CylinderGeometry(0.025, 0.025, 0.16, 7), -0.12, 1.81, 0),
-        translated(new THREE.CylinderGeometry(0.025, 0.025, 0.16, 7), 0.12, 1.81, 0),
-        translated(new THREE.BoxGeometry(0.16, 0.2, 0.035), 0, 0.42, 0.292),
+        translated(new THREE.BoxGeometry(0.62, 1.8, 0.62), 0, 0.92, 0),
+        translated(new THREE.BoxGeometry(0.5, 0.54, 0.018), 0, 0.47, 0.319),
+        translated(new THREE.BoxGeometry(0.5, 0.012, 0.02), 0, 0.75, 0.32),
+        translated(new THREE.BoxGeometry(0.17, 0.1, 0.018), 0.16, 1.64, 0.319),
+        translated(new THREE.CylinderGeometry(0.022, 0.022, 0.06, 7), -0.11, 1.83, 0),
+        translated(new THREE.CylinderGeometry(0.022, 0.022, 0.06, 7), 0.11, 1.83, 0),
       ])!;
 
     case "ventilation_machine": {

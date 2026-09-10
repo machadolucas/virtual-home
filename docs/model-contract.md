@@ -314,7 +314,7 @@ lose information:
 |---|---|---|
 | `system` + `kind` | `infra_route.medium` | A medium has exactly one system and one kind (`src/features/projects/infraMedium.ts`). Going the other way, an explicit `medium` wins, and a `system`-only write **keeps the row's existing medium** when it still belongs to that system — so re-saving a `hot_water` run from the workspace does not turn it into cold water |
 | `widthM` / `diameterM` | `infra_route.nominal_size` | Canonically spelled `Ø125 mm` / `W600 mm`, so a size the workspace set round-trips exactly; text a human typed ("DN20", "Cat6a") is stored verbatim and yields no numeric size (`nominalSize.ts`) |
-| `segments[i]` (per span) | `infra_route_point.floor_id` / `room_id` (per point) | Point *i* carries the place of the span that starts at it; the last point inherits the previous span's. This is what makes a riser between floors representable |
+| `pointPlaces[i]` (per vertex), `segments[i]` (per span) | `infra_route_point.floor_id` / `room_id` (per point) | Each vertex retains its own floor/room, including the final endpoint of a riser. Span ownership follows its starting vertex. Only legacy in-memory drafts without `pointPlaces` inherit places from their spans |
 | `endpoints[]` | `from_endpoint_id` / `to_endpoint_id` | An endpoint naming a piece of equipment is answered as `{kind:'equipment', placementId}` via that equipment's body placement; everything else is `{kind:'free'}`. The workspace's surface+uv variant has no column |
 | `renovationId` | `infra_route.project_id` | Same thing under two names; both are accepted on write |
 
@@ -362,8 +362,11 @@ highlight can never leak into a persisted colour and the override stays the sing
 Low-wall and contextual cuts apply to the whole physical wall assembly. A `wall-top` surface is
 the source wall's cap, not a generated cap at the cut height, so it is clipped wholly below the
 floor while that assembly is cut. This prevents sloping or malformed source caps from leaving a
-floating diagonal wedge beneath the normal wall cut; the runtime does not rewrite the immutable
-model geometry.
+floating diagonal wedge beneath the normal wall cut. At load time, a source `wall-top` whose
+geometry runs from more than 5 cm below its floor to over 50 cm above it is excluded in every view.
+Legitimate horizontal and sloping caps above the floor remain visible. Its segments are removed
+from a runtime copy of the asset wireframe, and picking/highlight cannot resurrect it. The supplied
+package and original geometry buffers remain immutable.
 
 ## 5. Rendering invariants
 
@@ -383,6 +386,7 @@ must call `invalidate()`:
 - a marker `instanceColor` change from Home Assistant — **only** when a colour actually changed;
 - a canvas resize or dpr change;
 - an edit-draft change (including the snap indicator).
+- a route hover preview for the next, still-uncommitted span.
 - live daylight advancing once per minute, or a daylight/soft-shadow override;
 - each frame of a rapid live-equipment-light fade; shadow maps refresh only when a source or model
   occluder changes, then demand rendering returns idle;
@@ -669,7 +673,8 @@ scale proportionally to the saved height. Horizontal/vertical section planes alw
 presentation group; All cut and Contextual wall modes also lower trees to the same cap as walls, so
 foliage does not obscure an opened dollhouse view. All up and Closed restore the complete crown.
 
-Hot-water tanks use an upright 0.65 × 0.65 × 1.86 m cylinder. Ventilation machines use a
+Hot-water tanks use an upright 0.65 × 0.65 × 1.86 m rectangular insulated outer case, like a
+tall appliance cabinet, with service-panel and plumbing details. Ventilation machines use a
 0.46 m width, 1.02 m depth and 0.57 m height envelope. Speaker, stove/oven and barbecue symbols
 retain representative domestic sizes. Outdoor wood storage defaults to 1 m width, 2.5 m depth and
 2.2 m height; its optional `equipmentSize` persists independently and scales the open-fronted shack

@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { displayNameForNode } from "@/house/model/labelPreferences";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
-import { RenderingControls } from "../ViewToolbar";
+import { InfrastructureKindToggles, RenderingControls } from "../ViewToolbar";
 import { HouseCanvasLazy } from "../HouseCanvasLazy";
 import { HouseErrorBoundary } from "../HouseErrorBoundary";
 import { PlacementEditor } from "../edit/PlacementEditor";
@@ -57,6 +57,7 @@ export function PhoneHouse() {
   const setEquipmentOcclusion = useHouseStore((s) => s.setEquipmentOcclusion);
   const equipmentVisible = useHouseStore((s) => s.layers.equipment);
   const furnishingsVisible = useHouseStore((s) => s.layers.furnishings);
+  const routesVisible = useHouseStore((s) => s.layers.routes);
   const setLayer = useHouseStore((s) => s.setLayer);
   const setAreaLabelsVisible = useHouseStore((s) => s.setAreaLabelsVisible);
 
@@ -132,6 +133,22 @@ export function PhoneHouse() {
       <Switch checked={equipmentVisible} onCheckedChange={(on) => setLayer("equipment", on)} controlPosition="start" label={<span className="inline-flex items-center gap-1.5"><Box className="size-4" aria-hidden="true" />Show equipment</span>} />
 
       <Switch checked={furnishingsVisible} onCheckedChange={(on) => setLayer("furnishings", on)} controlPosition="start" label={<span className="inline-flex items-center gap-1.5"><Armchair className="size-4" aria-hidden="true" />Show furniture</span>} />
+
+      <details className="rounded-lg border border-line bg-surface">
+        <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-sm font-medium text-ink">
+          Infrastructure
+        </summary>
+        <div className="border-t border-line">
+          <Switch
+            checked={routesVisible}
+            onCheckedChange={(on) => setLayer("routes", on)}
+            controlPosition="start"
+            label="Show infrastructure routes"
+            className="min-h-11 px-3 text-sm"
+          />
+          <InfrastructureKindToggles phone />
+        </div>
+      </details>
 
       <Switch checked={equipmentOcclusion} onCheckedChange={setEquipmentOcclusion} controlPosition="start" label={<span className="inline-flex items-center gap-1.5"><EyeOff className="size-4" aria-hidden="true" />Hide occluded equipment</span>} />
 

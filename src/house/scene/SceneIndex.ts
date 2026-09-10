@@ -18,6 +18,7 @@ import type {
   SurfaceId,
 } from "@/house/model/types";
 import type { AssetNodeInventory } from "@/house/model/visibilityPlan";
+import { invalidWallCap, withoutCapEdges } from "./invalidWallCaps";
 
 export interface AssetEntry {
   id: AssetId;
@@ -171,6 +172,21 @@ export function indexAsset(index: SceneIndex, assetId: AssetId, root: THREE.Grou
     o.matrixAutoUpdate = false;
   });
   root.updateMatrixWorld(true);
+
+  const invalidCaps = meshes.filter((mesh) => {
+    const sid = index.meshSurfaceId.get(mesh);
+    if (!sid || !invalidWallCap(mesh, sid, m)) return false;
+    mesh.userData.vhInvalidWallCap = true;
+    mesh.visible = false;
+    return true;
+  });
+  if (edges && invalidCaps.length) {
+    const cleaned = withoutCapEdges(edges, invalidCaps);
+    if (cleaned) {
+      edges.geometry = cleaned;
+      geometries.add(cleaned);
+    }
+  }
 
   const entry: AssetEntry = {
     id: assetId,

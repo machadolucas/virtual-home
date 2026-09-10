@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { ALL_LAYERS, type LayerId, type WallMode } from "@/house/model/types";
 import { displayNameForNode } from "@/house/model/labelPreferences";
+import { ROUTE_KIND_LABEL, ROUTE_KIND_ORDER } from "@/house/model/propertyTree";
 import { Button, Switch, Tabs, TabsPanel } from "@/ui";
 import { resetRenderingPreferences } from "@/house/store/renderingPreferences";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
@@ -158,9 +159,49 @@ export function ViewToolbar({ section }: { section: "layers" | "rendering" | "pr
         </div>
       </fieldset>
 
+      <fieldset className="flex flex-col gap-1">
+        <legend className="text-xs font-medium uppercase tracking-wide text-ink-3">
+          Infrastructure types
+        </legend>
+        <InfrastructureKindToggles />
+      </fieldset>
+
       </>
       ) : null}
       {section === "rendering" ? <RenderingControls /> : null}
+    </div>
+  );
+}
+
+const ALWAYS_VISIBLE_ROUTE_KINDS = new Set(["pipe", "duct", "cable", "other"]);
+
+/** Shared by the desktop Layers tab and the simplified phone controls. */
+export function InfrastructureKindToggles({ phone = false }: { phone?: boolean }) {
+  const { routes, visibleRouteKinds } = useHouseStore(
+    useShallow((s) => ({ routes: s.routes, visibleRouteKinds: s.visibleRouteKinds })),
+  );
+  const toggleRouteKind = useHouseStore((s) => s.toggleRouteKind);
+  const kinds = ROUTE_KIND_ORDER.filter(
+    (kind) => ALWAYS_VISIBLE_ROUTE_KINDS.has(kind) || routes.some((route) => route.kind === kind),
+  );
+  return (
+    <div className={phone ? "flex flex-col" : "grid grid-cols-1 gap-x-4 lg:grid-cols-2"}>
+      {kinds.map((kind) => (
+        <Switch
+          key={kind}
+          checked={visibleRouteKinds[kind]}
+          onCheckedChange={() => toggleRouteKind(kind)}
+          controlPosition="start"
+          label={
+            <span className="inline-flex items-center gap-1.5">
+              <Route aria-hidden="true" className="size-3.5 text-ink-3" />
+              {ROUTE_KIND_LABEL[kind]}
+            </span>
+          }
+          compact={!phone}
+          className={phone ? "min-h-11 px-3 text-sm" : "text-xs"}
+        />
+      ))}
     </div>
   );
 }

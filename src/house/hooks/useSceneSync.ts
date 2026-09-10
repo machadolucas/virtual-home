@@ -405,7 +405,12 @@ export function useSceneSync(): void {
       // The "Infrastructure routes" checkbox defaulted to *off* while the lines were drawn
       // regardless — a control showing the opposite of the screen. It is honoured now.
       const visible = s.layers.routes
-        ? s.routes.filter((r) => s.visibleSystems[r.system] && isRunVisibleOn(r, s.renovationDate))
+        ? s.routes.filter((r) =>
+            r.id !== s.routeDraft?.id &&
+            s.visibleSystems[r.system] &&
+            s.visibleRouteKinds[r.kind] &&
+            isRunVisibleOn(r, s.renovationDate),
+          )
         : [];
       routes.set(visible, { tubes: !s.performanceMode });
       runtime.invalidate();
@@ -416,8 +421,10 @@ export function useSceneSync(): void {
         routes: s.routes,
         routeLayer: s.layers.routes,
         visibleSystems: s.visibleSystems,
+        visibleRouteKinds: s.visibleRouteKinds,
         renovationDate: s.renovationDate,
         performanceMode: s.performanceMode,
+        routeDraftId: s.routeDraft?.id ?? null,
       }),
       () => apply(store.getState()),
       { equalityFn: shallow },

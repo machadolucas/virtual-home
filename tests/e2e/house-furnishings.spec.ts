@@ -26,9 +26,23 @@ test("furniture catalog creates, edits, reloads, cancels and controls the layer"
 
     await expect.poll(async () => page.evaluate(() => window.__vh!.furnishings().find((item) => item.preview)?.size))
       .toEqual([1.2, 0.8, 0.7]);
+    if (testInfo.project.name === "phone") {
+      const form = page.getByRole("heading", { name: "Add furniture", exact: true }).locator("../..");
+      const clearance = await form.evaluate((element) => {
+        const next = element.nextElementSibling;
+        return next ? next.getBoundingClientRect().top - element.getBoundingClientRect().bottom : null;
+      });
+      expect(clearance).not.toBeNull();
+      expect(clearance!).toBeGreaterThanOrEqual(0);
+    }
     await testInfo.attach("furniture-editor", { body: await page.screenshot(), contentType: "image/png" });
     await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.getByText("E2E sofa", { exact: false })).toBeVisible();
+    if (testInfo.project.name === "phone") {
+      await expect(page.getByText("E2E sofa", { exact: false })).toBeVisible();
+    } else {
+      await page.locator('[data-node="section:f-lower:furniture"]').click();
+      await expect(page.locator('[data-node^="furnishing:"]').filter({ hasText: "E2E sofa" })).toBeVisible();
+    }
 
     const status = await page.evaluate(() => window.__vh!.status());
     const endpoint = `/api/house-model/${status.modelId}/furnishings`;
@@ -39,8 +53,13 @@ test("furniture catalog creates, edits, reloads, cancels and controls the layer"
     await page.waitForFunction(() => window.__vh?.status().phase === "ready");
     await expect.poll(async () => (await (await page.request.get(endpoint)).json()).furnishings.some((item: { id: string }) => item.id === furnishingId)).toBe(true);
 
-    await page.locator("summary").filter({ hasText: "Furniture" }).click();
-    await page.getByText("E2E sofa", { exact: false }).click();
+    if (testInfo.project.name === "phone") {
+      await page.locator("summary").filter({ hasText: "Furniture" }).click();
+      await page.getByText("E2E sofa", { exact: false }).click();
+    } else {
+      await page.locator('[data-node="section:f-lower:furniture"]').click();
+      await page.locator('[data-node^="furnishing:"]').filter({ hasText: "E2E sofa" }).click();
+    }
     await page.getByLabel("Width", { exact: true }).fill("1.4");
     await expect.poll(async () => page.evaluate(() => window.__vh!.furnishings().find((item) => item.preview)?.size[0])).toBeCloseTo(1.4, 2);
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -68,6 +87,10 @@ test("furniture catalog creates, edits, reloads, cancels and controls the layer"
       position: [2.3, 0, 2.7], widthM: 1.2, depthM: 0.7, heightM: 0.8, rotationYDeg: 35,
     });
     await testInfo.attach("furniture-controls", { body: await page.screenshot(), contentType: "image/png" });
+    if (testInfo.project.name !== "phone") {
+      await page.locator('[data-node^="furnishing:"]').filter({ hasText: "E2E sofa" }).click();
+      await expect(page.getByRole("heading", { name: "Edit furniture", exact: true })).toBeVisible();
+    }
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await expect.poll(async () => (await (await page.request.get(endpoint)).json()).furnishings.some((item: { id: string }) => item.id === furnishingId)).toBe(false);
@@ -120,7 +143,8 @@ test("desktop pointer placement previews without mutating fields and rejects wal
     await page.getByRole("button", { name: "Add furniture" }).click();
     await page.getByRole("button", { name: "Place Chair", exact: true }).click();
     const originalDraft = await coordinateValues(page);
-    const newTarget = await floorTarget(page, [[2.05, 0, 3.1], [2.2, 0, 3.15], [2.35, 0, 3.2]]);
+    // Keep the rotation anchor clear of the existing chair; object collisions are now enforced.
+    const newTarget = await floorTarget(page, [[1.2, 0, 3.1], [1.3, 0, 2], [1.2, 0, 2.4]]);
     expect(newTarget).not.toBeNull();
     const anchor = snappedFloorPoint(newTarget!.point);
     await page.mouse.move(newTarget!.x, newTarget!.y);

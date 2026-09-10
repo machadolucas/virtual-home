@@ -10,6 +10,7 @@ import { useMemo } from "react";
 import { snapValue } from "@/house/model/geometry2d";
 import type { SurfaceId } from "@/house/model/types";
 import { wallFrame } from "@/house/scene/wallFrame";
+import { routePointPlace } from "@/house/model/routePlaces";
 import * as THREE from "three";
 import { useHouseRuntime, useHouseStore, useShallow } from "../../hooks/useHouseStore";
 
@@ -111,6 +112,7 @@ export function WallElevationEditor2D({ surfaceId }: { surfaceId: SurfaceId }) {
         ))}
 
         {routeDraft?.points.map((point, i) => {
+          if (routePointPlace(routeDraft, i).floorId !== room.floorId) return null;
           const local = frame.toLocal(new THREE.Vector3(point[0], point[1], point[2]));
           const height = local.v - room.floorElevation;
           return (

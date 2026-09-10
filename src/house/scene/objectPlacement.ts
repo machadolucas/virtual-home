@@ -4,7 +4,7 @@ import type { Furnishing } from "../model/types";
 import type { PickResult } from "./picker";
 import { isVisibleUp } from "./applyVisibility";
 
-/** Pick actual, visible support faces; previews and the object being moved never support themselves. */
+/** Pick actual, visible object faces; previews and the object being moved never support themselves. */
 export function pickObjectSupport(runtime: HouseRuntime, clientX: number, clientY: number,
   furnishings: readonly Furnishing[], excludeId: string | null): PickResult | null {
   if (!runtime.scene || !runtime.camera3d || !runtime.canvasEl) return null;
@@ -31,7 +31,7 @@ export function pickObjectSupport(runtime: HouseRuntime, clientX: number, client
       (mesh as THREE.InstancedMesh).getMatrixAt(hit.instanceId, instance); matrix.multiply(instance);
     }
     const normal = hit.face?.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(matrix)).normalize();
-    if (!normal || normal.y < .95) continue;
+    if (!normal) continue;
     return { surfaceId: null, elementId: null, roomId: item.roomId, floorId: item.floorId,
       buildingId: null, object: mesh, point: hit.point.clone(), normal, distance: hit.distance };
   }
