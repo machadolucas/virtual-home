@@ -8,6 +8,7 @@
 export * from "./auth";
 export * from "./household";
 export * from "./model";
+export * from "./furnishings";
 export * from "./assets";
 export * from "./procedures";
 export * from "./maintenance";

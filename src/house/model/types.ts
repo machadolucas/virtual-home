@@ -58,6 +58,28 @@ export type AssetId = string;
 export type PlacementId = string;
 export type RouteId = string;
 
+export const FURNISHING_KINDS = [
+  "sofa", "sofa_l", "bed_single", "bed_double", "bedside_table", "chair",
+  "dining_table", "computer_desk", "bicycle", "shelves", "cabinet",
+  "kitchen_counter", "rug", "bench",
+] as const;
+export type FurnishingKind = (typeof FURNISHING_KINDS)[number];
+
+/** A lightweight visual record. It deliberately has no equipment, HA, document or task identity. */
+export interface Furnishing {
+  id: string;
+  modelId: string;
+  kind: FurnishingKind;
+  name: string;
+  position: Vec3;
+  rotationYDeg: number;
+  widthM: number;
+  depthM: number;
+  heightM: number;
+  floorId: FloorId;
+  roomId: RoomId | null;
+}
+
 export type PlacementEntityRole =
   | "primary"
   | "status"
@@ -110,6 +132,7 @@ export type LayerId =
   | "yard"
   | "outdoor"
   | "equipment"
+  | "furnishings"
   | "routes"
   | "annotations";
 
@@ -119,6 +142,7 @@ export const ALL_LAYERS: readonly LayerId[] = [
   "yard",
   "outdoor",
   "equipment",
+  "furnishings",
   "routes",
   "annotations",
 ];
@@ -129,6 +153,7 @@ export const DEFAULT_LAYERS: Record<LayerId, boolean> = {
   yard: true,
   outdoor: true,
   equipment: true,
+  furnishings: true,
   // On, because it now controls something: while nothing read this flag the lines were drawn
   // anyway, so `false` described the screen incorrectly in the one direction that matters.
   routes: true,

@@ -25,6 +25,11 @@ the typed `vh(page)` wrappers over `window.__vh`, `measureLoad`, `idleFrames`,
 
 ## Running
 
+If this checkout is used by the installed production launchd service, run these commands in a
+separate checkout with its own dependencies and `.next` directory. The harness refuses to run
+in the installed service directory, even when skipping the build; synthetic data isolation alone
+does not protect the production build files.
+
 ```bash
 pnpm exec playwright test                                     # everything, both projects
 pnpm exec playwright test tests/e2e/house.spec.ts --project=desktop

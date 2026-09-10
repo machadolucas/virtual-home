@@ -121,6 +121,8 @@ export const STALE_MS: Record<string, number> = {
   battery: 26 * 3600_000,
   temperature: 2 * 3600_000,
   humidity: 2 * 3600_000,
+  illuminance: 30 * 60_000,
+  weather: 2 * 3600_000,
   door: 24 * 3600_000,
   window: 24 * 3600_000,
   motion: 24 * 3600_000,
@@ -143,7 +145,8 @@ export function classifyState(
   // A connected HA stream is authoritative for event-driven lights. A lamp can remain steadily
   // on or off for days without emitting another state change.
   if (entity.entityId.startsWith("light.") || entity.entityId.startsWith("climate.")) return "live";
-  if (now - entity.lastUpdated > staleMs(entity.deviceClass)) return "stale";
+  const freshnessClass = entity.deviceClass ?? (entity.entityId.startsWith("weather.") ? "weather" : null);
+  if (now - entity.lastUpdated > staleMs(freshnessClass)) return "stale";
   return "live";
 }
 

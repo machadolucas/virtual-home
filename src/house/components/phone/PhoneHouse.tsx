@@ -14,6 +14,7 @@
  */
 import {
   House,
+  Armchair,
   Box,
   Layers3,
   EyeOff,
@@ -34,6 +35,7 @@ import { Inspector } from "../inspector/Inspector";
 import { DownloadImageButton } from "../DownloadImageButton";
 import { LocateSheet } from "./LocateSheet";
 import { Switch } from "@/ui";
+import { FurnishingsPanel } from "../furnishings/FurnishingsPanel";
 
 export function PhoneHouse() {
   const runtime = useHouseRuntime();
@@ -55,6 +57,7 @@ export function PhoneHouse() {
   const equipmentOcclusion = useHouseStore((s) => s.equipmentOcclusion);
   const setEquipmentOcclusion = useHouseStore((s) => s.setEquipmentOcclusion);
   const equipmentVisible = useHouseStore((s) => s.layers.equipment);
+  const furnishingsVisible = useHouseStore((s) => s.layers.furnishings);
   const setLayer = useHouseStore((s) => s.setLayer);
   const setAreaLabelsVisible = useHouseStore((s) => s.setAreaLabelsVisible);
 
@@ -129,6 +132,8 @@ export function PhoneHouse() {
 
       <Switch checked={equipmentVisible} onCheckedChange={(on) => setLayer("equipment", on)} controlPosition="start" label={<span className="inline-flex items-center gap-1.5"><Box className="size-4" aria-hidden="true" />Show equipment</span>} />
 
+      <Switch checked={furnishingsVisible} onCheckedChange={(on) => setLayer("furnishings", on)} controlPosition="start" label={<span className="inline-flex items-center gap-1.5"><Armchair className="size-4" aria-hidden="true" />Show furniture</span>} />
+
       <Switch checked={equipmentOcclusion} onCheckedChange={setEquipmentOcclusion} controlPosition="start" label={<span className="inline-flex items-center gap-1.5"><EyeOff className="size-4" aria-hidden="true" />Hide occluded equipment</span>} />
 
       <Switch
@@ -154,6 +159,8 @@ export function PhoneHouse() {
           <DaylightControl />
         </div>
       </details>
+
+      <FurnishingsPanel />
 
       {equipmentId ? <LocateSheet placementId={equipmentId} /> : null}
 

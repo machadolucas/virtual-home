@@ -162,3 +162,13 @@ it does not provide offline household access. A failed fresh navigation shows on
 offline page. Installation requires HTTPS (apart from browser localhost exceptions); the documented
 HTTP LAN fallback remains an emergency browser-only mode. Push stays with Home Assistant and is not
 part of this service worker.
+
+## D-028 Furnishings are lightweight model records keyed to the stable model id
+Furniture changes the useful reading of the house model but is not maintainable equipment. A
+`furnishing` row therefore stores only its procedural kind, label, semantic floor/room ids, physical
+site position, yaw and dimensions. It has no asset, maintenance, attachment or Home Assistant link.
+
+Rows use the package's stable `modelId` rather than a revision foreign key. Package updates usually
+retain semantic ids, so furnishings carry forward without generating reconciliation work. If a
+floor disappears, the record remains visible in the editor list and is marked for reassignment; it
+does not render against an invented floor and is never silently deleted.

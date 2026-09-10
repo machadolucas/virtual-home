@@ -18,6 +18,7 @@ import { MAX_EXPLODE_GAP } from "@/house/model/explodeGroups";
 import { cutRange } from "@/house/model/framingBoxes";
 import { DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from "@/house/model/background";
 import { displayNameForNode } from "@/house/model/labelPreferences";
+import type { DaylightHaEntity } from "@/house/model/daylight";
 import type { FloorId, Selection } from "@/house/model/types";
 import { createRuntime, type HouseRuntime } from "@/house/runtime";
 import type { CanvasTool } from "@/house/store/slices/view";
@@ -69,6 +70,9 @@ import {
 } from "lucide-react";
 import { PlanEditor2D } from "./routeEditor/PlanEditor2D";
 import { WallElevationEditor2D } from "./routeEditor/WallElevationEditor2D";
+import { FurnishingsProvider, useFurnishings } from "./furnishings/FurnishingsProvider";
+import { FurnishingsPanel } from "./furnishings/FurnishingsPanel";
+import { DaylightHaProvider } from "./DaylightHaContext";
 
 export interface HouseWorkspaceProps {
   /** From the server: the installed package's model id, or `null` when nothing is installed. */
@@ -79,6 +83,8 @@ export interface HouseWorkspaceProps {
    * frame and then replaced is a visible flash.
    */
   background?: HouseBackground;
+  /** Rename-safe HA identities that already have a worker-maintained live state cache. */
+  daylightHaEntities?: readonly DaylightHaEntity[];
 }
 
 /** Colour edits are batched: one PATCH after the picker settles, not one per pointer move. */
@@ -87,6 +93,7 @@ const COLOR_SAVE_DEBOUNCE_MS = 600;
 export function HouseWorkspace({
   modelId,
   background = DEFAULT_HOUSE_BACKGROUND,
+  daylightHaEntities = [],
 }: HouseWorkspaceProps) {
   const runtime = useMemo<HouseRuntime>(() => {
     const store = createHouseStore({ background });
@@ -121,7 +128,11 @@ export function HouseWorkspace({
 
   return (
     <HouseRuntimeContext.Provider value={runtime}>
-      <WorkspaceBody runtime={runtime} />
+      <DaylightHaProvider entities={daylightHaEntities}>
+        <FurnishingsProvider>
+          <WorkspaceBody runtime={runtime} />
+        </FurnishingsProvider>
+      </DaylightHaProvider>
     </HouseRuntimeContext.Provider>
   );
 }
@@ -134,6 +145,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
   const searchRef = useRef<HTMLInputElement>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const phone = useIsPhone();
+  const { busy: furnishingsBusy } = useFurnishings();
 
   const { reload } = useModelPackage(runtime);
   useDataHydration(runtime);
@@ -218,6 +230,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
             title="Property"
             collapseLabel="Collapse the property tree"
             icon={<PanelLeftClose aria-hidden="true" />}
+            disabled={furnishingsBusy}
             onCollapse={() => panels.toggle("tree")}
           />
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
@@ -227,6 +240,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
             </label>
             <PropertyTree />
             <PlaceableList />
+            <FurnishingsPanel />
           </div>
         </aside>
       )}
@@ -461,6 +475,12 @@ function useColorPersistence(runtime: HouseRuntime): void {
  * unavailable" and never breaks the workspace.
  */
 function useHaStream(runtime: HouseRuntime): void {
+  const daylightEntityKey = useHouseStore((s) =>
+    [s.illumination.outdoorLuxEntityId, s.illumination.weatherEntityId]
+      .filter((id): id is string => typeof id === "string" && id.length > 0)
+      .sort()
+      .join(","),
+  );
   const entityKey = useHouseStore((s) =>
     s.placements
       .flatMap((p) => [p.entityId, ...(p.linkedEntities ?? []).map((entity) => entity.entityId)])
@@ -470,11 +490,11 @@ function useHaStream(runtime: HouseRuntime): void {
   );
 
   useEffect(() => {
-    const entityIds = entityKey ? entityKey.split(",") : [];
+    const entityIds = [...new Set([entityKey, daylightEntityKey].filter(Boolean).join(",").split(",").filter(Boolean))];
     if (entityIds.length === 0) return;
     const handle = connectHaSse({ entityIds });
     return () => handle.close();
-  }, [entityKey, runtime]);
+  }, [daylightEntityKey, entityKey, runtime]);
 }
 
 /**

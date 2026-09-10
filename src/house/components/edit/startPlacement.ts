@@ -29,7 +29,7 @@ function ringCentre(ring: readonly [number, number][]): [number, number] {
  * is selected, otherwise the middle of the active floor's own extent. Never (0, 0, 0), which on
  * this coordinate system is a corner of the house and reads as a bug.
  */
-function initialPosition(
+export function initialPosition(
   runtime: HouseRuntime,
   floorId: FloorId,
 ): { position: Vec3; roomId: string | null } {
@@ -78,7 +78,7 @@ function initialPosition(
 export function startPlacement(runtime: HouseRuntime, equipment: PlaceableEquipment): boolean {
   const s = runtime.store.getState();
   const index = s.index;
-  if (s.editorSaving || !index || !s.modelId) return false;
+  if (s.editorSaving || s.furnishingsEditing || !index || !s.modelId) return false;
   if (s.routeDraft) s.cancelRouteDraft();
 
   const floorId = s.activeFloorId ?? index.floorOrder[0] ?? null;

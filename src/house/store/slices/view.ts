@@ -1,3 +1,4 @@
+import { DETAILED_LIGHT_SLIDER_MAX, SINGLE_PASS_LIGHT_MAX } from "@/house/model/detailedLightBudget";
 import type { StateCreator } from "zustand";
 import { DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from "@/house/model/background";
 import { DEFAULT_EXPLODE_GAP } from "@/house/model/explodeGroups";
@@ -31,6 +32,11 @@ export interface IlluminationSettings {
   northDeg: number | null;
   softShadows: boolean;
   intensity: number;
+  /** Stable HA registry identity plus its current renameable event address. */
+  outdoorLuxRegistryId: string | null;
+  outdoorLuxEntityId: string | null;
+  weatherRegistryId: string | null;
+  weatherEntityId: string | null;
 }
 
 export interface ViewSlice {
@@ -54,6 +60,8 @@ export interface ViewSlice {
   detailedLightBatched: boolean;
   /** Requested detailed equipment-light budget for this viewer session. */
   detailedLightLimit: number;
+  /** In batched mode, allocate only as many slots as installed visible light fixtures need. */
+  detailedLightAll: boolean;
   /** Conservative shader-resource recommendation; initialized until WebGL is ready. */
   detailedLightHardwareMax: number;
   detailedLightExperimental: boolean;
@@ -80,6 +88,7 @@ export interface ViewSlice {
   setPerformanceMode(v: boolean): void;
   setDetailedLightBatched(enabled: boolean): void;
   setDetailedLightLimit(limit: number): void;
+  setDetailedLightAll(enabled: boolean): void;
   setDetailedLightHardwareMax(limit: number): void;
   setDetailedLightExperimental(enabled: boolean): void;
   setDetailedLightError(message: string | null): void;
@@ -91,7 +100,19 @@ export interface ViewSlice {
 }
 
 export const initialView = {
-  illumination: { mode: "live", atMs: null, latitude: null, longitude: null, northDeg: null, softShadows: true, intensity: 1 } as IlluminationSettings,
+  illumination: {
+    mode: "live",
+    atMs: null,
+    latitude: null,
+    longitude: null,
+    northDeg: null,
+    softShadows: true,
+    intensity: 1,
+    outdoorLuxRegistryId: null,
+    outdoorLuxEntityId: null,
+    weatherRegistryId: null,
+    weatherEntityId: null,
+  } as IlluminationSettings,
   viewMode: "overview" as ViewMode,
   tool: "orbit" as CanvasTool,
   cameraOverride: false,
@@ -107,6 +128,7 @@ export const initialView = {
   performanceMode: false,
   detailedLightBatched: true,
   detailedLightLimit: 64,
+  detailedLightAll: false,
   detailedLightHardwareMax: 12,
   detailedLightExperimental: false,
   detailedLightError: null as string | null,
@@ -193,13 +215,15 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
             detailedLightBatched,
             detailedLightLimit: Math.min(s.detailedLightLimit, s.detailedLightHardwareMax),
             detailedLightExperimental: false,
+            detailedLightAll: false,
             detailedLightError: null,
           },
     ),
+  setDetailedLightAll: (detailedLightAll) => set((s) => ({ detailedLightAll: detailedLightAll && s.detailedLightBatched })),
   setDetailedLightLimit: (detailedLightLimit) =>
     set({ detailedLightLimit: boundedLightCount(detailedLightLimit), detailedLightError: null }),
   setDetailedLightHardwareMax: (detailedLightHardwareMax) =>
-    set({ detailedLightHardwareMax: boundedLightCount(detailedLightHardwareMax) }),
+    set({ detailedLightHardwareMax: Math.min(SINGLE_PASS_LIGHT_MAX, boundedLightCount(detailedLightHardwareMax)) }),
   setDetailedLightExperimental: (detailedLightExperimental) => set((s) => ({ detailedLightExperimental, detailedLightLimit: Math.min(s.detailedLightLimit, s.detailedLightHardwareMax), detailedLightError: null })),
   setDetailedLightError: (detailedLightError) => set({ detailedLightError }),
   setDetailedLightCapabilities: (detailedLightCapabilities) => set({ detailedLightCapabilities }),
@@ -221,5 +245,5 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
 /** Keep renderer-facing counts integral and bounded even when a DOM/test caller supplies junk. */
 export function boundedLightCount(value: number): number {
   if (!Number.isFinite(value)) return 0;
-  return Math.min(64, Math.max(0, Math.round(value)));
+  return Math.min(DETAILED_LIGHT_SLIDER_MAX, Math.max(0, Math.round(value)));
 }

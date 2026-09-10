@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import sharp from "sharp";
+import { emitHaBatch, installSyntheticHa, openSyntheticHa } from "./helpers/liveHa";
 import { openHouse, waitForStableFrames } from "./helpers/house";
 
 test("daylight preview changes sunlight, shadows and night brightness then returns idle", async ({ page }, testInfo) => {
@@ -50,4 +51,67 @@ test("daylight preview changes sunlight, shadows and night brightness then retur
   const before = await page.evaluate(() => window.__vh!.invalidateCount());
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => window.__vh!.invalidateCount())).toBe(before);
+});
+
+test("outdoor lux and weather tune Live time, fall back safely, and survive reload by registry id", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "phone", "Desktop rendering controls; the phone uses the same daylight component.");
+  await installSyntheticHa(page);
+  // The fixture deliberately has no private location. Give this test a synthetic coordinate whose
+  // longitude puts the current instant near solar noon, so Live time exercises daylight on every
+  // CI clock and the override remains in force when the page reloads below.
+  const instant = new Date();
+  const utcHour = instant.getUTCHours() + instant.getUTCMinutes() / 60;
+  const syntheticLongitude = (12 - utcHour) * 15;
+  await page.route("**/api/house-model/*/manifest*", async (route) => {
+    const response = await route.fetch();
+    const manifest = await response.json() as { coordinateSystem: Record<string, unknown> };
+    manifest.coordinateSystem.geoAnchor = {
+      lat: 0,
+      lon: syntheticLongitude,
+      certainty: "inferred",
+      description: "synthetic e2e daylight coordinate",
+    };
+    await route.fulfill({ response, json: manifest });
+  });
+  await openHouse(page);
+  await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  const controls = page.getByRole("group", { name: "Daylight and shadows", exact: true });
+  await controls.getByText("Outdoor conditions", { exact: true }).click();
+  const calculated = (await page.evaluate(() => window.__vh!.daylight()))!.intensity;
+
+  await controls.getByRole("combobox", { name: "Outdoor illuminance source" }).click();
+  await page.getByRole("option", { name: /E2E desktop motion/ }).click();
+  await controls.getByRole("combobox", { name: "Weather source" }).click();
+  await page.getByRole("option", { name: /E2E desktop weather/ }).click();
+  await openSyntheticHa(page);
+
+  const emitConditions = (lux: string, weather: string) => emitHaBatch(page, [
+    { topic: "ha.state", key: "sensor.e2e_desktop_illuminance", payload: { state: lux, attributes: { device_class: "illuminance", unit_of_measurement: "lx" }, lastUpdated: Date.now() } },
+    { topic: "ha.state", key: "weather.e2e_desktop_home", payload: { state: weather, lastUpdated: Date.now() } },
+  ]);
+  await emitConditions("100000", "sunny");
+  await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.intensity ?? 0)).toBeGreaterThan(calculated);
+  const bright = (await page.evaluate(() => window.__vh!.daylight()))!.intensity;
+  await emitConditions("1", "rainy");
+  await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.intensity ?? Infinity)).toBeLessThan(bright / 2);
+
+  await controls.getByRole("button", { name: "Studio", exact: true }).click();
+  const studio = (await page.evaluate(() => window.__vh!.daylight()))!.intensity;
+  await emitConditions("100000", "sunny");
+  await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.intensity ?? 0)).toBeCloseTo(studio);
+  await controls.getByRole("button", { name: "Live time", exact: true }).click();
+
+  await emitConditions("unavailable", "unavailable");
+  await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.intensity ?? 0)).toBeCloseTo(calculated);
+  expect(await page.evaluate(() => localStorage.getItem("vh-daylight-lux-registry-id"))).toBe("e2e-desktop-motion-illuminance");
+  expect(await page.evaluate(() => localStorage.getItem("vh-daylight-weather-registry-id"))).toBe("e2e-desktop-weather-entity");
+
+  await page.reload();
+  await page.waitForFunction(() => window.__vh?.status().phase === "ready");
+  await openSyntheticHa(page);
+  await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.intensity ?? Infinity)).toBeLessThan(calculated * 0.8);
+  await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  await page.getByRole("group", { name: "Daylight and shadows", exact: true }).getByText("Outdoor conditions", { exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Outdoor illuminance source" })).toContainText("E2E desktop motion");
+  await expect(page.getByRole("combobox", { name: "Weather source" })).toContainText("E2E desktop weather");
 });

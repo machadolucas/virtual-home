@@ -20,6 +20,27 @@ export interface DaylightAppearance {
   nightFillIntensity: number;
 }
 
+export interface DaylightHaEntity {
+  /** Stable Home Assistant entity-registry identity. */
+  registryId: string;
+  /** Current renameable address, used only to subscribe to state events. */
+  entityId: string;
+  name: string;
+  kind: "illuminance" | "weather";
+  state: string | null;
+  lastUpdatedMs: number | null;
+  deviceClass: string | null;
+  unit: string | null;
+}
+
+export interface EnvironmentalDaylightInput {
+  lux?: number | null;
+  weather?: string | null;
+}
+
+/** The former 150% calibration is the neutral 100% baseline after the lighting recalibration. */
+export const GLOBAL_ILLUMINATION_BASELINE = 1.5;
+
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
 
@@ -154,6 +175,83 @@ export function daylightAppearance(elevationDeg: number): DaylightAppearance {
   }
   return { ...last.value };
 }
+
+/**
+ * Tune calculated daylight from optional outdoor observations. Inputs are deliberately small and
+ * pure: availability/staleness is decided by the HA store before calling this function. Each
+ * missing signal leaves its part of the calculated appearance alone.
+ */
+export function adaptDaylightToEnvironment(
+  base: DaylightAppearance,
+  input: EnvironmentalDaylightInput,
+): DaylightAppearance {
+  const luxFactor = validLux(input.lux)
+    ? clamp(0.25 + (Math.log10(1 + input.lux!) / Math.log10(100_001)) * 1.1, 0.25, 1.35)
+    : 1;
+  const weather = weatherAdjustment(input.weather);
+  const brightness = luxFactor * weather.brightness;
+  return {
+    skyColor: interpolateHex(base.skyColor, weather.skyColor, weather.colorMix),
+    groundColor: interpolateHex(base.groundColor, weather.groundColor, weather.colorMix),
+    ambientIntensity: base.ambientIntensity * brightness,
+    sunIntensity: base.sunIntensity * brightness,
+    sunColor: interpolateHex(base.sunColor, weather.sunColor, weather.colorMix),
+    nightFillIntensity: base.nightFillIntensity * brightness,
+  };
+}
+
+/** Normalize the small set of illuminance units HA exposes; an unknown unit is not a lux value. */
+export function outdoorLuxValue(state: string, unit: string | null | undefined): number | null {
+  const text = state.trim();
+  if (!text) return null;
+  const value = Number(text);
+  if (!Number.isFinite(value) || value < 0) return null;
+  switch (unit?.trim().toLowerCase() ?? "") {
+    case "":
+    case "lx":
+    case "lux":
+      return value;
+    case "klx":
+    case "klux":
+      return value * 1000;
+    default:
+      return null;
+  }
+}
+
+function validLux(value: number | null | undefined): value is number {
+  return value !== null && value !== undefined && Number.isFinite(value) && value >= 0;
+}
+
+function weatherAdjustment(state: string | null | undefined): {
+  brightness: number;
+  colorMix: number;
+  skyColor: string;
+  groundColor: string;
+  sunColor: string;
+} {
+  switch (state?.toLowerCase()) {
+    case "cloudy":
+      return { brightness: 0.72, colorMix: 0.42, skyColor: "#aebdca", groundColor: "#a5a8a3", sunColor: "#d9e3eb" };
+    case "partlycloudy":
+    case "partly-cloudy":
+      return { brightness: 0.88, colorMix: 0.24, skyColor: "#bfd0dc", groundColor: "#afb1a9", sunColor: "#e7edf1" };
+    case "fog":
+    case "hail":
+    case "lightning":
+    case "lightning-rainy":
+    case "pouring":
+    case "rainy":
+    case "snowy":
+    case "snowy-rainy":
+      return { brightness: 0.58, colorMix: 0.55, skyColor: "#9eafbc", groundColor: "#999e9d", sunColor: "#cbd7df" };
+    default:
+      return { brightness: 1, colorMix: 0, skyColor: baseColor, groundColor: baseColor, sunColor: baseColor };
+  }
+}
+
+// Ignored when colorMix is zero. A valid hex keeps interpolation total and easy to audit.
+const baseColor = "#ffffff";
 
 function appearance(
   skyColor: string,

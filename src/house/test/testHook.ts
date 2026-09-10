@@ -62,6 +62,7 @@ export interface VhHook {
   lights(): import("../scene/equipmentLights").EquipmentLightSpec[];
   detectionGuide(): { visible: boolean; position: number[]; direction: number[] };
   equipmentCount(): number;
+  furnishings(): Array<{ id: string; visible: boolean; size: [number, number, number] }>;
   occlusionStats(): { queries: number; batches: number };
   daylight(): { position: number[]; intensity: number; shadowMapSize: number; shadowMapAllocated: boolean; radius: number } | null;
   lightProjections(): import("../scene/equipmentLights").RenderedEquipmentLightProjection[];
@@ -286,6 +287,24 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
       let count = 0;
       runtime.index?.overlay.root.traverse((o) => { if (o instanceof THREE.InstancedMesh && o.name.startsWith("vh-markers-") && isVisibleUp(o)) count += o.count; });
       return count;
+    },
+
+    furnishings() {
+      const out: Array<{ id: string; visible: boolean; size: [number, number, number] }> = [];
+      runtime.scene?.updateMatrixWorld(true);
+      runtime.scene?.traverse((object) => {
+        if (!object.name.startsWith("furnishing:")) return;
+        const physical = object.userData.furnishingSize as [number, number, number] | undefined;
+        const size = physical
+          ? new THREE.Vector3(physical[0], physical[1], physical[2])
+          : new THREE.Box3().setFromObject(object).getSize(new THREE.Vector3());
+        out.push({
+          id: object.name.slice("furnishing:".length),
+          visible: isVisibleUp(object),
+          size: [size.x, size.y, size.z],
+        });
+      });
+      return out;
     },
 
     daylight() {

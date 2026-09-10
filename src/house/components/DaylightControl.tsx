@@ -1,16 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Clock, MapPin, Moon, Sun, Sunrise, RotateCcw } from "lucide-react";
+import { CloudSun, Clock, MapPin, Moon, Sun, Sunrise, RotateCcw } from "lucide-react";
+import { useStore } from "zustand";
 import { instantOf, localDateOf, localDateTimeOf } from "@/domain/time";
-import { Switch } from "@/ui";
+import { Select, Switch } from "@/ui";
 import { useHouseStore } from "../hooks/useHouseStore";
+import { classifyState, haStore } from "../store/haStore";
+import {
+  LUX_STORAGE_KEY,
+  seedDaylightEntity,
+  saveDaylightPreference,
+  useDaylightHaEntities,
+  WEATHER_STORAGE_KEY,
+} from "./DaylightHaContext";
 
 /** Presentation overrides only; neither the immutable model nor household location is rewritten. */
 export function DaylightControl() {
   const settings = useHouseStore((s) => s.illumination);
   const set = useHouseStore((s) => s.setIllumination);
   const coordinate = useHouseStore((s) => s.index?.manifest.coordinateSystem);
+  const entities = useDaylightHaEntities();
+  const connection = useStore(haStore, (s) => s.connection);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 60_000);
@@ -23,6 +34,29 @@ export function DaylightControl() {
   const at = settings.mode === "manual" ? settings.atMs ?? now : now;
   const preset = (time: string) => set({ mode: "manual", atMs: instantOf(localDateOf(settings.mode === "manual" ? at : Date.now(), zone), time, zone) });
   const button = "inline-flex min-h-9 items-center justify-center gap-1 rounded-md border border-line px-2 text-xs hover:bg-surface-3 max-sm:min-h-11";
+  const luxEntities = entities.filter((entity) => entity.kind === "illuminance");
+  const weatherEntities = entities.filter((entity) => entity.kind === "weather");
+  const luxEntity = entities.find((entity) => entity.registryId === settings.outdoorLuxRegistryId);
+  const weatherEntity = entities.find((entity) => entity.registryId === settings.weatherRegistryId);
+  const luxState = useStore(haStore, (s) => settings.outdoorLuxEntityId ? s.entities[settings.outdoorLuxEntityId] : undefined);
+  const weatherState = useStore(haStore, (s) => settings.weatherEntityId ? s.entities[settings.weatherEntityId] : undefined);
+
+  const selectEntity = (kind: "illuminance" | "weather", registryId: string) => {
+    const entity = entities.find((candidate) => candidate.kind === kind && candidate.registryId === registryId) ?? null;
+    const key = kind === "illuminance" ? LUX_STORAGE_KEY : WEATHER_STORAGE_KEY;
+    saveDaylightPreference(key, entity?.registryId ?? null);
+    seedDaylightEntity(entity);
+    set(kind === "illuminance"
+      ? { outdoorLuxRegistryId: entity?.registryId ?? null, outdoorLuxEntityId: entity?.entityId ?? null }
+      : { weatherRegistryId: entity?.registryId ?? null, weatherEntityId: entity?.entityId ?? null });
+  };
+
+  const sourceStatus = (entity: typeof luxEntity, state: typeof luxState): string | null => {
+    if (!entity) return null;
+    const status = classifyState(state, connection, now);
+    if (status !== "live") return `${entity.name}: ${status}; calculated daylight is used.`;
+    return `${entity.name}: ${state?.state}${entity.unit ? ` ${entity.unit}` : ""}`;
+  };
   return (
     <fieldset className="min-w-0 space-y-2" aria-label="Daylight and shadows">
       <legend className="mb-2 flex items-center gap-1 text-xs font-medium"><Sun className="size-4" aria-hidden="true" />Daylight and shadows</legend>
@@ -42,8 +76,35 @@ export function DaylightControl() {
       <label className="block text-xs">
         <span className="flex items-center gap-1"><Sun className="size-4" aria-hidden="true" />Global illumination intensity <output className="ml-auto tabular-nums">{Math.round(settings.intensity * 100)}%</output></span>
         <input type="range" aria-label="Global illumination intensity" min="0" max="300" step="5" value={Math.round(settings.intensity * 100)} onChange={(e) => set({ intensity: Number(e.target.value) / 100 })} className="mt-1 block min-h-9 w-full accent-accent max-sm:min-h-11" />
-        <span className="text-ink-3">100% is normal. Adjusts daylight and ambient light; equipment lights keep their own brightness.</span>
+        <span className="text-ink-3">100% is the calibrated normal level. Adjusts daylight and ambient light; equipment lights keep their own brightness.</span>
       </label>
+      <details className="text-xs">
+        <summary className="cursor-pointer py-1"><CloudSun className="mr-1 inline size-3.5" aria-hidden="true" />Outdoor conditions</summary>
+        <div className="mt-1 space-y-2">
+          <label className="block">Outdoor illuminance
+            <Select
+              value={settings.outdoorLuxRegistryId ?? ""}
+              onValueChange={(value) => selectEntity("illuminance", value)}
+              options={[{ value: "", label: "Calculated daylight" }, ...luxEntities.map((entity) => ({ value: entity.registryId, label: entity.name, hint: entity.entityId }))]}
+              ariaLabel="Outdoor illuminance source"
+              selectSize="sm"
+              className="mt-1 w-full"
+            />
+          </label>
+          <label className="block">Weather
+            <Select
+              value={settings.weatherRegistryId ?? ""}
+              onValueChange={(value) => selectEntity("weather", value)}
+              options={[{ value: "", label: "No weather adjustment" }, ...weatherEntities.map((entity) => ({ value: entity.registryId, label: entity.name, hint: entity.entityId }))]}
+              ariaLabel="Weather source"
+              selectSize="sm"
+              className="mt-1 w-full"
+            />
+          </label>
+          {[sourceStatus(luxEntity, luxState), sourceStatus(weatherEntity, weatherState)].filter(Boolean).map((status) => <p key={status} className="text-ink-3">{status}</p>)}
+          <p className="text-ink-3">Live time uses available readings for brightness and colour. Manual previews and Studio ignore them. Choices are remembered in this browser.</p>
+        </div>
+      </details>
       <Switch checked={settings.softShadows} onCheckedChange={(softShadows) => set({ softShadows })} controlPosition="start" label={<span className="inline-flex items-center gap-1"><Moon className="size-4" aria-hidden="true" />Soft shadows</span>} className="min-h-9 py-0" />
       <details className="text-xs">
         <summary className="cursor-pointer py-1"><MapPin className="mr-1 inline size-3.5" aria-hidden="true" />Location and north</summary>

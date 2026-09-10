@@ -11,6 +11,8 @@ import {
   lightSourceOffset,
   lightSourcePosition,
 } from "@/house/model/equipmentLight";
+import { PHYSICAL_LIGHT_SOURCE_OFFSET } from "@/house/model/equipmentDimensions";
+import { symbolGeometry, type PlacementSymbol } from "@/house/scene/symbols";
 
 function expectDirection(actual: readonly number[], expected: readonly number[]): void {
   expect(actual).toHaveLength(3);
@@ -114,12 +116,26 @@ describe("equipment light direction", () => {
   });
 
   it("places emitters at their visible heads and rotates local offsets with the body", () => {
-    expectDirection(lightSourceOffset("lamp_post"), [0, 0.587, 0]);
-    expectDirection(lightSourceOffset("wall_spot"), [0, 0.045, 0.078]);
-    expectDirection(lightSourceOffset("wall_spot", 90), [0.078, 0.045, 0]);
-    expectDirection(lightSourceOffset("floor_spot"), [0, 0.35, 0.035]);
-    expectDirection(lightSourceOffset("ceiling_spot"), [0.024, -0.088, 0]);
-    expectDirection(lightSourcePosition([2, 3, 4], "lamp_post", 0, 1.5), [2, 5.087, 4]);
+    expectDirection(lightSourceOffset("lamp_post"), [0, 1.31, 0]);
+    expectDirection(lightSourceOffset("wall_spot"), [0, 0.07, 0.17]);
+    expectDirection(lightSourceOffset("wall_spot", 90), [0.17, 0.07, 0]);
+    expectDirection(lightSourceOffset("floor_lamp"), [0, 1.33, 0]);
+    expectDirection(lightSourceOffset("floor_spot"), [0, 1.33, 0.12]);
+    expectDirection(lightSourceOffset("ceiling_spot"), [0.055, -0.1, 0]);
+    expectDirection(lightSourcePosition([2, 3, 4], "lamp_post", 0, 1.5), [2, 5.81, 4]);
+  });
+
+  it("keeps every scaled optical origin on or just outside its visible fixture head", () => {
+    for (const [symbol, source] of Object.entries(PHYSICAL_LIGHT_SOURCE_OFFSET)) {
+      const box = symbolGeometry(symbol as PlacementSymbol).boundingBox!;
+      const margin = 0.03;
+      expect(source[0], `${symbol} source x`).toBeGreaterThanOrEqual(box.min.x - margin);
+      expect(source[0], `${symbol} source x`).toBeLessThanOrEqual(box.max.x + margin);
+      expect(source[1], `${symbol} source y`).toBeGreaterThanOrEqual(box.min.y - margin);
+      expect(source[1], `${symbol} source y`).toBeLessThanOrEqual(box.max.y + margin);
+      expect(source[2], `${symbol} source z`).toBeGreaterThanOrEqual(box.min.z - margin);
+      expect(source[2], `${symbol} source z`).toBeLessThanOrEqual(box.max.z + margin);
+    }
   });
 
   it("maps yaw around +Y and pitch from the horizontal", () => {

@@ -3,6 +3,7 @@ import { HouseWorkspace } from "@/house";
 import { requireSessionPage } from "@/server/auth/session";
 import { pageContext, readHouseBackground } from "@/server/queries/settings/household";
 import { getCurrentPackage } from "@/server/house-model/package";
+import { readDaylightHaEntities } from "@/server/queries/ha/daylight";
 import { Workspace } from "@/ui/shell";
 
 export const metadata: Metadata = { title: "House" };
@@ -27,10 +28,11 @@ export default async function HousePage() {
   const pkg = await getCurrentPackage().catch(() => null);
   const { db } = pageContext();
   const background = readHouseBackground(db);
+  const daylightHaEntities = readDaylightHaEntities(db);
 
   return (
     <Workspace>
-      <HouseWorkspace modelId={pkg?.modelId ?? null} background={background} />
+      <HouseWorkspace modelId={pkg?.modelId ?? null} background={background} daylightHaEntities={daylightHaEntities} />
     </Workspace>
   );
 }

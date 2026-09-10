@@ -3,27 +3,30 @@
 import { useId } from "react";
 import { Gauge, Lightbulb } from "lucide-react";
 import { Button, Switch } from "@/ui";
+import { DETAILED_LIGHT_SLIDER_MAX, SINGLE_PASS_LIGHT_MAX } from "../model/detailedLightBudget";
 import { useHouseStore, useShallow } from "../hooks/useHouseStore";
 
 /** Session-scoped light-detail budget. The renderer supplies the conservative recommendation after WebGL init. */
 export function DetailedLightControl() {
   const id = useId();
   const helpId = `${id}-help`;
-  const { requested, hardwareMax, performanceMode, batched, experimental, error, capabilities } = useHouseStore(
+  const { requested, hardwareMax, performanceMode, batched, all, experimental, error, capabilities } = useHouseStore(
     useShallow((s) => ({
       requested: s.detailedLightLimit,
       hardwareMax: s.detailedLightHardwareMax,
       performanceMode: s.performanceMode,
       batched: s.detailedLightBatched,
+      all: s.detailedLightAll,
       experimental: s.detailedLightExperimental,
       error: s.detailedLightError,
       capabilities: s.detailedLightCapabilities,
     })),
   );
   const setBatched = useHouseStore((s) => s.setDetailedLightBatched);
+  const setAll = useHouseStore((s) => s.setDetailedLightAll);
   const setLimit = useHouseStore((s) => s.setDetailedLightLimit);
   const setExperimental = useHouseStore((s) => s.setDetailedLightExperimental);
-  const ceiling = batched || experimental ? 64 : hardwareMax;
+  const ceiling = batched ? DETAILED_LIGHT_SLIDER_MAX : experimental ? SINGLE_PASS_LIGHT_MAX : hardwareMax;
   const selected = Math.min(requested, ceiling);
 
   return (
@@ -32,7 +35,7 @@ export function DetailedLightControl() {
         <Lightbulb aria-hidden="true" className="size-4 text-ink-3" />
         Detailed lights
         <output htmlFor={id} className="ml-auto font-mono text-ink tabular-nums">
-          {selected} / {ceiling}
+          {batched && all ? "All" : `${selected} / ${ceiling}`}
         </output>
       </legend>
       <input
@@ -44,7 +47,7 @@ export function DetailedLightControl() {
         max={ceiling}
         step={1}
         value={selected}
-        disabled={ceiling === 0}
+        disabled={ceiling === 0 || (batched && all)}
         onChange={(event) => setLimit(event.currentTarget.valueAsNumber)}
         className="block min-h-9 w-full accent-accent max-sm:min-h-11"
       />
@@ -65,19 +68,20 @@ export function DetailedLightControl() {
         ) : null}
       </div>
       <Switch checked={batched} onCheckedChange={setBatched} controlPosition="start" label="Batched lighting" />
+      {batched ? <Switch checked={all} onCheckedChange={setAll} controlPosition="start" label="All installed lights" /> : null}
       {!batched ? (
         <Switch checked={experimental} onCheckedChange={setExperimental} controlPosition="start" label="Try higher limits" />
       ) : null}
       <p id={helpId} className="max-w-sm text-[11px] leading-4 text-ink-3">
         {batched ? (
-          <>Up to {hardwareMax} lights per pass, based conservatively on WebGL shader resources. Extra lights render in additional passes.</>
+          <>Up to {hardwareMax} lights per pass, based conservatively on WebGL shader resources. Additional lights render in extra passes. All installed lights removes the total cap; cost grows with the number of fixtures.</>
         ) : (
           <>
             Recommended: {hardwareMax}, based on WebGL shader resources, not an FPS benchmark.
             Higher limits allow testing up to 64; rejected shaders automatically restore the recommendation.
           </>
         )}
-        {performanceMode ? " Performance mode caps detailed lighting at 2." : " Extra lights keep their surface glow."}
+        {performanceMode ? " Performance mode caps detailed lighting at 2." : " Lights beyond a selected budget keep their simpler surface glow."}
       </p>
       {capabilities ? <p className="text-[10px] text-ink-3">WebGL: {capabilities.textures} texture units · {capabilities.varyings} varying vectors</p> : null}
       {error ? <p role="alert" className="text-xs text-ink-2">{error}</p> : null}

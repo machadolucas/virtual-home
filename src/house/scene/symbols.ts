@@ -3,7 +3,7 @@
  *
  * A single 6 cm sphere for everything meant the 3D view could not answer "which of those is the
  * lamp post and which is the ceiling light" — the one question a picture is supposed to answer.
- * So each symbol is a small, recognisable silhouette instead: a hanging dome, a wall bracket, a
+ * So each symbol is a lightweight, recognisable silhouette instead: a hanging dome, a wall bracket, a
  * standing lamp, a lantern post, adjustable spots, appliances and building services.
  *
  * Deliberately **procedural**, not modelled assets. Three reasons: the model package is immutable
@@ -18,6 +18,7 @@
  */
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { PHYSICAL_SYMBOL_SIZE } from "../model/equipmentDimensions";
 
 export const PLACEMENT_SYMBOLS = [
   "generic",
@@ -123,7 +124,7 @@ export const SYMBOL_LABEL: { readonly [S in PlacementSymbol]: string } = {
   solar_panel: "Solar panel",
 };
 
-/** Low segment counts on purpose: these are 20–40 px silhouettes, not hero assets. */
+/** Low segment counts on purpose: these are context geometry, not hero assets. */
 const RADIAL = 10;
 
 function translated(geometry: THREE.BufferGeometry, x: number, y: number, z: number) {
@@ -150,7 +151,7 @@ function scaled(geometry: THREE.BufferGeometry, x: number, y: number, z: number)
  * One geometry per symbol, merged from primitives. Built once, lazily, and shared by every
  * instanced mesh — a symbol's geometry is identical for all 200 markers that use it.
  */
-function build(symbol: PlacementSymbol): THREE.BufferGeometry {
+function buildRaw(symbol: PlacementSymbol): THREE.BufferGeometry {
   switch (symbol) {
     case "ceiling_lamp":
       // Flush base at the origin, a short drop, then the dome hanging below it.
@@ -451,9 +452,11 @@ function build(symbol: PlacementSymbol): THREE.BufferGeometry {
 
     case "freezer":
       return mergeGeometries([
-        translated(new THREE.BoxGeometry(0.28, 0.18, 0.18), 0, 0.09, 0),
-        translated(new THREE.BoxGeometry(0.29, 0.025, 0.19), 0, 0.192, 0),
-        translated(new THREE.BoxGeometry(0.07, 0.012, 0.012), 0, 0.18, 0.102),
+        translated(new THREE.BoxGeometry(0.19, 0.38, 0.17), 0, 0.19, 0),
+        translated(new THREE.BoxGeometry(0.175, 0.009, 0.012), 0, 0.29, 0.091),
+        translated(new THREE.BoxGeometry(0.175, 0.009, 0.012), 0, 0.2, 0.091),
+        translated(new THREE.BoxGeometry(0.175, 0.009, 0.012), 0, 0.11, 0.091),
+        translated(new THREE.BoxGeometry(0.012, 0.16, 0.012), 0.066, 0.21, 0.091),
       ])!;
 
     case "washing_machine":
@@ -606,10 +609,30 @@ function build(symbol: PlacementSymbol): THREE.BufferGeometry {
 
 const cache = new Map<PlacementSymbol, THREE.BufferGeometry>();
 
+const FLOOR_ANCHORED_SYMBOLS = new Set<PlacementSymbol>([
+  "floor_lamp", "lamp_post", "floor_spot", "robot_vacuum", "heat_pump_outdoor", "homepod",
+  "network_switch", "fan", "humidifier", "radiator", "floor_heating", "dishwasher", "fridge",
+  "freezer", "washing_machine", "dryer", "toilet", "sauna_heater_electric",
+  "sauna_heater_wood", "tv", "server_rack", "router", "nvr", "nas", "media_player",
+]);
+
+function fitPhysicalEnvelope(symbol: PlacementSymbol, geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  const target = PHYSICAL_SYMBOL_SIZE[symbol];
+  if (!target) return geometry;
+  geometry.computeBoundingBox();
+  const size = geometry.boundingBox!.getSize(new THREE.Vector3());
+  geometry.scale(target[0] / size.x, target[1] / size.y, target[2] / size.z);
+  if (FLOOR_ANCHORED_SYMBOLS.has(symbol)) {
+    geometry.computeBoundingBox();
+    geometry.translate(0, -geometry.boundingBox!.min.y, 0);
+  }
+  return geometry;
+}
+
 export function symbolGeometry(symbol: PlacementSymbol): THREE.BufferGeometry {
   let geometry = cache.get(symbol);
   if (!geometry) {
-    geometry = build(symbol);
+    geometry = fitPhysicalEnvelope(symbol, buildRaw(symbol));
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     cache.set(symbol, geometry);

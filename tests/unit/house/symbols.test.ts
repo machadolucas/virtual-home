@@ -18,6 +18,7 @@ import {
   SYMBOL_LABEL,
 } from "@/house/scene/symbols";
 import type { Placement } from "@/house/model/types";
+import { PHYSICAL_SYMBOL_SIZE } from "@/house/model/equipmentDimensions";
 import { FIXTURE_DIR } from "./glb";
 import { buildScene } from "./sceneFromGlb";
 
@@ -60,19 +61,32 @@ describe("symbol geometry", () => {
     expect(symbolGeometry("lamp_post")).not.toBe(symbolGeometry("ceiling_lamp"));
   });
 
-  it("keeps every symbol small enough to read as a marker rather than as furniture", () => {
-    for (const symbol of PLACEMENT_SYMBOLS) {
-      // Solar panels use normalized unit geometry so their placement scale can hold the real
-      // width, thickness and length independently.
-      if (
-        symbol === "solar_panel" ||
-        symbol === "led_bar_vertical" ||
-        symbol === "led_bar_horizontal"
-      ) {
-        continue;
-      }
-      const radius = symbolGeometry(symbol).boundingSphere?.radius ?? 0;
-      expect(radius, symbol).toBeLessThan(0.5);
+  it("uses realistic physical envelopes without moving the shared mount origin", () => {
+    for (const [symbol, expected] of Object.entries(PHYSICAL_SYMBOL_SIZE)) {
+      const box = symbolGeometry(symbol as (typeof PLACEMENT_SYMBOLS)[number]).boundingBox!;
+      const size = box.getSize(new THREE.Vector3());
+      expect(size.x, `${symbol} width`).toBeCloseTo(expected[0]!, 6);
+      expect(size.y, `${symbol} height`).toBeCloseTo(expected[1]!, 6);
+      expect(size.z, `${symbol} depth`).toBeCloseTo(expected[2]!, 6);
+    }
+    expect(symbolGeometry("dishwasher").boundingBox!.min.y).toBeCloseTo(0, 6);
+    expect(symbolGeometry("fridge").boundingBox!.min.y).toBeCloseTo(0, 6);
+    expect(symbolGeometry("floor_lamp").boundingBox!.min.y).toBeCloseTo(0, 6);
+    expect(symbolGeometry("lamp_post").boundingBox!.min.y).toBeCloseTo(0, 6);
+  });
+
+  it("pins the requested appliance and standing-light dimensions in physical metres", () => {
+    const sizeOf = (symbol: (typeof PLACEMENT_SYMBOLS)[number]) =>
+      symbolGeometry(symbol).boundingBox!.getSize(new THREE.Vector3()).toArray();
+    const expectSize = (symbol: (typeof PLACEMENT_SYMBOLS)[number], expected: readonly number[]) => {
+      const actual = sizeOf(symbol);
+      expected.forEach((dimension, index) => expect(actual[index], `${symbol}[${index}]`).toBeCloseTo(dimension, 6));
+    };
+    expectSize("dishwasher", [0.6, 0.8, 0.6]);
+    expectSize("fridge", [0.6, 1.86, 0.65]);
+    expectSize("freezer", [0.6, 1.86, 0.65]);
+    for (const symbol of ["floor_lamp", "lamp_post", "floor_spot"] as const) {
+      expect(sizeOf(symbol)[1], symbol).toBeCloseTo(1.5, 6);
     }
   });
 

@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { detailedLightBudget, detailedLightHardwareLimit } from "../model/detailedLightBudget";
+import { detailedLightBudget, detailedLightHardwareLimit, SINGLE_PASS_LIGHT_MAX } from "../model/detailedLightBudget";
 import { clipGroupOf } from "../model/explodeGroups";
 import {
   isLightEntity,
@@ -166,7 +166,11 @@ export function useEquipmentLights() {
       candidates.sort((a, b) =>
         Number(b.id === selected) - Number(a.id === selected) || a.id.localeCompare(b.id));
       const budget = detailedLightBudget(
-        Math.min(requestedLimit, state.detailedLightBatched || state.detailedLightExperimental ? 64 : hardwareLimit, state.performanceMode ? 2 : Infinity),
+        Math.min(
+          state.detailedLightBatched && state.detailedLightAll ? pointCount + spotCount : requestedLimit,
+          state.detailedLightBatched ? Infinity : state.detailedLightExperimental ? SINGLE_PASS_LIGHT_MAX : hardwareLimit,
+          state.performanceMode ? 2 : Infinity,
+        ),
         pointCount, spotCount,
       );
       if (!trial.configure(budget.point, budget.spot, hardwareLimit, state.detailedLightExperimental && !state.detailedLightBatched)) return;

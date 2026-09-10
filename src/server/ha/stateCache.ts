@@ -138,6 +138,26 @@ function conditionRuleEntityIds(tx: Db): string[] {
     .map((row) => row.entityId);
 }
 
+/** Outdoor readings are a small, opt-in viewer source set and must stay live before selection. */
+function environmentalEntityIds(tx: Db): string[] {
+  return tx
+    .select({ entityId: haEntity.entityId })
+    .from(haEntity)
+    .leftJoin(haDevice, eq(haDevice.deviceId, haEntity.deviceId))
+    .where(
+      and(
+        isNull(haEntity.removedAtMs),
+        isNull(haEntity.disabledBy),
+        isNull(haEntity.hiddenBy),
+        isNull(haDevice.removedAtMs),
+        isNull(haDevice.disabledBy),
+        sql`((${haEntity.deviceClass} = 'illuminance' AND (${haEntity.unitOfMeasurement} IS NULL OR lower(trim(${haEntity.unitOfMeasurement})) IN ('lx', 'lux', 'klx', 'klux'))) OR ${haEntity.domain} = 'weather')`,
+      ),
+    )
+    .all()
+    .map((row) => row.entityId);
+}
+
 /**
  * Every entity whose state we persist and publish: linked (directly or via a device link),
  * canonical battery, or watched by an enabled condition rule.
@@ -147,6 +167,7 @@ export function interestingEntityIds(tx: Db): Set<string> {
     ...linkedEntityIds(tx),
     ...canonicalBatteryEntityIds(tx),
     ...conditionRuleEntityIds(tx),
+    ...environmentalEntityIds(tx),
   ]);
 }
 
@@ -156,7 +177,11 @@ export function interestingEntityIds(tx: Db): Set<string> {
  * `hello` frame.
  */
 export function renderableEntityIds(tx: Db): Set<string> {
-  return new Set([...linkedEntityIds(tx), ...canonicalBatteryEntityIds(tx)]);
+  return new Set([
+    ...linkedEntityIds(tx),
+    ...canonicalBatteryEntityIds(tx),
+    ...environmentalEntityIds(tx),
+  ]);
 }
 
 /* ------------------------------------------------------------------- writes */

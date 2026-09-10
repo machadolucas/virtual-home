@@ -18,6 +18,21 @@ describe("Home Assistant state freshness", () => {
     expect(classifyState({ entityId: "sensor.temperature", state: "21", lastUpdated: 1 }, "open", 7 * 60 * 60_000))
       .toBe("stale");
   });
+
+  it("expires outdoor illuminance quickly and weather on a two-hour cadence", () => {
+    expect(classifyState({ entityId: "sensor.outdoor_lux", state: "200", lastUpdated: 1, deviceClass: "illuminance" }, "open", 31 * 60_000))
+      .toBe("stale");
+    expect(classifyState({ entityId: "weather.home", state: "cloudy", lastUpdated: 1 }, "open", 119 * 60_000))
+      .toBe("live");
+    expect(classifyState({ entityId: "weather.home", state: "cloudy", lastUpdated: 1 }, "open", 121 * 60_000))
+      .toBe("stale");
+  });
+
+  it("never treats unknown or unavailable outdoor readings as live values", () => {
+    const sensor: EntityState = { entityId: "sensor.outdoor_lux", state: "unknown", lastUpdated: 1, deviceClass: "illuminance" };
+    expect(classifyState(sensor, "open", 1000)).toBe("unknown");
+    expect(classifyState({ ...sensor, state: "unavailable" }, "open", 1000)).toBe("unavailable");
+  });
 });
 
 it("keeps event-driven climate status live while connected without inventing unavailable readings", () => {

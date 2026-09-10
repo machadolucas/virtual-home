@@ -69,6 +69,14 @@ The current column set was verified against `getSchema()` of the exact options i
 Each module is one file in `src/db/schema/`. The barrel `index.ts` must list them all — it is both
 the drizzle-kit schema and the object handed to Better Auth.
 
+### `furnishings.ts` — model-only visual objects
+
+`furnishing` stores a named procedural furniture kind, stable `model_id`, semantic floor/room ids,
+physical site coordinates, yaw and width/depth/height. It deliberately has no foreign key to
+`asset`, maintenance, attachments or Home Assistant. Keeping the stable model id rather than a
+revision foreign key preserves household-authored objects across model package revisions; missing
+floor ids remain listable and must be reassigned before they render again.
+
 ### `auth.ts` — identity (Better Auth, given)
 
 | table | purpose |

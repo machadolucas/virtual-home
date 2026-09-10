@@ -48,6 +48,24 @@ describe("state cache", () => {
     ]);
   });
 
+  it("keeps enabled outdoor lux and weather entities live before either is selected", () => {
+    handle.sqlite.prepare(`INSERT INTO ha_entity
+      (registry_id, entity_id, domain, device_class, first_seen_ms, last_seen_ms)
+      VALUES ('reg-outdoor-lux', 'sensor.outdoor_lux', 'sensor', 'illuminance', ?, ?),
+             ('reg-weather', 'weather.home', 'weather', NULL, ?, ?),
+             ('reg-hidden-lux', 'sensor.hidden_lux', 'sensor', 'illuminance', ?, ?)`)
+      .run(T0, T0, T0, T0, T0, T0);
+    handle.sqlite.prepare(`UPDATE ha_entity SET hidden_by = 'user' WHERE registry_id = 'reg-hidden-lux'`).run();
+
+    const interesting = interestingEntityIds(handle.db);
+    const renderable = renderableEntityIds(handle.db);
+    expect(interesting.has("sensor.outdoor_lux")).toBe(true);
+    expect(interesting.has("weather.home")).toBe(true);
+    expect(renderable.has("sensor.outdoor_lux")).toBe(true);
+    expect(renderable.has("weather.home")).toBe(true);
+    expect(interesting.has("sensor.hidden_lux")).toBe(false);
+  });
+
   it("adds a directly linked entity", () => {
     const assetId = seedAsset(handle, { name: "Bedroom door sensor" });
     linkEntity(handle, {

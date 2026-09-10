@@ -16,6 +16,10 @@ import {
 } from "@/house/model/framingBoxes";
 import type { ManifestIndex } from "@/house/model/manifestIndex";
 import type { Box, BuildingId, FloorId, Placement, RoomId, Route, Selection } from "@/house/model/types";
+import { defaultLightAim } from "../model/equipmentLight";
+import { isDirectionalSymbol, isLedBar, ledLength } from "../model/equipmentOptics";
+import { DEFAULT_SOLAR_PANEL_CONFIG } from "../model/solarPanel";
+import { isPlacementSymbol, symbolGeometry } from "./symbols";
 import type { SceneIndex } from "./SceneIndex";
 
 export const toBox3 = (b: Box): THREE.Box3 =>
@@ -42,8 +46,21 @@ export const buildingBox3 = (index: ManifestIndex, id: BuildingId): THREE.Box3 =
 
 export const propertyBox3 = (index: ManifestIndex): THREE.Box3 => toBox3(propertyBox(index));
 
-export const equipmentBox3 = (p: Pick<Placement, "position">): THREE.Box3 =>
-  toBox3(equipmentBox(p));
+/** Keep room context for tiny devices, but include the full physical appliance/lamp envelope. */
+export function equipmentBox3(p: Pick<Placement, "position"> & Partial<Placement>): THREE.Box3 {
+  const box = toBox3(equipmentBox(p));
+  if (!isPlacementSymbol(p.symbol)) return box;
+  const panel = p.symbol === "solar_panel" ? p.solarPanel ?? DEFAULT_SOLAR_PANEL_CONFIG : null;
+  const rotation = new THREE.Euler(THREE.MathUtils.degToRad(panel?.tiltDeg ?? 0), THREE.MathUtils.degToRad(p.rotationYDeg ?? 0), 0, "YXZ");
+  const scale = new THREE.Vector3(panel?.widthM ?? 1, panel?.thicknessM ?? 1, panel?.lengthM ?? 1);
+  if (isDirectionalSymbol(p.symbol)) {
+    const aim = p.lightAim ?? defaultLightAim(p.symbol, p.rotationYDeg);
+    rotation.set(THREE.MathUtils.degToRad(-aim.pitchDeg), THREE.MathUtils.degToRad(aim.yawDeg), 0, "YXZ");
+  }
+  if (isLedBar(p.symbol)) scale.set(p.symbol === "led_bar_horizontal" ? ledLength(p.ledLengthM) : 1, p.symbol === "led_bar_vertical" ? ledLength(p.ledLengthM) : 1, 1);
+  const transform = new THREE.Matrix4().compose(new THREE.Vector3(...p.position), new THREE.Quaternion().setFromEuler(rotation), scale);
+  return box.union(symbolGeometry(p.symbol).boundingBox!.clone().applyMatrix4(transform).expandByScalar(0.2));
+}
 
 export const routeBox3 = (r: Pick<Route, "points">): THREE.Box3 => toBox3(routeBox(r));
 

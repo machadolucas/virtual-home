@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { daylightAppearance, solarPosition } from "@/house/model/daylight";
+import {
+  adaptDaylightToEnvironment,
+  daylightAppearance,
+  GLOBAL_ILLUMINATION_BASELINE,
+  outdoorLuxValue,
+  solarPosition,
+} from "@/house/model/daylight";
 
 function utc(value: string): number {
   return Date.parse(value);
@@ -72,6 +78,43 @@ describe("solarPosition", () => {
     expect(() => solarPosition(Number.NaN, 0, 0)).toThrow(RangeError);
     expect(() => solarPosition(0, 91, 0)).toThrow(RangeError);
     expect(() => solarPosition(0, 0, Number.POSITIVE_INFINITY)).toThrow(RangeError);
+  });
+});
+
+describe("environment-driven daylight", () => {
+  const base = daylightAppearance(35);
+
+  it("treats the old 150% rendering level as the calibrated 100% baseline", () => {
+    expect(GLOBAL_ILLUMINATION_BASELINE).toBe(1.5);
+  });
+
+  it("dims global illumination logarithmically for a dark outdoor lux reading", () => {
+    const dim = adaptDaylightToEnvironment(base, { lux: 10 });
+    const bright = adaptDaylightToEnvironment(base, { lux: 50_000 });
+    expect(dim.ambientIntensity).toBeLessThan(base.ambientIntensity);
+    expect(dim.sunIntensity).toBeLessThan(bright.sunIntensity);
+    expect(bright.sunIntensity).toBeGreaterThan(base.sunIntensity);
+  });
+
+  it("cools and dims daylight for overcast weather", () => {
+    const cloudy = adaptDaylightToEnvironment(base, { weather: "cloudy" });
+    expect(cloudy.sunIntensity).toBeLessThan(base.sunIntensity);
+    expect(cloudy.sunColor).not.toBe(base.sunColor);
+    expect(cloudy.skyColor).not.toBe(base.skyColor);
+  });
+
+  it("uses calculated daylight unchanged when readings are absent or invalid", () => {
+    expect(adaptDaylightToEnvironment(base, {})).toEqual(base);
+    expect(adaptDaylightToEnvironment(base, { lux: null, weather: "unavailable" })).toEqual(base);
+    expect(adaptDaylightToEnvironment(base, { lux: Number.NaN, weather: "unknown" })).toEqual(base);
+  });
+
+  it("normalizes supported lux units and rejects blank, negative, and unknown units", () => {
+    expect(outdoorLuxValue(" 25 ", "lx")).toBe(25);
+    expect(outdoorLuxValue("1.5", "klx")).toBe(1500);
+    expect(outdoorLuxValue("", "lx")).toBeNull();
+    expect(outdoorLuxValue("-1", "lx")).toBeNull();
+    expect(outdoorLuxValue("25", "fc")).toBeNull();
   });
 });
 

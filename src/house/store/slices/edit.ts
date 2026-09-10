@@ -100,7 +100,7 @@ export const createEditSlice: StateCreator<HouseStore, Mutators, [], EditSlice> 
    * every save path (defence in depth: the save reads `draft.physical`, never `object.position`).
    */
   beginEdit: (draft) =>
-    set((s) => s.editorSaving ? {} : ({
+    set((s) => s.editorSaving || s.furnishingsEditing ? {} : ({
       editing: draft,
       original: draft,
       editError: null,

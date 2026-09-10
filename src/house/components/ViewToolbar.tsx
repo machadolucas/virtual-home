@@ -7,6 +7,7 @@
 import { HouseBackgroundControl } from "@/features/settings/HouseBackgroundControl";
 import {
   BetweenHorizontalEnd,
+  Armchair,
   Box,
   BrickWall,
   Building2,
@@ -40,6 +41,7 @@ const LAYER_LABELS: Record<LayerId, string> = {
   yard: "Yard",
   outdoor: "Terrace and steps",
   equipment: "Show equipment",
+  furnishings: "Furniture",
   routes: "Infrastructure routes",
   annotations: "Notes",
 };
@@ -50,6 +52,7 @@ const LAYER_ICONS: Record<LayerId, LucideIcon> = {
   yard: Trees,
   outdoor: Map,
   equipment: Box,
+  furnishings: Armchair,
   routes: Route,
   annotations: StickyNote,
 };

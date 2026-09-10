@@ -148,7 +148,7 @@ export const createRouteSlice: StateCreator<HouseStore, Mutators, [], RouteSlice
   removeEndpoint: (id) => set((s) => ({ endpoints: s.endpoints.filter((e) => e.id !== id) })),
 
   beginRouteDraft: (route, opts) =>
-    set((s) => s.editorSaving ? {} : ({
+    set((s) => s.editorSaving || s.furnishingsEditing ? {} : ({
       routeDraft: route,
       routeDraftIsNew: opts?.isNew ?? false,
       routeDraftOrigin: opts?.isNew ? null : route,

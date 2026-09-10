@@ -15,3 +15,10 @@ it("shares a total limit across available fixture types without wasting half on 
   expect(detailedLightBudget(16, 3, 30)).toEqual({ point: 3, spot: 13 });
   expect(detailedLightBudget(0, 30, 30)).toEqual({ point: 0, spot: 0 });
 });
+
+it("supports totals beyond a single shader or slider without allocating more than installed fixtures", () => {
+  expect(detailedLightBudget(192, 100, 100)).toEqual({ point: 96, spot: 96 });
+  expect(detailedLightBudget(700, 400, 300)).toEqual({ point: 400, spot: 300 });
+  expect(detailedLightBudget(256, 60, 20)).toEqual({ point: 60, spot: 20 });
+  expect(detailedLightBudget(Number.NaN, 20, 20)).toEqual({ point: 0, spot: 0 });
+});

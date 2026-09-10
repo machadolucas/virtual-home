@@ -670,12 +670,22 @@ equipment labels visible; phones expose the same switch beside the model.
 
 ### Live fixtures
 
+Furniture is a separate model layer and a separate lightweight record. The property panel (and the
+phone House screen) can add regular or L-shaped sofas, single or double beds, bedside tables,
+chairs, dining tables, computer desks, bicycles, shelves, cabinets/wardrobes, kitchen counters,
+rugs and benches. Every object previews while its physical X/Y/Z position, width, depth, height or
+yaw is edited; Save persists it, Cancel restores the previous view and saved object. Furniture has
+no maintenance, documents or Home Assistant controls. A package revision keeps these records by
+stable `modelId`; a removed floor is shown in the list as needing reassignment rather than dropping
+the record.
+
 Equipment labels show their main linked reading. Clicking a label expands its other linked readings;
 battery-linked equipment includes its percentage. The placement's chosen silhouette survives save
 and reload. Live lights tint nearby model surfaces with their Home Assistant brightness and colour.
 Rotating the camera does not swap which lights illuminate the scene. Every active light also has a
-luminous source core. Rendering offers a session-only detailed-light total up to 64 by default;
-performance mode retains two. Batched lighting is the default and the conservative WebGL
+luminous source core. Rendering offers a session-only detailed-light slider from 0 to 256 (default 64), plus
+**All installed lights**, which removes the total cap and allocates only the installed visible fixtures.
+More lights cost more render passes and shadow memory; performance mode retains two. Batched lighting is the default and the conservative WebGL
 recommendation becomes the number of lights rendered per pass, not a measure of GPU speed. Each pass
 is a full-resolution, linear HDR screen-space contribution. Contributions are cached until the camera,
 geometry, material or relevant lights change; they are never baked into surface UV lighting. Real
@@ -705,6 +715,13 @@ not attachment surfaces.
 Daylight controls live under Rendering: Live time follows the model location; Studio keeps a steady
 architectural light; date/time and morning/noon/night shortcuts preview another time. The time zone
 is shown beside the input. Location/north overrides are view-only and disclose model north certainty.
+The optional outdoor-condition controls list worker-cached Home Assistant illuminance and weather
+entities. Selections are remembered per browser by stable entity-registry id, then resolved to the
+entity's current renameable id on each page load. In Live time, fresh lux adjusts global brightness
+and weather adjusts brightness and colour; Manual and Studio remain deterministic overrides.
+Unknown, unavailable, stale, removed or disconnected sources fall back to calculated daylight and
+are never interpreted as zero. The calibrated normal global illumination is now 100%, matching the
+previous 150% appearance.
 Soft shadows can be switched to crisp shadows. Performance mode reduces the site shadow map.
 Expanded sensor labels use font-independent SVG icons, including a complete thermometer for
 temperature, with their text readings retained for screen readers.
@@ -719,7 +736,8 @@ network/media equipment and lamp variants. Wall/floor/ceiling spots expose **Spo
 enter yaw/pitch or use **Aim in 3D view** on desktop. Aiming points from the actual fixture head.
 Choose **Solar panel** to reveal width, length, thickness and tilt fields. Click a visible roof to
 align its slope, then adjust position/rotation numerically as needed. Panel dimensions are metres;
-other equipment silhouettes are compact symbols. Every panel remains a separate equipment placement.
+other equipment silhouettes use representative physical dimensions so appliances and standing
+fixtures read at a credible scale against the house. Every panel remains a separate equipment placement.
 
 Home Assistant import rows keep their selection, device details and import action in aligned columns.
 **Hide already imported** filters linked devices from the registry list. Selected-device entity choices

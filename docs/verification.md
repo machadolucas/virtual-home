@@ -134,3 +134,21 @@ under one account). That is what `workers: 1` in `playwright.config.ts` exists t
 - Playwright (`house`, `house-theme`, `house-viewer`): 37 passed, 21 skipped (desktop-only cases on
   phones and existing camera limitations). The build and synthetic data were isolated in a temporary
   checkout so verification did not overwrite the live production build.
+
+## 2026-09-10 — scene scale, adaptive daylight and furnishings
+
+- `pnpm check`: 118 files passed; 1,578 tests passed, 23 existing skips. Coverage includes physical
+  equipment envelopes and source offsets, framing large fixtures, daylight freshness/fallbacks,
+  furnishings geometry, authenticated persistence and the additive migration.
+- Isolated Chromium regressions passed for 72 detailed lights and All mode with 80 installed lights,
+  batched/single-pass image comparison, cached shadow reuse, state transitions, camera movement,
+  PNG capture and idle rendering. The 80-light path also passed on the phone viewport.
+- Outdoor lux/weather controls passed live updates, unavailable fallback, deterministic Studio mode
+  and restoring saved registry identities before opening Rendering. Spotlight aiming and adjacent
+  room wall occlusion regressions also passed.
+- Desktop and phone furnishings flows cover preview dimensions, save/reload, cancellation, layer
+  visibility, deletion and returning to idle. All browser fixtures are synthetic. Headless software
+  shader compilation needs a longer warm-up than the user's hardware; these checks establish
+  correctness, not a hardware-independent frame-rate guarantee.
+- The browser harness refuses to build in the running macOS production checkout. Run it from a
+  separate checkout as documented in `tests/e2e/README.md`.

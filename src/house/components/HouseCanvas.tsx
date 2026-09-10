@@ -30,6 +30,7 @@ import { Rig } from "./Rig";
 import { RoutePointHandles } from "./RouteLayer";
 import { SceneRoot } from "./SceneRoot";
 import { SnapIndicatorLayer } from "./edit/SnapIndicator";
+import { FurnishingLayer } from "./furnishings/FurnishingLayer";
 import { ViewerDiagnostics, ViewerFrameObserver } from "./ViewerDiagnostics";
 
 export interface HouseCanvasProps {
@@ -93,6 +94,7 @@ export function HouseCanvas({ background = DEFAULT_HOUSE_BACKGROUND }: HouseCanv
         <Lighting />
         <Rig />
         <SceneRoot />
+        <FurnishingLayer />
         <RoutePointHandles />
         <SnapIndicatorLayer />
         <LabelProjector hostRef={hostRef} anchors={anchors} />

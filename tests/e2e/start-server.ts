@@ -26,7 +26,7 @@
 // Next's react-server condition. See scripts/lib/serverOnly.ts.
 import "../../scripts/lib/serverOnly";
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -247,7 +247,7 @@ async function seedPlaceableEquipment(handle: DbHandle): Promise<void> {
 
 /** Synthetic registry rows only; no worker or real HA connection is used. */
 async function seedHaImportDevices(handle: DbHandle): Promise<void> {
-  const { haDevice, haEntity } = await import("@/db/schema");
+  const { haDevice, haEntity, haEntityState } = await import("@/db/schema");
   const { writeTx } = await import("@/db/client");
   const at = Date.now();
   writeTx(handle.db, (tx) => {
@@ -255,15 +255,36 @@ async function seedHaImportDevices(handle: DbHandle): Promise<void> {
       const deviceId = `e2e-${viewport}-motion`;
       tx.insert(haDevice).values({ deviceId, name: `E2E ${viewport} motion`, manufacturer: "Synthetic", model: "Test sensor", firstSeenMs: at, lastSeenMs: at }).run();
       for (const kind of ["occupancy", "temperature", "humidity", "illuminance", "battery", "signal"]) {
+        const entityId = `${kind === "occupancy" ? "binary_sensor" : "sensor"}.e2e_${viewport}_${kind}`;
         tx.insert(haEntity).values({ registryId: `${deviceId}-${kind}`, deviceId,
-          entityId: `${kind === "occupancy" ? "binary_sensor" : "sensor"}.e2e_${viewport}_${kind}`,
+          entityId,
           domain: kind === "occupancy" ? "binary_sensor" : "sensor", deviceClass: kind,
           entityCategory: kind === "battery" || kind === "signal" ? "diagnostic" : null,
           disabledBy: kind === "signal" ? "user" : null,
           unitOfMeasurement: ({ temperature: "°C", humidity: "%", illuminance: "lx", battery: "%" } as Record<string, string>)[kind] ?? null,
           liveState: kind === "occupancy" ? "off" : kind === "humidity" ? "unavailable" : "23", liveRestored: false, liveAtMs: at,
           firstSeenMs: at, lastSeenMs: at }).run();
+        if (kind === "illuminance") {
+          tx.insert(haEntityState).values({
+            entityId,
+            registryId: `${deviceId}-${kind}`,
+            state: "100",
+            attributesJson: JSON.stringify({ device_class: "illuminance", unit_of_measurement: "lx" }),
+            lastChangedMs: at,
+            lastUpdatedMs: at,
+            observedAtMs: at,
+          }).run();
+        }
       }
+      const weatherDeviceId = `e2e-${viewport}-weather`;
+      const weatherEntityId = `weather.e2e_${viewport}_home`;
+      tx.insert(haDevice).values({ deviceId: weatherDeviceId, name: `E2E ${viewport} weather`, manufacturer: "Synthetic", model: "Test forecast", firstSeenMs: at, lastSeenMs: at }).run();
+      tx.insert(haEntity).values({ registryId: `${weatherDeviceId}-entity`, deviceId: weatherDeviceId,
+        entityId: weatherEntityId, domain: "weather", liveState: "cloudy", liveRestored: false,
+        liveAtMs: at, firstSeenMs: at, lastSeenMs: at }).run();
+      tx.insert(haEntityState).values({ entityId: weatherEntityId, registryId: `${weatherDeviceId}-entity`,
+        state: "cloudy", attributesJson: JSON.stringify({ friendly_name: `E2E ${viewport} weather` }),
+        lastChangedMs: at, lastUpdatedMs: at, observedAtMs: at }).run();
     }
   });
 }
@@ -305,6 +326,17 @@ function cleanup(): void {
 }
 
 async function main(): Promise<void> {
+  // The production launchd service reads .next from its checkout. Even with synthetic data,
+  // rebuilding there would replace its live assets with an e2e build. Fail before any bootstrap.
+  if (process.platform === "darwin") {
+    const plist = path.join(os.homedir(), "Library/LaunchAgents/net.machadolucas.virtual-home.web.plist");
+    if (fs.existsSync(plist)) {
+      const installedRoot = execFileSync("/usr/bin/plutil", ["-extract", "WorkingDirectory", "raw", "-o", "-", plist], { encoding: "utf8" }).trim();
+      if (fs.realpathSync(installedRoot) === fs.realpathSync(REPO_ROOT)) {
+        throw new Error("This checkout serves production. Run Playwright from an isolated checkout; rebuilding .next here would replace live production assets.");
+      }
+    }
+  }
   sweepAbandonedDataDirs();
   dataDir = makeDataDir();
   log(`data dir ${dataDir}`);

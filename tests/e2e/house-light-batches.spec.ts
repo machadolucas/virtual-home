@@ -3,12 +3,14 @@ import sharp from "sharp";
 import { openHouse, waitForStableFrames } from "./helpers/house";
 import { emitHaBatch, installSyntheticHa, openSyntheticHa } from "./helpers/liveHa";
 
-test("40 shadowed lights use bounded batches and reuse unchanged contributions", async ({ page }, info) => {
+test("80 shadowed lights use bounded batches and reuse unchanged contributions", async ({ page }, info) => {
 
+  // Software WebGL can spend tens of seconds compiling the initial mixed detailed/overflow shaders.
+  test.setTimeout(90_000);
   const errors: string[] = [];
   page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
   await installSyntheticHa(page);
-  const placements = Array.from({ length: 40 }, (_, i) => ({
+  const placements = Array.from({ length: 80 }, (_, i) => ({
     id: `batch-${i}`, modelId: "fixture-house", equipmentId: `batch-${i}`, name: `Batch light ${i}`,
     position: [0.6 + (i % 4) * 0.5, 2.25, 0.5 + Math.floor(i / 4) * 0.2], rotationYDeg: 0,
     lightAim: null, mount: { kind: "free", height: 2.25 }, floorId: "f-lower", roomId: "r-l-a", surfaceId: null,
@@ -18,10 +20,23 @@ test("40 shadowed lights use bounded batches and reuse unchanged contributions",
   await openHouse(page, { sel: "room:r-l-a" });
   await openSyntheticHa(page);
   const emit = (i: number, brightness: number) => ({ topic: "ha.state" as const, key: `light.batch_${i}`, payload: { state: "on", attributes: { brightness }, lastUpdated: Date.now() } });
-  await emitHaBatch(page, placements.map((_, i) => emit(i, 40)));
+  if (info.project.name === "phone") await page.getByText("Rendering", { exact: true }).click();
+  else await page.getByRole("tab", { name: "Rendering", exact: true }).click();
+  const detail = page.getByRole("slider", { name: "Detailed lights", exact: true });
+  await expect(detail).toHaveAttribute("max", "256");
+  await detail.fill("72");
+  await emitHaBatch(page, placements.map((_, i) => emit(i, 20)));
+  await waitForStableFrames(page, 900, 45_000).catch(async error => {
+    console.log("Initial lighting state", await page.evaluate(() => ({ drivers: window.__vh!.frameDrivers(), lights: window.__vh!.lights().length, batches: window.__vh!.lightingBatches() })), errors);
+    throw error;
+  });
+  await expect.poll(() => page.evaluate(() => window.__vh!.renderedLights()
+    .filter(l => l.castShadow && l.shadowMapAllocated && l.intensity > 0).length)).toBe(72);
+  await page.getByRole("switch", { name: "All installed lights", exact: true }).click();
+  await expect(detail).toBeDisabled();
   await waitForStableFrames(page, 900);
   const lights = await page.evaluate(() => window.__vh!.renderedLights());
-  expect(lights.filter(l => l.castShadow && l.shadowMapAllocated && l.intensity > 0)).toHaveLength(40);
+  expect(lights.filter(l => l.castShadow && l.shadowMapAllocated && l.intensity > 0)).toHaveLength(80);
   const before = (await page.evaluate(() => window.__vh!.lightingBatches()))!;
   expect(before.batches).toBeGreaterThan(1);
   expect(before.litSurfaces).toBeGreaterThan(0);
@@ -52,7 +67,7 @@ test("40 shadowed lights use bounded batches and reuse unchanged contributions",
   expect(await download.failure()).toBeNull();
   const exported = await sharp((await download.path())!).stats();
   expect(exported.channels.some(channel => channel.stdev > 10)).toBe(true);
-  await info.attach("forty-detailed-lights.png", { body: await page.screenshot(), contentType: "image/png" });
+  await info.attach("eighty-detailed-lights.png", { body: await page.screenshot(), contentType: "image/png" });
 });
 
 test("batched direct light matches single-pass colours and shadows", async ({ page }, info) => {

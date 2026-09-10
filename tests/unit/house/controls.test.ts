@@ -107,6 +107,7 @@ describe("viewer rendering defaults", () => {
       equipmentOcclusion: true,
       detailedLightBatched: true,
       detailedLightLimit: 64,
+      detailedLightAll: false,
       detailedLightHardwareMax: 12,
       detailedLightExperimental: false,
       detailedLightError: null,
@@ -144,6 +145,19 @@ describe("viewer rendering defaults", () => {
       detailedLightExperimental: false,
       detailedLightError: null,
     });
+  });
+
+  it("allows a larger batched budget or all fixtures, but never carries all into single-pass mode", () => {
+    const store = createHouseStore();
+    store.getState().setDetailedLightLimit(192);
+    store.getState().setDetailedLightAll(true);
+    expect(store.getState()).toMatchObject({ detailedLightLimit: 192, detailedLightAll: true });
+    store.getState().setDetailedLightBatched(false);
+    expect(store.getState()).toMatchObject({ detailedLightLimit: 12, detailedLightAll: false });
+    store.getState().setDetailedLightAll(true);
+    expect(store.getState().detailedLightAll).toBe(false);
+    store.getState().setDetailedLightLimit(1000);
+    expect(store.getState().detailedLightLimit).toBe(256);
   });
 
   it("rounds and clamps requested and hardware light counts", () => {

@@ -1,4 +1,5 @@
 import type { Vec3 } from "./types";
+import { PHYSICAL_LIGHT_SOURCE_OFFSET } from "./equipmentDimensions";
 
 export interface LightAim {
   /** Rotation around site +Y. Zero points along +Z; +90 points along +X. */
@@ -89,25 +90,9 @@ export function lightSourceOffset(
   symbol: string | null | undefined,
   rotationYDeg = 0,
 ): Vec3 {
-  const local: Vec3 =
-    ["motion_sensor", "security_camera"].includes(symbol ?? "") ? [0, 0.06, 0.045] :
-    symbol === "lamp_post"
-      ? [0, 0.587, 0]
-      : symbol === "floor_lamp"
-        ? [0, 0.35, 0]
-        : symbol === "floor_spot"
-          ? [0, 0.35, 0.035]
-          : symbol === "spike_spot"
-            ? [0, 0.085, 0]
-            : symbol === "wall_spot"
-              ? [0, 0.045, 0.078]
-              : symbol === "wall_lamp"
-                ? [0, 0.055, 0.09]
-                : symbol === "ceiling_spot"
-                  ? [0.024, -0.088, 0]
-                  : symbol === "ceiling_lamp"
-                    ? [0, -0.14, 0]
-                    : [0, -0.065, 0];
+  const local: Vec3 = PHYSICAL_LIGHT_SOURCE_OFFSET[symbol ?? ""] ?? (
+    [0, -0.065, 0]
+  );
   const yaw = radians(rotationYDeg);
   return [
     local[0] * Math.cos(yaw) + local[2] * Math.sin(yaw),
@@ -126,9 +111,10 @@ export function lightSourcePosition(
 ): Vec3 {
   let offset = lightSourceOffset(symbol, rotationYDeg);
   if (["motion_sensor", "security_camera"].includes(symbol ?? "") && aim) {
+    const local = PHYSICAL_LIGHT_SOURCE_OFFSET[symbol ?? ""] ?? [0, 0.06, 0.045];
     const pitch = radians(-aim.pitchDeg), yaw = radians(aim.yawDeg);
-    const y = 0.06 * Math.cos(pitch) - 0.045 * Math.sin(pitch);
-    const z = 0.06 * Math.sin(pitch) + 0.045 * Math.cos(pitch);
+    const y = local[1] * Math.cos(pitch) - local[2] * Math.sin(pitch);
+    const z = local[1] * Math.sin(pitch) + local[2] * Math.cos(pitch);
     offset = [z * Math.sin(yaw), y, z * Math.cos(yaw)];
   }
   return [

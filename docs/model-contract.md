@@ -84,6 +84,7 @@ household files that are never in `public/`.
 | `GET`/`PATCH /colors` | `private, no-store` | Surface colour overrides |
 | `GET`/`PATCH /labels` | `private, no-store` | Household room/floor display names and label visibility; automatic names follow confirmed HA mappings |
 | `GET`/`PUT /placements`, `DELETE /placements/<id>` | `private, no-store` | Equipment placements, **including the mount** (§3.1) |
+| `GET`/`PUT`/`DELETE /furnishings` | `private, no-store` | Lightweight model-only furniture; `DELETE ?id=<furnishingId>` |
 | `GET`/`PUT /routes`, `DELETE /routes/<id>` | `private, no-store` | Infrastructure runs with their polyline. `DELETE` is **soft** (§3.4); `?hard=1` erases a wrongly drawn line. `GET ?options=projects` serves the inspector's project picker |
 | `GET`/`PUT`/`DELETE /endpoints` | `private, no-store` | Manifolds, shutoffs, meters, panels, patch ports. `DELETE ?id=<endpointId>` |
 | `GET`/`PUT`/`DELETE /annotations` | `private, no-store` | Pins: notes, measurements, warnings, to-dos, photo viewpoints. `DELETE ?id=<annotationId>` |
@@ -121,6 +122,7 @@ millimetres. Exploded and cutaway views are presentation transforms and have no 
 | Surface colour | `surface_color_override` | **Complete.** `(modelId, surfaceId) → #rrggbb`, plus the `model_revision_id` the choice was made against. Reset deletes the row, restoring the manifest's `defaultColor` |
 | Area label preference | `model_label_preference` | Optional display name and visibility keyed by `(modelId, modelNodeId)`. Confirmed HA area/floor mappings supply automatic names without changing package ids; explicit preferences win. |
 | Equipment placement | `asset_placement` | Physical coordinates and all four mount kinds (§3.1) |
+| Furnishing | `furnishing` | Model-only kind, name, floor/room, physical position, yaw and width/depth/height. No equipment, maintenance, document or HA identity. |
 | Infrastructure routes | `infra_route`, `infra_route_point` | **Complete.** Polyline in physical metres with per-point floor/room, medium, certainty, lifecycle + dates, depth/offset, project, photos via `attachment_link` |
 | Infrastructure endpoints | `infra_endpoint` | **Complete.** A coordinate is optional: an endpoint may be location-only |
 | Model annotations | `annotation` | **Complete.** Pins with an optional coordinate, plus a measurement value and unit |
@@ -362,7 +364,8 @@ highlight can never leak into a persisted colour and the override stays the sing
 `frameloop="demand"`: nothing renders unless something asks. The complete list of triggers that
 must call `invalidate()`:
 
-- camera controls active or transitioning (the `useDemandFrames` pump);
+- camera controls producing update/wake events (`useDemandFrames`); completed one-frame camera
+  changes do not keep rendering merely because the library still reports `active`;
 - a hover change or a selection change (painted synchronously in the pointer handler, before React
   hears about it);
 - a colour plan that actually touched a material;
@@ -529,8 +532,9 @@ fixtures use a local point light. Sources follow the placement's explode offset 
 The rendering is illustrative rather than photometric. Detailed lights cast shadows so walls and
 closed door geometry stop light leaking into adjacent rooms. Cutaway/focus clipping is excluded
 from the shadow pass, leaving the model's full wall and door geometry as occluders even when the
-camera sees a low wall stub. Rendering's Detailed lights slider chooses a total budget (default 64;
-performance mode caps it at 2). Batched lighting is on by default. The hardware recommendation is a
+camera sees a low wall stub. Rendering's Detailed lights slider chooses a total budget (0–256, default 64;
+performance mode caps it at 2). **All installed lights** removes the batched total cap, allocating only
+the installed visible fixture count; it adds render passes and shadow memory rather than shader inputs. Batched lighting is on by default. The hardware recommendation is a
 conservative per-pass shader-resource limit that reserves texture samplers for daylight and model maps
 and varying vectors for standard-material inputs; it is not an FPS benchmark or measured device
 maximum. Lights are grouped spatially and independently of camera position or intensity. Each group
@@ -603,7 +607,10 @@ input. Manual civil times use the displayed browser IANA time zone through `doma
 The pure solar calculation uses NOAA's approximate annual declination and equation-of-time series
 (https://gml.noaa.gov/grad/solcalc/solareqns.PDF). Elevation drives warm low sun, daylight and dim blue
 night illumination. Night fill is illustrative moonlight, not a lunar position/phase calculation;
-weather, indirect light bounces and photometric exposure are not simulated. Background selection
+Optional fresh HA illuminance and weather readings adapt Live brightness and colour; unavailable
+readings fall back to calculated daylight. Manual and Studio ignore those sources. The 100% global
+intensity baseline now matches the previous 150%. Indirect light bounces and photometric exposure
+are not simulated. Background selection
 remains independent and exports retain it.
 
 One directional light casts site-fitted shadows (2048 px; 512 px in performance mode). Model meshes
@@ -618,7 +625,9 @@ on resizing/unmount, with no continuous temporal shadow accumulation or preserve
 The placement editor's searchable **Shown as** picker includes lantern posts; wall, floor and ceiling
 spots; square floor-heating coils; switches and remotes; kitchen/laundry appliances; plumbing fixtures;
 electric and wood-fired sauna heaters; TVs; server racks, routers, NVRs, NAS units and media players.
-These remain lightweight procedural silhouettes, instanced by symbol and presentation group. A lantern
+These remain lightweight procedural silhouettes, instanced by symbol and presentation group. Their
+envelopes use representative physical metre dimensions while retaining the placement as their mount
+reference. A lantern
 post has a single pole and a centred lantern, with no hanging arm. The three spot variants share the
 existing yaw/pitch and click-to-aim beam controls; their light origins follow their fixture heads.
 Light fixture silhouettes do not cast shadows that would block their own emitters inside the solid
@@ -632,8 +641,8 @@ outward, and its X/Z axes are width/length. The instance applies yaw then local 
 scale. Clicking a surface aligns panel tilt/yaw with the picked normal; hovering never changes the
 draft. Numeric size and angle changes remain independently adjustable. Roof attachment uses the
 existing free surface mount and physical coordinate bounds, without changing the model package.
-Dimensions persist in an additive placement JSON column; older placements and other silhouettes
-retain their existing scale and formats. Panels in the same presentation group share one draw call,
+Dimensions persist in an additive placement JSON column; older panels and LED bars retain their
+saved physical scale and formats. Panels in the same presentation group share one draw call,
 even when their dimensions differ.
 
 ### Equipment optical dimensions

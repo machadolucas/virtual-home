@@ -6,16 +6,20 @@ export interface LayerSlice {
   layers: Record<LayerId, boolean>;
   /** ISO date; `null` = today. Filters `removed` routes and renovation history. */
   renovationDate: string | null;
+  furnishingsEditing: boolean;
 
   setLayer(id: LayerId, on: boolean): void;
   toggleLayer(id: LayerId): void;
   setRenovationDate(date: string | null): void;
+  setFurnishingsEditing(editing: boolean): void;
 }
 
 export const createLayerSlice: StateCreator<HouseStore, Mutators, [], LayerSlice> = (set) => ({
   layers: { ...DEFAULT_LAYERS },
   renovationDate: null,
+  furnishingsEditing: false,
   setLayer: (id, on) => set((s) => ({ layers: { ...s.layers, [id]: on } })),
   toggleLayer: (id) => set((s) => ({ layers: { ...s.layers, [id]: !s.layers[id] } })),
   setRenovationDate: (renovationDate) => set({ renovationDate }),
+  setFurnishingsEditing: (furnishingsEditing) => set({ furnishingsEditing }),
 });
