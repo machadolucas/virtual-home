@@ -209,3 +209,30 @@ under one account). That is what `workers: 1` in `playwright.config.ts` exists t
   route preview/save/reload plus independent Pipes/Ducts visibility.
 - Screenshot review found and fixed a shrinking phone furniture form. A layout regression now
   checks that the following details section cannot overlap the form; desktop/phone CRUD reruns pass.
+
+## 2026-09-13 — UX workflows, inline documents and local MCP
+
+- `pnpm check`: 135 files passed; 1,703 tests passed and 23 existing skips.
+- The clean-fixture workflow/auth suite passes all six scopes. The final layout audit passes on
+  desktop, narrow Chromium phone, tablet and WebKit phone: 28 static routes plus the root redirect
+  and eight dynamic record families, with no document overflow, uncaught errors or HTTP 500s.
+- Professional-plan creation, provider creation, booking/rescheduling/cancellation, completion,
+  service documents, searchable project links and revoked-session metadata protection are covered.
+- Workspace/provider journeys pass 14 cases with two desktop-only skips. Document, route and
+  selector journeys pass 20 cases with four desktop-only skips. Coverage includes inline PDF text
+  search, zoom and fullscreen, draft retention, navigation guards, keyboard/focus restoration,
+  phone sheets, trackpad wheel panning and Shift-drag camera ownership.
+- Existing geometry and fridge-door attachment regressions pass after correcting hidden emitter
+  allocation and Select focus restoration. The synthetic viewer retains its baseline 33 geometries,
+  three textures/programs and 58 triangles; one observed ready time was 755 ms. These figures are
+  synthetic regression evidence, not a real-house hardware performance guarantee.
+- MCP integration coverage passes 25 tests, including real HTTP transport and the stdio bridge,
+  bounded reads, authoring, replay, revisions, revoked credentials and consequential-operation
+  approval. An additional compiled-app browser test creates a credential, initializes MCP,
+  discovers/searches tools, revokes the credential and verifies subsequent HTTP 401 responses.
+- Browser builds use the isolated `.next-e2e` directory and synthetic data. They may run in the
+  installed checkout only with that exact isolated output directory; production `.next` is untouched.
+- Real trackpad and physical iPhone acceptance remain manual checks. Automated WebKit coverage
+  does not replace them. Connecting the actual Claude/Codex desktop clients requires credentials
+  created in Settings → AI connections; tested protocol and bridge behavior does not imply those
+  personal client configurations have been installed.

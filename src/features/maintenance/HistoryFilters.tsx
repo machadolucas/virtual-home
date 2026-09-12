@@ -1,4 +1,5 @@
 "use client";
+import type { Route } from "next";
 /**
  * History filters.
  *
@@ -38,7 +39,7 @@ export function HistoryFilters({ targets, from, to, target, types }: HistoryFilt
       query.delete("type");
       for (const type of next.types) query.append("type", type);
     }
-    router.replace(`/history${query.toString() === "" ? "" : `?${query.toString()}`}`);
+    router.replace((`/history${query.toString() === "" ? "" : `?${query.toString()}`}`) as Route);
   }
 
   function toggleType(type: HistoryType): void {

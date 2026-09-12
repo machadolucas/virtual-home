@@ -1,5 +1,8 @@
 import {
   Activity,
+  FileText,
+  ContactRound,
+  Bot,
   Boxes,
   Building2,
   CalendarCheck,
@@ -33,6 +36,8 @@ export interface NavItem {
  * Flat navigation, shared by the sidebar and the scrollable phone navigation.
  */
 export const MAIN_NAV: readonly NavItem[] = [
+  { href: "/providers", label: "Providers", icon: ContactRound, blurb: "Professionals, contact details and service records." },
+  { href: "/documents", label: "Documents", icon: FileText, blurb: "Manuals, photos and service documentation." },
   {
     href: "/today",
     label: "Today",
@@ -66,6 +71,12 @@ export const MAIN_NAV: readonly NavItem[] = [
   },
 ];
 
+export const NAV_GROUPS = [
+  { label: "Work", hrefs: ["/today", "/projects", "/plans"] },
+  { label: "House", hrefs: ["/house", "/equipment", "/supplies", "/supplies/shopping"] },
+  { label: "Records", hrefs: ["/procedures", "/providers", "/documents", "/history"] },
+] as const;
+
 export const SETTINGS_HREF = "/settings";
 
 export interface SettingsNavItem extends NavItem {
@@ -75,6 +86,7 @@ export interface SettingsNavItem extends NavItem {
 
 /** Settings sub-navigation. `/settings` itself is the index of these. */
 export const SETTINGS_NAV: readonly SettingsNavItem[] = [
+  { href: "/settings/ai-connections", label: "AI connections", icon: Bot, group: "system", blurb: "Connect Claude and Codex, manage access and review requested changes." },
   {
     href: "/settings/security",
     label: "Security",

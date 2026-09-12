@@ -351,6 +351,7 @@ export const APP_ALERT_KINDS = [
   "model_reconciliation",
   "notify_device_missing",
   "worker_outage",
+  "integrity",
 ] as const;
 export type AppAlertKind = (typeof APP_ALERT_KINDS)[number];
 

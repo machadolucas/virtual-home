@@ -1,5 +1,7 @@
 "use client";
 
+import { DocumentLink, DocumentThumbnail } from "@/features/documents/DocumentViewer";
+
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import {
@@ -106,10 +108,7 @@ export function ProjectFiles({
               <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {files.map((file) => (
                   <li key={`${file.attachmentId}-${r}`} className="flex flex-col gap-1">
-                    <a
-                      href={`/api/attachments/${file.attachmentId}`}
-                      target="_blank"
-                      rel="noreferrer"
+                    <DocumentLink document={{id:file.attachmentId, originalFilename:file.originalFilename, caption:file.caption, mime:file.mime}}
                       className="block overflow-hidden rounded-md border border-line"
                     >
                       {file.mime.startsWith("image/") ? (
@@ -120,11 +119,9 @@ export function ProjectFiles({
                           className="aspect-[4/3] w-full object-cover"
                         />
                       ) : (
-                        <span className="flex aspect-[4/3] w-full items-center justify-center bg-surface-2 p-2 text-center text-xs text-ink-2">
-                          {file.originalFilename}
-                        </span>
+                        <DocumentThumbnail document={{id:file.attachmentId,mime:file.mime,originalFilename:file.originalFilename}} />
                       )}
-                    </a>
+                    </DocumentLink>
                     <span className="truncate text-xs text-ink-3">{file.originalFilename}</span>
                     <Button
                       size="sm"

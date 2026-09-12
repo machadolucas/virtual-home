@@ -48,6 +48,7 @@ export function useKeyboardShortcuts(
   rootRef: RefObject<HTMLElement | null>,
   handlers: ShortcutHandlers,
   enabled = true,
+  bindingKey = false,
 ): void {
   useEffect(() => {
     const root = rootRef.current;
@@ -184,7 +185,7 @@ export function useKeyboardShortcuts(
 
     root.addEventListener("keydown", onKeyDown);
     return () => root.removeEventListener("keydown", onKeyDown);
-  }, [rootRef, handlers, enabled]);
+  }, [rootRef, handlers, enabled, bindingKey]);
 }
 
 /** The help dialog's contents, kept next to the map so the two cannot drift. */

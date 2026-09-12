@@ -11,6 +11,7 @@
  * the canvas: it sits in a corner and the view stays fully interactive behind it.
  */
 import { useSyncExternalStore } from "react";
+import { useHouseStore } from "../hooks/useHouseStore";
 import { X } from "lucide-react";
 import { IconButton, Kbd } from "@/ui";
 
@@ -59,14 +60,18 @@ export function setHintsSeen(seen: boolean): void {
 
 const GESTURES: ReadonlyArray<{ do: string; get: string }> = [
   { do: "Drag", get: "turn the house around" },
+  { do: "Shift + drag / Pan", get: "move sideways, up or down" },
   { do: "Scroll", get: "zoom in and out" },
   { do: "Click", get: "select a room, a surface or a thing" },
   { do: "Double-click", get: "fly to what you clicked" },
 ];
 
-export function CanvasHints() {
+export function CanvasHints({ compact = false }: { compact?: boolean }) {
+  const inputPreset = useHouseStore((s) => s.inputPreset);
   const seen = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   if (seen) return null;
+
+  if (compact) return <aside aria-label="How to use the 3D view" className="pointer-events-auto absolute bottom-2 right-2 left-2 z-10 flex items-center gap-2 rounded-md border border-line bg-surface/95 px-3 py-1 shadow-pop"><p className="flex-1 text-xs text-ink-2">Drag to turn · two fingers to pan or pinch to zoom.</p><IconButton label="Dismiss this hint" size="sm" variant="ghost" icon={<X aria-hidden="true" />} onClick={() => setHintsSeen(true)} /></aside>;
 
   return (
     <aside
@@ -84,8 +89,9 @@ export function CanvasHints() {
         />
       </div>
 
+      {inputPreset === "trackpad" ? <p className="mt-2 text-xs">Two fingers pan · pinch zooms · drag rotates.</p> : null}
       <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px] leading-4">
-        {GESTURES.map((gesture) => (
+        {GESTURES.filter((gesture) => inputPreset !== "trackpad" || gesture.do !== "Scroll").map((gesture) => (
           <div key={gesture.do} className="col-span-2 grid grid-cols-subgrid">
             <dt className="font-medium text-ink-2">{gesture.do}</dt>
             <dd className="text-ink-3">{gesture.get}</dd>

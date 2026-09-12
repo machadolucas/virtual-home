@@ -1,4 +1,5 @@
 "use client";
+import type { Route } from "next";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -6,7 +7,7 @@ import { PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 import { cn, focusRingInset } from "../cn";
 import { Tooltip } from "../Tooltip";
 import { HouseMark } from "./HouseMark";
-import { MAIN_NAV, SETTINGS_HREF, isActive, sectionActive, type NavItem } from "./nav";
+import { MAIN_NAV, NAV_GROUPS, SETTINGS_HREF, isActive, sectionActive, type NavItem } from "./nav";
 
 function NavRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const pathname = usePathname();
@@ -15,7 +16,7 @@ function NavRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
 
   const row = (
     <Link
-      href={item.href}
+      href={(item.href) as Route}
       aria-current={active ? "page" : undefined}
       className={cn(
         "group relative flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5",
@@ -89,14 +90,12 @@ export function SidebarNav({ collapsed, onToggle, className }: SidebarNavProps) 
       </div>
 
       <nav aria-label="Sections" className="min-h-0 flex-1 overflow-y-auto p-2">
-        <ul className="flex list-none flex-col gap-0.5">
-          {MAIN_NAV.map((item) => (
-            <li key={item.href}>
-              <NavRow item={item} collapsed={collapsed} />
-
-            </li>
-          ))}
-        </ul>
+        {NAV_GROUPS.map((group) => <section key={group.label} aria-label={group.label} className="mb-3">
+          <h2 className={cn("px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-ink-3", collapsed && "sr-only")}>{group.label}</h2>
+          <ul className="flex list-none flex-col gap-0.5">
+            {group.hrefs.map((href) => MAIN_NAV.find((item) => item.href === href)).filter((item): item is NavItem => !!item).map((item) => <li key={item.href}><NavRow item={item} collapsed={collapsed} /></li>)}
+          </ul>
+        </section>)}
       </nav>
 
       <div className="shrink-0 border-t border-line p-2">

@@ -98,6 +98,7 @@ test("the fixture package loads clean, with no cloned materials", async ({ brows
 
     // One geometry per mesh-backed surface plus one edges overlay per loaded asset, and nothing
     // else: shadows reuse the same geometry, with no duplicated scene.
+    await testInfo.attach("geometry-inventory",{body:JSON.stringify(await page.evaluate(()=>({geometries:window.__vh!.geometryInventory(),equipment:window.__vh!.equipmentCount(),furnishings:window.__vh!.furnishings(),lights:window.__vh!.lights(),batches:window.__vh!.lightingBatches()}))),contentType:"application/json"});
     expect(render.geometries).toBe(Object.keys(hexes).length + edgeNodes);
     // The package remains texture-free. The fixed 4 point / 4 spot shadow pool allocates bounded
     // depth targets (including Three's internal shadow sampler resources), the global daylight

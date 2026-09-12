@@ -31,6 +31,8 @@ export default defineConfig({
   },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1600, height: 1000 } } },
+    { name: "webkit", use: { ...devices["Desktop Safari"], viewport: { width: 1280, height: 900 } } },
+    { name: "phone-webkit", use: { ...devices["iPhone 14"] } },
     { name: "phone", use: { ...devices["iPhone 14"], browserName: "chromium" } },
   ],
 });

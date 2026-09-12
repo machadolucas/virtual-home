@@ -1,10 +1,10 @@
 "use client";
+
+import { DocumentLink, DocumentThumbnail } from "@/features/documents/DocumentViewer";
 /**
  * Manuals, nameplates and other documents on the equipment page's "Manuals & documents" panel.
  *
- * A file is served inline (a PDF opens in the browser's own viewer, an image just displays) from
- * `/api/attachments/[id]` — no `?v=` variant, so what opens is always the exact file that was
- * uploaded, never a lossy derivative.
+ * Private PDFs and images render in the app, with lazy thumbnails and a full viewer.
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -67,14 +67,12 @@ export function AssetDocuments({
           {documents.map((doc) => (
             <li key={doc.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
               <FileText aria-hidden="true" className="size-4 shrink-0 text-ink-3" />
-              <a
-                href={`/api/attachments/${doc.id}`}
-                target="_blank"
-                rel="noreferrer noopener"
+              <DocumentLink document={doc} gallery={[...documents]}
                 className="text-sm font-medium text-accent-text underline decoration-line-strong underline-offset-2 hover:decoration-current"
               >
+                <span className="mb-2 block w-40"><DocumentThumbnail document={doc} /></span>
                 {doc.caption ?? doc.originalFilename}
-              </a>
+              </DocumentLink>
               {isDocumentRole(doc.role) ? (
                 <span className="text-xs text-ink-3">{ASSET_ATTACHMENT_ROLE_LABEL[doc.role]}</span>
               ) : null}

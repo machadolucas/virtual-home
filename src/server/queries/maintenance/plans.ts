@@ -388,6 +388,7 @@ export function loadProviders(db: Db): ProviderOption[] {
       isPreferred: serviceProvider.isPreferred,
     })
     .from(serviceProvider)
+    .where(isNull(serviceProvider.archivedAtMs))
     .orderBy(desc(serviceProvider.isPreferred), asc(serviceProvider.name))
     .all();
 }

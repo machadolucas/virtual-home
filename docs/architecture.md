@@ -41,3 +41,12 @@ in physical coordinates → exploded/cutaway are presentation-only.
 
 See `docs/data-model.md`, `docs/model-contract.md`, `docs/home-assistant.md`, `docs/worker.md`,
 `docs/security.md`, `docs/operations.md`, `docs/ux.md`, `docs/verification.md`.
+
+
+## MCP transport boundary
+
+`/mcp` is the explicit exception to browser-session authentication. Only that exact path bypasses the optimistic cookie gate. Every POST (Streamable HTTP) and PUT (bounded attachment upload) authenticates an independently supplied bearer credential against its server-side hash, active household user, expiry, revocation and scopes. Cookies alone never authorize MCP. Host and optional Origin must match the configured application base URL. GET/DELETE do not open unauthenticated streams.
+
+Web actions and MCP adapters call transport-neutral operations under `src/server/operations` and shared services. Validation, scheduling, write transactions, audit attribution and events remain shared. Routine authoring commits with atomic connection/operation/payload-bound idempotency; consequential requests are immutable pending records reviewed through a fresh browser session, revalidated and executed once. MCP cannot approve requests. See `docs/mcp.md` for client setup and limits.
+
+PDF extraction runs as a bounded local worker job. `document_text` caches text by attachment hash and extractor version with page references. The viewer uses locally bundled PDF.js and authenticated attachment requests; no household documents go to an external rendering or extraction service.

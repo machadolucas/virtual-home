@@ -1,4 +1,5 @@
 "use client";
+import { useOverlayContainer } from "./OverlayContainer";
 
 import { Popover as RadixPopover } from "radix-ui";
 import { Check, ChevronDown, Search } from "lucide-react";
@@ -87,6 +88,8 @@ export function Select({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeValue, setActiveValue] = useState<string>();
+  const overlayContainer = useOverlayContainer();
+  const popupRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const skipRestoreFocusRef = useRef(false);
@@ -263,8 +266,9 @@ export function Select({
           </button>
         </RadixPopover.Trigger>
 
-        <RadixPopover.Portal>
+        <RadixPopover.Portal container={overlayContainer}>
           <RadixPopover.Content
+            ref={popupRef}
             data-vh-select-popup=""
             side="bottom"
             align="start"
@@ -275,8 +279,11 @@ export function Select({
               searchRef.current?.focus();
             }}
             onCloseAutoFocus={(event) => {
-              if (!skipRestoreFocusRef.current) return;
-              event.preventDefault();
+              // Closing must not steal focus that the user explicitly moved elsewhere.
+              const active = document.activeElement;
+              const movedOutside = active instanceof HTMLElement && active !== document.body &&
+                active !== triggerRef.current && !popupRef.current?.contains(active);
+              if (skipRestoreFocusRef.current || movedOutside) event.preventDefault();
               skipRestoreFocusRef.current = false;
             }}
             className={cn(

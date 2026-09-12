@@ -1,4 +1,5 @@
 "use client";
+import { confirmEditSwitch } from "../edit/confirmSwitch";
 import { useState } from "react";
 import { Archive, PencilLine, SquarePen, Trash2, X } from "lucide-react";
 import { polylineLength } from "@/house/model/geometry2d";
@@ -123,7 +124,7 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => beginRouteDraft(route)}
+          onClick={() => { if (confirmEditSwitch(runtime)) beginRouteDraft(route); }}
           className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
           <PencilLine aria-hidden="true" className="size-3.5" />

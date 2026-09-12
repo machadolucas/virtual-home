@@ -500,6 +500,7 @@ export const serviceProvider = sqliteTable(
     vatId: text("vat_id"),
     notes: text("notes"),
     isPreferred: integer("is_preferred", { mode: "boolean" }).notNull().default(false),
+    archivedAtMs: integer("archived_at_ms"),
     ...auditQuad(),
   },
   (t) => [index("ix_service_provider_trade").on(t.trade)],

@@ -1,0 +1,38 @@
+import { expect, test } from "@playwright/test";
+import { login, nextClientIp } from "./fixtures";
+test.use({ extraHTTPHeaders: { "x-forwarded-for": nextClientIp() } });
+test("manage a provider and find it from the global result page", async ({ page }, info) => {
+  await login(page, "lucas");
+  const name = `Synthetic plumbing ${info.project.name} ${Date.now()}`;
+  await page.goto("/providers/new");
+  await page.getByLabel("Name", { exact: false }).first().fill(name);
+  await page.getByLabel("Trade or service").fill("Plumbing");
+  await page.getByLabel("Email", { exact: true }).fill("service@example.test");
+  await page.getByRole("button", { name: "Save provider", exact: true }).click();
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Edit details", exact: true }).click();
+  await page.getByLabel("Phone", { exact: true }).fill("1234567");
+  await page.getByRole("button", { name: "Save provider", exact: true }).click();
+  await expect(page.getByRole("link", { name: "1234567", exact: true })).toBeVisible();
+  const detailUrl = page.url();
+  await page.goto(`/search?q=${encodeURIComponent(name)}`);
+  await expect(page.getByRole("link", { name, exact: false }).first()).toBeVisible();
+  await page.goto(detailUrl);
+  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByRole("button", { name: "Archive provider", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Restore", exact: true })).toBeVisible();
+});
+test("adding a usual provider preserves the unsaved maintenance plan", async ({ page }, info) => {
+  await login(page, "lucas");
+  await page.goto("/plans/new");
+  const title = page.getByLabel("What needs doing", { exact: false });
+  await title.fill("Synthetic draft remains here");
+  await page.getByRole("checkbox", { name: "This normally needs a professional", exact: false }).check();
+  await page.getByRole("button", { name: "Add provider", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Add provider" });
+  await dialog.getByLabel("Name", { exact: false }).first().fill(`Inline synthetic ${info.project.name} ${Date.now()}`);
+  await dialog.getByRole("button", { name: "Save provider", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page).toHaveURL(/\/plans\/new$/);
+  await expect(title).toHaveValue("Synthetic draft remains here");
+});

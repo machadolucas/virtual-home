@@ -53,6 +53,7 @@ interface Payload {
   dataDir: string;
   /** `relative path under attachments/` → sha256 of the bytes. */
   attachmentHashes: Map<string, string>;
+  quarantineHashes: Map<string,string>;
   rowCounts: { users: number; attachments: number };
   schemaHash: string;
 }
@@ -116,7 +117,7 @@ function run(
  */
 function buildPayload(): Payload {
   const dataDir = tempDir("vh-backup-src-");
-  for (const sub of ["db", "attachments", "model", "tmp", "backups/daily", "backups/weekly", "secrets", "logs", "exports"]) {
+  for (const sub of ["db", "attachments", "model", "quarantine", "tmp", "backups/daily", "backups/weekly", "secrets", "logs", "exports"]) {
     fs.mkdirSync(path.join(dataDir, sub), { recursive: true, mode: 0o700 });
   }
 
@@ -145,6 +146,11 @@ function buildPayload(): Payload {
     path.join(dataDir, "model", "current.json"),
     JSON.stringify({ modelId: "fixture-house", fingerprint }, null, 2) + "\n",
   );
+  // Orphan recovery bytes are deliberately absent from attachment rows but remain valuable data.
+  const quarantined=path.join(dataDir,"quarantine","fixture-recovery","2026","09","orphan-manual.pdf");
+  fs.mkdirSync(path.dirname(quarantined),{recursive:true,mode:0o700});
+  fs.writeFileSync(quarantined,Buffer.from("%PDF-1.7\nSynthetic quarantined recovery bytes\x00\xff\n%%EOF\n","latin1"),{mode:0o600});
+  const quarantineHashes=hashTree(path.join(dataDir,"quarantine"));
 
   const handle: DbHandle = openDatabase(path.join(dataDir, "db", "app.db"));
   const attachmentHashes = new Map<string, string>();
@@ -194,6 +200,7 @@ function buildPayload(): Payload {
     return {
       dataDir,
       attachmentHashes,
+      quarantineHashes,
       rowCounts: { users: 2, attachments: ATTACHMENT_COUNT },
       schemaHash,
     };
@@ -362,6 +369,11 @@ describe.skipIf(missing.length > 0)("backup and restore round trip", () => {
       for (const [rel, digest] of payload.attachmentHashes) {
         expect(restored.get(rel), rel).toBe(digest);
       }
+    });
+    it("preserves every quarantined recovery file byte for byte",()=>{
+      const restored=hashTree(path.join(restoreDir,"quarantine"));
+      expect(restored.size).toBe(payload.quarantineHashes.size);
+      for(const [relative,digest]of payload.quarantineHashes)expect(restored.get(relative),relative).toBe(digest);
     });
 
     it("restores the model package and its pointer", () => {

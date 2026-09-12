@@ -208,8 +208,8 @@ function resolveLink(
       return { label: row?.name ?? null, href: row ? `/equipment/${id}` : null };
     }
     case "location": {
-      const row = db.select({ name: location.name }).from(location).where(eq(location.id, id)).get();
-      return { label: row?.name ?? null, href: null };
+      const row = db.select({ name: location.name, modelNodeId: location.modelNodeId, kind: location.kind }).from(location).where(eq(location.id, id)).get();
+      return { label: row?.name ?? null, href: row?.modelNodeId ? `/house?sel=${row.kind === "room" ? "room" : "element"}:${encodeURIComponent(row.modelNodeId)}` : row ? "/house" : null };
     }
     case "system": {
       const row = db.select({ name: system.name }).from(system).where(eq(system.id, id)).get();
@@ -225,12 +225,12 @@ function resolveLink(
     }
     case "completion": {
       const row = db
-        .select({ date: completion.completedLocalDate, title: maintenanceOccurrence.title })
+        .select({ date: completion.completedLocalDate, title: maintenanceOccurrence.title, occurrenceId: completion.occurrenceId })
         .from(completion)
         .innerJoin(maintenanceOccurrence, eq(maintenanceOccurrence.id, completion.occurrenceId))
         .where(eq(completion.id, id))
         .get();
-      return { label: row ? `${row.date} · ${row.title}` : null, href: row ? `/history` : null };
+      return { label: row ? `${row.date} · ${row.title}` : null, href: row ? `/history?completion=${encodeURIComponent(id)}` : null };
     }
     case "service_document": {
       const row = db
@@ -238,7 +238,7 @@ function resolveLink(
         .from(serviceDocument)
         .where(eq(serviceDocument.id, id))
         .get();
-      return { label: row ? `${row.kind}${row.documentNo ? ` ${row.documentNo}` : ""}` : null, href: null };
+      return { label: row ? `${row.kind}${row.documentNo ? ` ${row.documentNo}` : ""}` : null, href: row ? `/documents/${id}` : null };
     }
     case "part": {
       const row = db.select({ name: part.name }).from(part).where(eq(part.id, id)).get();

@@ -1,3 +1,4 @@
+import type { Route } from "next";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getFreshSession, safeNextPath } from "@/server/auth/session";
@@ -19,7 +20,7 @@ export default async function LoginPage(props: PageProps<"/login">) {
 
   // Already signed in: go straight where they were heading.
   // Fresh check: a revoked session must not bounce the user between /login and the app for 60 s.
-  if (await getFreshSession()) redirect(next);
+  if (await getFreshSession()) redirect((next) as Route);
 
   const hints = await listLoginHints();
 

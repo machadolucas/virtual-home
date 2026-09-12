@@ -1,3 +1,5 @@
+import type { Route } from "next";
+import { Tabs, TabsPanel } from "@/ui/Tabs";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -35,6 +37,7 @@ export async function generateMetadata({
   params: Promise<{ assetId: string }>;
 }): Promise<Metadata> {
   const { assetId } = await params;
+  await requireSessionPage(`/equipment/${assetId}`);
   const { db, household, nowMs } = pageContext();
   const detail = readAssetDetail(db, assetId, {
     nowMs,
@@ -128,7 +131,7 @@ export default async function EquipmentDetailPage({
             <span className="text-xs text-ink-3">No location recorded</span>
           ) : (
             <Link
-              href={locateInHouseHref(asset.id)}
+              href={(locateInHouseHref(asset.id)) as Route}
               className="inline-flex items-center gap-1.5 text-xs font-medium text-accent-text underline decoration-line-strong underline-offset-2 hover:decoration-current"
             >
               <MapPin aria-hidden="true" className="size-3.5" />
@@ -178,7 +181,8 @@ export default async function EquipmentDetailPage({
           }))}
         />
       ) : (
-        <>
+        <Tabs ariaLabel="Equipment details" items={[{ value: "overview", label: "Overview" }, { value: "maintenance", label: "Maintenance" }, { value: "documents", label: "Documents" }, { value: "connections", label: "Connections" }, { value: "history", label: "History" }]}>
+          <TabsPanel value="overview" className="flex flex-col gap-4 pt-4">
           {detail.replacedBy === null ? null : (
             <Panel title="This unit is no longer in service">
               <p className="max-w-prose text-sm leading-6 text-ink-2">
@@ -263,6 +267,75 @@ export default async function EquipmentDetailPage({
             </div>
           </Panel>
 
+          <Panel title="End of the line">
+            <div className="flex flex-wrap items-center gap-3">
+              <ReplaceFlow
+                assetId={asset.id}
+                assetName={asset.name}
+                category={asset.category}
+                today={today}
+                spares={listSpareOptions(db, asset.id).map((spare) => ({
+                  value: spare.id,
+                  label: spare.name,
+                  hint: spare.locationName ?? CATEGORY_LABEL[spare.category],
+                }))}
+                alreadyReplaced={asset.replacedByAssetId !== null}
+              />
+              {asset.status === "installed" || asset.status === "planned" ? (
+                <RetireButton assetId={asset.id} assetName={asset.name} today={today} />
+              ) : null}
+            </div>
+            <p className="mt-3 max-w-prose text-xs leading-5 text-ink-3">
+              Replacing creates a second record and links the two, so this unit keeps the work that
+              was done to it. Taking a unit out of service without a successor is a separate,
+              honest statement — not a replacement with a blank on the other side.
+            </p>
+          </Panel>
+          </TabsPanel>
+          <TabsPanel value="maintenance" className="flex flex-col gap-4 pt-4">
+          <Panel
+            title="Scheduled work"
+            subtitle={
+              detail.plans.length === 0
+                ? "No plan targets this unit yet."
+                : `${detail.plans.length} plan(s), ${detail.openTasks.length} open task(s).`
+            }
+          >
+            {detail.plans.length === 0 && detail.openTasks.length === 0 ? (
+              <p className="text-sm text-ink-3">
+                Nothing is scheduled. A plan is what turns “this needs doing every year” into a
+                task that appears on the right day.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {detail.plans.length === 0 ? null : (
+                  <ul className="flex list-none flex-col gap-2">
+                    {detail.plans.map((plan) => (
+                      <li key={plan.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <Link href={`/plans/${plan.id}`} className="text-sm font-medium text-accent-text">{plan.title}</Link>
+                        <Badge tone={plan.status === "active" ? "accent" : "neutral"} size="sm">
+                          {plan.status}
+                        </Badge>
+                        <span className="text-xs text-ink-3">{plan.scheduleKind}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {detail.openTasks.length === 0 ? null : (
+                  <ul className="flex list-none flex-col gap-2 border-t border-line pt-4">
+                    {detail.openTasks.map((task) => (
+                      <li key={task.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <StatusBadge kind={task.status === "due" ? "due" : "unknown"} size="sm" />
+                        <Link href={`/tasks/${task.id}`} className="text-sm text-accent-text">{task.title}</Link>
+                        <span className="vh-tnum text-xs text-ink-3">due {task.dueDate}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </Panel>
+
           <Panel
             title="What it consumes"
             subtitle="This is what pre-fills a task's materials and what the shopping list counts as demand."
@@ -317,6 +390,26 @@ export default async function EquipmentDetailPage({
             )}
           </Panel>
 
+          </TabsPanel>
+          <TabsPanel value="documents" className="flex flex-col gap-4 pt-4">
+          <Panel
+            title="Manuals & documents"
+            subtitle="Read manuals, view photos and keep service paperwork with this equipment."
+          >
+            <AssetDocuments
+              assetId={asset.id}
+              documents={detail.documents.map((document) => ({
+                id: document.id,
+                originalFilename: document.originalFilename,
+                caption: document.caption,
+                byteSize: document.byteSize,
+                role: document.role,
+              }))}
+            />
+          </Panel>
+
+          </TabsPanel>
+          <TabsPanel value="connections" className="flex flex-col gap-4 pt-4">
           <Panel
             title="Home Assistant"
             subtitle={
@@ -395,49 +488,8 @@ export default async function EquipmentDetailPage({
             </Panel>
           )}
 
-          <Panel
-            title="Scheduled work"
-            subtitle={
-              detail.plans.length === 0
-                ? "No plan targets this unit yet."
-                : `${detail.plans.length} plan(s), ${detail.openTasks.length} open task(s).`
-            }
-          >
-            {detail.plans.length === 0 && detail.openTasks.length === 0 ? (
-              <p className="text-sm text-ink-3">
-                Nothing is scheduled. A plan is what turns “this needs doing every year” into a
-                task that appears on the right day.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {detail.plans.length === 0 ? null : (
-                  <ul className="flex list-none flex-col gap-2">
-                    {detail.plans.map((plan) => (
-                      <li key={plan.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <span className="text-sm font-medium text-ink">{plan.title}</span>
-                        <Badge tone={plan.status === "active" ? "accent" : "neutral"} size="sm">
-                          {plan.status}
-                        </Badge>
-                        <span className="text-xs text-ink-3">{plan.scheduleKind}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {detail.openTasks.length === 0 ? null : (
-                  <ul className="flex list-none flex-col gap-2 border-t border-line pt-4">
-                    {detail.openTasks.map((task) => (
-                      <li key={task.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <StatusBadge kind={task.status === "due" ? "due" : "unknown"} size="sm" />
-                        <span className="text-sm text-ink">{task.title}</span>
-                        <span className="vh-tnum text-xs text-ink-3">due {task.dueDate}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </Panel>
-
+          </TabsPanel>
+          <TabsPanel value="history" className="flex flex-col gap-4 pt-4">
           <Panel
             flush
             title="What was actually done"
@@ -498,47 +550,8 @@ export default async function EquipmentDetailPage({
             )}
           </Panel>
 
-          <Panel
-            title="Manuals & documents"
-            subtitle="Served only through an authenticated route — nothing here is on a public path."
-          >
-            <AssetDocuments
-              assetId={asset.id}
-              documents={detail.documents.map((document) => ({
-                id: document.id,
-                originalFilename: document.originalFilename,
-                caption: document.caption,
-                byteSize: document.byteSize,
-                role: document.role,
-              }))}
-            />
-          </Panel>
-
-          <Panel title="End of the line">
-            <div className="flex flex-wrap items-center gap-3">
-              <ReplaceFlow
-                assetId={asset.id}
-                assetName={asset.name}
-                category={asset.category}
-                today={today}
-                spares={listSpareOptions(db, asset.id).map((spare) => ({
-                  value: spare.id,
-                  label: spare.name,
-                  hint: spare.locationName ?? CATEGORY_LABEL[spare.category],
-                }))}
-                alreadyReplaced={asset.replacedByAssetId !== null}
-              />
-              {asset.status === "installed" || asset.status === "planned" ? (
-                <RetireButton assetId={asset.id} assetName={asset.name} today={today} />
-              ) : null}
-            </div>
-            <p className="mt-3 max-w-prose text-xs leading-5 text-ink-3">
-              Replacing creates a second record and links the two, so this unit keeps the work that
-              was done to it. Taking a unit out of service without a successor is a separate,
-              honest statement — not a replacement with a blank on the other side.
-            </p>
-          </Panel>
-        </>
+          </TabsPanel>
+        </Tabs>
       )}
     </PageScroll>
   );

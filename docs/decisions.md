@@ -181,3 +181,13 @@ and do not reserve volume. A small contact tolerance permits stacking and face m
 checked both during pointer preview and before numeric Save. Visible vertical equipment and furniture
 faces may support free-mounted equipment, which faces the picked outward normal and is offset by its
 own rear extent plus the normal mounting standoff.
+
+
+## D-030 Local MCP shares the web process and domain writes
+The exact `/mcp` endpoint uses independently authenticated scoped bearer credentials, never browser cookies. Streamable HTTP and bounded binary PUT upload share the existing HTTPS/LAN boundary. Routine catalog/instruction authoring uses the same validated operations as browser actions. Consequential operations require immutable, expiring browser-reviewed requests and fresh-session revalidation. Atomic replay keys bind connection, operation and payload. Read results default to compact summaries; schemas, relationships and bounded document excerpts are requested as needed.
+
+## D-031 Workspace and document overlays preserve their editing subtree
+Fullscreen expands the current canvas without recreating the renderer or store. Native fullscreen has a fixed-viewport fallback; nested documents expand inside the existing fullscreen workspace. Overlay containers follow that surface. Pane collapse preserves drafts, and phone sheets keep their editor subtree in a hidden inert parking container while their modal focus/scroll machinery unmounts. Explicit Cancel is the discard action.
+
+## D-032 Local document indexing and reversible integrity repair
+PDF.js is bundled locally for authenticated viewing and bounded worker text extraction. Cached text carries file hashes, extractor versions and page references; scans and failed/password-protected files are labelled honestly without OCR. Integrity scans report missing records without deleting them. Confirmed orphan files can be quarantined with a reversible journal and no-overwrite staging, and quarantine bytes are included in backups.

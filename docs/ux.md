@@ -11,7 +11,7 @@ Where this document and the code disagree, the code wins — but change both.
 
 ## 1. Navigation
 
-Flat top-level sections, shared by desktop and phone navigation:
+Desktop sections are grouped as Work (Today, Projects, Plans), House (House, Equipment, Supplies, Shopping) and Records (Procedures, Providers, Documents, History). Phones have five fixed destinations: Today, House, Equipment, Shopping and More. More exposes every remaining destination and marks the current section.
 
 | Section | Route | What it answers |
 |---|---|---|
@@ -23,11 +23,13 @@ Flat top-level sections, shared by desktop and phone navigation:
 | Procedures | `/procedures` | Instructions. |
 | Shopping list | `/supplies/shopping` | What to buy. |
 | Supplies | `/supplies` | What is in stock, what to buy. |
+| Providers | `/providers` | Professionals and their related work. |
+| Documents | `/documents` | Manuals, images and service records with inline previews. |
 | History | `/history` | What was actually done, by whom, with proof. |
 
 Plus **Settings** (`/settings`): it sits at the bottom of the sidebar
 on desktop and inside the account menu on phones. Its sub-navigation is
-`Security · Household · Users · Home Assistant · House model · System`, grouped as *Your account*,
+`Security · Household · Users · Home Assistant · House model · AI connections · System`, grouped as *Your account*,
 *Household*, *System*.
 
 `/` redirects to `/today`. There is no landing page: the app opens on the work.
@@ -88,8 +90,7 @@ Infrastructure visibility is split by route type (pipes, ducts, cables, valves, 
 junctions, access points and other), alongside the system-colour legend. Turning one type off does
 not hide the others.
 
-Starting an edit opens the right panel. Collapsing it discards the unsaved placement or route draft
-without confirmation, restores the existing route when applicable, and returns focus to the canvas.
+Starting an edit opens the right panel. Collapsing it preserves the draft. Explicit Cancel discards it; switching to an incompatible placement or route asks before discarding changes. Desktop panes resize with pointer or keyboard and remember their width.
 Placement cancellation restores the prior exploded view. Save/remove requests disable dismissal
 until the request completes. Placement Save/Cancel actions remain pinned within the scroll region.
 Route editing clears floor isolation without moving the camera so a multi-floor run remains visible.
@@ -455,7 +456,7 @@ quantities, battery levels and health figures.
 | `/settings/{household,users,home-assistant,model,system}` | Configuration, with the consequence of each field spelled out. |
 | `/api/exports/{inventory,equipment}` | JSON, or `?format=csv&dataset=<name>`. Both carry the §8.4 envelope. |
 
-`/equipment` and `/projects` have their own top-level navigation links. The phone bar scrolls horizontally to retain touch-sized targets. The equipment list supports filtered multi-selection and removal with confirmation; removal preserves history and retires HA links, allowing reimport. Its header links directly to HA import.
+`/equipment` and `/projects` have their own top-level navigation links. The phone bar uses five fixed, touch-sized destinations; More exposes the remaining sections. The equipment list supports filtered multi-selection and removal with confirmation; removal preserves history and retires HA links, allowing reimport. Its header links directly to HA import.
 
 ### 10.2 Quantities
 
@@ -526,16 +527,21 @@ Settings → Household spells out the notification policy in prose and states th
 provisional default**. Every field says what changing it does, because "catch-up digest threshold"
 means nothing on its own.
 
-Three things are missing on purpose, and each page says why:
+Two things are missing on purpose, and each page says why:
 
 - **No user creation, no password reset for somebody else, no delete.** Those need machine access
   (`pnpm vh-admin`). The display colour is the one profile field a browser may change, because it
   is the one that grants nothing.
 - **No Home Assistant token field.** It lives in the server environment and is scrubbed out of the
   error strings this page renders.
-- **No reconciliation buttons.** `src/house/model/reconcile.ts` reports what a new package no
-  longer knows; nothing yet writes `model_reconciliation` rows or applies a decision, so the panel
-  lists whatever items exist and carries a TODO note rather than offering controls that do nothing.
+
+Model reconciliation is implemented: imports that find unresolved references wait for per-row
+decisions, and applying the completed reconciliation activates the imported model revision.
+The current model remains visible until that decision is applied.
+
+Provider management, inline provider creation, exact completion links, paginated record search
+and reversible storage repair are documented in `docs/workflows.md`. The audited gap inventory
+and remaining device acceptance checks are in `docs/implementation-issues.md`.
 
 Settings → System draws memory as a plain inline `<svg>` polyline baselined at **zero**, and refuses
 to draw a trend from fewer than two samples: one point is not a trend, and a flat line would imply
@@ -820,3 +826,43 @@ the grid. Hover previews show the full model and red indicates a wall collision.
 placed on a washing machine, cabinet or other visible support; the saved height remains physical.
 Moving a support later does not automatically carry items on it. Select mode opens furniture details;
 Move mode keeps fixture clicks available but never selects or highlights property surfaces.
+
+## Documents and protected edits
+
+`/documents` lists attachment files and service-document records together. A service record must
+reference equipment, a booking or a completion; a report may contain authored notes without a file.
+The detail page previews private PDF/image bytes inline, edits metadata, and links/unlinks equipment
+and projects. Unlinking retains the original. Service-record deletion removes its polymorphic links,
+requires a fresh session and explicit confirmation, and never deletes the attachment itself.
+
+PDF.js and its worker are installed locally. `/api/pdf-worker` serves the installed worker bytes
+behind session authentication; no CDN is contacted. Lazy thumbnails render only when near the
+viewport. The full viewer renders the current page with a selectable text layer, page search,
+zoom, rotation and fit-to-width. Images support zoom and drag-to-pan. The viewer uses the shared
+fullscreen surface and overlay scope so dialogs stay usable inside native or fallback fullscreen.
+The original file is a secondary download action. Encrypted/invalid PDFs retain a download fallback.
+
+Long editors mark their DOM root with `data-unsaved`; search/filter forms do not. The shell records
+input/change events in these scopes, protects links, explicit Cancel and browser Back, and adds the
+browser's unload warning. Save hooks clear only the editor revision they actually saved, retaining
+new input typed while a request is in flight. Network failures retain edits and retry identity.
+Non-HA domain SSE changes and reconnection refresh the view, deferred while an editor is dirty.
+Add/remove/reorder controls that change values without an input event call `markActiveEditorDirty`.
+New editor surfaces must opt in, including fields rendered outside a native form.
+
+
+## Workspace input and fullscreen
+
+Pan is a labelled tool. Shift + primary drag temporarily pans; right-drag and keyboard camera controls remain available. Mouse preserves wheel zoom. The remembered Trackpad preset maps two-finger wheel gestures to pan and Ctrl/pinch wheel gestures to zoom. Explicit zoom, frame and reset controls remain available. Camera gestures own their input and cannot also place equipment or route points.
+
+Phones keep the canvas mounted and use Browse, Details and View bottom sheets. Closing Details preserves placement and furniture drafts; numeric placement, notes, photos, infrastructure and rendering remain accessible. Floor/wall controls are grouped in View to keep the canvas clear.
+
+Fullscreen expands the existing workspace using native fullscreen when supported and a fixed viewport fallback otherwise. The canvas, camera and draft stores are not recreated. An exit button remains visible. Dialog, sheet, popover and document-viewer portals use the active fullscreen container.
+
+Equipment detail separates Overview, Maintenance, Documents, Connections and History. The global notification bell shows unresolved unseen alerts and pending AI review requests; acknowledging means seen, not repaired. Event/reconnection refresh and a bounded visible-page poll keep the drawer current, including worker health when the worker cannot emit events.
+
+Phone workspace sheets use `keepMounted`: their content is kept in an inert, hidden parking element
+and moved back through a stable portal when opened. Radix's actual modal content still unmounts, so
+closed sheets retain field state without holding focus, scrolling or outside pointer locks. Controlled
+sheets remember the invoking control and restore focus when closed. `Select` portals share the active
+fullscreen overlay container and do not steal focus if it was deliberately moved after choosing.

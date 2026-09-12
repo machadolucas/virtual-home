@@ -5,8 +5,8 @@ import type { Route } from "@/house/model/types";
 const MODEL_ID = "fixture-house";
 
 test("route editing previews, crosses floors, persists, and filters by infrastructure type", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "desktop route editing is read-only on phones");
-  const { context, page } = await openHouseSession(browser);
+  test.skip(testInfo.project.name.includes("phone"), "desktop route editing is read-only on phones");
+  const { context, page } = await openHouseSession(browser, { serviceWorkers: "block" });
   let stored: Route & { medium: "cold_water" } = {
     id: "route-ux",
     modelId: MODEL_ID,
@@ -27,7 +27,7 @@ test("route editing previews, crosses floors, persists, and filters by infrastru
   };
 
   try {
-    await page.route(`**/api/house-model/${MODEL_ID}/routes`, async (intercept) => {
+    await context.route(`**/api/house-model/${MODEL_ID}/routes`, async (intercept) => {
       if (intercept.request().method() === "GET") {
         await intercept.fulfill({ json: { routes: [stored], stale: [], partialFields: [] } });
         return;
@@ -89,7 +89,7 @@ test("route editing previews, crosses floors, persists, and filters by infrastru
     await vh(page).select({ kind: "route", id: stored.id });
     await page.getByRole("button", { name: "Edit path" }).click();
     expect((await vh(page).eval(({ hook }) => hook.routeDraft()))?.pointPlaces.at(-1)?.floorId).toBe("f-upper");
-    await page.getByRole("button", { name: "Close editor" }).click();
+    await page.getByRole("button", { name: "Cancel path edit" }).click();
 
     await page.getByRole("tab", { name: "Layers" }).click();
     await expect.poll(() => vh(page).eval(({ hook }) => hook.routeSegments())).toBeGreaterThan(0);

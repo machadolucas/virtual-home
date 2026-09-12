@@ -18,7 +18,7 @@ import { once } from "node:events";
 import { Readable } from "node:stream";
 import { finished } from "node:stream/promises";
 import { eq } from "drizzle-orm";
-import { getDb, writeTx } from "@/db/client";
+import { getDb, writeTx, type Db } from "@/db/client";
 import { newId, nowMs } from "@/db/ids";
 import { attachment, type AttachmentKind } from "@/db/schema";
 import { loadEnv } from "@/env";
@@ -184,6 +184,10 @@ export interface StoreUploadInput {
   caption?: string;
   /** Defaults to `VH_UPLOAD_MAX_BYTES`. */
   maxBytes?: number;
+  /** Trusted transport authorization recheck after streaming, inside metadata registration. */
+  beforeCommit?: (tx:Db) => void;
+  /** Trusted adapter hook; audit/events commit atomically with a newly registered attachment. */
+  onRegistered?: (tx:Db,row:AttachmentRow) => void;
 }
 
 export type AttachmentRow = typeof attachment.$inferSelect;
@@ -231,6 +235,8 @@ export async function storeUpload(input: StoreUploadInput): Promise<StoredAttach
   const stagingId = newId();
   const tmpOriginal = path.join(env.tmpDir, `${stagingId}.part`);
   const temps = new Set<string>([tmpOriginal]);
+  const finalFiles = new Set<string>();
+  let registered = false;
   const cleanup = async (): Promise<void> => {
     for (const file of temps) await fs.rm(file, { force: true });
   };
@@ -257,6 +263,7 @@ export async function storeUpload(input: StoreUploadInput): Promise<StoredAttach
     const db = getDb().db;
     const existing = db.select().from(attachment).where(eq(attachment.sha256, sha256)).get();
     if (existing) {
+      input.beforeCommit?.(db);
       await cleanup();
       return { row: existing, deduped: true, sniffed, derivatives: null, exif };
     }
@@ -286,12 +293,15 @@ export async function storeUpload(input: StoreUploadInput): Promise<StoredAttach
     await fs.mkdir(absDir, { recursive: true, mode: DIR_MODE });
     await fs.chmod(tmpOriginal, FILE_MODE);
     await fs.rename(tmpOriginal, path.join(absDir, `${id}${sniffed.ext}`));
+    finalFiles.add(path.join(absDir, `${id}${sniffed.ext}`));
     temps.delete(tmpOriginal);
     if (derivatives) {
       await fs.chmod(derivatives.web.path, FILE_MODE);
       await fs.chmod(derivatives.thumb.path, FILE_MODE);
       await fs.rename(derivatives.web.path, path.join(absDir, `${id}.web.jpg`));
+      finalFiles.add(path.join(absDir, `${id}.web.jpg`));
       await fs.rename(derivatives.thumb.path, path.join(absDir, `${id}.thumb.jpg`));
+      finalFiles.add(path.join(absDir, `${id}.thumb.jpg`));
       temps.delete(derivatives.web.path);
       temps.delete(derivatives.thumb.path);
     }
@@ -319,13 +329,16 @@ export async function storeUpload(input: StoreUploadInput): Promise<StoredAttach
     // arbiter. The loser cleans up its files and returns the winner's row.
     let winner: typeof attachment.$inferSelect | null = null;
     writeTx(db, (tx) => {
+      input.beforeCommit?.(tx);
       const again = tx.select().from(attachment).where(eq(attachment.sha256, sha256)).get();
       if (again) {
         winner = again;
         return;
       }
       tx.insert(attachment).values(row).run();
+      input.onRegistered?.(tx,row);
     });
+    registered = winner === null;
     if (winner) {
       await fs.rm(path.join(absDir, `${id}${sniffed.ext}`), { force: true });
       await fs.rm(path.join(absDir, `${id}.web.jpg`), { force: true });
@@ -337,6 +350,7 @@ export async function storeUpload(input: StoreUploadInput): Promise<StoredAttach
     await cleanup();
     return { row, deduped: false, sniffed, derivatives, exif };
   } catch (err) {
+    if(!registered) for(const file of finalFiles) await fs.rm(file,{force:true});
     await cleanup();
     throw err;
   }

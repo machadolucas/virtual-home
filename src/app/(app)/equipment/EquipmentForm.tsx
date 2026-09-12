@@ -176,7 +176,7 @@ export function EquipmentForm({
   const fieldError = (name: string): string | undefined => call.fieldErrors[name]?.[0];
 
   return (
-    <form
+    <form data-unsaved
       className="flex flex-col gap-5"
       onSubmit={(event) => {
         event.preventDefault();
@@ -558,7 +558,7 @@ export function EquipmentForm({
         </Panel>
       )}
 
-      <Panel title="Notes and how to find it">
+      <details open={editing || undefined}><summary className="cursor-pointer py-2 font-medium">Notes and how to find it (optional)</summary><Panel title="Notes and how to find it">
         <Field
           label="Notes"
           hideLabel
@@ -575,15 +575,15 @@ export function EquipmentForm({
             />
           )}
         </Field>
-      </Panel>
+      </Panel></details>
 
       {call.error === null ? null : (
         <p role="alert" className="text-sm font-medium text-overdue">
-          {call.error} Nothing was saved.
+          {call.error}
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 border-t border-line bg-surface/95 py-3 backdrop-blur">
         <Button
           type="submit"
           loading={call.pending}
@@ -591,7 +591,7 @@ export function EquipmentForm({
         >
           {editing ? "Save changes" : "Add the equipment"}
         </Button>
-        <Button type="button" variant="ghost" onClick={() => router.back()} disabled={call.pending}>
+        <Button data-discard-editor type="button" variant="ghost" onClick={() => router.back()} disabled={call.pending}>
           Cancel
         </Button>
       </div>

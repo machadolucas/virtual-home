@@ -24,6 +24,7 @@ import type { RouteDto } from "@/features/projects/wire";
 import { roomAt } from "@/house/model/manifestIndex";
 import type { ManifestIndex } from "@/house/model/manifestIndex";
 import type { FloorId, Route, RoomId, Vec3 } from "@/house/model/types";
+import { confirmEditSwitch } from "../edit/confirmSwitch";
 import type { HouseRuntime } from "@/house/runtime";
 
 /** What the create form asks for. Everything else about a run is edited afterwards. */
@@ -124,8 +125,7 @@ export function startRouteDraft(
   const s = runtime.store.getState();
   const index = s.index;
   if (s.editorSaving || s.furnishingsEditing || !index || !s.modelId) return null;
-  if (s.editing) s.cancelEdit();
-  if (s.routeDraft) s.cancelRouteDraft();
+  if (!confirmEditSwitch(runtime)) return null;
 
   const floorId = s.activeFloorId ?? index.floorOrder[0] ?? null;
   if (!floorId) return null;

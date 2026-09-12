@@ -34,6 +34,8 @@ import path from "node:path";
 import { E2E_PLACEABLE_NAMES, E2E_USERS } from "./fixtures";
 import type { DbHandle } from "@/db/client";
 
+process.env.VH_DIST_DIR = process.env.VH_DIST_DIR ?? ".next-e2e";
+
 const PORT = Number(process.env["VH_E2E_PORT"] ?? 3011);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -304,7 +306,7 @@ function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<v
 }
 
 async function build(env: NodeJS.ProcessEnv): Promise<void> {
-  const built = fs.existsSync(path.join(REPO_ROOT, ".next", "BUILD_ID"));
+  const built = fs.existsSync(path.join(REPO_ROOT, env.VH_DIST_DIR ?? ".next", "BUILD_ID"));
   if (process.env["VH_E2E_SKIP_BUILD"] === "1" && built) {
     log("VH_E2E_SKIP_BUILD=1 and .next exists — reusing the existing build");
     return;
@@ -330,12 +332,15 @@ function cleanup(): void {
 
 async function main(): Promise<void> {
   // The production launchd service reads .next from its checkout. Even with synthetic data,
-  // rebuilding there would replace its live assets with an e2e build. Fail before any bootstrap.
+  // rebuilding .next there would replace live assets. The exact dedicated .next-e2e output
+  // is safe; next.config.ts applies it to both build and start. Reject symlink aliases too.
+  const testOutput = path.join(REPO_ROOT, ".next-e2e");
+  if (fs.existsSync(testOutput) && fs.lstatSync(testOutput).isSymbolicLink()) throw new Error("E2E output must not be a symlink.");
   if (process.platform === "darwin") {
     const plist = path.join(os.homedir(), "Library/LaunchAgents/net.machadolucas.virtual-home.web.plist");
     if (fs.existsSync(plist)) {
       const installedRoot = execFileSync("/usr/bin/plutil", ["-extract", "WorkingDirectory", "raw", "-o", "-", plist], { encoding: "utf8" }).trim();
-      if (fs.realpathSync(installedRoot) === fs.realpathSync(REPO_ROOT)) {
+      if (fs.realpathSync(installedRoot) === fs.realpathSync(REPO_ROOT) && process.env.VH_DIST_DIR !== ".next-e2e") {
         throw new Error("This checkout serves production. Run Playwright from an isolated checkout; rebuilding .next here would replace live production assets.");
       }
     }

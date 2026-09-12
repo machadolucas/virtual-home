@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 import { requireSessionPage } from "@/server/auth/session";
 import { Badge, Panel, StatusBadge } from "@/ui";
@@ -35,6 +36,10 @@ export default async function SystemSettingsPage() {
         title="System"
         description="Whether the machine behind all of this is healthy: the background worker, storage, backups, memory and anything that failed. Nothing here is a reassuring tick it cannot justify."
       />
+
+      <Panel title="Integrity checks" subtitle="Review missing files, broken links and recoverable quarantined files.">
+        <Link href="/settings/system/integrity" className="text-sm font-medium text-accent underline underline-offset-4">Review files and links</Link>
+      </Panel>
 
       <Panel title="Background worker">
         <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">

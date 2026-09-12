@@ -505,7 +505,7 @@ export function PlacementEditor() {
       ) : (
         <p className="text-xs text-ink-2">
           Click to place; hold and drag around the anchor to rotate in 45° steps. Hold <kbd className="rounded bg-surface-2 px-1">Alt</kbd>{" "}
-          to ignore the grid, <kbd className="rounded bg-surface-2 px-1">Shift</kbd> to constrain
+          to ignore the grid, <kbd className="rounded bg-surface-2 px-1">Alt + Shift</kbd> to constrain
           to one axis.
         </p>
       )}

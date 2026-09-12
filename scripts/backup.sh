@@ -27,8 +27,17 @@ USERS="$("$SQLITE" "$STAGE/app.db" 'SELECT count(*) FROM user;' 2>/dev/null || e
 ATT="$("$SQLITE" "$STAGE/app.db" 'SELECT count(*) FROM attachment;' 2>/dev/null || echo 0)"
 
 # 2. payload
-[ -d "$DATA_DIR/attachments" ] && cp -R "$DATA_DIR/attachments" "$STAGE/attachments" || mkdir -p "$STAGE/attachments"
-[ -d "$DATA_DIR/model" ] && cp -R "$DATA_DIR/model" "$STAGE/model" || mkdir -p "$STAGE/model"
+for PAYLOAD_NAME in attachments model quarantine; do
+  if [ -e "$DATA_DIR/$PAYLOAD_NAME" ] || [ -L "$DATA_DIR/$PAYLOAD_NAME" ]; then
+    if [ ! -d "$DATA_DIR/$PAYLOAD_NAME" ] || [ -L "$DATA_DIR/$PAYLOAD_NAME" ]; then
+      echo "FATAL: $PAYLOAD_NAME must be a real directory" >&2; exit 1
+    fi
+    # A failed copy must fail the backup, never fall through to mkdir and archive partial data.
+    cp -R "$DATA_DIR/$PAYLOAD_NAME" "$STAGE/$PAYLOAD_NAME"
+  else
+    mkdir -p "$STAGE/$PAYLOAD_NAME"
+  fi
+done
 
 # 3. config WITHOUT secrets
 if [ -f "$DATA_DIR/secrets/vh.env" ]; then

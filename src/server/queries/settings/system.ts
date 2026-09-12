@@ -1,6 +1,6 @@
 import "server-only";
 import fs from "node:fs";
-import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, type Db } from "@/db/client";
 import { loadEnv } from "@/env";
 import {
@@ -250,7 +250,7 @@ export function readSystemHealth(tx: Db, nowMs = Date.now()): SystemHealth {
 }
 
 /** Unresolved alerts, worst and freshest first. */
-export function readAlerts(tx: Db, limit = 25): AlertRow[] {
+export function readAlerts(tx: Db, limit = 25, options: { offset?: number; unseenOnly?: boolean } = {}): AlertRow[] {
   const severityRank = sql`CASE ${appAlert.severity} WHEN 'error' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END`;
   return tx
     .select({
@@ -269,9 +269,10 @@ export function readAlerts(tx: Db, limit = 25): AlertRow[] {
     })
     .from(appAlert)
     .leftJoin(user, eq(user.id, appAlert.acknowledgedBy))
-    .where(sql`${appAlert.resolvedAtMs} IS NULL`)
-    .orderBy(severityRank, desc(appAlert.lastSeenAtMs))
+    .where(and(isNull(appAlert.resolvedAtMs), options.unseenOnly ? isNull(appAlert.acknowledgedAtMs) : undefined))
+    .orderBy(severityRank, desc(appAlert.lastSeenAtMs), asc(appAlert.id))
     .limit(limit)
+    .offset(options.offset ?? 0)
     .all();
 }
 

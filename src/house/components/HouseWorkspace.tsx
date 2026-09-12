@@ -19,7 +19,7 @@ import { cutRange } from "@/house/model/framingBoxes";
 import { DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from "@/house/model/background";
 import { displayNameForNode } from "@/house/model/labelPreferences";
 import type { DaylightHaEntity } from "@/house/model/daylight";
-import type { FloorId, Selection } from "@/house/model/types";
+import type { Selection } from "@/house/model/types";
 import { createRuntime, type HouseRuntime } from "@/house/runtime";
 import type { CanvasTool } from "@/house/store/slices/view";
 import { createHouseStore } from "@/house/store/createHouseStore";
@@ -61,7 +61,9 @@ import { PlacementEditor } from "./edit/PlacementEditor";
 import { SnapReadoutOverlay } from "./edit/SnapIndicator";
 import { Inspector } from "./inspector/Inspector";
 import { PhoneHouse } from "./phone/PhoneHouse";
-import { IconButton, Input, Select } from "@/ui";
+import { IconButton, Input } from "@/ui";
+import { PanelResizeHandle, usePanelWidths } from "./PanelResizeHandle";
+import { FullscreenSurface } from "@/ui/FullscreenSurface";
 import { cn } from "@/ui/cn";
 import {
   PanelLeftClose,
@@ -69,8 +71,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
 } from "lucide-react";
-import { PlanEditor2D } from "./routeEditor/PlanEditor2D";
-import { WallElevationEditor2D } from "./routeEditor/WallElevationEditor2D";
+import { RouteEditors } from "./routeEditor/RouteEditors";
 import { FurnishingsProvider, useFurnishings } from "./furnishings/FurnishingsProvider";
 import { FurnishingsPanel, FurnitureInspector } from "./furnishings/FurnishingsPanel";
 import { FurnitureEditorProvider, useFurnitureEditor } from "./furnishings/FurnitureEditorContext";
@@ -132,7 +133,7 @@ export function HouseWorkspace({
     <HouseRuntimeContext.Provider value={runtime}>
       <DaylightHaProvider entities={daylightHaEntities}>
         <FurnishingsProvider>
-          <FurnitureEditorProvider><WorkspaceBody runtime={runtime} /></FurnitureEditorProvider>
+          <FurnitureEditorProvider><FullscreenSurface><WorkspaceBody runtime={runtime} /></FullscreenSurface></FurnitureEditorProvider>
         </FurnishingsProvider>
       </DaylightHaProvider>
     </HouseRuntimeContext.Provider>
@@ -187,10 +188,11 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
   const showHelp = useCallback(() => setHelpOpen((v) => !v), []);
   const handlers = useShortcutHandlers(runtime, focusSearch, showHelp);
-  useKeyboardShortcuts(rootRef, handlers, !state.fatal);
+  useKeyboardShortcuts(rootRef, handlers, !state.fatal, phone);
   useRegionCycling(rootRef, [treeRef, canvasRegionRef, inspectorRef]);
   useToolCamera(runtime);
   const panels = usePanelLayout();
+  const panelWidths = usePanelWidths();
   useEffect(() => runtime.store.subscribe((next, previous) => {
     if ((next.editing && !previous.editing) || (next.routeDraft && !previous.routeDraft))
       setPanelCollapsed("inspector", false);
@@ -213,7 +215,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
       </div>
     );
 
-  if (phone) return <PhoneHouse />;
+  if (phone) return <PhoneHouse workspaceRef={rootRef} />;
 
   return (
     <div
@@ -233,7 +235,8 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
         <aside
           ref={treeRef}
           aria-label="Property tree"
-          className="flex w-64 shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface"
+          style={{ width: panelWidths.tree, maxWidth: "28%" }}
+          className="relative flex shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface"
         >
           <PanelHeader
             title="Property"
@@ -242,6 +245,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
             disabled={furnishingsBusy}
             onCollapse={() => panels.toggle("tree")}
           />
+          <PanelResizeHandle panel="tree" />
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
             <label className="flex flex-col gap-1 text-xs">
               <span className="text-ink-2">Search rooms and equipment (/)</span>
@@ -271,7 +275,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
           className={cn(
             "relative min-h-0 flex-1",
             // The pointer says what the tool will do before the user commits to a gesture.
-            state.cameraOverride || state.tool === "orbit"
+            state.cameraOverride || state.tool === "orbit" || state.tool === "pan"
               ? "[&_canvas]:cursor-grab [&_canvas]:active:cursor-grabbing"
               : state.tool === "place"
                 ? "[&_canvas]:cursor-crosshair"
@@ -294,17 +298,18 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
       {/* An editor with nowhere to render is a trap: with the inspector collapsed (a choice that
           persists across reloads) pressing `E` locked the explode view and offered no Save, no
           Cancel and no numeric fields — only Esc got out. Editing forces the panel open. */}
-      {panels.collapsed.inspector && !state.editing && !state.routeDraft && !furnitureOpen ? (
+      {panels.collapsed.inspector ? (
         <PanelRail
           side="right"
           label="Show the inspector"
           onExpand={() => panels.toggle("inspector")}
         />
-      ) : (
+      ) : null}
         <aside
           ref={inspectorRef}
           aria-label="Inspector"
-          className="flex w-80 shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface"
+          style={{ width: panelWidths.inspector, maxWidth: "32%", display: panels.collapsed.inspector ? "none" : undefined }}
+          className="relative flex shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-surface"
         >
           <PanelHeader
             title={furnitureOpen ? (furnitureEditor.draft ? "Furniture details" : "Furniture catalog") : state.editing ? (state.adjusting ? "Adjust placement" : "Place equipment") : state.routeDraft ? "Edit route" : "Details"}
@@ -314,15 +319,11 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
             onCollapse={() => {
               const current = runtime.store.getState();
               if (current.editorSaving || furnishingsBusy) return;
-              furnitureEditor.cancel();
-              furnitureEditor.setCatalogOpen(false);
-              current.cancelEdit();
-              current.cancelRouteDraft();
-              runtime.setSnapIndicator(null);
               panels.setCollapsed("inspector", true);
               canvasRegionRef.current?.focus();
             }}
           />
+          <PanelResizeHandle panel="inspector" />
           <section
             aria-label={state.editing ? "Equipment placement" : state.routeDraft ? "Route editing" : "Selected item details"}
             className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3"
@@ -340,7 +341,6 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
             )}
           </section>
         </aside>
-      )}
 
       <p aria-live="polite" className="sr-only">
         {state.announcement}
@@ -681,6 +681,7 @@ function useShortcutHandlers(
           return;
         }
         if (s.routeDraft) {
+          if (!window.confirm("Discard this unsaved route edit?")) return;
           s.cancelRouteDraft();
           return;
         }
@@ -690,7 +691,7 @@ function useShortcutHandlers(
         const s = get();
         if (s.editorSaving) return;
         if (s.editing) {
-          s.cancelEdit();
+          if (!s.editing.dirty || window.confirm("Discard the unsaved placement?")) s.cancelEdit();
           return;
         }
         // Silence here read as "E is broken". It is not: edit mode acts on one piece of
@@ -851,6 +852,8 @@ function useToolCamera(runtime: HouseRuntime): void {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Shift" && !isTypingTarget(event.target)) { runtime.store.getState().setPanOverride(!event.altKey); return; }
+      if (event.key === "Alt" && event.shiftKey) { runtime.store.getState().setPanOverride(false); return; }
       if (event.code !== "Space" || event.repeat || event.defaultPrevented) return;
       if ((event.target as HTMLElement | null)?.closest('button, a[href], [role="tab"], [role="radio"], [role="switch"]')) return;
       if (isTypingTarget(event.target)) return;
@@ -858,10 +861,12 @@ function useToolCamera(runtime: HouseRuntime): void {
       setCameraOverride(true);
     };
     const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Shift") { runtime.store.getState().setPanOverride(false); return; }
+      if (event.key === "Alt" && event.shiftKey && !isTypingTarget(event.target)) { runtime.store.getState().setPanOverride(true); return; }
       if (event.code !== "Space") return;
       setCameraOverride(false);
     };
-    const onBlur = () => setCameraOverride(false);
+    const onBlur = () => { setCameraOverride(false); runtime.store.getState().setPanOverride(false); };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onBlur);
@@ -870,7 +875,7 @@ function useToolCamera(runtime: HouseRuntime): void {
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
     };
-  }, [setCameraOverride]);
+  }, [setCameraOverride, runtime]);
 }
 
 /** `F6` cycles the landmark regions forwards, `Shift+F6` backwards. */
@@ -943,74 +948,6 @@ function CanvasWithBackground() {
  * The 2D route editors. Both are bijections to and from the stored physical polyline, so which one
  * is open never changes what is saved.
  */
-function RouteEditors() {
-  const { routeDraft, activeFloorId, selection, index } = useHouseStore(
-    useShallow((s) => ({
-      routeDraft: s.routeDraft,
-      activeFloorId: s.activeFloorId,
-      selection: s.selection,
-      index: s.index,
-    })),
-  );
-  const cancelRouteDraft = useHouseStore((s) => s.cancelRouteDraft);
-  const saving = useHouseStore((s) => s.editorSaving);
-  const phone = useIsPhone();
-  const [heldFloor, setHeldFloor] = useState<{ routeId: string; floorId: FloorId | null } | null>(null);
-  if (!routeDraft || !index) return null;
-
-  const initialFloorId: FloorId | null =
-    activeFloorId ?? routeDraft.segments.find((seg) => seg.floorId)?.floorId ?? index.floorOrder[0] ?? null;
-  const floorId = heldFloor?.routeId === routeDraft.id ? heldFloor.floorId : initialFloorId;
-  const wallSurfaceId =
-    selection?.kind === "surface" && index.surfaces.get(selection.id)?.kind === "wall"
-      ? selection.id
-      : null;
-
-  return (
-    <section className="flex flex-col gap-2 border-t border-line pt-3">
-      <header className="flex items-baseline justify-between">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-ink-3">
-          Route path — {routeDraft.name}
-        </h3>
-        <button
-          type="button"
-          disabled={saving}
-          onClick={cancelRouteDraft}
-          className="min-h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink hover:bg-surface-3"
-        >
-          Close editor
-        </button>
-      </header>
-      {phone ? (
-        <p className="rounded-md border border-line bg-surface-2 p-2 text-xs text-ink-2">
-          The 2D route editors are read-only on a phone. Edit on a desktop.
-        </p>
-      ) : null}
-      {index.floorOrder.length > 1 ? (
-        <label className="flex flex-col gap-1 text-xs text-ink-2">
-          Plan floor
-          <Select
-            selectSize="sm"
-            value={floorId ?? ""}
-            onValueChange={(value) =>
-              setHeldFloor({ routeId: routeDraft.id, floorId: (value || null) as FloorId | null })
-            }
-            options={index.floorOrder.map((id) => ({
-              value: id,
-              label: index.floors.get(id)?.name ?? id,
-            }))}
-          />
-        </label>
-      ) : null}
-      {floorId ? <PlanEditor2D floorId={floorId} /> : null}
-      {wallSurfaceId ? <WallElevationEditor2D surfaceId={wallSurfaceId} /> : (
-        <p className="text-[11px] text-ink-3">
-          Select a wall surface to edit this route in that wall&rsquo;s elevation.
-        </p>
-      )}
-    </section>
-  );
-}
 
 /**
  * Search → frame, as one orchestrated action so it cannot half-apply: isolate the floor, set the

@@ -22,6 +22,10 @@ vi.mock("@/server/auth/session", () => ({
     const { currentUser } = await import("./harness");
     return { user: { id: currentUser() } };
   },
+  requireFreshSession: async () => {
+    const { currentUser } = await import("./harness");
+    return { user: { id: currentUser() } };
+  },
   UnauthorizedError: class UnauthorizedError extends Error {},
 }));
 
@@ -111,6 +115,18 @@ function planFields(assetId: string, overrides: Record<string, unknown> = {}) {
 }
 
 describe("createPlan", () => {
+  it("creates a one-off task on its explicit due date", async () => {
+    const assetId = makeAsset(world);
+    const data = expectOk(await createPlan({
+      plan: planFields(assetId, { scheduleFormKind: "one_off", rule: { v: 1, kind: "one_off" } }),
+      seed: { kind: "user_chosen", date: "2026-09-30" },
+    }));
+    expect(data.firstOccurrenceId).toBeTruthy();
+    expect(data.firstDueDate).toBe("2026-09-30");
+    expect(world.handle.db.select().from(maintenanceOccurrence).all()).toHaveLength(1);
+    expect(world.handle.db.select().from(completion).all()).toHaveLength(0);
+  });
+
   it("writes a schedule anchor and generates the first task — and no completion", async () => {
     const assetId = makeAsset(world, { name: "Ventilation unit" });
     const data = expectOk(

@@ -218,3 +218,19 @@ describe("viewer rendering defaults", () => {
     });
   });
 });
+
+describe("trackpad-accessible panning", () => {
+  it("offers primary-drag pan without a secondary mouse button", () => {
+    expect(controlBindings("overview", "perspective", "pan", false).left).toBe(ACTION.TRUCK);
+    expect(controlBindings("overview", "perspective", "pan", false).oneTouch).toBe(ACTION.TOUCH_TRUCK);
+    expect(controlBindings("overview", "perspective", "place", true, true).left).toBe(ACTION.TRUCK);
+  });
+  it("releases the temporary camera owner when Shift is released", () => {
+    const store = createHouseStore();
+    store.getState().setTool("place");
+    store.getState().setPanOverride(true);
+    expect(store.getState()).toMatchObject({ panOverride: true, cameraOverride: true, tool: "place" });
+    store.getState().setPanOverride(false);
+    expect(store.getState()).toMatchObject({ panOverride: false, cameraOverride: false, tool: "place" });
+  });
+});

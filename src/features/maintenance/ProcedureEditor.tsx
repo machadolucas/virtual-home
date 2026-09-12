@@ -1,4 +1,5 @@
 "use client";
+import { markActiveEditorDirty } from "@/features/forms/unsaved";
 /**
  * The procedure draft editor.
  *
@@ -160,6 +161,7 @@ export function ProcedureEditor({
   }
 
   function patch(next: Partial<ProcedureEditorValues>): void {
+    markActiveEditorDirty();
     setValues((current) => ({ ...current, ...next }));
   }
 
@@ -227,7 +229,7 @@ export function ProcedureEditor({
   const failure = save.failure ?? publish.failure ?? discard.failure;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div data-unsaved className="flex flex-col gap-5">
       <Panel title="The procedure">
         <div className="flex flex-col gap-4">
           <Field label="Title" required>

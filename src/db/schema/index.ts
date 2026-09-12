@@ -18,3 +18,7 @@ export * from "./ha";
 export * from "./notifications";
 export * from "./attachments";
 export * from "./system";
+
+export * from "./mcp";
+export * from "./documentText";
+export * from "./integrity";

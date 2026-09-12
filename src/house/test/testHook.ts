@@ -59,6 +59,7 @@ export interface VhHook {
   screenOf(world: [number, number, number]): [number, number] | null;
   roomAnchor(roomId: string): [number, number, number] | null;
   pick(cssX: number, cssY: number): PickResult | null;
+  geometryInventory(): Array<{ id: string; owners: string[]; visible: boolean }>;
   renderInfo(): {
     calls: number;
     triangles: number;
@@ -293,6 +294,18 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
       return picker.pick(cssX + rect.left, cssY + rect.top, rect, camera, index, clip);
     },
 
+    geometryInventory() {
+      const inventory = new Map<string,{id:string;owners:string[];visible:boolean}>();
+      runtime.scene?.traverse(object => {
+        const geometry = (object as THREE.Mesh).geometry;
+        if (!geometry) return;
+        let visible=true; let parent: THREE.Object3D | null=object;
+        while(parent){if(!parent.visible)visible=false;parent=parent.parent;}
+        const entry=inventory.get(geometry.uuid) ?? {id:geometry.uuid,owners:[],visible:false};
+        entry.owners.push(`${object.type}:${object.name || "unnamed"}`);entry.visible ||= visible;inventory.set(geometry.uuid,entry);
+      });
+      return [...inventory.values()];
+    },
     renderInfo() {
       const gl = rendererOf(runtime);
       if (!gl) return {

@@ -47,7 +47,7 @@ export const postponeTask = action(
   },
 );
 
-export const SNOOZE_PRESETS = ["tomorrow", "three_days", "pick"] as const;
+const SNOOZE_PRESETS = ["tomorrow", "three_days", "pick"] as const;
 
 /**
  * Snooze **this user's** reminders. Deliberately harmless: no completion, no stock movement, no

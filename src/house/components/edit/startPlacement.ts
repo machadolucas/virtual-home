@@ -8,6 +8,7 @@
  * act on. The draft this builds is a *starting point*, not a claim about where the thing is: the
  * user drags or types the real position before saving.
  */
+import { confirmEditSwitch } from "./confirmSwitch";
 import type { HouseRuntime } from "@/house/runtime";
 import type { PlaceableEquipment } from "@/house/store/dataApi";
 import type { FloorId, Vec3 } from "@/house/model/types";
@@ -79,7 +80,7 @@ export function startPlacement(runtime: HouseRuntime, equipment: PlaceableEquipm
   const s = runtime.store.getState();
   const index = s.index;
   if (s.editorSaving || s.furnishingsEditing || !index || !s.modelId) return false;
-  if (s.routeDraft) s.cancelRouteDraft();
+  if (!confirmEditSwitch(runtime)) return false;
 
   const floorId = s.activeFloorId ?? index.floorOrder[0] ?? null;
   if (!floorId) return false;

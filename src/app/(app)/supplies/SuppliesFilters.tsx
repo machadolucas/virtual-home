@@ -1,4 +1,5 @@
 "use client";
+import type { Route } from "next";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -55,7 +56,7 @@ export function SuppliesFilters({
       }
       if (next.q !== undefined) pushedQuery.current = next.q;
       const query = search.toString();
-      router.replace(query === "" ? pathname : `${pathname}?${query}`, { scroll: false });
+      router.replace((query === "" ? pathname : `${pathname}?${query}`) as Route, { scroll: false });
     },
     [params, pathname, router],
   );

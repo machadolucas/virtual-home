@@ -135,6 +135,7 @@ export function resolveOwnership(
 
 /** Visible physical package meshes, including doors, frames, trim and furniture. */
 export function dragCandidates(index: SceneIndex, _floorId: FloorId | null): THREE.Object3D[] {
+  void _floorId; // Floor context is presentation-only; visible attachment surfaces remain eligible.
   const out: THREE.Object3D[] = [];
   for (const [sid, mesh] of index.surfaceMesh) {
     if (canAttachSurface(index.manifest, sid) && isVisibleUp(mesh)) out.push(mesh);

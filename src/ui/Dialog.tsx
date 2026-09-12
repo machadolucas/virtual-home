@@ -3,6 +3,7 @@
 import { Dialog as RadixDialog } from "radix-ui";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
+import { useOverlayContainer } from "./OverlayContainer";
 import { cn } from "./cn";
 import { IconButton } from "./IconButton";
 
@@ -53,10 +54,11 @@ export function Dialog({
   hideClose = false,
   className,
 }: DialogProps) {
+  const container = useOverlayContainer();
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       {trigger ? <RadixDialog.Trigger asChild>{trigger}</RadixDialog.Trigger> : null}
-      <RadixDialog.Portal>
+      <RadixDialog.Portal container={container}>
         <RadixDialog.Overlay className={dialogOverlay} />
         <RadixDialog.Content
           className={cn(

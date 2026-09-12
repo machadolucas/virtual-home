@@ -191,7 +191,7 @@ export function PartForm({
   const fieldError = (name: string): string | undefined => call.fieldErrors[name]?.[0];
 
   return (
-    <form
+    <form data-unsaved
       className="flex flex-col gap-5"
       onSubmit={(event) => {
         event.preventDefault();
@@ -688,7 +688,7 @@ export function PartForm({
         </Panel>
       )}
 
-      <Panel title="Notes">
+      <details open={editing || undefined}><summary className="cursor-pointer py-2 font-medium">Notes (optional)</summary><Panel title="Notes">
         <Field
           label="Anything worth remembering"
           hideLabel
@@ -708,19 +708,19 @@ export function PartForm({
             />
           )}
         </Field>
-      </Panel>
+      </Panel></details>
 
       {call.error === null ? null : (
         <p role="alert" className="text-sm font-medium text-overdue">
-          {call.error} Nothing was saved.
+          {call.error}
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 border-t border-line bg-surface/95 py-3 backdrop-blur">
         <Button type="submit" loading={call.pending} disabled={componentsIncomplete}>
           {editing ? "Save changes" : "Add the item"}
         </Button>
-        <Button type="button" variant="ghost" onClick={() => router.back()} disabled={call.pending}>
+        <Button data-discard-editor type="button" variant="ghost" onClick={() => router.back()} disabled={call.pending}>
           Cancel
         </Button>
         <span className="text-xs text-ink-3">

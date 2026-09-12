@@ -270,6 +270,8 @@ export interface OpenHouseOptions {
    * hook's `settled` promise, which resolves at `ready`, `degraded` **or** `failed`.
    */
   waitFor?: "hook" | "settled";
+  /** Network-mocked journeys must bypass the PWA worker, whose fetches evade page routing. */
+  serviceWorkers?: "allow" | "block";
 }
 
 /** `/house` with the workspace's URL state applied. */
@@ -312,6 +314,7 @@ export async function openHouseSession(
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     ...deviceOptionsOfProject(),
+    serviceWorkers: options.serviceWorkers,
     baseURL: e2eBaseUrl(),
     extraHTTPHeaders: { "x-forwarded-for": houseClientIp() },
   });

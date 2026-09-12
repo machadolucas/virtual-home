@@ -31,7 +31,10 @@ Configuration: see `.env.example`. Dev uses `.env.local` (gitignored); productio
    package, databases, or secrets. Tests use the synthetic fixture in `tests/fixtures/model/`.
 2. **Every route handler, server action and page starts with `requireSession()`** (or
    `requireFreshSession()` for destructive/security operations). `src/proxy.ts` is only an optimistic
-   redirect, never the authorization boundary. Private files (model, attachments) are served only
+   redirect, never the authorization boundary. The exact `/mcp` endpoint is the documented exception:
+   it independently validates a scoped bearer credential on every request (including uploads);
+   browser cookies never authorize MCP. Keep all other browser routes behind session checks.
+   Private files (model, attachments) are served only
    through authenticated route handlers, never from `public/`.
 3. **Every write transaction uses `writeTx()` (BEGIN IMMEDIATE)** from `src/db/client.ts`. Keep
    transactions short; chunk bulk work.

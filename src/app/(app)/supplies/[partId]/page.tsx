@@ -1,3 +1,4 @@
+import type { Route } from "next";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -30,9 +31,8 @@ import {
   LotDialog,
   RemoveSupplierButton,
   SupplierDialog,
-  emptyLot,
-  emptySupplier,
 } from "./Editors";
+import { emptyLot, emptySupplier } from "./drafts";
 import { StockActions } from "./StockActions";
 
 export async function generateMetadata({
@@ -41,6 +41,7 @@ export async function generateMetadata({
   params: Promise<{ partId: string }>;
 }): Promise<Metadata> {
   const { partId } = await params;
+  await requireSessionPage(`/supplies/${partId}`);
   const { db, household, today } = pageContext();
   const detail = readPartDetail(db, partId, {
     today,
@@ -589,7 +590,7 @@ export default async function PartDetailPage({
                     </Badge>
                     {entry.assetId === null ? null : (
                       <Link
-                        href={locateInHouseHref(entry.assetId)}
+                        href={(locateInHouseHref(entry.assetId)) as Route}
                         className="inline-flex items-center gap-1 text-xs text-accent-text underline underline-offset-2"
                       >
                         <Wrench aria-hidden="true" className="size-3" />

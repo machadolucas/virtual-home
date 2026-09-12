@@ -9,6 +9,7 @@
  */
 import { useCallback, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { savingEditor } from "@/features/forms/unsaved";
 import { toast } from "@/ui";
 
 /**
@@ -49,6 +50,12 @@ export interface UseActionState<I, O> {
 
 /** Human wording for the error codes these screens can actually produce. */
 export const ERROR_MESSAGES: Record<string, string> = {
+  booking_mismatch: "This booking no longer belongs to this task. Reload before trying again.",
+  provider_archived: "This provider is archived. Restore them in Providers or choose another.",
+  booking_date_required: "Choose an appointment date before setting times.",
+  booking_start_required: "Set the start time before the end time.",
+  booking_time_range: "The end time must be after the start time.",
+  connection_lost: "The connection was interrupted. Your edits are kept; retry to confirm the save.",
   unauthorized: "Your session has expired. Sign in again.",
   invalid_request: "Something in the form is not valid.",
   not_found: "That record no longer exists.",
@@ -69,7 +76,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   no_draft: "There is no draft to work with.",
   no_steps: "Add at least one step before publishing.",
   plan_cancelled: "This plan has been cancelled.",
-  internal: "Something went wrong. Nothing was changed.",
+  internal: "The server could not confirm the change. Your edits are kept; try again.",
 };
 
 export function messageFor(failure: ActionFailure): string {
@@ -88,6 +95,7 @@ export function useAction<I, O>(
 
   const run = useCallback(
     async (input: I): Promise<O | null> => {
+      const editorSaved = savingEditor();
       setBusy(true);
       setFailure(null);
       try {
@@ -104,6 +112,7 @@ export function useAction<I, O>(
         // lost, and the resubmit must replay rather than write again (§5.1). A success is the one
         // point where the key has finished its job, so the *next* submit from a form that is still
         // mounted is a real second write instead of a replay of this one.
+        editorSaved();
         setRequestKey(newRequestKey());
         if (options.success !== undefined) {
           toast({ title: options.success, tone: "success" });
@@ -111,6 +120,10 @@ export function useAction<I, O>(
         options.onDone?.();
         if (options.refresh !== false) startTransition(() => router.refresh());
         return result.data;
+      } catch {
+        setFailure({error:"connection_lost"});
+        toast({title:ERROR_MESSAGES.connection_lost!,tone:"error",duration:0});
+        return null;
       } finally {
         setBusy(false);
       }

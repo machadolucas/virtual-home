@@ -31,6 +31,7 @@ import { raiseAppAlert } from "@/domain/notify/alerts";
 import type { DomainCtx } from "@/domain/occurrence";
 import type { Clock } from "@/domain/time";
 import { log } from "@/server/log";
+import { attachmentStoragePaths, integrityFilePath } from "@/server/files/integrityPaths";
 import { startIntervalJob, type Job } from "./interval";
 
 /** Nightly. Started with a long first delay so a restart storm does not stat the disk repeatedly. */
@@ -48,10 +49,14 @@ export interface IntegrityInput {
   attachDir: string;
   /** Skip the filesystem half (tests that only care about links). */
   checkFiles?: boolean;
+  /** Read-only interactive report; does not raise or resolve alerts. */
+  reportOnly?: boolean;
 }
 
 export interface IntegrityResult {
   attachmentsChecked: number;
+  /** A storage scan failed; never present a partial scan as a clean pass. */
+  storageError: string | null;
   /** `attachment` rows whose file is not on disk. */
   missingFiles: string[];
   /** Files under `attachDir` no `attachment` row references. */
@@ -64,14 +69,14 @@ export interface IntegrityResult {
 
 /** Absolute path of a stored relative path, or `null` when it would escape `attachDir`. */
 function resolveInside(root: string, relPath: string): string | null {
-  const resolved = path.resolve(root, ...relPath.split("/"));
-  const prefix = path.resolve(root) + path.sep;
-  return resolved.startsWith(prefix) ? resolved : null;
+  try { return integrityFilePath(root, relPath); } catch { return null; }
 }
 
 /** Every file under `dir`, as paths relative to it with POSIX separators. */
 function listFiles(dir: string): string[] {
-  if (!fs.existsSync(dir)) return [];
+  const root = fs.lstatSync(dir, { throwIfNoEntry: false });
+  if (!root) return [];
+  if (!root.isDirectory() || root.isSymbolicLink()) throw new Error("Storage must be a real directory, not a symbolic link.");
   const out: string[] = [];
   for (const entry of fs.readdirSync(dir, { recursive: true, withFileTypes: true })) {
     if (!entry.isFile()) continue;
@@ -79,13 +84,6 @@ function listFiles(dir: string): string[] {
     out.push(parent === "" ? entry.name : `${parent}/${entry.name}`.split(path.sep).join("/"));
   }
   return out;
-}
-
-/** The web/thumb derivative names for a stored original (mirrors `derivativeRelPath`). */
-function derivativeNames(storagePath: string): string[] {
-  const dir = path.posix.dirname(storagePath);
-  const base = path.posix.basename(storagePath, path.posix.extname(storagePath));
-  return [path.posix.join(dir, `${base}.web.jpg`), path.posix.join(dir, `${base}.thumb.jpg`)];
 }
 
 /** `project_link.entity_kind` → the table its `entity_id` must exist in. */
@@ -134,6 +132,7 @@ export function runIntegrityCheck(input: IntegrityInput): IntegrityResult {
 
   const result: IntegrityResult = {
     attachmentsChecked: 0,
+    storageError: null,
     missingFiles: [],
     orphanFiles: [],
     projectLinksChecked: 0,
@@ -155,27 +154,31 @@ export function runIntegrityCheck(input: IntegrityInput): IntegrityResult {
     result.attachmentsChecked = rows.length;
 
     const expected = new Set<string>();
-    for (const row of rows) {
-      expected.add(row.storagePath);
-      if (row.hasWebCopy) for (const name of derivativeNames(row.storagePath)) expected.add(name);
-      const absolute = resolveInside(input.attachDir, row.storagePath);
-      if (absolute === null || !fs.existsSync(absolute)) result.missingFiles.push(row.id);
+    try {
+      for (const row of rows) {
+        const names = attachmentStoragePaths(row);
+        for (const name of names) expected.add(name);
+        if (names.some((name) => {
+          const absolute = resolveInside(input.attachDir, name);
+          return absolute === null || !fs.lstatSync(absolute, { throwIfNoEntry: false })?.isFile();
+        })) result.missingFiles.push(row.id);
+      }
+      for (const relPath of listFiles(input.attachDir)) {
+        if (!expected.has(relPath)) result.orphanFiles.push(relPath);
+      }
+    } catch {
+      result.storageError = "Attachment storage could not be fully checked. Check the volume, directory permissions and symbolic links.";
     }
 
-    for (const relPath of listFiles(input.attachDir)) {
-      if (!expected.has(relPath)) result.orphanFiles.push(relPath);
-    }
-
-    if (result.missingFiles.length > 0 || result.orphanFiles.length > 0) {
+    if (!input.reportOnly && (result.storageError !== null || result.missingFiles.length > 0 || result.orphanFiles.length > 0)) {
       const id = writeTx(handle.db, (tx) =>
         raiseAppAlert(tx, ctx, {
-          // `app_alert.kind` has no `integrity` member; `worker_outage` is the schema's generic
-          // "the background service found something wrong" kind. See docs/worker.md.
-          kind: "worker_outage",
+          kind: "integrity",
           severity: "warning",
           title: "Attachment storage does not match the database",
           body:
-            `${result.missingFiles.length} attachment row(s) have no file on disk; ` +
+            (result.storageError ? `${result.storageError} ` : "") +
+            `${result.missingFiles.length} attachment row(s) have a missing or invalid original/derivative file; ` +
             `${result.orphanFiles.length} file(s) under the attachments directory have no row. ` +
             "Nothing was deleted.",
           dedupeKey: ALERT_ATTACHMENTS_DEDUPE,
@@ -183,7 +186,7 @@ export function runIntegrityCheck(input: IntegrityInput): IntegrityResult {
         }),
       );
       result.alertIds.push(id);
-    } else {
+    } else if (!input.reportOnly) {
       resolveAlert(handle, ALERT_ATTACHMENTS_DEDUPE, now);
     }
   }
@@ -212,10 +215,10 @@ export function runIntegrityCheck(input: IntegrityInput): IntegrityResult {
     }
   }
 
-  if (result.danglingLinks.length > 0) {
+  if (!input.reportOnly && result.danglingLinks.length > 0) {
     const id = writeTx(handle.db, (tx) =>
       raiseAppAlert(tx, ctx, {
-        kind: "worker_outage",
+        kind: "integrity",
         severity: "warning",
         title: "Project links point at rows that no longer exist",
         body: `${result.danglingLinks.length} project_link row(s) are dangling. Nothing was deleted.`,
@@ -224,7 +227,7 @@ export function runIntegrityCheck(input: IntegrityInput): IntegrityResult {
       }),
     );
     result.alertIds.push(id);
-  } else {
+  } else if (!input.reportOnly) {
     resolveAlert(handle, ALERT_PROJECT_LINKS_DEDUPE, now);
   }
 
@@ -245,10 +248,11 @@ export function startIntegrityJob(options: IntegrityJobOptions): Job {
     intervalMs: options.intervalMs ?? INTEGRITY_INTERVAL_MS,
     run: () => {
       const result = runIntegrityCheck(options);
-      const findings = result.missingFiles.length + result.orphanFiles.length + result.danglingLinks.length;
+      const findings = result.missingFiles.length + result.orphanFiles.length + result.danglingLinks.length + (result.storageError ? 1 : 0);
       if (findings > 0) {
         logger.warn(
           {
+            storageError: result.storageError,
             missingFiles: result.missingFiles.length,
             orphanFiles: result.orphanFiles.length,
             danglingLinks: result.danglingLinks.length,

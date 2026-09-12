@@ -5,6 +5,8 @@ import { cn, focusRing } from "../cn";
 import { ConnectionPill } from "../ConnectionPill";
 import { TooltipProvider } from "../Tooltip";
 import type { ConnectionState } from "../status";
+import { EditorGuard } from "@/features/forms/EditorGuard";
+import { NotificationBell } from "@/features/notifications/Notifications";
 import { GlobalSearch } from "./GlobalSearch";
 import { HouseMark } from "./HouseMark";
 import { MobileTabBar } from "./MobileTabBar";
@@ -74,6 +76,7 @@ export function AppShell({ user, connection = "unknown", children }: AppShellPro
 
   return (
     <TooltipProvider>
+      <EditorGuard />
       <div className="flex h-dvh flex-col overflow-hidden bg-paper">
         <a
           href="#main"
@@ -107,6 +110,7 @@ export function AppShell({ user, connection = "unknown", children }: AppShellPro
               </span>
               <GlobalSearch registerInput={registerSearch} />
               <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+                <NotificationBell />
                 <ConnectionPill state={connection} compact />
                 <UserMenu
                   name={user.name}

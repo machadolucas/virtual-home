@@ -1,3 +1,4 @@
+import type { Route } from "next";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
@@ -25,7 +26,7 @@ export default async function SettingsIndexPage() {
             return (
               <li key={item.href} className="border-b border-line last:border-b-0">
                 <Link
-                  href={item.href}
+                  href={(item.href) as Route}
                   className={cn(
                     "flex min-h-14 items-center gap-3 px-4 py-3 transition-colors duration-100",
                     "hover:bg-surface-2",

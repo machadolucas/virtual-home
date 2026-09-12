@@ -116,7 +116,7 @@ export function ProjectForm({
         ) : null
       }
     >
-      <form
+      <form data-unsaved
         className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
@@ -251,11 +251,11 @@ export function ProjectForm({
           )}
         </Field>
 
-        <div className="flex items-center gap-2">
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 border-t border-line bg-surface/95 py-3 backdrop-blur">
           <Button type="submit" variant="primary" loading={active.pending}>
             {submitLabel}
           </Button>
-          <Button type="button" variant="ghost" onClick={() => router.back()}>
+          <Button data-discard-editor type="button" variant="ghost" onClick={() => router.back()}>
             Cancel
           </Button>
           {values.budget.trim() !== "" && parseCents(values.budget) !== null ? (

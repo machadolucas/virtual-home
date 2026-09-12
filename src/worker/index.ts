@@ -25,6 +25,8 @@
  *     and every claim this process held expires on its own. A worker limping along in an unknown
  *     state is worse than a restart.
  */
+import "../../scripts/lib/serverOnly";
+import { startDocumentTextJob } from "./jobs/documents";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -229,6 +231,7 @@ export function startWorker(options: StartWorkerOptions): WorkerRuntime {
   });
 
   const jobs: Job[] = [
+    startDocumentTextJob({ handle }),
     startHaControlJob({ handle, socket: () => socket, now: clock.now }),
     startHeartbeatJob({
       handle,

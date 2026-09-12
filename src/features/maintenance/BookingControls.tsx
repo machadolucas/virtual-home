@@ -16,6 +16,7 @@ import { useState } from "react";
 import { CalendarCog } from "lucide-react";
 import { Button, Dialog, Field, Input, Select } from "@/ui";
 import type { BookingStatus } from "@/db/schema/maintenance";
+import { ProviderPicker, type ProviderChoice } from "@/features/providers/ProviderPicker";
 import { updateBooking } from "@/server/actions/maintenance/bookings";
 import { messageFor, useAction } from "./useAction";
 
@@ -43,6 +44,11 @@ export interface BookingControlsProps {
   scheduledLocalDate: string | null;
   windowNote: string | null;
   reference: string | null;
+  startTime?: string;
+  endTime?: string;
+  providerId?: string;
+  providers?: readonly ProviderChoice[];
+  contactNote?: string | null;
 }
 
 export function BookingControls({
@@ -51,12 +57,16 @@ export function BookingControls({
   status,
   scheduledLocalDate,
   windowNote,
-  reference,
+  reference, startTime = "", endTime = "", providerId = "", providers = [], contactNote,
 }: BookingControlsProps) {
   const [open, setOpen] = useState(false);
   const [nextStatus, setNextStatus] = useState<BookingStatus>(status);
   const [date, setDate] = useState(scheduledLocalDate ?? "");
   const [note, setNote] = useState(windowNote ?? "");
+  const [start, setStart] = useState(startTime);
+  const [end, setEnd] = useState(endTime);
+  const [chosenProvider, setChosenProvider] = useState(providerId);
+  const [contact, setContact] = useState(contactNote ?? "");
   const [ref, setRef] = useState(reference ?? "");
 
   const { run, pending, failure, requestKey } = useAction(updateBooking, {
@@ -67,7 +77,7 @@ export function BookingControls({
   return (
     <Dialog
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(next) => { if (!pending) { if (next) { setNextStatus(status); setDate(scheduledLocalDate ?? ""); setStart(startTime); setEnd(endTime); setChosenProvider(providerId); setContact(contactNote ?? ""); setNote(windowNote ?? ""); setRef(reference ?? ""); } setOpen(next); } }}
       size="sm"
       trigger={
         <Button variant="secondary" size="sm" icon={<CalendarCog aria-hidden="true" />}>
@@ -92,6 +102,10 @@ export function BookingControls({
                 // `null` clears the field, so an emptied box means "no date agreed" rather than
                 // silently keeping the one that is being changed away from.
                 scheduledDate: date === "" ? null : date,
+                startTime: date && start ? start : null,
+                endTime: date && end ? end : null,
+                providerId: chosenProvider || undefined,
+                contactNote: contact || null,
                 windowNote: note.trim() === "" ? null : note.trim(),
                 reference: ref.trim() === "" ? null : ref.trim(),
                 idempotencyKey: requestKey,
@@ -129,6 +143,10 @@ export function BookingControls({
             />
           )}
         </Field>
+
+        <div className="grid grid-cols-2 gap-3"><Field label="From">{({ id }) => <Input id={id} type="time" value={start} disabled={!date} onChange={(e) => setStart(e.target.value)} />}</Field><Field label="To">{({ id }) => <Input id={id} type="time" value={end} disabled={!date} onChange={(e) => setEnd(e.target.value)} />}</Field></div>
+        <Field label="Provider">{({ id }) => <ProviderPicker id={id} value={chosenProvider} onValueChange={setChosenProvider} options={providers} />}</Field>
+        <Field label="Contact note">{({ id }) => <Input id={id} value={contact} onChange={(e) => setContact(e.target.value)} maxLength={4000} />}</Field>
 
         <Field label="Window as they described it" help="“Between 8 and 12” is a real answer.">
           {({ id, describedBy }) => (

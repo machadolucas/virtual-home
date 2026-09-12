@@ -1,3 +1,4 @@
+import type { Route } from "next";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -11,7 +12,7 @@ import {
   showInHouseHref,
 } from "@/features/projects/labels";
 import { requireSessionPage } from "@/server/auth/session";
-import { linkCandidates, readProject } from "@/server/queries/infrastructure/projects";
+import { readProject } from "@/server/queries/infrastructure/projects";
 import { Badge, Panel, buttonClasses } from "@/ui";
 import { PageHeader, PageScroll } from "@/ui/shell";
 import { ProjectForm, type ProjectFormValues } from "../ProjectForm";
@@ -23,6 +24,7 @@ export async function generateMetadata({
   params,
 }: PageProps<"/projects/[id]">): Promise<Metadata> {
   const { id } = await params;
+  await requireSessionPage(`/projects/${id}`);
   const detail = readProject(getDb().db, id);
   return { title: detail?.project.name ?? "Project" };
 }
@@ -73,7 +75,7 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
         actions={
           <>
             <Link
-              href={showInHouseHref(p.id, detail.routeIds)}
+              href={(showInHouseHref(p.id, detail.routeIds)) as Route}
               className={buttonClasses({ variant: "secondary", size: "sm" })}
             >
               Show in house
@@ -117,7 +119,7 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
                 </time>
                 <div className="min-w-0">
                   <p className="text-sm">
-                    {entry.title}
+                    <Link className="text-accent-text hover:underline" href={(detail.links.find((link) => link.entityKind === "completion" && link.entityId === entry.completionId)?.href ?? "/history") as Route}>{entry.title}</Link>
                     {entry.voided ? (
                       <>
                         {" "}
@@ -141,7 +143,6 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[id]"
       <ProjectLinks
         projectId={p.id}
         links={detail.links}
-        candidates={linkCandidates(db)}
       />
 
       <ProjectFiles projectId={p.id} attachments={detail.attachments} />

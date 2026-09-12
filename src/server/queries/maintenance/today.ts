@@ -39,6 +39,10 @@ export interface TaskBooking {
   id: string;
   status: "requested" | "confirmed" | "rescheduled" | "cancelled" | "attended" | "no_show";
   providerName: string;
+  providerId?: string;
+  scheduledStartMs?: number | null;
+  scheduledEndMs?: number | null;
+  contactNote?: string | null;
   scheduledLocalDate: LocalDate | null;
   windowNote: string | null;
   reference: string | null;
@@ -181,6 +185,10 @@ export function loadBookings(db: Db, ids: readonly string[]): Map<string, TaskBo
       windowNote: serviceBooking.windowNote,
       reference: serviceBooking.reference,
       providerName: serviceProvider.name,
+      providerId: serviceBooking.providerId,
+      scheduledStartMs: serviceBooking.scheduledStartMs,
+      scheduledEndMs: serviceBooking.scheduledEndMs,
+      contactNote: serviceBooking.contactNote,
     })
     .from(serviceBooking)
     .innerJoin(serviceProvider, eq(serviceBooking.providerId, serviceProvider.id))

@@ -80,7 +80,7 @@ export function HouseholdForm({
   };
 
   return (
-    <form
+    <form data-unsaved
       className="flex flex-col gap-5"
       onSubmit={(event) => {
         event.preventDefault();

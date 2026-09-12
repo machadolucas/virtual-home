@@ -10,7 +10,7 @@
  * The palette also states the escape hatch (hold Space for the camera), because a locked camera
  * with no visible way back is the kind of thing that makes a 3D view feel broken rather than modal.
  */
-import { Hand, MousePointer2, MapPin } from "lucide-react";
+import { Hand, MousePointer2, MapPin, Orbit } from "lucide-react";
 import { Tooltip } from "@/ui";
 import { cn } from "@/ui/cn";
 import { CANVAS_TOOLS, type CanvasTool } from "@/house/store/slices/view";
@@ -23,8 +23,9 @@ const TOOL_META: {
     label: "Orbit the camera",
     key: "C",
     hint: "Drag to turn the house around.",
-    icon: <Hand aria-hidden="true" className="size-4" />,
+    icon: <Orbit aria-hidden="true" className="size-4" />,
   },
+  pan: { label: "Pan", key: "Shift + drag", hint: "Drag to move the view sideways or up and down.", icon: <Hand aria-hidden="true" className="size-4" /> },
   select: {
     label: "Select",
     key: "V",
@@ -67,13 +68,14 @@ export function ToolPalette() {
               aria-label={`${meta.label} (${meta.key})`}
               onClick={() => setTool(value)}
               className={cn(
-                "flex size-8 items-center justify-center rounded-md border",
+                "flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-md border px-1 md:min-h-8 md:min-w-8",
                 active
                   ? "border-accent bg-accent-soft text-accent-text"
                   : "border-transparent text-ink-2 hover:bg-surface-3",
               )}
             >
               {meta.icon}
+              {value === "pan" ? <span className="text-[10px]">Pan</span> : null}
             </button>
           </Tooltip>
         );

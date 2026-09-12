@@ -35,6 +35,9 @@ chmod 700 "$TARGET" "$TARGET/secrets"
 cp "$SRC/app.db" "$TARGET/db/app.db"; rm -f "$TARGET/db/app.db-wal" "$TARGET/db/app.db-shm"
 rsync -a --delete "$SRC/attachments/" "$TARGET/attachments/"
 rsync -a --delete "$SRC/model/" "$TARGET/model/"
+# Older archives predate reversible quarantine. Do not erase unrelated recovery files.
+mkdir -p "$TARGET/quarantine"
+[ ! -d "$SRC/quarantine" ] || rsync -a "$SRC/quarantine/" "$TARGET/quarantine/"
 if [ ! -f "$TARGET/secrets/vh.env" ] && [ -f "$SRC/vh.env.redacted" ]; then
   cp "$SRC/vh.env.redacted" "$TARGET/secrets/vh.env"; chmod 600 "$TARGET/secrets/vh.env"
   echo "!! vh.env restored WITHOUT secrets: set BETTER_AUTH_SECRET and HA_TOKEN before starting"

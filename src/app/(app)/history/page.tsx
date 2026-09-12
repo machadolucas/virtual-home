@@ -1,3 +1,5 @@
+import { DocumentLink } from "@/features/documents/DocumentViewer";
+import { AddToProject } from "@/features/projects/AddToProject";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
@@ -76,6 +78,7 @@ export default async function HistoryPage(props: {
         }
       />
 
+      {filters.completionId && <p className="text-sm text-ink-2">Showing one recorded completion. <Link href="/history" className="text-accent-text underline">View all history</Link></p>}
       <HistoryFilters
         targets={targets}
         from={filters.from}
@@ -113,7 +116,8 @@ export default async function HistoryPage(props: {
           flush
           footer={`${rows.length} entries${rows.length === 300 ? " (showing the most recent 300)" : ""}`}
         >
-          <div className="overflow-x-auto">
+          <ul className="divide-y divide-line md:hidden">{rows.map((row) => <li key={`${row.type}-${row.id}`} className="p-4"><div className="flex items-center justify-between gap-2"><Badge tone={TYPE_BADGE[row.type].tone} size="sm">{TYPE_BADGE[row.type].label}</Badge><time className="text-xs text-ink-3">{row.date ? formatDate(row.date) : "No date agreed"}</time></div><p className="mt-2 font-medium">{row.occurrenceId ? <Link href={`/tasks/${row.occurrenceId}${row.type === "completions" || row.type === "voided" ? `#completion-${row.id}` : ""}`} className="text-accent-text">{row.title}</Link> : row.title}</p><p className="mt-1 text-sm text-ink-2">{[row.actorProviderName ?? members.find((member) => member.id === row.actorUserId)?.name, row.target?.name].filter(Boolean).join(" · ")}</p><details className="mt-2 text-sm"><summary className="cursor-pointer py-2 text-ink-2">Entry details</summary><div className="space-y-2 pb-2">{row.bookingStatus && <p>Booking: {row.bookingStatus.replaceAll("_", " ")}</p>}{row.voidReason && <p className="text-overdue">Voided: {row.voidReason}</p>}{row.reason && <p>{row.reason}</p>}{row.notes && <p className="whitespace-pre-wrap">{row.notes}</p>}{row.effortMinutes !== null && <p>{formatMinutes(row.effortMinutes)}</p>}{row.materials.map((line, i) => <p key={i}>{line.partName} · {formatQty(line.actualQtyMilli, line.unit)}{line.shortfallMilli > 0 ? ` · ${formatQty(line.shortfallMilli, line.unit)} short` : ""}</p>)}<div className="flex flex-wrap gap-2">{row.photoIds.map((id, i) => <a key={id} href={`/api/attachments/${id}`} className="text-accent-text underline">Photo {i + 1}</a>)}</div>{row.type === "completions" || row.type === "voided" ? <AddToProject entityKind="completion" entityId={row.id} /> : row.occurrenceId && <AddToProject entityKind="occurrence" entityId={row.occurrenceId} />}</div></details></li>)}</ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[48rem] border-collapse text-sm">
               <caption className="sr-only">Recorded maintenance history</caption>
               <thead>
@@ -152,12 +156,13 @@ export default async function HistoryPage(props: {
                             <span className="text-ink">{row.title}</span>
                           ) : (
                             <Link
-                              href={`/tasks/${row.occurrenceId}`}
+                              href={`/tasks/${row.occurrenceId}${row.type === "completions" || row.type === "voided" ? `#completion-${row.id}` : ""}`}
                               className="text-ink hover:text-accent-text hover:underline"
                             >
                               {row.title}
                             </Link>
                           )}
+                          {row.type === "completions" || row.type === "voided" ? <AddToProject entityKind="completion" entityId={row.id} /> : null}
                           {row.isReplacement ? (
                             <span className="text-xs text-ink-3">the unit was replaced</span>
                           ) : null}
@@ -231,9 +236,9 @@ export default async function HistoryPage(props: {
                         {row.photoIds.length > 0 ? (
                           <span className="mt-1 flex flex-wrap gap-1">
                             {row.photoIds.map((photoId) => (
-                              <a
+                              <DocumentLink
                                 key={photoId}
-                                href={`/api/attachments/${photoId}`}
+                                document={{id:photoId}}
                                 className="block overflow-hidden rounded-xs border border-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                               >
                                 <Image
@@ -244,7 +249,7 @@ export default async function HistoryPage(props: {
                                   unoptimized
                                   className="size-12 object-cover"
                                 />
-                              </a>
+                              </DocumentLink>
                             ))}
                           </span>
                         ) : null}

@@ -1,0 +1,81 @@
+import { expect, test } from "@playwright/test";
+import { login, nextClientIp } from "./fixtures";
+import { syntheticPdf } from "../helpers/pdf";
+test("PDF documents stay inline with page search, zoom and fullscreen", async ({page}) => {
+  await page.context().setExtraHTTPHeaders({"x-forwarded-for":nextClientIp()});
+  await login(page,"lucas",{next:"/documents"});
+  await page.getByLabel("Choose document",{exact:true}).setInputFiles({name:"Synthetic manual.pdf",mimeType:"application/pdf",buffer:syntheticPdf()});
+  await expect(page).toHaveURL(/\/documents\/.+/);
+  const canvas = page.getByLabel("PDF page 1");
+  await expect(canvas).toBeVisible();
+  await expect(page.getByText("Page 1 / 2",{exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Next",exact:true}).click();
+  await expect(page.getByLabel("PDF page 2")).toBeVisible();
+  await page.getByLabel("Find text in PDF").fill("equipment");
+  await page.getByRole("button",{name:"Find next",exact:true}).click();
+  await expect(page.getByText("Found on page 1")).toBeVisible();
+  await page.getByRole("button",{name:"Zoom in",exact:true}).click();
+  await page.getByRole("button",{name:"Fullscreen",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Exit fullscreen",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Exit fullscreen",exact:true}).click();
+  await page.getByRole("button",{name:"Edit document details",exact:true}).click();
+  await page.getByLabel("Title",{exact:true}).fill("Synthetic searchable manual");
+  await page.getByRole("button",{name:"Save changes",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Synthetic searchable manual",exact:true})).toBeVisible();
+});
+
+test("unsaved document edits survive cancelled navigation and browser Back", async ({page})=>{
+  await page.context().setExtraHTTPHeaders({"x-forwarded-for":nextClientIp()});
+  await login(page,"lucas",{next:"/documents"});
+  await page.getByLabel("Choose document",{exact:true}).setInputFiles({name:"Guard manual.pdf",mimeType:"application/pdf",buffer:syntheticPdf(["Unsaved guard fixture"])});
+  await expect(page).toHaveURL(/\/documents\/.+/);
+  await page.getByRole("button",{name:"Edit document details",exact:true}).click();
+  await page.getByLabel("Title",{exact:true}).fill("Still editing");
+  page.once("dialog",dialog=>dialog.dismiss());
+  await page.getByRole("link",{name:"← Documents",exact:true}).click();
+  await expect(page.getByLabel("Title",{exact:true})).toHaveValue("Still editing");
+  page.once("dialog",dialog=>dialog.dismiss());
+  await page.evaluate(()=>history.back());
+  await expect(page.getByLabel("Title",{exact:true})).toHaveValue("Still editing");
+  page.once("dialog",dialog=>dialog.accept());
+  await page.getByRole("link",{name:"← Documents",exact:true}).click();
+  await expect(page).toHaveURL(/\/documents$/);
+});
+
+test("equipment editor keeps draft on cancelled navigation and clears protection after save",async({page})=>{
+  await page.context().setExtraHTTPHeaders({"x-forwarded-for":nextClientIp()});
+  await login(page,"lucas",{next:"/equipment/new"});
+  const name=page.getByRole("textbox",{name:/^Name/}).first();
+  await name.fill(`Guarded equipment ${Date.now()}`);
+  page.once("dialog",dialog=>dialog.dismiss());
+  await page.getByRole("button",{name:"Cancel",exact:true}).click();
+  await expect(name).toHaveValue(/Guarded equipment/);
+  page.once("dialog",dialog=>dialog.dismiss());
+  await page.evaluate(()=>history.back());
+  await expect(name).toHaveValue(/Guarded equipment/);
+  await page.getByRole("button",{name:"Add the equipment",exact:true}).click();
+  await expect(page).toHaveURL(/\/equipment\/(?!new)[^/]+$/);
+  await page.goto("/equipment");
+});
+
+test("phone sheets retain unfinished route text and release focus on close",async({page,isMobile})=>{
+  test.skip(!isMobile,"Phone sheet behavior.");
+  await page.context().setExtraHTTPHeaders({"x-forwarded-for":nextClientIp()});
+  await login(page,"lucas",{next:"/house"});
+  await expect(page.getByTestId("vh-phone-workspace")).toBeVisible();
+  await page.getByRole("button",{name:"Details",exact:true}).click();
+  const details=page.getByRole("dialog",{name:"Details",exact:true});
+  await details.getByRole("button",{name:"New route",exact:true}).click();
+  const name=details.getByRole("textbox",{name:"Name",exact:true});
+  await name.fill("Unfinished pipe name");
+  await details.getByRole("button",{name:"Close",exact:true}).click();
+  await expect(details).toBeHidden();
+  await expect(page.getByRole("button",{name:"Details",exact:true})).toBeFocused();
+  await page.getByRole("button",{name:"View",exact:true}).click();
+  const view=page.getByRole("dialog",{name:"View settings",exact:true});
+  await expect(view).toBeVisible();
+  await view.getByRole("button",{name:"Close",exact:true}).click();
+  await page.getByRole("button",{name:"Details",exact:true}).click();
+  await expect(details.getByRole("textbox",{name:"Name",exact:true})).toHaveValue("Unfinished pipe name");
+  await details.getByRole("button",{name:"Close",exact:true}).click();
+});

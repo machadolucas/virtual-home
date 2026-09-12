@@ -1,4 +1,5 @@
 "use client";
+import type { Route } from "next";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -7,7 +8,8 @@ import type { ProjectLinkEntityKind } from "@/db/schema/infrastructure";
 import { PROJECT_LINK_KINDS } from "@/features/projects/wire";
 import { PROJECT_LINK_LABEL } from "@/features/projects/labels";
 import { useAction } from "@/features/settings/actionClient";
-import type { LinkCandidate, ProjectLinkView } from "@/server/queries/infrastructure/projects";
+import { RecordPicker } from "@/features/projects/RecordPicker";
+import type { ProjectLinkView } from "@/server/queries/infrastructure/projects";
 import { addProjectLink, removeProjectLink } from "@/server/actions/infrastructure/projects";
 import { Badge, Button, Field, Input, Panel, Select } from "@/ui";
 
@@ -19,18 +21,14 @@ import { Badge, Button, Field, Input, Panel, Select } from "@/ui";
  * shows as **missing** with its raw id, rather than as a plausible-looking name — a dangling link
  * the UI hides is a dangling link nobody ever fixes.
  *
- * Equipment, locations, systems, supplies and routes are picked from a list. Tasks, completed work
- * and service documents are entered by id: there can be thousands of them, and they are better
- * linked from their own screens where the context makes the choice obvious.
+ * Every kind uses a paginated record search so linking never requires a database id.
  */
 export function ProjectLinks({
   projectId,
   links,
-  candidates,
 }: {
   projectId: string;
   links: readonly ProjectLinkView[];
-  candidates: Partial<Record<ProjectLinkEntityKind, LinkCandidate[]>>;
 }) {
   const router = useRouter();
   const [kind, setKind] = useState<ProjectLinkEntityKind>("asset");
@@ -54,7 +52,6 @@ export function ProjectLinks({
     onSuccess: () => router.refresh(),
   });
 
-  const options = candidates[kind];
 
   return (
     <Panel
@@ -82,7 +79,7 @@ export function ProjectLinks({
                       <code className="text-xs">{link.entityId}</code>
                     </span>
                   ) : link.href ? (
-                    <Link href={link.href} className="hover:underline">
+                    <Link href={(link.href) as Route} className="hover:underline">
                       {link.label}
                     </Link>
                   ) : (
@@ -137,30 +134,7 @@ export function ProjectLinks({
               />
             )}
           </Field>
-          <Field
-            label="Which one"
-            help={options ? undefined : "Copy the id from that record's own page."}
-          >
-            {({ id }) =>
-              options && options.length > 0 ? (
-                <Select
-                  id={id}
-                  value={entityId}
-                  onValueChange={setEntityId}
-                  placeholder="Choose…"
-                  options={options.map((c) => ({ value: c.id, label: c.label }))}
-                />
-              ) : (
-                <Input
-                  id={id}
-                  value={entityId}
-                  onChange={(e) => setEntityId(e.target.value)}
-                  placeholder={options ? "Nothing recorded yet" : "0193…"}
-                  disabled={options?.length === 0}
-                />
-              )
-            }
-          </Field>
+          <Field label="Which record">{({ id }) => <RecordPicker key={kind} id={id} kind={kind} value={entityId} onChange={setEntityId} />}</Field>
           <Field label="Role" help="Optional: “replaced”, “inspected”, “paid for”.">
             {({ id }) => (
               <Input

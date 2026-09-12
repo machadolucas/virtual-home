@@ -121,6 +121,28 @@ function expectCode(fn: () => unknown, code: string): void {
   expect((caught as { code?: string }).code).toBe(code);
 }
 
+describe("one-off initial scheduling", () => {
+  it("creates exactly one task on the selected due date without inventing history", () => {
+    const w = open("2026-04-20T10:00:00Z");
+    const planId = makePlan(w, { rule: { v: 1, kind: "one_off" }, anchorDate: null });
+    const first = tx(w, (t) => seedPlanSchedule(t, w.ctx, planId, { kind: "user_chosen", date: "2026-05-07" }));
+    expect(first?.dueDate).toBe("2026-05-07");
+    expect(w.handle.db.select().from(completion).all()).toHaveLength(0);
+    expect(tx(w, (t) => createOccurrenceForPlan(t, w.ctx, planId))).toBeNull();
+    // A terminal occurrence remains the proof this single task has already existed.
+    expect(tx(w, (t) => skip(t, w.ctx, first!.id, "No longer needed")).next).toBeNull();
+    expect(tx(w, (t) => createOccurrenceForPlan(t, w.ctx, planId))).toBeNull();
+    expect(w.handle.db.select().from(maintenanceOccurrence).all()).toHaveLength(1);
+  });
+
+  it("uses today for start-now and creates nothing while the date is unknown", () => {
+    const w = open("2026-04-20T10:00:00Z");
+    const planId = makePlan(w, { rule: { v: 1, kind: "one_off" }, anchorDate: null });
+    expect(tx(w, (t) => createOccurrenceForPlan(t, w.ctx, planId))).toBeNull();
+    expect(tx(w, (t) => seedPlanSchedule(t, w.ctx, planId, { kind: "start_now" }))?.dueDate).toBe("2026-04-20");
+  });
+});
+
 describe("becoming due", () => {
   // 26
   it("flips pending -> due exactly at the delivery-time instant, not one tick earlier", () => {

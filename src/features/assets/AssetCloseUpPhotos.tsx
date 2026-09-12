@@ -1,4 +1,5 @@
 "use client";
+import { DocumentPreview } from "@/features/documents/DocumentViewer";
 /**
  * Close-up photos on the equipment page's "Where to find it" panel: a shot of the shutoff valve,
  * the breaker, the filter's exact orientation — whatever a future visit would otherwise have to
@@ -111,12 +112,7 @@ export function AssetCloseUpPhotos({
           title={viewing.caption ?? viewing.originalFilename}
           description="The full-size copy. Location data was stripped when it was stored."
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`/api/attachments/${viewing.id}?v=web`}
-            alt={viewing.caption ?? viewing.originalFilename}
-            className="max-h-[70dvh] w-full rounded-md border border-line object-contain"
-          />
+          <DocumentPreview document={{...viewing, mime:"image/jpeg", hasWebCopy:true}} />
         </Dialog>
       )}
 

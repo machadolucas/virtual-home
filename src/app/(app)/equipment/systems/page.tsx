@@ -84,7 +84,7 @@ export default async function SystemsPage() {
             key={system.id}
             title={
               <span className="flex flex-wrap items-center gap-2">
-                {system.name}
+                <span id={system.id}>{system.name}</span>
                 <Badge tone="neutral" size="sm">
                   {SYSTEM_KIND_LABEL[system.kind]}
                 </Badge>

@@ -307,7 +307,7 @@ export interface CreateOccurrenceOptions {
 /**
  * Generate the plan's next occurrence, or return `null` when there is nothing to generate:
  * the plan is not `active`, an open occurrence already exists (one-open-per-plan), the rule is
- * terminal (`one_off`, `condition`), or the plan still has no schedule anchor ("ask me later").
+ * terminal (an existing `one_off`, or `condition`), or the plan has no schedule anchor.
  */
 export function createOccurrenceForPlan(
   tx: Db,
@@ -325,7 +325,17 @@ export function createOccurrenceForPlan(
   // "No idea / ask me later": there is no scheduling input, so there is nothing honest to compute.
   if (anchor.date === null && anchor.source === "none") return null;
 
-  const next = computeNextDue(rule, anchor, ctx.clock.now(), ctx.tz);
+  // A one-off has an initial due date, but recurrence deliberately has no successor.
+  // Keep terminal occurrences as evidence so a scheduler tick cannot recreate finished work.
+  const priorOneOff = rule.kind === "one_off"
+    ? tx.select({ id: maintenanceOccurrence.id }).from(maintenanceOccurrence)
+      .where(eq(maintenanceOccurrence.planId, planId)).limit(1).get()
+    : undefined;
+  const next = rule.kind === "one_off"
+    ? anchor.date !== null && priorOneOff === undefined && opts.generatedByCompletionId === undefined
+      ? { dueDate: anchor.date, missedSeriesDates: [] }
+      : null
+    : computeNextDue(rule, anchor, ctx.clock.now(), ctx.tz);
   if (next === null) return null;
 
   return insertOccurrence(tx, ctx, {
@@ -1274,7 +1284,7 @@ export function seedPlanSchedule(
     case "start_now":
       // Completion-anchored kinds start the clock today; calendar kinds need a lower bound that
       // lets a series date landing *on* today still count, so they use yesterday.
-      anchorDate = isCompletionAnchored(rule) ? today : addDaysLocal(today, -1);
+      anchorDate = rule.kind === "one_off" || isCompletionAnchored(rule) ? today : addDaysLocal(today, -1);
       anchorSource = "user_chosen";
       break;
     case "install_date": {

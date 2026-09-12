@@ -1,3 +1,4 @@
+import type { Route } from "next";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -127,7 +128,7 @@ export default async function PlanPage(props: { params: Promise<{ id: string }> 
                   <span className="text-xs text-ink-3">{plan.target.context}</span>
                 ) : null}
                 <Link
-                  href={plan.target.locateHref}
+                  href={(plan.target.locateHref) as Route}
                   className={buttonClasses({ variant: "secondary", size: "sm" })}
                 >
                   Locate in house

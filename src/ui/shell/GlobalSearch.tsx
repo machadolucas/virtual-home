@@ -1,4 +1,5 @@
 "use client";
+import type { Route } from "next";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -87,7 +88,7 @@ export function GlobalSearch({ registerInput, className }: GlobalSearchProps) {
   // make the flat list below recompute forever.
   const visibleGroups = useMemo(() => (fresh ? groups : EMPTY_GROUPS), [fresh, groups]);
   // Flat list in render order, so the arrow keys can walk across group boundaries.
-  const flat = useMemo(() => visibleGroups.flatMap((group) => group.hits), [visibleGroups]);
+  const flat = useMemo(() => { const hits = visibleGroups.flatMap((group) => group.hits); return fresh ? [...hits, { id: "__all__", label: "View all results", secondary: null, href: `/search?q=${encodeURIComponent(trimmed)}` }] : hits; }, [visibleGroups, fresh, trimmed]);
   const activeIndex = flat.length === 0 ? 0 : Math.min(active, flat.length - 1);
 
   useEffect(() => {
@@ -148,7 +149,7 @@ export function GlobalSearch({ registerInput, className }: GlobalSearchProps) {
     (hit: SearchHit) => {
       close();
       inputRef.current?.blur();
-      router.push(hit.href);
+      router.push((hit.href) as Route);
     },
     [close, router],
   );
@@ -314,7 +315,7 @@ export function GlobalSearch({ registerInput, className }: GlobalSearchProps) {
                         >
                           <span className="min-w-0 flex-1 truncate">{hit.label}</span>
                           {hit.secondary ? (
-                            <span className="shrink-0 text-xs text-ink-3">{hit.secondary}</span>
+                            <span className="max-w-[45%] truncate text-xs text-ink-3">{hit.secondary}</span>
                           ) : null}
                         </button>
                       </li>
@@ -323,12 +324,13 @@ export function GlobalSearch({ registerInput, className }: GlobalSearchProps) {
                 </ul>
                 {group.hasMore ? (
                   <p aria-hidden="true" className="px-1.5 text-[10px] text-ink-3">
-                    More match — narrow the search.
+                    More available in all results.
                   </p>
                 ) : null}
               </div>
             ))
           )}
+          {fresh && <button type="button" role="option" aria-selected={activeIndex === flat.length - 1} id={optionId(flat.length - 1)} onMouseDown={(event) => event.preventDefault()} onClick={() => go(flat[flat.length - 1]!)} className={cn("mt-1 min-h-11 w-full rounded px-2 text-left font-medium text-accent-text md:min-h-8", activeIndex === flat.length - 1 && "bg-surface-3")}>View all results</button>}
         </div>
       ) : null}
     </div>

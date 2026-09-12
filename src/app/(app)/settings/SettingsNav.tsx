@@ -1,4 +1,5 @@
 "use client";
+import type { Route } from "next";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -86,7 +87,7 @@ function Row({
 }) {
   return (
     <Link
-      href={href}
+      href={(href) as Route}
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors duration-100",
@@ -105,7 +106,7 @@ function Row({
 function Chip({ href, label, active }: { href: string; label: string; active: boolean }) {
   return (
     <Link
-      href={href}
+      href={(href) as Route}
       aria-current={active ? "page" : undefined}
       className={cn(
         "inline-flex min-h-9 shrink-0 items-center rounded-full border px-3 text-[0.8125rem]",

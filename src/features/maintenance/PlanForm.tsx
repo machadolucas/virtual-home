@@ -11,6 +11,7 @@
  * a *schedule anchor*; none of it writes a completion. "Sometime in spring 2024" produces an
  * immediately-overdue first task and an empty history, which is the truth (§2.4).
  */
+import { ProviderPicker } from "@/features/providers/ProviderPicker";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Save, Trash2 } from "lucide-react";
@@ -154,9 +155,11 @@ export function PlanForm({
   const cancel = useAction(cancelPlanAction, { refresh: false });
 
   const ruleResult = toRecurrenceRule(schedule);
-  const canSave = target !== "" && title.trim() !== "" && ruleResult.ok;
+  const canSave = target !== "" && title.trim() !== "" && ruleResult.ok &&
+    (schedule.kind !== "one_off" || !askSetup || seedDate !== "");
 
   function seedPayload() {
+    if (schedule.kind === "one_off") return { kind: "user_chosen" as const, date: seedDate };
     return {
       kind: seedKind,
       date: seedNeedsDate(seedKind) ? seedDate : undefined,
@@ -207,7 +210,7 @@ export function PlanForm({
   const pending = create.pending || update.pending;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div data-unsaved className="flex flex-col gap-5">
       <Panel title="What and where">
         <div className="flex flex-col gap-4">
           <Field
@@ -298,30 +301,34 @@ export function PlanForm({
 
       {askSetup ? (
         <Panel
-          title="When was this last done?"
+          title={schedule.kind === "one_off" ? "Due date" : "When was this last done?"}
           subtitle={
-            mode === "create"
+            schedule.kind === "one_off"
+              ? "Create one task for this date. Completing or skipping it will not create another task."
+              : mode === "create"
               ? "This sets the starting point the schedule is measured from. It is never recorded as a completion — History stays empty until real work is logged."
               : "This plan is still waiting for a starting point, so it is paused and generates nothing. Answering here writes the anchor the schedule is measured from — never a completion, so History stays empty until real work is logged. It is its own act, separate from saving the rest of the form."
           }
         >
           <div className="flex flex-col gap-4">
-            <RadioGroup
-              ariaLabel="Starting point"
-              value={seedKind}
-              onValueChange={(value) => setSeedKind(value as SeedExplanationKind)}
-              options={SEED_EXPLANATIONS.map((entry) => ({
-                value: entry.kind,
-                label: entry.label,
-                hint: entry.plain,
-              }))}
-            />
-            {seedNeedsDate(seedKind) ? (
+            {schedule.kind !== "one_off" ? (
+              <RadioGroup
+                ariaLabel="Starting point"
+                value={seedKind}
+                onValueChange={(value) => setSeedKind(value as SeedExplanationKind)}
+                options={SEED_EXPLANATIONS.map((entry) => ({
+                  value: entry.kind,
+                  label: entry.label,
+                  hint: entry.plain,
+                }))}
+              />
+            ) : null}
+            {schedule.kind === "one_off" || seedNeedsDate(seedKind) ? (
               <Field
-                label={seedKind === "baseline_approx" ? "Approximate date" : "Date"}
+                label={schedule.kind === "one_off" ? "Due date" : seedKind === "baseline_approx" ? "Approximate date" : "Date"}
                 required
                 help={
-                  seedKind === "baseline_approx"
+                  schedule.kind !== "one_off" && seedKind === "baseline_approx"
                     ? "Pick roughly the middle of the period you mean, and say what you meant in the note below."
                     : undefined
                 }
@@ -337,7 +344,7 @@ export function PlanForm({
                 )}
               </Field>
             ) : null}
-            {seedKind === "baseline_approx" ? (
+            {schedule.kind !== "one_off" && seedKind === "baseline_approx" ? (
               <Field label="In your words" help="Kept with the anchor, so nobody has to guess later.">
                 {({ id }) => (
                   <Input
@@ -349,7 +356,7 @@ export function PlanForm({
                 )}
               </Field>
             ) : null}
-            {seedKind === "ask_later" ? (
+            {schedule.kind !== "one_off" && seedKind === "ask_later" ? (
               <p className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">
                 {mode === "create"
                   ? "The plan will be saved but paused, with no task generated. It will appear on Today under “Plans waiting for a starting point”."
@@ -367,8 +374,8 @@ export function PlanForm({
                   variant="primary"
                   loading={seed.pending}
                   disabled={
-                    seedKind === "ask_later" ||
-                    (seedNeedsDate(seedKind) && seedDate.trim() === "")
+                    (schedule.kind !== "one_off" && seedKind === "ask_later") ||
+                    ((schedule.kind === "one_off" || seedNeedsDate(seedKind)) && seedDate.trim() === "")
                   }
                   onClick={() =>
                     void seed.run({
@@ -378,7 +385,7 @@ export function PlanForm({
                     })
                   }
                 >
-                  Set the starting point
+                  {schedule.kind === "one_off" ? "Set the due date" : "Set the starting point"}
                 </Button>
                 <span className="text-xs text-ink-3">
                   Writes a schedule anchor and nothing else. No work is recorded as done.
@@ -454,20 +461,7 @@ export function PlanForm({
           {requiresProfessional ? (
             <Field label="Usual provider">
               {({ id, describedBy }) => (
-                <Select
-                  id={id}
-                  describedBy={describedBy}
-                  value={defaultProviderId}
-                  onValueChange={setDefaultProviderId}
-                  options={[
-                    { value: NO_PROVIDER, label: "No default" },
-                    ...providers.map((option) => ({
-                      value: option.value,
-                      label: option.label,
-                      hint: option.hint,
-                    })),
-                  ]}
-                />
+                <ProviderPicker id={id} describedBy={describedBy} value={defaultProviderId} onValueChange={setDefaultProviderId} options={providers} emptyValue={NO_PROVIDER} emptyLabel="No default" />
               )}
             </Field>
           ) : null}
@@ -516,7 +510,7 @@ export function PlanForm({
         >
           {mode === "create" ? "Create the plan" : "Save changes"}
         </Button>
-        <Button variant="ghost" size="lg" onClick={() => router.back()}>
+        <Button data-discard-editor variant="ghost" size="lg" onClick={() => router.back()}>
           Cancel
         </Button>
         {canCancel && planId !== undefined ? (

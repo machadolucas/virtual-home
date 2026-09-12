@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState, useTransition } from "react";
+import { savingEditor } from "@/features/forms/unsaved";
 import { toast } from "@/ui";
 
 /**
@@ -51,7 +52,7 @@ export interface UseActionOptions<O> {
 const BASE_MESSAGES: Record<string, string> = {
   unauthorized: "Your session expired. Reload the page and sign in again.",
   invalid_request: "Some of the values were not accepted. Check the highlighted fields.",
-  internal: "The server could not complete that. Nothing was changed.",
+  internal: "The server could not confirm the change. Your edits are kept; try again.",
   not_found: "That record no longer exists. Reload the page.",
   conflict: "Somebody else changed this at the same time. Reload and try again.",
 
@@ -139,11 +140,17 @@ export function useAction<I, O>(
 
   const run = useCallback(
     (input: I) => {
+      const editorSaved = savingEditor();
       setError(null);
       setFieldErrors({});
       startTransition(async () => {
-        const result = await fn(input);
+        let result: ActionResult<O>;
+        try { result = await fn(input); } catch {
+          const message = "The connection was interrupted. Your edits are kept; retry to confirm the save.";
+          setError(message); options.onError?.(message); toast({title:"Save not confirmed",description:message,tone:"error",duration:0}); return;
+        }
         if (result.ok) {
+          editorSaved();
           setData(result.data);
           // The key has done its job. Rotating it here — and only here — is what makes the next
           // submit a real second write instead of a replay of this one, while a retry after a

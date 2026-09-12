@@ -1,3 +1,4 @@
+import type { Route } from "next";
 import Link from "next/link";
 import { BatteryLow, HardHat, MapPin } from "lucide-react";
 import { Avatar, Badge, StatusDot } from "@/ui";
@@ -96,7 +97,7 @@ export function TaskRow({
                 {task.target.context !== null ? <span>{task.target.context}</span> : null}
                 {task.target.locatable ? (
                   <Link
-                    href={task.target.locateHref}
+                    href={(task.target.locateHref) as Route}
                     className="inline-flex items-center gap-1 text-accent-text hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                   >
                     <MapPin aria-hidden="true" className="size-3" />

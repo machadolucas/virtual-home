@@ -125,6 +125,7 @@ describe("migrations", () => {
     const journal = JSON.parse(fs.readFileSync(journalPath, "utf8")) as {
       entries: Array<{ idx: number }>;
     };
+    const remainingMigrations = journal.entries.filter((entry) => entry.idx >= 13).length;
     journal.entries = journal.entries.filter((entry) => entry.idx < 13);
     fs.writeFileSync(journalPath, `${JSON.stringify(journal, null, 2)}\n`);
 
@@ -173,7 +174,7 @@ describe("migrations", () => {
       expect(furnishingDependants).toEqual([]);
 
       process.env.VH_MIGRATIONS_DIR = sourceFolder;
-      expect(runMigrations(legacy).newlyApplied).toBe(1);
+      expect(runMigrations(legacy).newlyApplied).toBe(remainingMigrations);
       expect(legacy.sqlite.prepare(`SELECT * FROM furnishing WHERE id = ?`).get("f-existing"))
         .toMatchObject({
           kind: "bench",

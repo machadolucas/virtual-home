@@ -57,12 +57,12 @@ assumes user agents.
 cd ~/git/virtual-home && ./scripts/update.sh
 ```
 Order: pre-update backup → `git pull --ff-only` → install → typecheck + unit tests → stop worker, then
-web → migrate → build → start web (health wait) → start worker. Migrations are forward-only and
+web (boot out the launchd jobs to prevent KeepAlive restarting during the build) → migrate → build → bootstrap web (health wait) → bootstrap worker. Migrations are forward-only and
 additive-first; a failed migration prints the restore + rollback commands.
 
 ## Backup and restore
 `scripts/backup.sh [--label L] [--keep-forever]` produces a consistent archive (SQLite online backup +
-integrity check, attachments, model packages, redacted env, manifest) piped through `zstd -19`
+integrity check, attachments, reversible quarantine, model packages, redacted env, manifest) piped through `zstd -19`
 (`tar --zstd` on macOS barely compresses; do not "simplify" this). Retention 14 daily / 8 weekly;
 `--keep-forever` labels (pre-migration, pre-update, manual) are never pruned. Each run is recorded in
 `backup_run`; the system page alerts when no backup happened in 36 h.
@@ -129,3 +129,6 @@ build assets. Signed-in pages, RSC payloads, APIs, house-model files and Home As
 come from the server. When it cannot reach the server, a fresh navigation therefore shows only a
 connection-required screen and never household data. Push notifications are not part of the PWA;
 household reminders continue to use Home Assistant.
+
+
+For verification on an installed checkout, use `VH_DIST_DIR=.next-e2e` with the synthetic E2E harness. Its temporary database, model and uploads are separate from household data, and it never replaces the live `.next` build. Stop the synthetic server before rebuilding that directory. WebKit and Chromium browser projects cover desktop and phone layouts.

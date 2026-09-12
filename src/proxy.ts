@@ -8,6 +8,8 @@ import { NextResponse, type NextRequest } from "next/server";
  */
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  // MCP authenticates its own scoped bearer credential on every request.
+  if (pathname === "/mcp") return NextResponse.next();
   const isNavigation = request.headers.get("sec-fetch-mode") === "navigate";
 
   if (!getSessionCookie(request, { cookiePrefix: "vh" })) {

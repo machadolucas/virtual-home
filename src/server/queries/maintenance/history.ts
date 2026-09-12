@@ -28,6 +28,8 @@ export {
 } from "@/features/maintenance/historyTypes";
 
 export interface HistoryFilters {
+  /** Exact completion, including a voided record, when following a history link. */
+  completionId?: string;
   /** Inclusive LocalDate bounds. */
   from: LocalDate | null;
   to: LocalDate | null;
@@ -45,6 +47,8 @@ export function parseHistoryFilters(params: URLSearchParams): HistoryFilters {
     (HISTORY_TYPES as readonly string[]).includes(value),
   );
   const target = params.get("target");
+  const completionId = params.get("completion");
+  if (completionId && completionId.length <= 64) return { from: null, to: null, target: null, types: ["completions", "voided"], completionId };
   return {
     from: from !== null && isValidLocalDate(from) ? from : null,
     to: to !== null && isValidLocalDate(to) ? to : null,
@@ -103,6 +107,7 @@ export function loadHistory(db: Db, filters: HistoryFilters, limit = 300): Histo
 
   if (wantCompletions || wantVoided) {
     const conditions: SQL[] = [];
+    if (filters.completionId) conditions.push(eq(completion.id, filters.completionId));
     if (filters.from !== null) conditions.push(gte(completion.completedLocalDate, filters.from));
     if (filters.to !== null) conditions.push(lte(completion.completedLocalDate, filters.to));
     if (wantCompletions && !wantVoided) conditions.push(isNull(completion.voidedAtMs));

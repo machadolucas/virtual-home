@@ -7,7 +7,6 @@ import type { DomainContext } from "@/domain/inventory";
 import { localDateOf, systemClock, type LocalDate } from "@/domain/time";
 import { parseHouseBackground, type HouseBackground } from "@/house/model/background";
 import { log } from "@/server/log";
-import type { Session } from "@/server/auth/session";
 
 export type HouseholdRow = typeof householdSetting.$inferSelect;
 
@@ -60,7 +59,7 @@ export function householdTimezone(tx: Db): string {
  * `actorKind` is always `'user'` here: these modules are only ever reached from a server action or
  * a route handler that already required a session. The worker builds its own context.
  */
-export function userContext(session: Session, tx: Db): DomainContext {
+export function userContext(session: { user: { id: string } }, tx: Db): DomainContext {
   return {
     clock: systemClock,
     tz: householdTimezone(tx),

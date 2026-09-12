@@ -22,6 +22,7 @@ import { EVENT_CURSOR_ID, eventCursor, eventOutbox } from "@/db/schema/system";
  * the browser as one item.
  */
 export const EVENT_TOPICS = {
+  documentChanged: "document.changed",
   /** An HA entity's state changed. `key` is the `entity_id`. */
   haState: "ha.state",
   /** The HA integration's connection state changed. `key` is `'ha'`. */

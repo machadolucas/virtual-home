@@ -98,7 +98,8 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
   const st = await fs.stat(abs).catch(() => null);
   if (!st?.isFile()) throw notFound("variant_missing");
 
-  const disposition = contentDisposition(mime, row.originalFilename);
+  const disposition = new URL(req.url).searchParams.get("download") === "1" ? contentDisposition(mime, row.originalFilename).replace(/^inline/, "attachment") : contentDisposition(mime, row.originalFilename);
+  if (req.method === "HEAD") return new Response(null, { headers: { ...base, "Content-Type": mime, "Content-Length": String(st.size), "Content-Disposition": disposition, "Accept-Ranges": "bytes" } });
   const rangeHeader = req.headers.get("range");
   if (rangeHeader && mime === "application/pdf") {
     const range = parseRange(rangeHeader, st.size);
@@ -134,3 +135,6 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
     },
   });
 });
+
+/** Metadata is authenticated exactly like file bytes. */
+export const HEAD = GET;

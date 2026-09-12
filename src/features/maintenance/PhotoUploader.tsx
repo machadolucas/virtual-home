@@ -1,4 +1,6 @@
 "use client";
+
+import { DocumentLink } from "@/features/documents/DocumentViewer";
 /**
  * Adding a photo to a task, from a phone standing in front of the equipment.
  *
@@ -137,8 +139,7 @@ export function PhotoUploader({
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {photos.map((photo) => (
             <li key={photo.linkId} className="group relative">
-              <a
-                href={`/api/attachments/${photo.attachmentId}`}
+              <DocumentLink document={{id:photo.attachmentId}}
                 className="block overflow-hidden rounded-md border border-line bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               >
                 <Image
@@ -149,7 +150,7 @@ export function PhotoUploader({
                   unoptimized
                   className="aspect-4/3 h-auto w-full object-cover"
                 />
-              </a>
+              </DocumentLink>
               <p className="mt-1 truncate text-xs text-ink-3">
                 {photo.caption ?? photo.originalFilename}
               </p>

@@ -6,6 +6,8 @@ import { CutawayControl } from "./CutawayControl";
 import { ExplodeControl } from "./ExplodeControl";
 import { RouteLegend } from "./RouteLayer";
 import { ViewToolbar } from "./ViewToolbar";
+import { FullscreenButton } from "@/ui/FullscreenSurface";
+import { CameraNavigation } from "./CameraNavigation";
 import { DownloadImageButton } from "./DownloadImageButton";
 
 const TABS = [
@@ -23,6 +25,8 @@ export function ViewControls({ collapsed, onToggle }: { collapsed: boolean; onTo
           <ViewToolbar section="presets" />
         </div>
         <div className="ml-auto flex items-center gap-1">
+          <CameraNavigation />
+          <FullscreenButton />
           <DownloadImageButton />
           <IconButton
             label={collapsed ? "Show the view controls" : "Collapse the view controls"}
@@ -37,6 +41,7 @@ export function ViewControls({ collapsed, onToggle }: { collapsed: boolean; onTo
         <Tabs items={TABS} ariaLabel="View control groups">
           <TabsPanel value="view" className="max-h-48 overflow-y-auto p-2">
             <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] items-start gap-x-4 gap-y-2">
+              <CameraNavigation inputOnly />
               <CutawayControl />
               <ExplodeControl />
             </div>

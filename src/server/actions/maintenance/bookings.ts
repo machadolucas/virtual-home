@@ -21,60 +21,15 @@ import {
 } from "@/db/schema/maintenance";
 import { ConflictError, NotFoundError } from "@/domain/errors";
 import { loadOccurrence, postpone, writeAuditLog, writeOccurrenceEvent } from "@/domain/occurrence";
-import { instantOf } from "@/domain/time";
+import { assertBookingAssociation, bookingWindow } from "@/domain/booking";
 import { action } from "@/server/api/action";
 import { maintenanceContext } from "@/server/queries/maintenance/context";
 import { domainCall, id, idempotencyKey, localDate, optionalNote, revalidateMaintenance } from "./shared";
 
-const timeOfDay = z.string().regex(/^\d{2}:\d{2}$/);
+const timeOfDay = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
 
-export const createProvider = action(
-  z.object({
-    name: z.string().trim().min(1).max(200),
-    trade: z.string().trim().max(80).nullish(),
-    contactName: z.string().trim().max(200).nullish(),
-    phone: z.string().trim().max(80).nullish(),
-    email: z.string().trim().max(200).nullish(),
-    website: z.string().trim().max(500).nullish(),
-    notes: optionalNote.nullish(),
-    isPreferred: z.boolean().optional(),
-    idempotencyKey: idempotencyKey.optional(),
-  }),
-  async (input, session) => {
-    const { handle, ctx } = maintenanceContext(session.user.id);
-    const providerId = domainCall("create_provider", () =>
-      writeTx(handle.db, (tx) => {
-        const rowId = newId();
-        const now = ctx.clock.now();
-        tx.insert(serviceProvider)
-          .values({
-            id: rowId,
-            name: input.name,
-            trade: input.trade ?? null,
-            contactName: input.contactName ?? null,
-            phone: input.phone ?? null,
-            email: input.email ?? null,
-            website: input.website ?? null,
-            notes: input.notes ?? null,
-            isPreferred: input.isPreferred ?? false,
-            createdAtMs: now,
-            updatedAtMs: now,
-            createdBy: ctx.actorUserId,
-            updatedBy: ctx.actorUserId,
-          })
-          .run();
-        writeAuditLog(tx, ctx, {
-          entityTable: "service_provider",
-          entityId: rowId,
-          action: "created",
-          summary: `Added provider "${input.name}"`,
-        });
-        return rowId;
-      }),
-    );
-    return { providerId };
-  },
-);
+import { createProvider as createProviderAction } from "./providers";
+export async function createProvider(input: unknown) { return createProviderAction(input); }
 
 /**
  * Book a professional for an open task.
@@ -116,22 +71,16 @@ export const bookProfessional = action(
           });
         }
         const provider = tx
-          .select({ id: serviceProvider.id, name: serviceProvider.name })
+          .select({ id: serviceProvider.id, name: serviceProvider.name, archivedAtMs: serviceProvider.archivedAtMs })
           .from(serviceProvider)
           .where(eq(serviceProvider.id, input.providerId))
           .get();
         if (!provider) throw new NotFoundError("service_provider", input.providerId);
+        if (provider.archivedAtMs !== null) throw new ConflictError("provider_archived", "Restore this provider before booking them");
 
         const now = ctx.clock.now();
         const bookingId = newId();
-        const startMs =
-          input.scheduledDate === undefined || input.startTime === undefined
-            ? null
-            : instantOf(input.scheduledDate, input.startTime, settings.timezone);
-        const endMs =
-          input.scheduledDate === undefined || input.endTime === undefined || startMs === null
-            ? null
-            : instantOf(input.scheduledDate, input.endTime, settings.timezone);
+        const window = bookingWindow({ date: input.scheduledDate ?? null, startTime: input.startTime, endTime: input.endTime }, settings.timezone);
 
         tx.insert(serviceBooking)
           .values({
@@ -140,8 +89,7 @@ export const bookProfessional = action(
             providerId: provider.id,
             status: input.status ?? "requested",
             requestedAtMs: now,
-            scheduledStartMs: startMs,
-            scheduledEndMs: endMs !== null && startMs !== null && endMs >= startMs ? endMs : null,
+            ...window,
             scheduledLocalDate: input.scheduledDate ?? null,
             windowNote: input.windowNote ?? null,
             reference: input.reference ?? null,
@@ -208,12 +156,16 @@ export const updateBooking = action(
     occurrenceId: id,
     status: z.enum(BOOKING_STATUSES),
     scheduledDate: localDate.nullish(),
+    startTime: timeOfDay.nullish(),
+    endTime: timeOfDay.nullish(),
+    providerId: id.optional(),
+    contactNote: optionalNote.nullish(),
     windowNote: z.string().trim().max(200).nullish(),
     reference: z.string().trim().max(120).nullish(),
     idempotencyKey: idempotencyKey.optional(),
   }),
   async (input, session) => {
-    const { handle, ctx } = maintenanceContext(session.user.id);
+    const { handle, ctx, settings } = maintenanceContext(session.user.id);
     domainCall("update_booking", () =>
       writeTx(handle.db, (tx) => {
         const booking = tx
@@ -222,11 +174,24 @@ export const updateBooking = action(
           .where(eq(serviceBooking.id, input.bookingId))
           .get();
         if (!booking) throw new NotFoundError("service_booking", input.bookingId);
+        const occ = loadOccurrence(tx, input.occurrenceId);
+        assertBookingAssociation(booking.occurrenceId, occ.id, occ.serviceBookingId, booking.id);
+        if (occ.status !== "pending" && occ.status !== "due") throw new ConflictError("occurrence_not_open", "This task is already closed");
+        if (input.providerId !== undefined && input.providerId !== booking.providerId) {
+          const provider = tx.select().from(serviceProvider).where(eq(serviceProvider.id, input.providerId)).get();
+          if (!provider) throw new NotFoundError("service_provider", input.providerId);
+          if (provider.archivedAtMs !== null) throw new ConflictError("provider_archived", "Restore this provider before booking them");
+        }
+        const date = input.scheduledDate === undefined ? booking.scheduledLocalDate : input.scheduledDate;
+        const window = bookingWindow({ date, startTime: input.startTime, endTime: input.endTime, previousStartMs: booking.scheduledStartMs, previousEndMs: booking.scheduledEndMs }, settings.timezone);
         const now = ctx.clock.now();
 
         tx.update(serviceBooking)
           .set({
             status: input.status,
+            ...window,
+            providerId: input.providerId ?? booking.providerId,
+            contactNote: input.contactNote === undefined ? booking.contactNote : input.contactNote,
             scheduledLocalDate:
               input.scheduledDate === undefined ? booking.scheduledLocalDate : input.scheduledDate,
             windowNote: input.windowNote === undefined ? booking.windowNote : input.windowNote,

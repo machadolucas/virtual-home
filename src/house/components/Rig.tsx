@@ -29,11 +29,12 @@ const ACTION = CameraControlsImpl.ACTION;
 export function controlBindings(
   viewMode: "overview" | "floor" | "plan" | "section",
   projection: "perspective" | "ortho",
-  tool: "orbit" | "select" | "place",
+  tool: "orbit" | "pan" | "select" | "place",
   cameraOverride: boolean,
+  panOverride = false,
 ) {
-  const cameraOwnsLeft = cameraOverride || tool === "orbit";
-  const plan = viewMode === "plan";
+  const cameraOwnsLeft = cameraOverride || tool === "orbit" || tool === "pan";
+  const plan = viewMode === "plan" || tool === "pan" || panOverride;
   return {
     left: cameraOwnsLeft ? (plan ? ACTION.TRUCK : ACTION.ROTATE) : ACTION.NONE,
     right: ACTION.TRUCK,
@@ -52,7 +53,10 @@ export function Rig() {
   // Input bindings are props because Drei can replace its controls object when the default camera
   // changes. The callback ref also keeps the imperative API pointed at that live instance.
   const controlsRef = useRef<CameraControlsImpl | null>(null);
-  const bindings = controlBindings(viewMode, projection, tool, cameraOverride);
+  const panOverride = useHouseStore((s) => s.panOverride);
+  const inputPreset = useHouseStore((s) => s.inputPreset);
+  const gl = useThree((s) => s.gl);
+  const bindings = controlBindings(viewMode, projection, tool, cameraOverride, panOverride);
   const publishControls = useCallback(
     (controls: CameraControlsImpl | null) => {
       controlsRef.current = controls;
@@ -122,6 +126,32 @@ export function Rig() {
     invalidate();
   }, [projection, invalidate]);
 
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const wheel = (event: WheelEvent) => {
+      if (inputPreset !== "trackpad") return;
+      const controls = controlsRef.current;
+      if (!controls) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1;
+      const dx = Math.max(-200, Math.min(200, event.deltaX * unit));
+      const dy = Math.max(-200, Math.min(200, event.deltaY * unit));
+      if (event.ctrlKey || event.metaKey) {
+        if (projection === "ortho") void controls.zoom(-dy * 0.1, false);
+        else void controls.dolly(-dy * Math.max(0.005, controls.distance * 0.01), false);
+      } else {
+        const height = Math.max(1, canvas.clientHeight);
+        const camera = controls.camera;
+        const span = camera instanceof THREE.OrthographicCamera ? (camera.top - camera.bottom) / camera.zoom : 2 * controls.distance * Math.tan(THREE.MathUtils.degToRad(45 / 2));
+        void controls.truck(-dx * span / height, dy * span / height, false);
+      }
+      invalidate();
+    };
+    canvas.addEventListener("wheel", wheel, { capture: true, passive: false });
+    return () => canvas.removeEventListener("wheel", wheel, true);
+  }, [gl, inputPreset, projection, invalidate]);
+
   /**
    * Plan view locks the rig: without this, one stray drag tumbles the camera out of plan, which is
    * the main way an orthographic plan becomes confusing.
@@ -160,6 +190,7 @@ export function Rig() {
         mouseButtons-right={bindings.right}
         mouseButtons-wheel={bindings.wheel}
         touches-one={bindings.oneTouch}
+        touches-two={projection === "ortho" ? ACTION.TOUCH_ZOOM_TRUCK : ACTION.TOUCH_DOLLY_TRUCK}
         makeDefault
         smoothTime={reduced ? 0 : 0.25}
         draggingSmoothTime={reduced ? 0 : 0.125}

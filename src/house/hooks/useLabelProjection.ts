@@ -295,7 +295,7 @@ function write(
   tier: LabelTier,
   badgeText?: LabelProjectionOptions["badgeText"],
   expanded = new Set<string>(),
-  tool: "orbit" | "select" | "place" = "select",
+  tool: "orbit" | "pan" | "select" | "place" = "select",
 ): void {
   const sorted = [...cells.values()].sort((a, b) => a.depth - b.depth);
   let labelIndex = 0;

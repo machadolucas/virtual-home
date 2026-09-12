@@ -24,6 +24,7 @@ const csp = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  distDir: process.env.VH_DIST_DIR ?? ".next",
   // Next 16 blocks dev-only resources (`_next/hmr`, devtools) from any host but the one the dev
   // server was opened on, and a blocked HMR socket leaves the page un-hydrated with no visible
   // error. Development is reached over the loopback names and over the LAN while testing on a

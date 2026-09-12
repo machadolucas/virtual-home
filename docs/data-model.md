@@ -370,3 +370,18 @@ child table (verified on `infra_route` → `infra_route_point`, migration 0002).
 to tables that have cascading children; enforce new invariants in the service layer; if a rebuild is
 truly required, migrate children explicitly (copy to temp, rebuild, copy back) and prove it on a
 file database with data before shipping.
+
+
+## UX and MCP extension (migration 0014)
+
+`service_provider.archived_at_ms` supports reversible directory archival. `document_text` caches
+bounded page text by attachment, SHA-256 and extractor version. `integrity_quarantine` journals
+original attachment-relative paths and restoration; files live under private data storage and are
+included in backups. `app_alert` admits `integrity`; only this childless leaf table is rebuilt,
+with existing findings retained and relabelled. No model, route-point or attachment relationships
+are rebuilt.
+
+`mcp_connection` stores only token hashes, display prefixes, user attribution, scopes and lifecycle
+metadata. `mcp_mutation` binds atomic replay results to the connection and request key/payload.
+`mcp_request` holds immutable proposed operation payloads, target snapshots, expiry and one-time
+browser decisions. New tables are additive and keep the household's shared ownership model.

@@ -1,4 +1,6 @@
 "use client";
+
+import { DocumentLink } from "@/features/documents/DocumentViewer";
 /**
  * Everything about a route that is *not* its geometry: what it carries, how well it is known,
  * whether it exists yet, how deep it sits and which renovation put it there.
@@ -468,10 +470,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
           <ul className="grid grid-cols-3 gap-2">
             {route.photoIds.map((photoId) => (
               <li key={photoId} className="flex flex-col gap-1">
-                <a
-                  href={`/api/attachments/${photoId}`}
-                  target="_blank"
-                  rel="noreferrer"
+                <DocumentLink document={{id:photoId}}
                   className="block overflow-hidden rounded-md border border-line"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element -- private authed route */}
@@ -480,7 +479,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
                     alt="Route photo"
                     className="aspect-square w-full object-cover"
                   />
-                </a>
+                </DocumentLink>
                 <button
                   type="button"
                   onClick={() =>

@@ -2,6 +2,7 @@
 
 import { Popover as RadixPopover } from "radix-ui";
 import type { ReactNode } from "react";
+import { useOverlayContainer } from "./OverlayContainer";
 import { cn } from "./cn";
 
 export interface PopoverProps {
@@ -42,10 +43,11 @@ export function Popover({
   padded = true,
   className,
 }: PopoverProps) {
+  const container = useOverlayContainer();
   return (
     <RadixPopover.Root open={open} onOpenChange={onOpenChange}>
       <RadixPopover.Trigger asChild>{trigger}</RadixPopover.Trigger>
-      <RadixPopover.Portal>
+      <RadixPopover.Portal container={container}>
         <RadixPopover.Content
           side={side}
           align={align}

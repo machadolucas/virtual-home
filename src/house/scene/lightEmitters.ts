@@ -25,6 +25,7 @@ export class LightEmitters {
     const mesh = new THREE.InstancedMesh(this.geometry, this.material, this.capacity);
     mesh.name = "vh-live-emitting-cores";
     mesh.count = 0;
+    mesh.visible = false;
     mesh.frustumCulled = false;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 3), 3);
@@ -74,6 +75,7 @@ export class LightEmitters {
       this.mesh.setColorAt(i++, entry.color);
     }
     this.mesh.count = i;
+    this.mesh.visible = i > 0;
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     this.dirty = moving;

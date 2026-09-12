@@ -338,6 +338,16 @@ exports[`migrations > produces the expected schema 1`] = `
     "type": "index",
   },
   {
+    "name": "ix_mcp_connection_user",
+    "sql": "CREATE INDEX \`ix_mcp_connection_user\` ON \`mcp_connection\` (\`user_id\`)",
+    "type": "index",
+  },
+  {
+    "name": "ix_mcp_request_state",
+    "sql": "CREATE INDEX \`ix_mcp_request_state\` ON \`mcp_request\` (\`state\`,\`created_at_ms\`)",
+    "type": "index",
+  },
+  {
     "name": "ix_model_label_preference_model",
     "sql": "CREATE INDEX \`ix_model_label_preference_model\` ON \`model_label_preference\` (\`model_id\`)",
     "type": "index",
@@ -718,6 +728,16 @@ exports[`migrations > produces the expected schema 1`] = `
     "type": "index",
   },
   {
+    "name": "ux_mcp_connection_hash",
+    "sql": "CREATE UNIQUE INDEX \`ux_mcp_connection_hash\` ON \`mcp_connection\` (\`token_hash\`)",
+    "type": "index",
+  },
+  {
+    "name": "ux_mcp_mutation_request",
+    "sql": "CREATE UNIQUE INDEX \`ux_mcp_mutation_request\` ON \`mcp_mutation\` (\`connection_id\`,\`request_key\`)",
+    "type": "index",
+  },
+  {
     "name": "ux_model_label_preference",
     "sql": "CREATE UNIQUE INDEX \`ux_model_label_preference\` ON \`model_label_preference\` (\`model_id\`,\`model_node_id\`)",
     "type": "index",
@@ -924,7 +944,7 @@ exports[`migrations > produces the expected schema 1`] = `
   },
   {
     "name": "app_alert",
-    "sql": "CREATE TABLE \`app_alert\` (
+    "sql": "CREATE TABLE "app_alert" (
 	\`id\` text PRIMARY KEY NOT NULL,
 	\`kind\` text NOT NULL,
 	\`severity\` text NOT NULL,
@@ -940,7 +960,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`acknowledged_by\` text,
 	\`resolved_at_ms\` integer,
 	FOREIGN KEY (\`acknowledged_by\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict,
-	CONSTRAINT "ck_app_alert_kind" CHECK(kind IN ('low_stock', 'negative_stock', 'expiring_part', 'ha_link_missing', 'ha_entity_renamed', 'stale_sensor', 'model_reconciliation', 'notify_device_missing', 'worker_outage')),
+	CONSTRAINT "ck_app_alert_kind" CHECK(kind IN ('low_stock', 'negative_stock', 'expiring_part', 'ha_link_missing', 'ha_entity_renamed', 'stale_sensor', 'model_reconciliation', 'notify_device_missing', 'worker_outage', 'integrity')),
 	CONSTRAINT "ck_app_alert_severity" CHECK(severity IN ('info', 'warning', 'error')),
 	CONSTRAINT "ck_app_alert_seen_count" CHECK(seen_count >= 1)
 )",
@@ -1346,6 +1366,20 @@ exports[`migrations > produces the expected schema 1`] = `
 	FOREIGN KEY (\`command_id\`) REFERENCES \`ha_notify_command\`(\`id\`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT "ck_delivery_attempt_outcome" CHECK(outcome IN ('accepted', 'ha_unavailable', 'ha_error', 'timeout', 'no_device', 'invalid_payload')),
 	CONSTRAINT "ck_delivery_attempt_no" CHECK(attempt_no >= 1)
+)",
+    "type": "table",
+  },
+  {
+    "name": "document_text",
+    "sql": "CREATE TABLE \`document_text\` (
+	\`attachment_id\` text PRIMARY KEY NOT NULL,
+	\`sha256\` text NOT NULL,
+	\`extractor_version\` text NOT NULL,
+	\`status\` text NOT NULL,
+	\`pages_json\` text DEFAULT '[]' NOT NULL,
+	\`error\` text,
+	\`updated_at_ms\` integer NOT NULL,
+	FOREIGN KEY (\`attachment_id\`) REFERENCES \`attachment\`(\`id\`) ON UPDATE no action ON DELETE cascade
 )",
     "type": "table",
   },
@@ -1766,6 +1800,18 @@ exports[`migrations > produces the expected schema 1`] = `
     "type": "table",
   },
   {
+    "name": "integrity_quarantine",
+    "sql": "CREATE TABLE \`integrity_quarantine\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`original_path\` text NOT NULL,
+	\`quarantined_at_ms\` integer NOT NULL,
+	\`actor_user_id\` text NOT NULL,
+	\`restored_at_ms\` integer,
+	FOREIGN KEY (\`actor_user_id\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict
+)",
+    "type": "table",
+  },
+  {
     "name": "kit_component",
     "sql": "CREATE TABLE \`kit_component\` (
 	\`kit_part_id\` text NOT NULL,
@@ -1942,6 +1988,55 @@ exports[`migrations > produces the expected schema 1`] = `
 	CONSTRAINT "ck_plan_one_target" CHECK((asset_id IS NOT NULL) + (system_id IS NOT NULL) + (location_id IS NOT NULL) = 1),
 	CONSTRAINT "ck_plan_assignee" CHECK((assignment_mode = 'user') = (assignee_user_id IS NOT NULL)),
 	CONSTRAINT "ck_plan_estimated_minutes" CHECK(estimated_minutes IS NULL OR estimated_minutes > 0)
+)",
+    "type": "table",
+  },
+  {
+    "name": "mcp_connection",
+    "sql": "CREATE TABLE \`mcp_connection\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`user_id\` text NOT NULL,
+	\`name\` text NOT NULL,
+	\`token_hash\` text NOT NULL,
+	\`token_prefix\` text NOT NULL,
+	\`scopes_json\` text NOT NULL,
+	\`created_at_ms\` integer NOT NULL,
+	\`expires_at_ms\` integer NOT NULL,
+	\`revoked_at_ms\` integer,
+	\`last_used_at_ms\` integer,
+	FOREIGN KEY (\`user_id\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict
+)",
+    "type": "table",
+  },
+  {
+    "name": "mcp_mutation",
+    "sql": "CREATE TABLE \`mcp_mutation\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`connection_id\` text NOT NULL,
+	\`request_key\` text NOT NULL,
+	\`payload_hash\` text NOT NULL,
+	\`result_json\` text NOT NULL,
+	\`created_at_ms\` integer NOT NULL,
+	FOREIGN KEY (\`connection_id\`) REFERENCES \`mcp_connection\`(\`id\`) ON UPDATE no action ON DELETE restrict
+)",
+    "type": "table",
+  },
+  {
+    "name": "mcp_request",
+    "sql": "CREATE TABLE \`mcp_request\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`connection_id\` text NOT NULL,
+	\`operation\` text NOT NULL,
+	\`payload_json\` text NOT NULL,
+	\`summary\` text NOT NULL,
+	\`state\` text DEFAULT 'pending' NOT NULL,
+	\`created_at_ms\` integer NOT NULL,
+	\`expires_at_ms\` integer NOT NULL,
+	\`decided_at_ms\` integer,
+	\`decided_by\` text,
+	\`result_json\` text,
+	FOREIGN KEY (\`connection_id\`) REFERENCES \`mcp_connection\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`decided_by\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict
 )",
     "type": "table",
   },
@@ -2597,7 +2692,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`created_at_ms\` integer NOT NULL,
 	\`created_by\` text,
 	\`updated_at_ms\` integer NOT NULL,
-	\`updated_by\` text,
+	\`updated_by\` text, \`archived_at_ms\` integer,
 	FOREIGN KEY (\`created_by\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (\`updated_by\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict
 )",

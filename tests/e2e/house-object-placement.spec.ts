@@ -58,8 +58,12 @@ test("equipment stacks on equipment and furniture, previews without changing dra
     await page.getByRole("option",{name:"Remote control",exact:true}).click();
     const canvasRegion=page.getByRole("application",{name:"House 3D view"});
     await canvasRegion.focus();
+    await expect(canvasRegion).toBeFocused();
+    const cameraBeforeKeys = await page.evaluate(()=>window.__vh!.camera());
     for(let i=0;i<8;i++) await page.keyboard.press("ArrowDown");
     await waitForStableFrames(page,500);
+    await expect(canvasRegion).toBeFocused();
+    expect((await page.evaluate(()=>window.__vh!.camera())).position).not.toEqual(cameraBeforeKeys.position);
     const beforeFace = await Promise.all(["X","Y","Z"].map(axis=>page.getByLabel(`${axis} (m)`,{exact:true}).inputValue()));
     const fridgeFace=await screen(page,[2,.9,2]);
     await page.mouse.move(fridgeFace.x,fridgeFace.y);

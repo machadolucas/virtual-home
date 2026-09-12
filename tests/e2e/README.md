@@ -3,10 +3,10 @@
 `playwright.config.ts` starts `tests/e2e/start-server.ts`, which:
 1. creates a temporary `VH_DATA_DIR`, runs migrations, seeds the two household users with known
    passwords and installs the synthetic fixture model (`tests/fixtures/model/house-model`);
-2. runs `next build` once (cached under `.next`) and `next start` on port 3011 with
+2. runs `next build` once (cached under `.next-e2e`) and `next start` on port 3011 with
    `NEXT_PUBLIC_VH_TEST_HOOK=1` so `window.__vh` is available for viewer assertions.
 
-Projects: `desktop` (Chromium 1600×1000) and `phone` (iPhone 14 viewport, Chromium engine).
+Projects: `desktop` (Chromium 1600×1000), `phone` (iPhone 14 Chromium), `webkit` (desktop Safari engine) and `phone-webkit` (iPhone 14 Safari engine). Install engines with `pnpm exec playwright install chromium webkit`.
 Real household data is never used by default; the real model package is exercised only by
 `house-real.spec.ts`, and only when you point it at a copy yourself (below).
 
@@ -25,10 +25,10 @@ the typed `vh(page)` wrappers over `window.__vh`, `measureLoad`, `idleFrames`,
 
 ## Running
 
-If this checkout is used by the installed production launchd service, run these commands in a
-separate checkout with its own dependencies and `.next` directory. The harness refuses to run
-in the installed service directory, even when skipping the build; synthetic data isolation alone
-does not protect the production build files.
+The harness uses `.next-e2e` by default and permits the installed service checkout only with that
+exact separate build directory (not a symlink). It never overwrites production `.next`. Stop every
+synthetic server using `.next-e2e` before rebuilding it; use different ports and temporary data
+directories for independent suites, then `VH_E2E_SKIP_BUILD=1` to reuse the verified build.
 
 ```bash
 pnpm exec playwright test                                     # everything, both projects

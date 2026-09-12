@@ -158,9 +158,24 @@ Work down this list; each step distinguishes a different box.
    not. `validation` tells you why one was refused (`unknown_nonce`, `wrong_recipient`, `expired`,
    `action_not_offered`, `device_mismatch`, `duplicate`).
 
-## Known gaps
+## Integrity findings
 
-- `app_alert.kind` has no `integrity` member, so `jobs/integrity.ts` raises its findings as
-  `worker_outage`. A dedicated kind needs a migration and a `docs/data-model.md` note.
-- The integrity job reports orphan files and dangling links; nothing deletes them. That is
-  deliberate — see the module comment — but there is no UI for acting on the report yet.
+`app_alert.kind=integrity` separates file/link findings from worker outages. System → Integrity
+shows structured findings and explicit repair links. Missing-file records are retained. Confirmed
+orphan files can be quarantined and restored using no-overwrite staging and a transactional journal;
+quarantined bytes are part of backup/restore. The interactive report is read-only. Worker alerts
+remain deduplicated and do not equate acknowledgment with repair.
+
+## Local document text index
+
+`jobs/documents.ts` processes one uncached PDF per pass, starting five seconds after startup and
+waiting 15 seconds between passes. It never overlaps its own jobs. Parsing occurs outside a write
+transaction; a short `writeTx` stores the result and emits `document.changed`. The `document_text`
+row is keyed by attachment ID and checked against the immutable file SHA-256 and extractor version.
+A version/hash mismatch is queued automatically; a failed result waits for the explicit Retry action.
+
+Extraction is limited to 300 pages, 100,000 characters per page and 1,000,000 characters per file,
+with a 30-second cancellation timer. It records `ready`, `truncated`, `scan`, `encrypted` or `failed`;
+a missing row means pending. Empty scanned pages are never represented as searchable text. OCR is
+not performed. The UI and MCP can read bounded page/offset slices with continuation fields, and
+search uses only extracted text from matching file hashes. Original files are never altered.

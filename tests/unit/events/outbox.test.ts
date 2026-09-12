@@ -33,6 +33,7 @@ describe("event outbox", () => {
 
   it("names every topic the app publishes", () => {
     expect(EVENT_TOPIC_VALUES).toEqual([
+      "document.changed",
       "ha.state",
       "integration.status",
       "task.changed",

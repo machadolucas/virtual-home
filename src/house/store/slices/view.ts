@@ -21,7 +21,7 @@ import type { HouseStore, Mutators } from "../createHouseStore";
  *
  * Holding **Space** temporarily gives the camera back in every mode, so no tool is a dead end.
  */
-export const CANVAS_TOOLS = ["orbit", "select", "place"] as const;
+export const CANVAS_TOOLS = ["orbit", "pan", "select", "place"] as const;
 export type CanvasTool = (typeof CANVAS_TOOLS)[number];
 
 export interface IlluminationSettings {
@@ -46,6 +46,10 @@ export interface ViewSlice {
   tool: CanvasTool;
   /** True while Space is held: the camera is on loan, whatever the tool says. */
   cameraOverride: boolean;
+  panOverride: boolean;
+  inputPreset: "mouse" | "trackpad";
+  setPanOverride(held: boolean): void;
+  setInputPreset(preset: "mouse" | "trackpad"): void;
   activeFloorId: FloorId | null;
   projection: Projection;
   wallMode: WallMode;
@@ -116,6 +120,8 @@ export const initialView = {
   viewMode: "overview" as ViewMode,
   tool: "orbit" as CanvasTool,
   cameraOverride: false,
+  panOverride: false,
+  inputPreset: "mouse" as const,
   activeFloorId: null,
   projection: "perspective" as Projection,
   wallMode: "closed" as WallMode,
@@ -145,6 +151,8 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
 
   setTool: (tool) => set({ tool, hover: null }),
 
+  setPanOverride: (panOverride) => set({ panOverride, cameraOverride: panOverride }),
+  setInputPreset: (inputPreset) => set({ inputPreset }),
   setCameraOverride: (cameraOverride) => set({ cameraOverride }),
 
   isolateFloor: (activeFloorId) =>

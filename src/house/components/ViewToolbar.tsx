@@ -288,7 +288,7 @@ const WALL_MODES: ReadonlyArray<{
 ];
 
 /** Compact floor-by-building controls that stay on the model rather than in the bottom drawer. */
-export function FloorControls() {
+export function FloorControls({ inline = false }: { inline?: boolean }) {
   const runtime = useHouseRuntime();
   const { index, activeFloorId, isolateFloor, setProjection, labelPreferences, wallMode, setWallMode } = useHouseStore(
     useShallow((s) => ({
@@ -312,7 +312,7 @@ export function FloorControls() {
   return (
     <section
       aria-label="Floor focus"
-      className="pointer-events-auto absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] overflow-hidden rounded-lg border border-line bg-surface/95 shadow-pop backdrop-blur"
+      className={`${inline ? "relative my-2" : "absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)]"} pointer-events-auto overflow-hidden rounded-lg border border-line bg-surface/95 shadow-pop backdrop-blur`}
     >
       <div className="flex items-end gap-1 overflow-x-auto p-1">
         <div className="flex flex-col items-center gap-0.5">

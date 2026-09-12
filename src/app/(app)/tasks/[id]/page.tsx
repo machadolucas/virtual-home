@@ -1,3 +1,7 @@
+import type { Route } from "next";
+
+import { AddToProject } from "@/features/projects/AddToProject";
+import { DocumentLink } from "@/features/documents/DocumentViewer";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -5,7 +9,7 @@ import { ExternalLink, FileText, HardHat, MapPin } from "lucide-react";
 import { Avatar, Badge, Panel, StatusBadge, buttonClasses } from "@/ui";
 import { PageHeader, PageScroll } from "@/ui/shell";
 import { requireSessionPage } from "@/server/auth/session";
-import { addDaysLocal } from "@/domain/time";
+import { addDaysLocal, localTimeOf } from "@/domain/time";
 import {
   describeDue,
   describeWindow,
@@ -97,6 +101,7 @@ export default async function TaskPage(props: { params: Promise<{ id: string }> 
         actions={<StatusBadge kind={kind} />}
       />
 
+      <div className="flex justify-end"><AddToProject entityKind="occurrence" entityId={task.id} /></div>
       <Panel>
         <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
           <div>
@@ -177,7 +182,7 @@ export default async function TaskPage(props: { params: Promise<{ id: string }> 
                     <span className="text-xs text-ink-3">{task.target.context}</span>
                   ) : null}
                   <Link
-                    href={task.target.locateHref}
+                    href={(task.target.locateHref) as Route}
                     className={buttonClasses({ variant: "secondary", size: "sm" })}
                   >
                     <MapPin aria-hidden="true" className="size-3.5" />
@@ -218,7 +223,7 @@ export default async function TaskPage(props: { params: Promise<{ id: string }> 
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-blocked/45 bg-blocked-soft px-3 py-2 text-sm text-blocked">
             <HardHat aria-hidden="true" className="size-4" />
             <span>
-              {task.booking.providerName} is booked
+              <Link href={`/providers/${task.booking.providerId}`} className="underline">{task.booking.providerName}</Link> is booked
               {task.booking.scheduledLocalDate === null
                 ? " (no date agreed yet)"
                 : ` for ${formatDate(task.booking.scheduledLocalDate)}`}
@@ -234,6 +239,11 @@ export default async function TaskPage(props: { params: Promise<{ id: string }> 
                 <BookingControls
                   occurrenceId={task.id}
                   bookingId={task.booking.id}
+                  providerId={task.booking.providerId}
+                  providers={[...providers.map((p) => ({ value: p.id, label: p.name, hint: p.trade ?? undefined })), ...(task.booking.providerId && !providers.some((p) => p.id === task.booking?.providerId) ? [{ value: task.booking.providerId, label: task.booking.providerName, hint: "Archived · existing booking" }] : [])]}
+                  startTime={task.booking.scheduledStartMs == null ? "" : localTimeOf(task.booking.scheduledStartMs, tz)}
+                  endTime={task.booking.scheduledEndMs == null ? "" : localTimeOf(task.booking.scheduledEndMs, tz)}
+                  contactNote={task.booking.contactNote}
                   status={task.booking.status}
                   scheduledLocalDate={task.booking.scheduledLocalDate}
                   windowNote={task.booking.windowNote}
@@ -360,13 +370,12 @@ export default async function TaskPage(props: { params: Promise<{ id: string }> 
                     : `, p. ${reference.pageFrom}${reference.pageTo === null ? "" : `–${reference.pageTo}`}`}
                 </span>
                 {reference.attachmentId !== null ? (
-                  <a
-                    href={`/api/attachments/${reference.attachmentId}`}
+                  <DocumentLink document={{id:reference.attachmentId}}
                     className={buttonClasses({ variant: "ghost", size: "sm" })}
                   >
                     <FileText aria-hidden="true" className="size-3.5" />
                     Open
-                  </a>
+                  </DocumentLink>
                 ) : reference.url !== null ? (
                   <a
                     href={reference.url}
@@ -413,7 +422,7 @@ export default async function TaskPage(props: { params: Promise<{ id: string }> 
       />
 
       {task.liveCompletion !== null ? (
-        <Panel
+        <div id={`completion-${task.liveCompletion.id}`}><div className="flex justify-end"><AddToProject entityKind="completion" entityId={task.liveCompletion.id} /></div><Panel
           title={
             task.liveCompletion.voidedAtMs === null
               ? "Recorded as done"
@@ -515,7 +524,7 @@ export default async function TaskPage(props: { params: Promise<{ id: string }> 
               {task.liveCompletion.notes}
             </p>
           ) : null}
-        </Panel>
+        </Panel></div>
       ) : null}
 
       <Timeline events={task.events} members={members} tz={tz} />
