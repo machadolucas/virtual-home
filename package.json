@@ -7,7 +7,7 @@
     "build": "next build && pnpm run worker:build",
     "start": "next start --hostname ${HOST:-127.0.0.1} --port ${PORT:-3010}",
     "worker:dev": "VH_ROLE=worker tsx --env-file-if-exists=.env.local watch src/worker/index.ts",
-    "worker:build": "esbuild src/worker/index.ts --bundle --platform=node --target=node24 --format=esm --packages=external --sourcemap --outfile=dist/worker/index.mjs",
+    "worker:build": "esbuild src/worker/index.ts --bundle --platform=node --target=node24 --format=esm --packages=external --alias:server-only=./scripts/lib/serverOnlyEmpty.ts --sourcemap --outfile=dist/worker/index.mjs && node --input-type=module -e \"await import('./dist/worker/index.mjs')\"",
     "worker:start": "VH_ROLE=worker node dist/worker/index.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

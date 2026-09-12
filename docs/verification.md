@@ -236,3 +236,6 @@ under one account). That is what `workers: 1` in `playwright.config.ts` exists t
   does not replace them. Connecting the actual Claude/Codex desktop clients requires credentials
   created in Settings → AI connections; tested protocol and bridge behavior does not imply those
   personal client configurations have been installed.
+- Production rollout caught an ESM worker dependency loading the Next-only import guard before
+  the CommonJS CLI shim. The standalone worker build now aliases that guard to an empty module
+  and imports its compiled output as a mandatory build smoke test. Next/browser guards are unchanged.
