@@ -167,6 +167,11 @@ async function seed(env: NodeJS.ProcessEnv): Promise<void> {
       log(`seeded ${user.username}`);
     }
 
+    const { bootstrapOwner } = await import("@/server/services/members");
+    const { writeTx } = await import("@/db/client");
+    writeTx(handle.db, (tx) => bootstrapOwner(tx, E2E_USERS.lucas.username));
+    log("seeded household owner");
+
     await installFixtureModel(handle);
     await seedHaImportDevices(handle);
   } finally {

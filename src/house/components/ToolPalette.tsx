@@ -20,9 +20,9 @@ const TOOL_META: {
   readonly [T in CanvasTool]: { label: string; key: string; hint: string; icon: React.ReactNode };
 } = {
   orbit: {
-    label: "Orbit the camera",
+    label: "Browse",
     key: "C",
-    hint: "Drag to turn the house around.",
+    hint: "Click to inspect; drag to turn the house around.",
     icon: <Orbit aria-hidden="true" className="size-4" />,
   },
   pan: { label: "Pan", key: "Shift + drag", hint: "Drag to move the view sideways or up and down.", icon: <Hand aria-hidden="true" className="size-4" /> },
@@ -56,7 +56,7 @@ export function ToolPalette() {
       aria-label="Pointer tool"
       className="pointer-events-auto absolute left-2 top-2 z-10 flex flex-col gap-1 rounded-lg border border-line bg-surface/95 p-1 shadow-pop backdrop-blur"
     >
-      {CANVAS_TOOLS.map((value) => {
+      {CANVAS_TOOLS.filter(value => value !== "place" || editing).map((value) => {
         const meta = TOOL_META[value];
         const active = tool === value;
         return (
@@ -75,7 +75,6 @@ export function ToolPalette() {
               )}
             >
               {meta.icon}
-              {value === "pan" ? <span className="text-[10px]">Pan</span> : null}
             </button>
           </Tooltip>
         );

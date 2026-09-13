@@ -27,8 +27,8 @@ vi.mock("next/headers", () => ({
 
 import { betterAuth } from "better-auth";
 import { desc, eq } from "drizzle-orm";
-import { setDbForTests, type DbHandle } from "@/db/client";
-import { session } from "@/db/schema";
+import { setDbForTests, writeTx, type DbHandle } from "@/db/client";
+import { session, memberAccess } from "@/db/schema";
 import { testDb } from "../../helpers/db";
 
 const BASE = "http://localhost:3010"; // must match VH_BASE_URL in tests/setup.ts
@@ -298,4 +298,18 @@ describe("safeNextPath", () => {
     expect(sessionModule.safeNextPath(null)).toBe("/today");
     expect(sessionModule.safeNextPath("")).toBe("/today");
   });
+});
+
+
+it("deactivation rejects signed cached sessions immediately and refuses a new sign-in", async () => {
+  const { all } = await signInCookies("10.0.8.1");
+  requestHeaders = new Headers({ cookie: all });
+  const loggedIn = await sessionModule.requireFreshSession();
+  writeTx(handle.db, tx => tx.insert(memberAccess).values({ userId: loggedIn.user.id, role: "member", isActive: false, updatedAtMs: Date.now() }).run());
+  try {
+    expect((await protectedRoute()(new Request(`${BASE}/api/thing`), undefined)).status).toBe(401);
+    const denied = await post("/sign-in/username", { username: "lucas", password: PASSWORD }, {}, "10.0.8.2");
+    expect(denied.status).toBe(401);
+    expect(denied.headers.getSetCookie().some(cookie => cookie.startsWith("vh.session_token="))).toBe(false);
+  } finally { writeTx(handle.db, tx => tx.delete(memberAccess).where(eq(memberAccess.userId, loggedIn.user.id)).run()); }
 });

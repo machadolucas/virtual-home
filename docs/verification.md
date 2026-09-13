@@ -239,3 +239,31 @@ under one account). That is what `workers: 1` in `playwright.config.ts` exists t
 - Production rollout caught an ESM worker dependency loading the Next-only import guard before
   the CommonJS CLI shim. The standalone worker build now aliases that guard to an empty module
   and imports its compiled output as a mandatory build smoke test. Next/browser guards are unchanged.
+
+### Connected hubs and scoped house browser (2026-09-13)
+
+- `pnpm check`: typecheck, lint, and 1,739 tests across 141 files passed; 23 environment/explicit
+  skips remain identified by the suite. The real synthetic backup/restore round trip passed.
+- Browser route audit covered 28 static routes and eight populated record families on light
+  desktop, dark 360px phone, light tablet, and native WebKit phone. No page errors, HTTP 500s or
+  horizontal document overflow were found. The named provider/plan/booking/completion/project
+  journey and signed-out/stale-cookie metadata boundaries passed.
+- All 20 existing house geometry/rendering regressions passed through the redesigned controls.
+  Additional journeys cover atomic tree creation, numeric placement, cross-floor infrastructure,
+  furniture picking, Save/Discard/Keep editing, and pre-placement equipment/tree draft retention.
+- Chromium and WebKit verified live equipment readings, expanded-label dismissal, image export,
+  daylight/weather fallback, remembered rendering settings, trackpad-style wheel pan, Shift-drag,
+  and fullscreen without remounting the canvas. Both phone engines verified the shared browser,
+  View settings and fullscreen. The synthetic scene retained 33 geometries, 3 textures and 3
+  programs; these resource counts are not a substitute for physical-device performance testing.
+- Owner creation, rename, last-owner protection, shared reassignment, deactivation/restore,
+  session and MCP revocation, inactive historical names, and HA ignore/restore have unit and
+  browser coverage. New schema SQL only creates `member_access` and `ha_review`; deployment
+  verifies all existing table row identities and foreign keys before assigning the initial owner.
+- Real trackpad hardware and a physical iPhone were not available to this automated run. Those
+  acceptance checks remain manual; simulated gestures and WebKit coverage are reported separately.
+- Final record/document browser suite: 34 passed, 2 intended phone-only-case skips across four
+  browser projects. Covered canonical/direct/unavailable records, legacy completion redirects,
+  static Systems/Shopping hubs, record-chain Back/Forward/Close with exact origin and focus,
+  Safari saved-form reset, PDF search/zoom/fullscreen, inactive renderer cleanup, retained metadata
+  drafts, and identical House canvas/camera/selection after closing the full record.

@@ -27,6 +27,10 @@ vi.mock("@/server/auth/session", () => {
   }
   return {
     UnauthorizedError,
+    requireFreshSession: async () => {
+      if (mocks.userId.current === null) throw new UnauthorizedError();
+      return { user: { id: mocks.userId.current }, session: { id: "test-session" } };
+    },
     requireSession: async () => {
       if (mocks.userId.current === null) throw new UnauthorizedError();
       return { user: { id: mocks.userId.current }, session: { id: "test-session" } };
@@ -48,6 +52,7 @@ import {
   haEntity,
   haFloor,
   householdSetting,
+  memberAccess,
   location,
   locationMapping,
   user,
@@ -89,6 +94,7 @@ let world: World;
 beforeEach(() => {
   world = makeWorld();
   mocks.userId.current = world.user.id;
+  writeTx(world.handle.db, (tx) => tx.insert(memberAccess).values({ userId: world.user.id, role: "owner", isActive: true, updatedAtMs: nowMs() }).run());
 });
 
 afterEach(() => {

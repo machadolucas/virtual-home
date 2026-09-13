@@ -327,13 +327,11 @@ export type RenderingCategory = "Light" | "Environment" | "Quality" | "Backgroun
 
 /** Open the responsive rendering surface and focus one of its task-sized categories. */
 export async function openRenderingCategory(page: Page, category: RenderingCategory): Promise<void> {
-  const desktopControls = page.getByRole("region", { name: "View controls", exact: true });
-  if (await desktopControls.isVisible()) {
-    await desktopControls.getByRole("tab", { name: "Rendering", exact: true }).click();
-  } else {
-    await page.getByText("Rendering", { exact: true }).click();
-  }
-  await page.getByRole("tab", { name: category, exact: true }).click();
+  const section = { Light: "Lighting", Environment: "Lighting", Quality: "Advanced", Background: "Appearance" }[category];
+  const summary = page.locator("summary:visible").filter({hasText:new RegExp(`^${section}$`)});
+  if (!await summary.isVisible()) await page.getByRole("button", {name:"View",exact:true}).click();
+  const details = summary.locator("..");
+  if (await details.getAttribute("open") === null) await summary.click();
 }
 
 /**

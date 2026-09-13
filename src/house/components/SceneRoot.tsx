@@ -13,6 +13,7 @@
  * there is exactly one picking implementation (ours, clip-aware), and React never reconciles the
  * shell. R3F still owns the render loop, camera, controls, lights and the marker/route layers.
  */
+import { pickFurnishingBody, selectFurnishing } from "../scene/furnishingSelection";
 import { pickEquipmentBody } from "../scene/objectPlacement";
 import { useEffect, useRef } from "react";
 import { useThree } from "@react-three/fiber";
@@ -276,6 +277,7 @@ export function SceneRoot() {
     const slop = touch ? CLICK_SLOP_TOUCH : CLICK_SLOP_MOUSE;
 
     const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 || event.shiftKey || runtime.store.getState().cameraOverride) { down.id = -1; return; }
       down.x = event.clientX;
       down.y = event.clientY;
       down.id = event.pointerId;
@@ -303,7 +305,7 @@ export function SceneRoot() {
       const tool = runtime.store.getState().tool;
       const body = tool !== "place" ? pickEquipmentBody(runtime, event.clientX, event.clientY) : null;
       const candidate: Selection | null = body && (!hit || body.distance < hit.distance) ? { kind: "equipment", id: body.id } : hoverSelectionOf(hit);
-      const next = tool === "select" ? candidate : tool === "orbit" && candidate?.kind === "equipment" ? candidate : null;
+      const next = tool === "select" || tool === "orbit" ? candidate : null;
       const current = runtime.store.getState().hover;
       if (sameSelection(current, next)) return;
       runtime.store.getState().setHover(next);
@@ -334,18 +336,23 @@ export function SceneRoot() {
       // same click both positioned the thing and re-selected whatever surface was under it, so
       // saving left the wall selected instead of the equipment just placed.
       const state = runtime.store.getState();
-      if (state.furnishingsEditing || (state.tool === "place" && !state.cameraOverride && state.editing !== null)) return;
+      if (state.furnishingsEditing || state.editing || state.routeDraft) return;
 
       const body = pickEquipmentBody(runtime, event.clientX, event.clientY);
       const selected: Selection | null = body && (!hit || body.distance < hit.distance) ? { kind: "equipment", id: body.id } : selectionOf(hit, state.selection);
-      if (state.tool === "pan" || state.cameraOverride || state.tool === "place" || (state.tool === "orbit" && selected?.kind !== "equipment")) return;
+      if (state.tool === "pan" || state.cameraOverride || state.tool === "place") return;
+      const furnishing = pickFurnishingBody(runtime, event.clientX, event.clientY);
+      if (furnishing && furnishing.distance < (hit?.distance ?? Infinity) && furnishing.distance < (body?.distance ?? Infinity)) {
+        selectFurnishing(runtime, furnishing.id);
+        return;
+      }
+      selectFurnishing(runtime, null);
       runtime.select(selected);
     };
 
     const onDoubleClick = () => {
       const state = runtime.store.getState();
       if (state.tool === "pan" || state.cameraOverride || state.tool === "place" || state.furnishingsEditing || state.editing) return;
-      if (state.tool === "orbit" && state.selection?.kind !== "equipment") return;
       void runtime.camera?.frameSelection();
     };
 

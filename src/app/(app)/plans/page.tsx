@@ -48,7 +48,7 @@ export default async function PlansPage() {
             "A schedule in plain language: “every 6 months after it was last done”, “every April and October”, “between 1 May and 30 June”.",
             "A starting point recorded honestly — including “I do not know”, which pauses the plan rather than inventing a date.",
             "The parts each task needs, pre-filled on the completion form and counted against stock.",
-            "Who it belongs to: one member or both.",
+            "Who it belongs to: one member or the shared household.",
           ]}
           actions={
             <Link href="/plans/new" className={buttonClasses({ variant: "primary" })}>

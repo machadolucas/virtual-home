@@ -1,4 +1,5 @@
 import "server-only";
+import { readMemberAccess } from "@/domain/memberAccess";
 import { asc, eq } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { user, userNotifyDevice } from "@/db/schema";
@@ -19,6 +20,8 @@ export interface HouseholdMember {
   displayColor: string | null;
   createdAtMs: number;
   devices: NotifyDeviceRow[];
+  role: "owner" | "member";
+  active: boolean;
 }
 
 /**
@@ -50,6 +53,8 @@ export function listMembers(tx: Db): HouseholdMember[] {
   }
   return users.map((row) => ({
     id: row.id,
+    role: readMemberAccess(tx, row.id)?.role ?? "member",
+    active: readMemberAccess(tx, row.id)?.active ?? false,
     name: row.name,
     username: row.username ?? row.displayUsername ?? "",
     displayColor: row.displayColor,

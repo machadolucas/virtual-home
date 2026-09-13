@@ -13,6 +13,7 @@
  * cross-checks the world position against the draft before the write is dispatched.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { registerEditorActions } from "./confirmSwitch";
 import { Save, Trash2, X } from "lucide-react";
 import * as THREE from "three";
 import { isAimableSymbol } from "@/house/model/equipmentOptics";
@@ -74,7 +75,7 @@ export function PlacementEditor() {
     },
     [runtime],
   );
-  const equipmentVisible = useHouseStore((s) => s.layers.equipment);
+  const equipmentVisible = useHouseStore((s) => s.editing?.symbol === "tree" ? s.layers.trees : s.layers.equipment);
   const saving = useHouseStore((s) => s.editorSaving);
   const setSaving = useHouseStore((s) => s.setEditorSaving);
   const dragging = useRef(false);
@@ -378,13 +379,13 @@ export function PlacementEditor() {
   );
 
   const save = useCallback(async () => {
-    if (saving || !editing || !index || !modelId || !fingerprint) return;
+    if (saving || !editing || !index || !modelId || !fingerprint) return false;
     if (editing.physical.some((v) => !Number.isFinite(v))) {
       setEditError("The coordinates must be numbers.");
-      return;
+      return false;
     }
     const collision = runtime.index ? equipmentWallError(editing, runtime.index, furnishings, placements) : null;
-    if (collision) { setEditError(collision); return; }
+    if (collision) { setEditError(collision); return false; }
     // No room is a legitimate answer, not an error: a yard lamp, an eave spot or anything on the
     // terrace sits outside every room footprint. The package's `rooms` are interior only, so
     // requiring one made every outdoor fixture unplaceable. The row then anchors to the floor —
@@ -394,7 +395,7 @@ export function PlacementEditor() {
     for (let i = 0; i < 3; i++) {
       if ((editing.physical[i] as number) < (bounds.min[i] as number) || (editing.physical[i] as number) > (bounds.max[i] as number)) {
         setEditError("The position is outside the model's bounds.");
-        return;
+        return false;
       }
     }
 
@@ -404,7 +405,9 @@ export function PlacementEditor() {
     assertPhysicalY(editing.physical[1] + offset, offset, editing.physical[1]);
 
     const placement: Placement = {
-      id: editing.placementId ?? crypto.randomUUID(),
+      id: editing.placementId ?? ((editing.newTree||editing.newEquipment) ? editing.equipmentId : crypto.randomUUID()),
+      newTree: editing.newTree,
+      newEquipment: editing.newEquipment,
       modelId,
       equipmentId: editing.equipmentId,
       name: editing.name,
@@ -440,19 +443,23 @@ export function PlacementEditor() {
       markPlaced(saved.equipmentId);
       pushUndo({ t: "commit", at: Date.now(), placementId: saved.id, before: null, after: saved });
       endEdit();
+      return true;
     } catch (err) {
-      if (err instanceof NotPersistedError) {
+      if (err instanceof NotPersistedError && !editing.newTree && !editing.newEquipment) {
         // Nowhere to save yet: keep it in the session and say so, rather than pretend.
         upsertPlacement(placement);
         setEditError("Saved for this session only — placements are not persisted yet.");
         endEdit();
-        return;
+        return false;
       }
       setEditError(err instanceof Error ? err.message : "Could not save the placement.");
+      return false;
     } finally {
       setSaving(false);
     }
   }, [saving, setSaving, editing, index, modelId, fingerprint, runtime, furnishings, placements, upsertPlacement, markPlaced, pushUndo, endEdit, setEditError]);
+
+  useEffect(()=>registerEditorActions(runtime,"equipment",{save:async()=>await save()===true,discard:()=>runtime.store.getState().cancelEdit()}),[runtime,save]);
 
   /**
    * Remove the placement. The equipment record itself is untouched — this says "it is not here",

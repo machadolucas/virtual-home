@@ -1,8 +1,10 @@
 # Security
 
 ## Trust model
-Two household members with equal rights over shared data. The only privileged tier is shell access
-to the server (recovery CLI). No roles, no tenancy. Every mutation records the actor for audit.
+One household with equal access to everyday shared data. Owners additionally manage accounts;
+members manage their own profile/security. Fresh browser authentication and a live owner check
+protect changes to other accounts. No tenancy, public signup, impersonation or hard account deletion.
+The local CLI remains the recovery and first-owner bootstrap path. Every mutation records its actor.
 
 ## Boundaries
 - `requireSession()` in browser route handlers, server actions and pages (`authed()`/`action()` wrappers).
@@ -45,3 +47,14 @@ for mutations. 4. `safeJoin` for any filesystem path. 5. Generic error bodies; d
 Credentials are named, scoped, expiring and tied to an existing household user. Secrets are shown once; only their hashes are stored. Creation, rotation, revocation and consequential request approval use fresh browser sessions. Revocation is checked again inside streamed upload registration. Neither arbitrary SQL/filesystem access nor credentials, user administration, backup/restore or model import are exposed as MCP tools. Local client credentials belong in private files outside the repository.
 
 All MCP requests validate Host and any Origin, bound request and response sizes and reject cookie-only access. Approval records contain immutable operation payloads and target revisions; expired or changed targets cannot execute. Requests cannot approve themselves. Keep the existing HTTPS/LAN boundary; MCP does not require a tunnel or public internet exposure.
+
+## Household access lifecycle
+
+`member_access` holds owner/member authority separately from generic authentication-plugin roles.
+Missing rows mean active member, never owner; an explicit local `bootstrap-owner <username>`
+selects the first owner from an existing account. No household identity appears in migrations.
+The browser blocks generic auth-admin endpoints and exposes only audited household actions.
+Deactivation preserves historical attribution, reassigns active work, revokes sessions and MCP
+credentials, and suppresses future notifications. Restoring access does not restore credentials.
+Last-owner checks run in the write transaction; inactive users are checked on browser and MCP
+authorization and omitted from assignment/recipient lists. User administration remains outside MCP.

@@ -73,12 +73,14 @@ function StructureSummary({ kind, id }: { kind: "floor" | "building"; id: string
         {floor.nameFi ? `${floor.nameFi} · ` : ""}datum {floor.elevation.toFixed(2)} m ·{" "}
         {rooms.length} rooms
       </p>
+      <details><summary className="min-h-8 cursor-pointer py-2 text-xs font-medium">Edit floor labels</summary>
       <LabelPreferenceControl
         key={`${floor.id}:${labelPreferences.names[floor.id] ?? ""}:${String(labelPreferences.visibility[floor.id])}`}
         nodeId={floor.id}
         modelName={floor.name}
         kind="floor"
       />
+      </details>
     </div>
   );
 }

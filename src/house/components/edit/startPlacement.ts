@@ -82,7 +82,8 @@ export function startPlacement(runtime: HouseRuntime, equipment: PlaceableEquipm
   if (s.editorSaving || s.furnishingsEditing || !index || !s.modelId) return false;
   if (!confirmEditSwitch(runtime)) return false;
 
-  const floorId = s.activeFloorId ?? index.floorOrder[0] ?? null;
+  const selectedFloor=s.selection?.kind==="room"?index.rooms.get(s.selection.id)?.floorId:s.selection?.kind==="floor"?s.selection.id:null;
+  const floorId = selectedFloor ?? s.activeFloorId ?? index.floorOrder[0] ?? null;
   if (!floorId) return false;
 
   const { position, roomId } = initialPosition(runtime, floorId);

@@ -50,7 +50,7 @@ const SUNKEN_ROOM = { id: "r-l-b", name: "Room B", floor: "s-r-l-b-floor", eleva
 
 test.beforeEach(({}, testInfo) => {
   test.skip(
-    testInfo.project.name === "phone",
+    testInfo.project.name.includes("phone"),
     "the desktop workspace (tree, toolbar, inspector) does not render on a phone — see screenshots.spec.ts",
   );
 });
@@ -167,9 +167,9 @@ test("selecting in the tree writes the store and the URL, and a reload restores 
     // The property node starts expanded, so the building row is already there. Building → floor →
     // room: the tree is the non-3D route to exactly the selection the canvas produces, and each
     // click both expands the row and activates it.
-    await page.getByRole("treeitem", { name: /Fixture house/ }).last().click();
-    await page.getByRole("treeitem", { name: /Lower floor/ }).click();
-    await page.getByRole("treeitem", { name: new RegExp(SUNKEN_ROOM.name) }).click();
+    await page.getByRole("button", { name: "Browse Fixture house", exact:true }).click();
+    await page.getByRole("button", { name: "Browse Lower floor", exact:true }).click();
+    await page.getByRole("list", {name:"House items"}).getByRole("button", {name:new RegExp(SUNKEN_ROOM.name)}).first().click();
 
     await expect
       .poll(() => vh(page).selection())
@@ -222,27 +222,21 @@ test("the property tree groups each floor into rooms, equipment, infrastructure 
     await waitForHook(page);
     await vh(page).settled();
 
-    const tree = page.getByRole("tree", { name: "Property structure" });
-    for (const section of ["Rooms", "Equipment", "Infrastructure", "Furniture"]) {
-      await expect(tree.getByRole("treeitem", { name: section, exact: true }).first()).toBeVisible();
-    }
-    await page.locator('[data-node="section:f-lower:equipment"]').click();
-    await expect(page.locator('[data-node="equipment:tree-equipment"]')).toContainText("Tree heat pump");
+    for (const name of ["Rooms", "Equipment", "Infrastructure", "Furniture", "Trees"]) await expect(page.getByRole("button",{name,exact:true})).toBeVisible();
+    const search=page.getByRole("searchbox",{name:"Search the property"});
+    await search.fill("Tree heat pump");
+    await expect(page.getByRole("list",{name:"House items"})).toContainText("Tree heat pump");
+    await search.fill("Cross-floor supply");
+    await expect(page.getByRole("list",{name:"House items"}).getByRole("listitem")).toHaveCount(1);
+    await page.getByRole("button",{name:"Frame Cross-floor supply",exact:true}).click();
+    await expect.poll(()=>vh(page).selection()).toEqual({kind:"route",id:"tree-route"});
+    await search.fill("Tree reading chair");
+    await page.getByRole("list",{name:"House items"}).getByRole("button").first().click();
+    await expect(page.getByRole("button",{name:"Edit furniture",exact:true})).toBeVisible();
+    await expect(page.getByRole("heading",{name:"Edit furniture",exact:true})).toHaveCount(0);
+    await page.getByRole("button",{name:"Edit furniture",exact:true}).click();
+    await expect(page.getByRole("heading",{name:"Edit furniture",exact:true})).toBeVisible();
 
-    for (const floorId of ["f-lower", "f-upper"]) {
-      await page.locator(`[data-node="section:${floorId}:infrastructure"]`).click();
-      await page.locator(`[data-node="route-group:${floorId}:pipe"]`).click();
-    }
-    await expect(page.getByRole("treeitem", { name: /Cross-floor supply/ })).toHaveCount(2);
-
-    await page.getByRole("button", { name: "Lower floor", exact: true }).click();
-    await page.locator('[data-node="route:f-upper:tree-route"]').click();
-    await expect.poll(() => vh(page).selection()).toEqual({ kind: "route", id: "tree-route" });
-    await expect.poll(() => new URL(page.url()).searchParams.get("floor")).toBeNull();
-
-    await page.locator('[data-node="section:f-lower:furniture"]').click();
-    await page.locator('[data-node="furnishing:tree-chair"]').click();
-    await expect(page.getByRole("heading", { name: "Edit furniture", exact: true })).toBeVisible();
   } finally {
     await context.close();
   }
@@ -297,12 +291,13 @@ test("surface picking and hover require Select, while the floor datum stays exac
 
     // Orbit owns bare-surface gestures. Moving over or clicking a surface must neither tint it nor
     // select it; equipment markers remain the intentional exception covered by equipment tests.
-    await page.getByRole("radio", { name: "Orbit the camera (C)", exact: true }).click();
+    await page.getByRole("radio", { name: "Browse (C)", exact: true }).click();
     await vh(page).select(null);
     await page.mouse.move(client.x, client.y);
-    await expect.poll(() => vh(page).hover()).toBeNull();
-    await clickCanvasAt(page, target.x, target.y);
-    await expect.poll(() => vh(page).selection()).toBeNull();
+    await expect.poll(() => vh(page).hover()).toEqual({kind:"surface",id:SUNKEN_ROOM.floor});
+    await clickCanvasAt(page,target.x,target.y);
+    await expect.poll(()=>vh(page).selection()).toEqual({kind:"room",id:SUNKEN_ROOM.id});
+    await vh(page).select(null);
 
     await page.getByRole("radio", { name: "Select (V)", exact: true }).click();
     // The Orbit click leaves the pointer at `target`. Leave and re-enter so the canvas receives a
@@ -310,7 +305,7 @@ test("surface picking and hover require Select, while the floor datum stays exac
     await page.mouse.move(client.x + 1, client.y);
     await page.mouse.move(client.x, client.y);
     await expect.poll(() => vh(page).hover()).toEqual({ kind: "surface", id: SUNKEN_ROOM.floor });
-    await page.getByRole("radio", { name: "Orbit the camera (C)", exact: true }).click();
+    await page.getByRole("radio", { name: "Browse (C)", exact: true }).click();
     await expect.poll(() => vh(page).hover()).toBeNull();
 
     await page.getByRole("radio", { name: "Select (V)", exact: true }).click();
@@ -335,6 +330,7 @@ test("a colour override touches exactly one surface, and reset puts every defaul
   const { context, page } = await openHouseSession(browser, { sel: "room:r-l-a" });
   try {
     await expect(page.getByRole("heading", { name: "Room A", level: 2 })).toBeVisible();
+    await page.getByText("Edit surface colours", { exact: true }).click();
     // Start from the manifest defaults, so the test is independent of anything a previous run left
     // behind. (Against the plain harness nothing persists — no model revision is registered — but
     // the same file also runs against a server that has one.)
@@ -362,6 +358,7 @@ test("a colour override touches exactly one surface, and reset puts every defaul
 test("the two faces of one shared wall colour independently", async ({ browser }) => {
   const { context, page } = await openHouseSession(browser, { sel: "room:r-l-a" });
   try {
+    await page.getByText("Edit surface colours", { exact: true }).click();
     await page.getByRole("button", { name: "Reset room" }).click();
     const before = await vh(page).allMaterialHex();
     expect(before[SHARED_WALL.a]).toBeDefined();
@@ -508,11 +505,11 @@ test("turning the ceilings off removes exactly the ceiling surfaces from the pic
     expect(hiddenShell.length).toBeGreaterThan(0);
 
     const before = await vh(page).pickables();
-    await page.getByRole("tab", { name: "Layers", exact: true }).click();
+    if (!await page.getByRole("switch", { name: "Ceilings (G)" }).isVisible()) await page.getByRole("button", {name:"View",exact:true}).click();
     await page.getByRole("switch", { name: "Ceilings (G)" }).click();
     await expect.poll(() => vh(page).pickables()).toBe(before - hiddenShell.length);
 
-    await page.getByRole("tab", { name: "Layers", exact: true }).click();
+    if (!await page.getByRole("switch", { name: "Ceilings (G)" }).isVisible()) await page.getByRole("button", {name:"View",exact:true}).click();
     await page.getByRole("switch", { name: "Ceilings (G)" }).click();
     await expect.poll(() => vh(page).pickables()).toBe(before);
     console.log(`[house] pickables ${before} → ${before - hiddenShell.length} with the shell open`);
@@ -598,6 +595,8 @@ test("the explode gap moves each floor by its own offset and hides split edge ov
     expect(await api.worldY("fixture-upper", "f-upper")).toBeCloseTo(0, 6);
     expect(await api.visible("fixture-roof", "edges-fixture-roof")).toBe(true);
 
+    await page.getByRole("button",{name:"View",exact:true}).click();
+    await page.getByText("Cut and separation",{exact:true}).click();
     const slider = page.getByLabel("Explode gap in metres");
     await slider.fill("3");
     await slider.dispatchEvent("input");
@@ -638,6 +637,7 @@ test("equipment that is not placed yet can be placed, outdoors, from the tree pa
   const { context, page } = await openHouseSession(browser);
   try {
     // The panel states the count rather than hiding when there is nothing to place.
+    await page.getByRole("button",{name:"Equipment",exact:true}).click();
     const notPlaced = page.getByRole("button", { name: /Not placed yet/ });
     await expect(notPlaced).toBeVisible();
     await notPlaced.click();
@@ -649,9 +649,8 @@ test("equipment that is not placed yet can be placed, outdoors, from the tree pa
     await expect(page.getByRole("heading", { name: "Place equipment" })).toBeVisible();
 
     // A point outside every room footprint: the fixture's rooms all sit within x/z 0.2–5.8.
-    const inspector = page.getByRole("region", { name: "Equipment placement" });
-    await inspector.getByLabel("X (m)").fill("8");
-    await inspector.getByLabel("Z (m)").fill("6.5");
+    await page.getByLabel("X (m)", { exact: true }).fill("8");
+    await page.getByLabel("Z (m)", { exact: true }).fill("6.5");
 
     await page.getByRole("button", { name: "Save placement" }).click();
 
@@ -668,7 +667,8 @@ test("equipment that is not placed yet can be placed, outdoors, from the tree pa
     expect(payload?.position?.[0]).toBeCloseTo(8, 3);
 
     // And it is reachable again: the tree grows an "Outside" branch for it.
-    await expect(page.getByRole("treeitem", { name: /Outside/ })).toBeVisible();
+    await page.getByRole("button", { name: "Rooms", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Browse Outside", exact:true })).toBeVisible();
   } finally {
     await context.close();
   }
@@ -688,6 +688,7 @@ test("the place tool anchors then rotates a draft without orbiting the camera", 
    */
   const { context, page } = await openHouseSession(browser);
   try {
+    await page.getByRole("button",{name:"Equipment",exact:true}).click();
     await page.getByRole("button", { name: /Not placed yet/ }).click();
     await page.getByRole("button", { name: `Place ${LOCK_ME} in the model` }).click();
     await expect(page.getByRole("heading", { name: "Place equipment" })).toBeVisible();
@@ -775,6 +776,7 @@ test("the place tool anchors then rotates a draft without orbiting the camera", 
 test("aiming shows the position on hover, before anything is clicked", async ({ browser }) => {
   const { context, page } = await openHouseSession(browser);
   try {
+    await page.getByRole("button",{name:"Equipment",exact:true}).click();
     await page.getByRole("button", { name: /Not placed yet/ }).click();
     await page.getByRole("button", { name: `Place ${HOVER_ME} in the model` }).click();
 
@@ -878,7 +880,7 @@ test("leaving and re-entering the workspace disposes everything and rebuilds the
       .poll(() => vh(page).disposedInfo(), { timeout: 10_000 })
       .toEqual({ geometries: 0, textures: 0 });
 
-    await page.getByRole("link", { name: "House" }).click();
+    await page.getByRole("link", { name: "House",exact:true }).click();
     await page.waitForURL(/\/house/);
     await waitForHook(page);
     await vh(page).settled();

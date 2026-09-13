@@ -56,6 +56,7 @@ export function useKeyboardShortcuts(
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isTypingTarget(event.target)) return;
+      if (event.key === "Escape" && (event.target as Element | null)?.closest?.('[role="dialog"], [data-radix-popper-content-wrapper]')) return;
       // Native root listeners run before React/Radix handlers: leave widget keys alone.
       if (event.key !== "Escape" && (event.target as HTMLElement | null)?.closest(
         'button, a[href], [role="tab"], [role="radio"], [role="slider"], [role="switch"], [role="combobox"]',

@@ -31,7 +31,7 @@ plan (rule + anchor) → occurrence (one open per plan) → worker: pending→du
 reminder slots t(n) = instant(anchor + 7n days, 09:00, tz) → outbox command per device → HA notify
 (tag per occurrence×recipient) → user taps action → HA event → worker validates nonce/recipient →
 snooze or complete (`completion.request_id = 'act:'+nonce`) → completion + stock consumption in one
-transaction → clear notifications for both users → next occurrence.
+transaction → clear notifications for all recipients → next occurrence.
 
 ## Data flow: house model
 Package installed under `VH_DATA_DIR/model/<fingerprint>/` (`vh-admin model-import`) → validated
@@ -50,3 +50,17 @@ See `docs/data-model.md`, `docs/model-contract.md`, `docs/home-assistant.md`, `d
 Web actions and MCP adapters call transport-neutral operations under `src/server/operations` and shared services. Validation, scheduling, write transactions, audit attribution and events remain shared. Routine authoring commits with atomic connection/operation/payload-bound idempotency; consequential requests are immutable pending records reviewed through a fresh browser session, revalidated and executed once. MCP cannot approve requests. See `docs/mcp.md` for client setup and limits.
 
 PDF extraction runs as a bounded local worker job. `document_text` caches text by attachment hash and extractor version with page references. The viewer uses locally bundled PDF.js and authenticated attachment requests; no household documents go to an external rendering or extraction service.
+
+## Connected browser workspace
+
+Hub pages retain context behind canonical record modals. Normal detail routes render their own
+canonical hub; intercepted routes retain the actual origin. One presentation coordinator owns
+focus/scroll locking, cached record drafts and Close/Back navigation. Dirty state belongs to an
+editor lifetime rather than a pathname. House URL synchronization ignores other record routes.
+Native and fallback fullscreen share an overlay host, with descendant-host protection preventing
+a dialog from being portalled inside its own document viewer.
+
+House browsing, creation and inspection have separate responsibilities. New manual equipment and
+trees use a draft-only creation form followed by the existing physical placement editor. The
+authenticated placement transaction creates both records or neither. HA import ignore decisions
+live outside registry-cache tables and remain stable through syncs and renames.

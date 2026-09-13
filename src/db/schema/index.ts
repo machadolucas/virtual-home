@@ -22,3 +22,6 @@ export * from "./system";
 export * from "./mcp";
 export * from "./documentText";
 export * from "./integrity";
+
+export * from "./memberAccess";
+export * from "./haReview";

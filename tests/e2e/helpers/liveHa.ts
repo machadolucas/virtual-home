@@ -13,6 +13,11 @@ export interface SyntheticHaItem {
 /** Install before navigation. Tests can then drive the browser's real SSE parser deterministically. */
 export async function installSyntheticHa(page: Page): Promise<void> {
   await page.addInitScript(() => {
+    // WebKit does not consistently apply serviceWorkers:"block". A synthetic network
+    // fixture must prevent registration before the sign-in page can install the PWA.
+    if ("serviceWorker" in navigator) Object.defineProperty(navigator.serviceWorker, "register", {
+      value: () => Promise.reject(new Error("Service workers disabled for synthetic HA fixtures")),
+    });
     const sources = new Set<EventTarget>();
     class SyntheticEventSource extends EventTarget {
       static readonly CLOSED = 2;

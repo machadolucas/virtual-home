@@ -1,4 +1,5 @@
 "use client";
+import { requestEditSwitch } from "./confirmSwitch";
 /**
  * "Not placed yet" — the equipment that exists in the household but has no position in the model.
  *
@@ -17,21 +18,21 @@ import { startPlacement } from "./startPlacement";
 /** How many rows to render before asking the user to narrow the list. */
 const VISIBLE_LIMIT = 12;
 
-export function PlaceableList() {
+export function PlaceableList({ search }: { search?: string } = {}) {
   const runtime = useHouseRuntime();
-  const { placeable, editing } = useHouseStore(
-    useShallow((s) => ({ placeable: s.placeable, editing: s.editing })),
+  const { placeable, saving } = useHouseStore(
+    useShallow((s) => ({ placeable: s.placeable, saving: s.editorSaving })),
   );
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
 
   const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = (search ?? query).trim().toLowerCase();
     if (q.length === 0) return placeable;
     return placeable.filter((e) =>
       [e.name, e.category, e.locationName ?? ""].join(" ").toLowerCase().includes(q),
     );
-  }, [placeable, query]);
+  }, [placeable, query, search]);
 
   if (placeable.length === 0) return null;
 
@@ -41,7 +42,7 @@ export function PlaceableList() {
     <section aria-label="Equipment not placed yet" className="flex flex-col gap-1">
       <button
         type="button"
-        aria-expanded={open}
+        aria-expanded={open || !!search}
         onClick={() => setOpen((v) => !v)}
         className="flex min-h-8 items-center justify-between rounded px-1 text-left text-xs font-medium text-ink hover:bg-surface-3"
       >
@@ -51,9 +52,9 @@ export function PlaceableList() {
         </span>
       </button>
 
-      {open ? (
+      {open || search ? (
         <div className="flex flex-col gap-1">
-          {placeable.length > VISIBLE_LIMIT ? (
+          {search === undefined && placeable.length > VISIBLE_LIMIT ? (
             <Input
               type="search"
               inputSize="sm"
@@ -78,16 +79,16 @@ export function PlaceableList() {
                   </span>
                   <button
                     type="button"
-                    disabled={editing !== null}
-                    onClick={() => startPlacement(runtime, equipment)}
+                    disabled={saving}
+                    onClick={() => void requestEditSwitch(runtime,()=>{startPlacement(runtime,equipment);})}
                     className="flex min-h-7 shrink-0 items-center gap-1 rounded border border-line px-1.5 text-[11px] font-medium text-ink hover:bg-surface-3 disabled:opacity-50"
                     // "Place" alone is the same name on every row; the equipment has to be in the
                     // accessible name for a screen reader (or a test) to tell the buttons apart.
                     aria-label={`Place ${equipment.name} in the model`}
                     title={
-                      editing === null
+                      !saving
                         ? `Place ${equipment.name} in the model`
-                        : "Finish or cancel the current placement first"
+                        : "Wait for the current save to finish"
                     }
                   >
                     <MapPin aria-hidden="true" className="size-3" />

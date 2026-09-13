@@ -40,8 +40,9 @@ the architecture, security, house-view and document documentation maintained wit
 
 ## Intentional restrictions retained
 
-- Creating users, resetting another user's password and other account provisioning require the
-  local admin CLI. Home Assistant credentials remain in the server environment.
+- Owners now manage household accounts in Settings → Users. Initial owner bootstrap and local
+  recovery remain CLI operations; there is no public signup, hard account deletion or impersonation.
+  Home Assistant credentials remain in the server environment.
 - Fixed-weekly recurrence was excluded from the first-version design. There was no visible broken
   control offering it; its absence is not evidence of a regression.
 - No fuzzy automatic equipment identity matching: HA identities remain registry/device identities.
@@ -75,3 +76,25 @@ cookie-cache blob). Private equipment, supply and project names must be absent f
   deployment health are checked separately during rollout.
 - Review production migration/backup and deployment status separately; this issue inventory does
   not assert that the new version has been deployed or that external desktop MCP clients connected.
+
+## Follow-up interface and access changes
+
+- Settings → Users now completes owner-managed account creation, name/username editing, role changes,
+  password resets and reversible deactivation. Missing membership rows mean ordinary active members;
+  only an explicit local username lookup bootstraps the initial owner. Generic auth-admin endpoints
+  remain unavailable. Provisioning never signs the owner into the account being created.
+- Deactivation explicitly moves open work to an active person or shared household work, revokes
+  sessions/AI credentials, cancels pending AI requests and stops reminders. Historical attribution
+  still resolves inactive members, while new assignment choices exclude them.
+- Home Assistant devices and entities have persistent local ignore/restore choices, bulk selection,
+  Undo and a default-hidden filter. Registry names may change or disappear without losing the choice.
+- Today includes a remembered collapsible relationship guide, direct links between records and
+  work, and compact assignment/status queue filters. Supplies defaults to Everything.
+
+Regression coverage for these changes includes real signed-cookie deactivation, sign-in refusal,
+owner bootstrap/last-owner guards, shared and individual work reassignment, username collisions,
+HA stable identities and cache removal, atomic bulk rollback, and browser account/ignore journeys.
+
+- Backup verification now drains trailing tar padding after bsdtar reaches the end marker, avoiding
+  an intermittent decompressor SIGPIPE being misreported as an unreadable archive. Restore uses
+  the same draining rule; tar and decompressor failures still propagate through `pipefail`.

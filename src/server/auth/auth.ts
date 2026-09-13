@@ -1,11 +1,13 @@
 import "server-only";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, username } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { getDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { loadEnv } from "@/env";
+import { isActiveMember } from "@/domain/memberAccess";
 import { log } from "@/server/log";
 
 /**
@@ -16,6 +18,8 @@ import { log } from "@/server/log";
  */
 export interface AuthVariant {
   allowSignUp?: boolean;
+  /** Internal provisioning must never replace the acting owner's browser cookie. */
+  provisioning?: boolean;
   captureResetToken?: (token: string, email: string) => void;
 }
 
@@ -31,9 +35,12 @@ export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
     telemetry: { enabled: false },
     database: drizzleAdapter(getDb().db, { provider: "sqlite", schema }),
 
+    databaseHooks: { session: { create: { before: async data => { if (!isActiveMember(getDb().db, data.userId)) throw new APIError("UNAUTHORIZED", { message: "Invalid username or password" }); return { data }; } } } },
+
     emailAndPassword: {
       enabled: true,
       disableSignUp: variant.allowSignUp !== true,
+      autoSignIn: variant.provisioning !== true,
       requireEmailVerification: false,
       minPasswordLength: 12,
       maxPasswordLength: 128,
@@ -94,7 +101,7 @@ export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
     plugins: [
       username({ minUsernameLength: 3, maxUsernameLength: 30 }),
       admin(),
-      nextCookies(), // must be last
+      ...(variant.provisioning ? [] : [nextCookies()]), // browser integration must be last
     ],
   };
 }

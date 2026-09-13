@@ -2,6 +2,8 @@ import "server-only";
 import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { getDb } from "@/db/client";
+import { isActiveMember } from "@/domain/memberAccess";
 import { getAuth } from "./auth";
 
 export type Session = NonNullable<Awaited<ReturnType<ReturnType<typeof getAuth>["api"]["getSession"]>>>;
@@ -17,15 +19,17 @@ export class UnauthorizedError extends Error {
 
 /** Session for the current request; deduplicated per render via React cache(). May use the cookie cache (≤60 s stale). */
 export const getSession = cache(async (): Promise<Session | null> => {
-  return getAuth().api.getSession({ headers: await headers() });
+  const session = await getAuth().api.getSession({ headers: await headers() });
+  return session && isActiveMember(getDb().db, session.user.id) ? session : null;
 });
 
 /** Bypasses the cookie cache: for destructive operations and the security settings page. */
 export async function getFreshSession(): Promise<Session | null> {
-  return getAuth().api.getSession({
+  const session = await getAuth().api.getSession({
     headers: await headers(),
     query: { disableCookieCache: true },
   });
+  return session && isActiveMember(getDb().db, session.user.id) ? session : null;
 }
 
 /** Route handlers and server actions: throws UnauthorizedError (→ 401). */

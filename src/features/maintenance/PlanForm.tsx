@@ -413,7 +413,7 @@ export function PlanForm({
                   }
                 }}
                 options={[
-                  { value: "shared", label: "Shared", hint: "Both members are reminded." },
+                  { value: "shared", label: "Shared", hint: "All active members are reminded." },
                   ...members.map((member) => ({
                     value: `user:${member.id}`,
                     label: member.name,

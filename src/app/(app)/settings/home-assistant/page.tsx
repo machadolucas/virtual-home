@@ -1,3 +1,5 @@
+import { ignoredHaItems } from "@/server/services/haReview";
+import { IgnoredItems } from "@/features/ha/ReviewControls";
 import type { Metadata } from "next";
 import { requireSessionPage } from "@/server/auth/session";
 import { Badge, ConnectionPill, Panel, connectionStateOf } from "@/ui";
@@ -41,6 +43,7 @@ export default async function HomeAssistantSettingsPage({
   await requireSessionPage("/settings/home-assistant");
   const params = await searchParams;
   const query = firstValue(params["q"]) ?? "";
+  const showIgnored = firstValue(params["ignored"]) === "1";
   const includeHidden = firstValue(params["hidden"]) === "1";
   // Dead rows are out by default; `?dead=1` brings them back for the rare "where did my washing
   // machine go" moment.
@@ -51,7 +54,9 @@ export default async function HomeAssistantSettingsPage({
   const status = readIntegrationStatus(db);
   const alive = workerAlive(status, nowMs, env.VH_WORKER_HEARTBEAT_MS);
 
-  const registry = browseRegistry(db, { includeHidden, query, hideDead: !showDead });
+  const ignoredItems = ignoredHaItems(db);
+  const ignoredKeys = new Set(ignoredItems.map(item => `${item.kind}:${item.registryId}`));
+  const registry = browseRegistry(db, { includeHidden, query, hideDead: !showDead, includeIgnored: showIgnored });
 
   // Entities for the devices actually on screen. Loading them per device on demand would be a
   // round trip per row; loading the whole registry would be thousands of rows for no reason.
@@ -60,9 +65,10 @@ export default async function HomeAssistantSettingsPage({
     for (const area of floor.areas) {
       for (const device of area.devices) {
         entitiesByDevice[device.deviceId] = readDeviceEntities(db, device.deviceId, {
-          includeHidden,
+          includeHidden, includeIgnored: showIgnored,
         }).map((entity) => ({
           registryId: entity.registryId,
+          ignored: ignoredKeys.has(`entity:${entity.registryId}`),
           entityId: entity.entityId,
           domain: entity.domain,
           name: entity.name,
@@ -202,6 +208,7 @@ export default async function HomeAssistantSettingsPage({
         title="Import & link"
         subtitle="Browse the cached registry by floor and area, then turn a device into equipment."
       >
+        <IgnoredItems items={ignoredItems} showIgnored={showIgnored}/>
         <RegistryBrowser
           groups={registry.groups.map((floor) => ({
             floorId: floor.floorId,
@@ -211,6 +218,7 @@ export default async function HomeAssistantSettingsPage({
               areaName: area.areaName,
               devices: area.devices.map((device) => ({
                 deviceId: device.deviceId,
+                ignored: ignoredKeys.has(`device:${device.deviceId}`),
                 name: device.name,
                 nameByUser: device.nameByUser,
                 manufacturer: device.manufacturer,

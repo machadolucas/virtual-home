@@ -1,3 +1,6 @@
+import type { Route } from "next";
+import { Relationships } from "./Relationships";
+import { belongsToScope, inTodayQueue, TODAY_QUEUES, type TodayQueue } from "@/features/maintenance/todayFilters";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { CalendarCheck, ClipboardList, ListChecks } from "lucide-react";
@@ -22,7 +25,7 @@ export const metadata: Metadata = { title: "Today" };
  * completion percentages and no streaks, because none of those would be honest with two people and
  * a house (`docs/ux.md` §5).
  */
-export default async function TodayPage() {
+export default async function TodayPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> } = {}) {
   const session = await requireSessionPage("/today");
   const viewerId = session.user.id;
 
@@ -30,7 +33,14 @@ export default async function TodayPage() {
   const members = loadMembers(db);
   const partner = partnerOf(members, viewerId);
   const tasks = loadOpenTasks(db, today, viewerId);
-  const groups = groupToday(tasks, today, viewerId);
+  const params = await searchParams ?? {};
+  const rawQueue = typeof params.queue === "string" ? params.queue : "all";
+  const queue: TodayQueue = TODAY_QUEUES.includes(rawQueue as TodayQueue) ? rawQueue as TodayQueue : "all";
+  const mine = params.scope === "mine";
+  const scoped = tasks.filter(task => belongsToScope(task, viewerId, mine));
+  const groups = groupToday(scoped.filter(task => inTodayQueue(task, today, queue)), today, viewerId);
+  const queueLabels = { all: "All work", attention: "Needs action", upcoming: "Upcoming", waiting: "Waiting" };
+  const href = (nextQueue: TodayQueue, nextMine: boolean) => `/today?queue=${nextQueue}&scope=${nextMine ? "mine" : "all"}` as Route;
   const health = loadMaintenanceHealth(db, nowMs);
   const needsSetup = loadPlansNeedingSetup(db);
 
@@ -53,11 +63,11 @@ export default async function TodayPage() {
       <PageHeader
         eyebrow="Household"
         title="Today"
-        description={`${formatDate(today)}. Overdue and due-today work first, then what is coming, then what is waiting on something.`}
+        description={`${formatDate(today)} · Your house, its records and the work ahead.`}
         actions={
           <>
-            <Link href="/plans" className={buttonClasses({ variant: "secondary", size: "sm" })}>
-              Plans
+            <Link href="/plans/new" className={buttonClasses({ variant: "primary", size: "sm" })}>
+              Add work
             </Link>
             <Link href="/procedures" className={buttonClasses({ variant: "ghost", size: "sm" })}>
               Procedures
@@ -66,35 +76,14 @@ export default async function TodayPage() {
         }
       />
 
+      <Relationships/>
       <HealthBanner health={health} tz={tz} />
+      <section aria-label="Work filters" id="work" className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2"><h2 id="work-queue" className="text-lg font-semibold">Work queue</h2><nav aria-label="Whose work" className="flex gap-2">{[{ label: "Everyone", mine: false }, { label: "Mine and shared", mine: true }].map(item => <Link key={item.label} href={href(queue, item.mine)} aria-current={mine === item.mine ? "page" : undefined} className={buttonClasses({ variant: mine === item.mine ? "secondary" : "ghost", size: "sm" })}>{item.label}</Link>)}</nav></div>
+        <nav aria-label="Work status" className="flex flex-wrap gap-2">{TODAY_QUEUES.map(item => <Link key={item} href={href(item, mine)} aria-current={queue === item ? "page" : undefined} className={buttonClasses({ variant: queue === item ? "secondary" : "ghost", size: "sm" })}>{queueLabels[item]} <span className="text-ink-3">{scoped.filter(task => inTodayQueue(task, today, item)).length}</span></Link>)}</nav>
+      </section>
 
-      {groups.total === 0 ? (
-        <EmptyState
-          icon={<CalendarCheck />}
-          title={
-            tasks.length === 0
-              ? "Nothing is scheduled in the next 30 days"
-              : "Nothing needs doing right now"
-          }
-          description={
-            tasks.length === 0
-              ? "This page lists work generated from maintenance plans and from Home Assistant condition rules. Neither has produced anything inside the next 30 days."
-              : "Everything open falls outside the next 30 days."
-          }
-          bullets={[
-            "Overdue and due-today work, split into yours, shared, and the other member's.",
-            "Anything due inside a week, so nothing arrives as a surprise.",
-            "Tasks waiting on a part or on a booked professional, kept separate from work you can actually start.",
-            "Battery and other condition alerts, with the reading that triggered them.",
-          ]}
-          actions={
-            <Link href="/plans/new" className={buttonClasses({ variant: "primary" })}>
-              Create a maintenance plan
-            </Link>
-          }
-          note="Plans generate one open task at a time; the worker promotes a task to “due” at the household delivery time on its due date."
-        />
-      ) : null}
+      {groups.total === 0 ? <EmptyState icon={<CalendarCheck/>} title="No work in this view" description={tasks.length === 0 ? "Nothing is scheduled in the next 30 days. Add work when you need it." : "Try another work filter or include everyone."} actions={tasks.length === 0 ? <Link href="/plans/new" className={buttonClasses({ variant: "primary" })}>Add work</Link> : <Link href="/today" className={buttonClasses({ variant: "secondary" })}>Show all work</Link>}/> : null}
 
       {attentionBuckets.length > 0 ? (
         <Panel
@@ -173,7 +162,7 @@ export default async function TodayPage() {
       {needsSetup.length > 0 ? (
         <Panel
           title="Plans waiting for a starting point"
-          subtitle="Saved with “ask me later”. They generate nothing until someone answers when the work was last done — the app will not guess, because a guess would become fake history."
+          subtitle="Choose a starting date to begin scheduling work."
           flush
         >
           <ul>
@@ -203,8 +192,7 @@ export default async function TodayPage() {
       <p className="flex flex-wrap items-center gap-3 text-xs text-ink-3">
         <ListChecks aria-hidden="true" className="size-3.5" />
         <span>
-          Work is generated one task at a time per plan. Completing a task is what moves the
-          schedule; snoozing moves only a reminder.
+          Completed work stays in your history.
         </span>
         <Link
           href="/history"

@@ -3,8 +3,10 @@ import sharp from "sharp";
 import { emitHaBatch, installSyntheticHa, openSyntheticHa } from "./helpers/liveHa";
 import { openHouse, openRenderingCategory, waitForStableFrames } from "./helpers/house";
 
+test.use({ serviceWorkers: "block" });
+
 test("daylight preview changes sunlight, shadows and night brightness then returns idle", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Desktop rendering controls; shared canvas lighting.");
+  test.skip(testInfo.project.name.includes("phone"), "Desktop rendering controls; shared canvas lighting.");
   await openHouse(page);
   await openRenderingCategory(page, "Environment");
   const controls = page.getByRole("group", { name: "Daylight and shadows", exact: true });
@@ -40,12 +42,12 @@ test("daylight preview changes sunlight, shadows and night brightness then retur
   expect(nightTotal).toBeLessThan(dayTotal * 0.75);
   await testInfo.attach("daylight-noon.png", { body: noonImage, contentType: "image/png" });
   await testInfo.attach("daylight-night.png", { body: nightImage, contentType: "image/png" });
-  await page.getByRole("tab", { name: "Quality", exact: true }).click();
+  await openRenderingCategory(page, "Quality");
   await page.getByRole("switch", { name: "Soft shadows", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.radius)).toBe(0);
   await page.getByRole("switch", { name: /Performance mode/ }).click();
   await expect.poll(() => page.evaluate(() => window.__vh!.daylight()?.shadowMapSize)).toBe(512);
-  await page.getByRole("tab", { name: "Environment", exact: true }).click();
+  await openRenderingCategory(page, "Environment");
   await controls.getByRole("radio", { name: "Live time", exact: true }).click();
   await expect(controls.getByRole("radio", { name: "Live time", exact: true })).toBeChecked();
   await expect(date).not.toHaveValue("2026-03-20T00:00");
@@ -56,7 +58,7 @@ test("daylight preview changes sunlight, shadows and night brightness then retur
 });
 
 test("outdoor lux and weather tune Live time, fall back safely, and survive reload by registry id", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Desktop rendering controls; the phone uses the same daylight component.");
+  test.skip(testInfo.project.name.includes("phone"), "Desktop rendering controls; the phone uses the same daylight component.");
   await installSyntheticHa(page);
   // The fixture deliberately has no private location. Give this test a synthetic coordinate whose
   // longitude puts the current instant near solar noon, so Live time exercises daylight on every

@@ -159,6 +159,6 @@ export function ownerBucketLabel(bucket: OwnerBucket, partnerName: string | null
     case "shared":
       return "Shared";
     case "partner":
-      return partnerName === null ? "Assigned to the other member" : `${partnerName}'s`;
+      return partnerName === null ? "Other members" : `${partnerName}'s`;
   }
 }

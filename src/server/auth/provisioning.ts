@@ -86,7 +86,7 @@ function assertPassword(password: string): void {
  * it. Building one is cheap (no I/O beyond the already-open database handle).
  */
 function variantAuth(variant: AuthVariant) {
-  return betterAuth(buildAuthOptions(variant));
+  return betterAuth(buildAuthOptions({ ...variant, provisioning: true }));
 }
 
 export interface UserRow {

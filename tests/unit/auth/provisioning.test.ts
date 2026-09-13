@@ -219,3 +219,11 @@ describe("the variant overrides do not leak", () => {
     expect(JSON.stringify(result)).not.toMatch(/token/i);
   });
 });
+
+it("internal provisioning cannot auto-sign-in or replace the acting browser's cookies", async () => {
+  const { buildAuthOptions } = await import("@/server/auth/auth");
+  const options = buildAuthOptions({ allowSignUp: true, provisioning: true });
+  expect(options.emailAndPassword?.autoSignIn).toBe(false);
+  expect(options.plugins?.some(plugin => plugin.id === "next-cookies")).toBe(false);
+  expect(buildAuthOptions().plugins?.some(plugin => plugin.id === "next-cookies")).toBe(true);
+});

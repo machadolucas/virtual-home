@@ -6,6 +6,7 @@
  * of which wall."* These tests assert that it does not.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
 
 const { SESSION_USER_ID } = vi.hoisted(() => ({
   SESSION_USER_ID: "01900000-0000-7000-8000-000000000001",
@@ -59,6 +60,36 @@ const put = (placement: Record<string, unknown>) =>
 
 const list = () =>
   GET(jsonRequest(`/api/house-model/${h.modelId}/placements`, "GET"), ctx({ modelId: h.modelId }));
+
+describe("atomic tree creation",()=>{
+  it("creates manual equipment with its chosen category and physical representation",async()=>{
+    const id=randomUUID();
+    const result=await PUT(jsonRequest(`/api/house-model/${h.modelId}/placements`,"PUT",{fingerprint:h.fingerprint,viewMode:"normal",newEquipment:{name:"Synthetic pump",category:"plumbing",notes:"Installation instructions"},placement:{id,equipmentId:id,floorId:"f-lower",roomId:"r-l-a",position:[1,0,1],symbol:"generic",locationNote:"Beside the hatch"}}),ctx({modelId:h.modelId}));
+    expect(result.status).toBe(200);
+    expect(h.handle.db.select().from(asset).where(eq(asset.id,id)).get()).toMatchObject({name:"Synthetic pump",category:"plumbing",notes:"Installation instructions",isVirtual:false});
+    expect(h.handle.db.select().from(assetPlacement).where(eq(assetPlacement.assetId,id)).get()).toMatchObject({locationNote:"Beside the hatch",symbol:"generic"});
+    expect(h.handle.sqlite.prepare("SELECT count(*) AS n FROM asset_ha_link WHERE asset_id=?").get(id)).toEqual({n:0});
+  });
+  function treeRequest(id:string,position=[1,0,1]){
+    return PUT(jsonRequest(`/api/house-model/${h.modelId}/placements`,"PUT",{fingerprint:h.fingerprint,viewMode:"normal",newTree:{name:"Synthetic apple tree",notes:"Planted in spring"},placement:{id,equipmentId:id,floorId:"f-lower",roomId:"r-l-a",position,symbol:"tree",treeHeightM:3.5}}),ctx({modelId:h.modelId}));
+  }
+  it("creates a documented tree and placement together and safely replays a save",async()=>{
+    const id=randomUUID();
+    expect((await treeRequest(id)).status).toBe(200);
+    expect(h.handle.db.select().from(asset).where(eq(asset.id,id)).get()).toMatchObject({name:"Synthetic apple tree",category:"outdoor",notes:"Planted in spring"});
+    expect(h.handle.db.select().from(assetPlacement).where(eq(assetPlacement.assetId,id)).get()).toMatchObject({symbol:"tree",treeHeightM:3.5});
+    expect((await treeRequest(id)).status).toBe(200);
+    expect(h.handle.db.select().from(assetPlacement).where(eq(assetPlacement.assetId,id)).all()).toHaveLength(1);
+  });
+  it("leaves no tree after invalid placement or a failed placement insert",async()=>{
+    const id=randomUUID();
+    expect((await treeRequest(id,[999,0,0])).status).toBe(400);
+    expect(h.handle.db.select().from(asset).where(eq(asset.id,id)).get()).toBeUndefined();
+    h.handle.sqlite.exec("CREATE TRIGGER reject_tree_placement BEFORE INSERT ON asset_placement BEGIN SELECT RAISE(ABORT,'synthetic placement failure'); END");
+    expect((await treeRequest(id)).status).toBe(500);
+    expect(h.handle.db.select().from(asset).where(eq(asset.id,id)).get()).toBeUndefined();
+  });
+});
 
 describe("placement mount round trip", () => {
   it("keeps which wall a wall mount is on, with its height and standoff", async () => {

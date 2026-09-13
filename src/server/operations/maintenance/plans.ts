@@ -1,4 +1,5 @@
 import "server-only";
+import { isActiveMember } from "@/domain/memberAccess";
 /**
  * Maintenance plans: create, edit, seed the schedule, cancel — plus the live schedule preview the
  * wizard shows.
@@ -154,6 +155,7 @@ export const createPlan = action(
     const result = domainCall("create_plan", () =>
       writeTx(handle.db, (tx) => {
         const ref = parseTarget(plan.target);
+        if (plan.assignmentMode === "user" && (!plan.assigneeUserId || !isActiveMember(tx, plan.assigneeUserId))) throw new ValidationError("inactive_assignee", "Choose an active member.");
         assertActiveProvider(tx,plan.defaultProviderId);
         const procedureId = assertProcedure(tx, plan.procedureId);
         const planId = newId();
@@ -233,6 +235,7 @@ export const updatePlan = action(
           throw new ConflictError("plan_cancelled", "a cancelled plan cannot be edited");
         }
         const ref = parseTarget(plan.target);
+        if (plan.assignmentMode === "user" && (!plan.assigneeUserId || !isActiveMember(tx, plan.assigneeUserId))) throw new ValidationError("inactive_assignee", "Choose an active member.");
         assertActiveProvider(tx,plan.defaultProviderId);
         const procedureId = assertProcedure(tx, plan.procedureId);
         const now = ctx.clock.now();

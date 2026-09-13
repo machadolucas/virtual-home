@@ -191,3 +191,19 @@ Fullscreen expands the current canvas without recreating the renderer or store. 
 
 ## D-032 Local document indexing and reversible integrity repair
 PDF.js is bundled locally for authenticated viewing and bounded worker text extraction. Cached text carries file hashes, extractor versions and page references; scans and failed/password-protected files are labelled honestly without OCR. Integrity scans report missing records without deleting them. Confirmed orphan files can be quarantined with a reversible journal and no-overwrite staging, and quarantine bytes are included in backups.
+
+## D-033 Connected hubs and explicit house interactions
+Records open as canonical URL modals, including direct visits over their corresponding hub.
+Contextual visits preserve their originating hub or house canvas. One modal is active; related
+records replace its content and browser history traverses the chain. Draft ownership survives
+record navigation, while reload warns before losing in-memory drafts.
+The left house browser owns discovery and Add workflows; the floating inspector owns existing
+selection details. Browse combines click selection and drag orbit. View settings use disclosures,
+and trees are documented equipment with independent presentation visibility.
+
+## D-034 Owner-managed household access
+The accepted product model now permits account management in the app through an owner/member
+distinction limited to account administration. The first owner is explicitly selected by local CLI;
+new accounts default to member. Removal means deactivation with historical attribution retained.
+Fresh ownership checks, last-owner protection, access revocation, active-work reassignment and
+blocked generic admin endpoints are required; public signup and MCP user administration stay absent.

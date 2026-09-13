@@ -78,3 +78,36 @@ Restoration reloads the current quarantine row, validates its original path and 
 references, and refuses to substitute quarantined bytes for a newly registered attachment. No
 attachment record or project relationship is deleted automatically. Audit records identify the
 household member who quarantined or restored each file.
+
+## Household members and access
+
+Settings → Users lets owners create members, change names, usernames and account access, reset passwords,
+and manage notification devices. Other members retain full household feature access and can view
+who receives reminders. New accounts default to member; owner access is limited to account
+management and does not grant a generic authentication administration API.
+
+The initial owner is assigned to an existing username with `pnpm vh-admin bootstrap-owner <username>`.
+This is an idempotent local recovery operation, refuses a different existing owner, and stores no
+household IDs in migrations. Every account mutation checks a fresh session and current owner
+access. The last active owner cannot be demoted or deactivated.
+
+Deactivation requires an explicit choice: shared household work or another active member receives open assigned work. It retains names and
+history, reassigns plans and open tasks, revokes sessions and AI connections, rejects pending AI
+requests, and stops reminders. Restoring an account does not restore old tokens, devices or
+assignments. Shared reminders and assignment choices support every active household member.
+
+## Home Assistant import review
+
+Devices and individual entities can be ignored locally without changing Home Assistant or
+removing existing equipment links. Ignore uses registry/device identities, survives cache refresh
+and renames, and is reversible through Undo or Manage ignored items. The default import browser
+hides ignored devices/entities; Show ignored items includes them for review. Bulk ignore and
+restore apply to explicit selections. Removed cache entries remain restorable in the ignored list.
+
+## Today and supplies
+
+Today begins with a compact relationship guide explaining how the house, planned work, preparations and records
+relate. Its collapsed state is remembered on the device; Trees, Tasks, Shopping and secondary
+notifications, search and settings links remain available through their normal navigation. The work queue can show everyone or mine/shared, then all work, needs action, upcoming or
+waiting. Counts and task grouping use the same underlying records; filters do not change tasks.
+Supplies opens with Everything, with low-stock and other narrower views available as filters.

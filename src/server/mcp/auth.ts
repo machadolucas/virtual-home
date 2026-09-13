@@ -1,4 +1,5 @@
 import "server-only";
+import { isActiveMember } from "@/domain/memberAccess";
 import { createHash, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -37,7 +38,7 @@ export function assertConnection(db: Db, id: string, scope: McpScope, now = Date
   if (!row || row.revokedAtMs !== null || row.expiresAtMs <= now) throw new HttpError(401, "connection_expired_or_revoked");
   if(credentialHash!==undefined&&credentialHash!==row.tokenHash)throw new HttpError(401,"invalid_mcp_token");
   const member = db.select({ id: user.id, banned: user.banned }).from(user).where(eq(user.id, row.userId)).get();
-  if (!member || member.banned) throw new HttpError(401, "unauthorized");
+  if (!member || member.banned || !isActiveMember(db, row.userId)) throw new HttpError(401, "unauthorized");
   const scopes = z.array(z.enum(MCP_SCOPES)).parse(JSON.parse(row.scopesJson));
   if (!scopes.includes(scope)) throw new HttpError(403, "scope_required", undefined, { scope });
   return { connectionId: row.id, userId: row.userId, name: row.name, scopes, credentialHash:row.tokenHash };

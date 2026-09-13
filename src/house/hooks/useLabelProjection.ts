@@ -187,12 +187,12 @@ export function useLabelProjection(
       const anchor = anchorsRef.current?.find((a) => a.id === anchorId);
       if (!anchor) return;
       const tool = runtime.store.getState().tool;
-      if (tool === "place" || (tool === "orbit" && anchor.kind !== "equipment")) return;
+      if (tool === "place" || tool === "pan") return;
       const reading = badgeTextRef.current?.(anchor, expandedRef.current.has(anchorId));
       if (anchor.kind === "equipment" && reading?.expandable) {
         const expanded = expandedRef.current;
         if (expanded.has(anchorId)) expanded.delete(anchorId);
-        else expanded.add(anchorId);
+        else { expanded.clear(); expanded.add(anchorId); }
         refreshVisibleLabels(pool, anchorsRef.current ?? [], tierRef.current, badgeTextRef.current, expanded);
       }
       runtime.select(anchor.selection);
@@ -203,6 +203,7 @@ export function useLabelProjection(
       const anchor = anchorsRef.current?.find((candidate) => candidate.id === anchorId);
       const reading = anchor && badgeTextRef.current?.(anchor, false);
       if (!anchor || !reading?.expandable) return;
+      expandedRef.current.clear();
       expandedRef.current.add(anchorId);
       refreshVisibleLabels(
         pool,
@@ -212,9 +213,24 @@ export function useLabelProjection(
         expandedRef.current,
       );
     };
+    const collapse = () => {
+      if (!expandedRef.current.size) return;
+      expandedRef.current.clear();
+      refreshVisibleLabels(pool, anchorsRef.current ?? [], tierRef.current, badgeTextRef.current, expandedRef.current);
+    };
+    const outside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest(".vh-label-equipment")) collapse();
+    };
+    const unsubscribe = runtime.store.subscribe((next, previous) => {
+      if (next.selection !== previous.selection && (next.selection?.kind !== "equipment" || !expandedRef.current.has(`equipment:${next.selection.id}`))) collapse();
+    });
+    document.addEventListener("pointerdown", outside, true);
     host.addEventListener(LABEL_DETAILS_EVENT, showAccessibleDetails);
     poolRef.current = pool;
     return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      unsubscribe();
       host.removeEventListener(LABEL_DETAILS_EVENT, showAccessibleDetails);
       pool.dispose();
       poolRef.current = null;

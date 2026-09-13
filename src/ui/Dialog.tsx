@@ -2,7 +2,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { useOverlayContainer } from "./OverlayContainer";
 import { cn } from "./cn";
 import { IconButton } from "./IconButton";
@@ -54,13 +54,15 @@ export function Dialog({
   hideClose = false,
   className,
 }: DialogProps) {
-  const container = useOverlayContainer();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const container = useOverlayContainer(contentRef);
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       {trigger ? <RadixDialog.Trigger asChild>{trigger}</RadixDialog.Trigger> : null}
       <RadixDialog.Portal container={container}>
         <RadixDialog.Overlay className={dialogOverlay} />
         <RadixDialog.Content
+          ref={contentRef}
           className={cn(
             "fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2",
             "flex max-h-[calc(100dvh-3rem)] flex-col overflow-hidden",

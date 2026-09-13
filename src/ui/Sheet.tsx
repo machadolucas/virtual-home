@@ -48,7 +48,9 @@ export function Sheet({
   keepMounted = false,
   returnFocusRef,
 }: SheetProps) {
-  const container = useOverlayContainer();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const bodyEvents=useRef(new WeakSet<Event>());
+  const container = useOverlayContainer(contentRef);
   const previousFocus = useRef<HTMLElement | null>(null);
   const parkingRef = useRef<HTMLDivElement | null>(null);
   const bodyHostRef = useRef<HTMLDivElement | null>(null);
@@ -70,10 +72,10 @@ export function Sheet({
     // while the closed modal's focus scope, dismissable layer and scroll lock really unmount.
     (slot ?? parkingRef.current)?.appendChild(host);
   }, []);
-  const body = <>
+  const body = <div style={{display:"contents"}} onPointerDownCapture={event=>bodyEvents.current.add(event.nativeEvent)} onFocusCapture={event=>bodyEvents.current.add(event.nativeEvent)}>
     {children ? <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 text-sm leading-6 text-ink-2 sm:px-5">{children}</div> : null}
     {footer ? <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface-2 px-4 py-3">{footer}</div> : null}
-  </>;
+  </div>;
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       {keepMounted ? <div ref={park} hidden inert aria-hidden="true" /> : null}
@@ -81,6 +83,13 @@ export function Sheet({
       <RadixDialog.Portal container={container}>
         <RadixDialog.Overlay className={dialogOverlay} />
         <RadixDialog.Content
+          ref={contentRef}
+          onInteractOutside={event=>{
+            // The retained body has a stable React portal outside Content. Include its React
+            // descendants (such as Select popovers) in Radix's inside-interaction boundary.
+            const original=event.detail.originalEvent;
+            if(bodyEvents.current.has(original) || (original.target instanceof Node && bodyHostRef.current?.contains(original.target)))event.preventDefault();
+          }}
           onOpenAutoFocus={() => { previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; }}
           onCloseAutoFocus={event => { const target = returnFocusRef?.current ?? previousFocus.current; if (target?.isConnected) { event.preventDefault(); target.focus(); } }}
           className={cn(

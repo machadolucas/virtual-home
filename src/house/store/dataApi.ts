@@ -223,6 +223,7 @@ export function createMemoryDataApi(
       return [...placements.values()];
     },
     async savePlacement(_modelId, _fingerprint, placement) {
+      if(placement.newTree||placement.newEquipment)throw new NotPersistedError("Creating equipment requires a working server connection. Your draft has not been saved.");
       placements.set(placement.id, placement);
       return placement;
     },
@@ -386,6 +387,8 @@ export function createRestDataApi(opts: RestDataApiOptions = {}): HouseDataApi {
         method: "PUT",
         body: JSON.stringify({
           fingerprint,
+          newTree: placement.newTree,
+          newEquipment: placement.newEquipment,
           // Asserted, not inferred: the caller is stating these are physical site coordinates.
           viewMode: "normal",
           placement: {

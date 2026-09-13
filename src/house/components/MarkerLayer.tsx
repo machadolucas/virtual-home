@@ -26,6 +26,7 @@ export function MarkerDomLayer({ hostRef }: { hostRef: React.RefObject<HTMLDivEl
   const runtime = useHouseRuntime();
   const placements = useHouseStore((s) => s.placements);
   const equipmentVisible = useHouseStore((s) => s.layers.equipment);
+  const treesVisible = useHouseStore((s) => s.layers.trees);
   const equipmentOcclusion = useHouseStore((s) => s.equipmentOcclusion);
   const occlusion = runtime.occlusion;
   useEffect(() => { runtime.invalidate(); }, [runtime, equipmentOcclusion]);
@@ -42,12 +43,12 @@ export function MarkerDomLayer({ hostRef }: { hostRef: React.RefObject<HTMLDivEl
       const id = el.dataset.placement;
       if (id) map.set(id, el);
     }
-  }, [hostRef, placements, equipmentVisible]);
+  }, [hostRef, placements, equipmentVisible, treesVisible]);
 
   const v = useRef(new THREE.Vector3()).current;
   useFrame(() => {
     const manifest = runtime.manifest;
-    if (!manifest || !equipmentVisible) return;
+    if (!manifest || (!equipmentVisible && !treesVisible)) return;
     if (equipmentOcclusion && runtime.index) occlusion.beginFrame(runtime.index, runtime.clip, camera, runtime.occlusionRevision, runtime.invalidate);
     for (const p of placements) {
       const el = nodesRef.current.get(p.id);
@@ -82,6 +83,7 @@ export function MarkerButtons({ hostRef }: { hostRef: React.RefObject<HTMLDivEle
   const runtime = useHouseRuntime();
   const placements = useHouseStore((s) => s.placements);
   const equipmentVisible = useHouseStore((s) => s.layers.equipment);
+  const treesVisible = useHouseStore((s) => s.layers.trees);
   const placing = useHouseStore((s) => s.tool === "place");
   const selection = useHouseStore((s) => s.selection);
   const touch = useIsTouch();
@@ -101,7 +103,7 @@ export function MarkerButtons({ hostRef }: { hostRef: React.RefObject<HTMLDivEle
 
   return (
     <div ref={hostRef} className="pointer-events-none absolute inset-0 overflow-hidden">
-      {(equipmentVisible ? placements : []).map((p) => {
+      {placements.filter(p => p.symbol === "tree" ? treesVisible : equipmentVisible).map((p) => {
         const selected = selection?.kind === "equipment" && selection.id === p.id;
         return (
           <button

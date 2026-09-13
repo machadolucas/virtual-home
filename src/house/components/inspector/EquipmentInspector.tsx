@@ -1,4 +1,6 @@
 "use client";
+import Link from "next/link";
+import { requestEditSwitch } from "../edit/confirmSwitch";
 /**
  * Equipment inspector.
  *
@@ -51,6 +53,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
         <p className="text-xs text-ink-3">
           {[room && displayNameForNode(room.id, room.name, labelPreferences), floor && displayNameForNode(floor.id, floor.name, labelPreferences)].filter(Boolean).join(" · ")}
         </p>
+        <Link href={`/equipment/${encodeURIComponent(placement.equipmentId)}`} scroll={false} className="mt-2 inline-flex min-h-8 items-center text-xs font-medium text-accent-text">Open full record</Link>
       </header>
 
       <EquipmentHaControls key={placement.equipmentId} assetId={placement.equipmentId} />
@@ -105,7 +108,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
         </button>
         <button
           type="button"
-          onClick={() =>
+          onClick={() => void requestEditSwitch(runtime,()=>
             beginEdit({
               placementId: placement.id,
               equipmentId: placement.equipmentId,
@@ -129,7 +132,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
               photoId: placement.photoId,
               symbol: placement.symbol,
               dirty: false,
-            })
+            }))
           }
           className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >

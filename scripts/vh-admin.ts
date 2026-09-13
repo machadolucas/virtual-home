@@ -46,6 +46,7 @@ const USAGE = `Usage: pnpm vh-admin <command> [args]
   init-users                        create the household accounts that are missing (interactive)
   create-user <username> <name>     create one account
   list-users                        accounts with session counts
+  bootstrap-owner <username>        assign the first owner to an existing account
   set-password <username>           reset a password and revoke that user's sessions
   revoke-sessions <username|--all>  delete session rows
   prune-sessions                    delete expired session rows
@@ -514,6 +515,17 @@ async function main(): Promise<void> {
       need(args, 1, "set-password <username>");
       await cmdSetPassword(env, options, args[0]!);
       return;
+    case "bootstrap-owner": {
+      need(args, 1, "bootstrap-owner <username>");
+      const handle = openConfiguredDb(env);
+      try {
+        const { bootstrapOwner } = await import("../src/server/services/members");
+        const { writeTx } = await import("../src/db/client");
+        writeTx(handle.db, tx => bootstrapOwner(tx, args[0]!));
+        console.log("Initial household owner configured.");
+      } finally { handle.close(); }
+      return;
+    }
     case "revoke-sessions":
       need(args, 1, "revoke-sessions <username|--all>");
       await cmdRevokeSessions(env, args[0]!);

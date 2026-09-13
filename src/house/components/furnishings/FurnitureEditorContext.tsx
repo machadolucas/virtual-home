@@ -1,5 +1,6 @@
 "use client";
 
+import { registerEditorActions,requestEditSwitch } from "../edit/confirmSwitch";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Furnishing, FurnishingKind } from "../../model/types";
 import { FURNISHING_CATALOG } from "../../model/furnishingCatalog";
@@ -66,8 +67,9 @@ export function FurnitureEditorProvider({ children }: { children: React.ReactNod
   }, [busy, restore]);
 
   const start = useCallback((item: Furnishing, moving: boolean) => {
+    void requestEditSwitch(runtime,()=>{
     const state = runtime.store.getState();
-    if (busy || draft || state.editing || state.routeDraft) { setError("Finish or cancel the current edit first."); return; }
+    if (busy || state.editing || state.routeDraft) { setError("Finish or cancel the current edit first."); return; }
     original.current = { explode: { ...state.explode }, tool: state.tool };
     state.setFurnishingsEditing(true);
     state.setExplode({ enabled: false, gap: 0, locked: true });
@@ -76,13 +78,14 @@ export function FurnitureEditorProvider({ children }: { children: React.ReactNod
     if (runtime.index) clearFurnishingCollisionCache(runtime.index);
     setDraft(item); setHover(null); setPlacing(moving); setError(null); setCatalogOpen(false);
     setPanelCollapsed("inspector", false);
-  }, [busy, draft, runtime]);
+    });
+  }, [busy, runtime]);
 
   const begin = (kind: FurnishingKind) => {
     if (!index) return;
     const state = runtime.store.getState();
     const selectedFloor = state.selection?.kind === "room" ? index.rooms.get(state.selection.id)?.floorId : state.selection?.kind === "floor" ? state.selection.id : null;
-    const floorId = state.activeFloorId ?? selectedFloor ?? index.floorOrder[0];
+    const floorId = selectedFloor ?? state.activeFloorId ?? index.floorOrder[0];
     if (!floorId) return;
     const option = FURNISHING_CATALOG.find((item) => item.kind === kind)!;
     const initial = initialPosition(runtime, floorId);
@@ -101,7 +104,7 @@ export function FurnitureEditorProvider({ children }: { children: React.ReactNod
   useEffect(() => {
     if (!draft) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) { event.preventDefault(); event.stopPropagation(); cancel(); }
+      if (event.key === "Escape" && !busy && !(event.target as Element)?.closest?.("[role=dialog]")) { event.preventDefault(); event.stopPropagation(); if (window.confirm("Discard this furniture edit?")) cancel(); }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -169,15 +172,17 @@ export function FurnitureEditorProvider({ children }: { children: React.ReactNod
   }, [busy, draft, placing, runtime, items, obstacles]);
 
   const change = (next: Furnishing) => { setDraft(next); setHover(null); setPlacing(false); setError(null); runtime.store.getState().setTool("select"); };
+  const saveDraft=async():Promise<boolean>=>{
+    if(!draft||busy)return false;
+    const problem=runtime.index?furnishingPlacementError(draft,runtime.index,obstacles):"Wait for the model to load.";
+    if(placing||problem){setError(problem??"Click to place the furniture first, or enter its position.");return false;}
+    const {id,kind,name,position,rotationYDeg,widthM,depthM,heightM,floorId,roomId}=draft;
+    try{await save({kind,name,position,rotationYDeg,widthM,depthM,heightM,floorId,roomId,...(id?{id}:{})});setDraft(null);setHover(null);setPlacing(false);setError(null);restore();return true;}
+    catch(cause){setError(cause instanceof Error?cause.message:"Could not save furniture");return false;}
+  };
+  useEffect(()=>registerEditorActions(runtime,"furniture",{save:saveDraft,discard:cancel,busy:()=>busy}));
   return <Context.Provider value={{ draft, placing, error, previewInvalid, catalogOpen, setCatalogOpen, begin, change, cancel,
     reposition: () => { if (!busy) { setPlacing(true); setHover(null); setError(null); runtime.store.getState().setTool("place"); } },
-    save: () => {
-      if (!draft || busy) return;
-      const problem = runtime.index ? furnishingPlacementError(draft, runtime.index, obstacles) : "Wait for the model to load.";
-      if (placing || problem) { setError(problem ?? "Click to place the furniture first, or enter its position."); return; }
-      const { id, kind, name, position, rotationYDeg, widthM, depthM, heightM, floorId, roomId } = draft;
-      void save({ kind, name, position, rotationYDeg, widthM, depthM, heightM, floorId, roomId, ...(id ? { id } : {}) }).then(() => { setDraft(null); setHover(null); setPlacing(false); setError(null); restore(); })
-        .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Could not save furniture"));
-    },
+    save:()=>{void saveDraft();},
   }}>{children}</Context.Provider>;
 }

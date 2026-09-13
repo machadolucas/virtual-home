@@ -70,7 +70,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   reopen_window_expired: "This was closed too long ago to reopen.",
   postpone_in_past: "A postpone cannot move the due date backwards.",
   postpone_too_far: "That is further than a postpone may reach from the original due date.",
-  not_a_recipient: "This task is assigned to the other member, so you have no reminder to snooze.",
+  not_a_recipient: "This task is assigned to someone else, so you have no reminder to snooze.",
   recipient_not_active: "There is no active reminder to snooze.",
   insufficient_stock: "There is not enough of one or more parts in stock.",
   no_draft: "There is no draft to work with.",

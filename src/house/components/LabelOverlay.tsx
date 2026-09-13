@@ -39,6 +39,9 @@ const LABEL_CHIP = [
   "[&>.vh-label]:px-2 [&>.vh-label]:py-1",
   "[&>.vh-label]:text-xs [&>.vh-label]:font-medium [&>.vh-label]:text-ink",
   "[&>.vh-label]:shadow-pop",
+  "[&>.vh-label-room]:!rounded-sm [&>.vh-label-room]:!border-transparent [&>.vh-label-room]:!bg-surface/55 [&>.vh-label-room]:!shadow-none [&>.vh-label-room]:!font-normal [&>.vh-label-room]:tracking-wide",
+  "[&>.vh-label-building]:!rounded-sm [&>.vh-label-building]:!font-semibold [&>.vh-label-building]:tracking-wide",
+  "[&>.vh-label-equipment]:!rounded-md",
   "[&>.vh-label-ok]:border-ok/45 [&>.vh-label-low]:border-due/55",
   "[&>.vh-label-critical]:border-overdue/60 [&>.vh-label-stale]:border-stale/50",
   "[&>.vh-label-unavailable]:border-unknown/50 [&>.vh-label-disconnected]:border-unknown/50",
@@ -66,6 +69,7 @@ export function useLabelAnchors(): LabelAnchor[] {
     labelPreferences,
     areaLabelsVisible,
     equipmentVisible,
+    treesVisible,
   } = useHouseStore(
     useShallow((s) => ({
       placements: s.placements,
@@ -75,6 +79,7 @@ export function useLabelAnchors(): LabelAnchor[] {
       labelPreferences: s.labelPreferences,
       areaLabelsVisible: s.areaLabelsVisible,
       equipmentVisible: s.layers.equipment,
+      treesVisible: s.layers.trees,
     })),
   );
 
@@ -142,7 +147,7 @@ export function useLabelAnchors(): LabelAnchor[] {
       });
     }
 
-    for (const p of equipmentVisible ? placements : []) {
+    for (const p of placements.filter(p => p.symbol === "tree" ? treesVisible : equipmentVisible)) {
       anchors.push({
         id: `equipment:${p.id}`,
         kind: "equipment",
@@ -183,6 +188,7 @@ export function useLabelAnchors(): LabelAnchor[] {
     labelPreferences,
     areaLabelsVisible,
     equipmentVisible,
+    treesVisible,
   ]);
 }
 

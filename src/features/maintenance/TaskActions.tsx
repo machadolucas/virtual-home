@@ -189,7 +189,7 @@ export function SnoozeDialog({ occurrenceId, today, open, onOpenChange }: Snooze
       open={open}
       onOpenChange={onOpenChange}
       title="Snooze the reminder"
-      description="Moves your next reminder and nothing else: the due date, the schedule and the history all stay as they are. The other household member keeps their own reminders."
+      description="Moves your next reminder and nothing else: the due date, the schedule and the history all stay as they are. Other household members keep their own reminders."
       size="sm"
       footer={
         <>

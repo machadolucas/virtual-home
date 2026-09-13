@@ -24,8 +24,8 @@ test("equipment stacks on equipment and furniture, previews without changing dra
     } });
     expect(furniture.ok()).toBe(true); furnitureId=(await furniture.json()).furnishing.id;
     await page.reload(); await page.waitForFunction(() => window.__vh?.status().phase === "ready");
-    await page.getByRole("button", {name:"Lower floor",exact:true}).click();
-    await page.evaluate(id => window.__vh!.select({kind:"equipment",id}), ids[1]!);
+    await focusLowerFloor(page);
+    await inspectEquipment(page,"Porch light");
     await page.getByRole("button",{name:"Adjust placement (E)",exact:true}).click();
     await waitForStableFrames(page,700);
     // Numeric edits and Save use the same collision policy as the pointer preview.
@@ -48,8 +48,8 @@ test("equipment stacks on equipment and furniture, previews without changing dra
     const saved=(await (await page.request.get(endpoint)).json()).placements.find((p:{id:string})=>p.id===ids[1]);
     expect(saved.position[1]).toBeCloseTo(1.86,2); expect(saved.mount.kind).toBe("free");
     await page.reload(); await page.waitForFunction(()=>window.__vh?.status().phase==="ready");
-    await page.getByRole("button",{name:"Lower floor",exact:true}).click();
-    await page.evaluate(id=>window.__vh!.select({kind:"equipment",id}),ids[1]!);
+    await focusLowerFloor(page);
+    await inspectEquipment(page,"Porch light");
     await page.getByRole("button",{name:"Adjust placement (E)",exact:true}).click();
     await waitForStableFrames(page,700);
     // A compact control attaches to the fridge's vertical front face. Hover shows the whole
@@ -83,8 +83,8 @@ test("equipment stacks on equipment and furniture, previews without changing dra
     await page.reload(); await page.waitForFunction(()=>window.__vh?.status().phase==="ready");
     const attachedReloaded=(await (await page.request.get(endpoint)).json()).placements.find((p:{id:string})=>p.id===ids[1]);
     expect(attachedReloaded).toMatchObject({symbol:"remote_control",mount:{kind:"free"},position:attached});
-    await page.getByRole("button",{name:"Lower floor",exact:true}).click();
-    await page.evaluate(id=>window.__vh!.select({kind:"equipment",id}),ids[1]!);
+    await focusLowerFloor(page);
+    await inspectEquipment(page,"Porch light");
     await page.getByRole("button",{name:"Adjust placement (E)",exact:true}).click();
     await waitForStableFrames(page,700);
     const cabinet=await screen(page,[1,1.2,3]);
@@ -126,7 +126,7 @@ test("other model objects accept precise attachment without changing the draft o
     id = (await created.json()).placement.id;
     await page.reload();
     await page.waitForFunction(() => window.__vh?.status().phase === "ready");
-    await page.evaluate((id) => window.__vh!.select({ kind: "equipment", id: id! }), id);
+    await inspectEquipment(page,"Eave spot");
     await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
     const coordinates = () => Promise.all(["X", "Y", "Z"].map((axis) => page.getByLabel(`${axis} (m)`, { exact: true }).inputValue()));
     const before = await coordinates();
@@ -161,4 +161,35 @@ test("other model objects accept precise attachment without changing the draft o
     if (id) await page.request.delete(`/api/house-model/fixture-house/placements/${id}`);
     await context.close();
   }
+});
+
+async function focusLowerFloor(page:Page){
+  // The floating floor control isolates this floor; framing a browser row only moves the camera.
+  await page.getByRole("button",{name:"Lower floor",exact:true}).click();
+}
+async function inspectEquipment(page:Page,name:string){
+  const search=page.getByRole("searchbox",{name:"Search the property"});await search.fill(name);
+  await page.getByRole("list",{name:"House items"}).getByRole("button",{name:new RegExp(`^${name}`)}).click();await search.clear();
+}
+
+test("furniture pointer selection opens details once and a subsequent model click clears them",async({browser},info)=>{
+  test.skip(info.project.name.includes("phone"),"Desktop precise pointer selection");
+  const {context,page}=await openHouseSession(browser);let id:string|undefined;
+  try{
+    const status=await page.evaluate(()=>window.__vh!.status());
+    const response=await page.request.put(`/api/house-model/${status.modelId}/furnishings`,{data:{fingerprint:status.fingerprint,viewMode:"normal",furnishing:{kind:"cabinet",name:"Synthetic selectable cabinet",floorId:"f-lower",roomId:null,position:[7,0,5],rotationYDeg:0,widthM:1,depthM:1,heightM:1}}});
+    expect(response.ok()).toBe(true);id=(await response.json()).furnishing.id;
+    await page.reload();await page.waitForFunction(()=>window.__vh?.status().phase==="ready");await waitForStableFrames(page,500);
+    const point=await screen(page,[7,.7,5]);await page.mouse.click(point.x,point.y);
+    await expect(page.getByRole("heading",{name:"Synthetic selectable cabinet",exact:true})).toBeVisible();
+    await expect(page.getByRole("button",{name:"Edit furniture",exact:true})).toBeVisible();
+    await expect(page.getByRole("button",{name:"Save",exact:true})).toHaveCount(0);
+    const background=await page.evaluate(()=>{
+      const canvas=document.querySelector("canvas")!,rect=canvas.getBoundingClientRect();
+      for(let y=130;y<rect.height-30;y+=30)for(let x=80;x<rect.width-30;x+=30){
+        if(document.elementFromPoint(rect.left+x,rect.top+y)===canvas&&!window.__vh!.pick(x,y))return {x:rect.left+x,y:rect.top+y};
+      }return null;
+    });expect(background).not.toBeNull();await page.mouse.click(background!.x,background!.y);
+    await expect(page.getByRole("heading",{name:"Synthetic selectable cabinet",exact:true})).toBeHidden();
+  }finally{if(id)await page.request.delete(`/api/house-model/fixture-house/furnishings?id=${id}`);await context.close();}
 });

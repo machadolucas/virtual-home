@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Maximize, Minimize } from "lucide-react";
 import { IconButton } from "./IconButton";
-import { OverlayScope } from "./OverlayContainer";
+import { OverlayScope, registerOverlayHost } from "./OverlayContainer";
 import { cn } from "./cn";
 
 const FullscreenContext = createContext({ active: false, toggle: () => {} });
@@ -48,6 +48,7 @@ export function FullscreenSurface({ children, className }: { children: ReactNode
     window.addEventListener("keydown", escape);
     return () => { document.removeEventListener("fullscreenchange", sync); window.removeEventListener("keydown", escape); };
   }, [active, leave]);
+  useEffect(() => { if(active && container) return registerOverlayHost(container); }, [active,container]);
   return <div ref={bindContainer} data-fullscreen={active || undefined} className={cn(active ? "fixed inset-0 z-30 h-dvh w-screen bg-paper" : "relative h-full min-h-0", className)}>
     <FullscreenContext.Provider value={{ active, toggle }}>
       <OverlayScope container={active ? container ?? undefined : undefined}>{children}</OverlayScope>

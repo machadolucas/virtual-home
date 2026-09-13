@@ -24,7 +24,7 @@ if [ "$FORCE" = "1" ]; then
   sleep 3
 fi
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
-"$ZSTD" -dc "$ARCHIVE" | tar -xf - -C "$WORK"
+"$ZSTD" -dc "$ARCHIVE" | { tar -xf - -C "$WORK"; archive_status=$?; cat >/dev/null; exit "$archive_status"; }
 SRC="$(find "$WORK" -maxdepth 1 -type d -name 'vh-*' | head -1)"
 [ -n "$SRC" ] || { echo "FATAL: unexpected archive layout" >&2; exit 1; }
 echo "--- manifest ---"; cat "$SRC/manifest.json"; echo

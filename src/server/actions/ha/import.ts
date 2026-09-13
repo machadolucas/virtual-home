@@ -1,5 +1,6 @@
 "use server";
 
+import { isHaIgnored } from "@/server/services/haReview";
 import { revalidatePath } from "next/cache";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb, writeTx, type Db } from "@/db/client";
@@ -50,6 +51,7 @@ export const importHaDevice = action(importDeviceInput, async (input, session) =
   const { db } = getDb();
   const result = mapDomainErrors(() =>
     writeTx(db, (tx) => {
+      if (isHaIgnored(tx, "device", input.deviceId) || input.entities.some(entity => isHaIgnored(tx, "entity", entity.registryId))) throw new ValidationError("item_ignored", "Restore ignored items before importing them.");
       const ctx = userContext(session, tx);
       const at = nowMs();
       const device = tx.select().from(haDevice).where(eq(haDevice.deviceId, input.deviceId)).get();
@@ -181,6 +183,7 @@ export const importHaDevices = action(importDevicesInput, async (input, session)
 
       for (const selectedDevice of input.devices) {
         const { deviceId } = selectedDevice;
+        if (isHaIgnored(tx, "device", deviceId) || selectedDevice.entities.some(entity => isHaIgnored(tx, "entity", entity.registryId))) { skipped.push({ deviceId, reason: "ignored" }); continue; }
         const device = tx.select().from(haDevice).where(eq(haDevice.deviceId, deviceId)).get();
         if (!device) {
           skipped.push({ deviceId, reason: "not_in_registry" });

@@ -19,9 +19,9 @@ async function choose(page: Page, name: string | RegExp, label: string | RegExp)
 async function open(page: Page, route: string) {
   const response = new URL(page.url()).pathname === route ? null : await page.goto(route);
   if (response) expect(response.status(), route).toBeLessThan(400);
-  await expect(page.getByRole("main")).toBeVisible();
+  await expect(page.locator("main").first()).toBeVisible();
   if (route === "/house") await expect(page.getByRole("application", { name: "House 3D view" })).toBeVisible();
-  else await expect(page.getByRole("main").getByRole("heading", { level: 1 }).first()).toBeVisible();
+  else await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
   // Capture settled client layouts and let initial link prefetches finish before replacing
   // the document; workflow interactions below use locator readiness instead.
   await page.waitForTimeout(300);
@@ -54,33 +54,33 @@ test("project links and booking changes work by named records, without copied ID
   await page.getByLabel(/^Due date/).fill("2026-09-13");
   await page.getByRole("button", { name: "Create the plan", exact: true }).click();
   await expect(page).toHaveURL(/\/plans\/[0-9a-f-]+$/);
-  await page.locator('main a[href^="/tasks/"]').first().click();
+  await page.getByRole("dialog", { name: "Maintenance plan", exact: true }).locator('a[href^="/tasks/"]').first().click();
   await expect(page).toHaveURL(/\/tasks\/[0-9a-f-]+$/);
   const taskUrl = page.url();
 
   await page.getByRole("button", { name: "Book a professional", exact: true }).click();
   await choose(page, /^Provider/, provider);
-  await page.getByRole("dialog").getByLabel("Date", { exact: true }).fill("2030-01-20");
-  await page.getByRole("dialog").getByLabel("From", { exact: true }).fill("09:30");
-  await page.getByRole("dialog").getByLabel("To", { exact: true }).fill("11:00");
+  await page.getByRole("dialog").last().getByLabel("Date", { exact: true }).fill("2030-01-20");
+  await page.getByRole("dialog").last().getByLabel("From", { exact: true }).fill("09:30");
+  await page.getByRole("dialog").last().getByLabel("To", { exact: true }).fill("11:00");
   await page.getByRole("button", { name: "Record the booking", exact: true }).click();
   await expect(page.getByRole("button", { name: "Change or cancel the booking" })).toBeVisible();
   await page.getByRole("button", { name: "Change or cancel the booking" }).click();
   await choose(page, /^Where this booking stands/, /^Rescheduled/);
-  await page.getByRole("dialog").getByLabel("Date", { exact: true }).fill("2030-01-21");
-  await page.getByRole("dialog").getByLabel("From", { exact: true }).fill("10:00");
+  await page.getByRole("dialog").last().getByLabel("Date", { exact: true }).fill("2030-01-21");
+  await page.getByRole("dialog").last().getByLabel("From", { exact: true }).fill("10:00");
   await page.getByRole("button", { name: "Save the booking", exact: true }).click();
-  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
   await page.getByRole("button", { name: "Change or cancel the booking" }).click();
-  await expect(page.getByRole("dialog").getByLabel("Date", { exact: true })).toHaveValue("2030-01-21");
-  await expect(page.getByRole("dialog").getByLabel("From", { exact: true })).toHaveValue("10:00");
+  await expect(page.getByRole("dialog").last().getByLabel("Date", { exact: true })).toHaveValue("2030-01-21");
+  await expect(page.getByRole("dialog").last().getByLabel("From", { exact: true })).toHaveValue("10:00");
   await choose(page, /^Where this booking stands/, /^Cancelled/);
   await page.getByRole("button", { name: "Cancel the booking", exact: true }).click();
   await expect(page.getByRole("button", { name: "Book a professional", exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Complete…", exact: true }).click();
   await page.getByRole("button", { name: "Record completion", exact: true }).click();
-  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Complete…", exact: true })).toHaveCount(0);
 
   await open(page, "/documents");
@@ -100,9 +100,9 @@ test("project links and booking changes work by named records, without copied ID
   }
   await expect(page.getByRole("link", { name: task, exact: true }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: new RegExp(doc) })).toBeVisible();
-  const completedLink = page.locator('main a[href^="/history?completion="]').first();
+  const completedLink = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "Project", exact: true }) }).locator('a[href^="/history/completions/"], a[href^="/history?completion="]').first();
   await completedLink.click();
-  await expect(page.getByText("Showing one recorded completion.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Recorded completion", exact: true })).toBeVisible();
   await page.goto(taskUrl);
   await expect(page.getByRole("heading", { name: task, exact: true })).toBeVisible();
 
@@ -114,16 +114,16 @@ test("project links and booking changes work by named records, without copied ID
   await expect(page.getByRole("heading", { name: `Audit filter ${suffix}`, exact: true })).toBeVisible();
   await open(page, "/procedures");
   await page.getByRole("button", { name: "New procedure", exact: true }).first().click();
-  await page.getByRole("dialog").getByLabel(/^Title/).fill(`Audit procedure ${suffix}`);
+  await page.getByRole("dialog").last().getByLabel(/^Title/).fill(`Audit procedure ${suffix}`);
   await page.getByRole("button", { name: "Create the draft", exact: true }).click();
   await expect(page).toHaveURL(/\/procedures\/[0-9a-f-]+$/);
 });
 
 const surfaces: { name: string; engine?: "webkit"; context: BrowserContextOptions }[] = [
-  { name: "desktop", context: { viewport: { width: 1600, height: 1000 } } },
-  { name: "narrow-phone", context: { viewport: { width: 360, height: 780 }, isMobile: true, hasTouch: true } },
-  { name: "tablet", context: { viewport: { width: 1024, height: 768 }, hasTouch: true } },
-  { name: "webkit-phone", engine: "webkit", context: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
+  { name: "desktop", context: { colorScheme: "light", viewport: { width: 1600, height: 1000 } } },
+  { name: "narrow-phone", context: { colorScheme: "dark", viewport: { width: 360, height: 780 }, isMobile: true, hasTouch: true } },
+  { name: "tablet", context: { colorScheme: "light", viewport: { width: 1024, height: 768 }, hasTouch: true } },
+  { name: "webkit-phone", engine: "webkit", context: { colorScheme: "dark", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
 ];
 for (const surface of surfaces) test(`route/layout audit: ${surface.name}`, async ({ browser }, info) => {
   test.setTimeout(240000);
@@ -144,10 +144,10 @@ for (const surface of surfaces) test(`route/layout audit: ${surface.name}`, asyn
         await open(page, route);
         if (route === "/supplies") {
           await page.getByRole("radio", { name: /^Everything/ }).click();
-          await expect(page).toHaveURL(/filter=all/);
+          await expect(page.getByRole("radio", { name: /^Everything/ })).toBeChecked();
           await expect(page.locator('main a[href^="/supplies/"]').filter({ hasText: /Audit filter|Private supply/ }).first()).toBeVisible();
         }
-        const links = await page.getByRole("main").locator("a[href]").evaluateAll(elements => elements.filter(el => el.getClientRects().length > 0).map(el => el.getAttribute("href") ?? ""));
+        const links = await page.locator("main a[href]:visible, [data-record-scope] a[href]:visible").evaluateAll(elements => elements.filter(el => el.getClientRects().length > 0).map(el => el.getAttribute("href") ?? ""));
         for (const link of links) if (DYNAMIC_ROUTE.test(link)) dynamic.add(link);
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), { message: `${route} must not horizontally scroll the document` }).toBeLessThanOrEqual(1);
         await expect(page.getByText(/Application error: a (client|server)-side exception/)).toHaveCount(0);
@@ -168,7 +168,7 @@ for (const surface of surfaces) test(`route/layout audit: ${surface.name}`, asyn
       await open(page, route);
       // Completed tasks may only be reachable through a linked project, so also follow
       // record links discovered on detail pages. Sampling one per family keeps this bounded.
-      const nestedLinks = await page.getByRole("main").locator("a[href]").evaluateAll(elements => elements.map(element => element.getAttribute("href") ?? ""));
+      const nestedLinks = await page.locator("main a[href]:visible, [data-record-scope] a[href]:visible").evaluateAll(elements => elements.map(element => element.getAttribute("href") ?? ""));
       for (const link of nestedLinks) {
         const family = link.split("/")[1]!;
         if (DYNAMIC_ROUTE.test(link) && !sampled.has(family)) sampled.set(family, link);

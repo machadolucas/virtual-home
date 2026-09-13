@@ -68,6 +68,7 @@ export function RoomInspector({ roomId }: { roomId: RoomId }) {
         <Row label="Certainty" value={room.certainty ?? "unknown"} />
       </dl>
 
+      <details><summary className="min-h-8 cursor-pointer py-2 text-xs font-medium">Edit room labels</summary>
       <LabelPreferenceControl
         key={`${room.id}:${labelPreferences.names[room.id] ?? ""}:${String(labelPreferences.visibility[room.id])}`}
         nodeId={room.id}
@@ -75,13 +76,14 @@ export function RoomInspector({ roomId }: { roomId: RoomId }) {
         kind="room"
         defaultVisible={room.kind !== "attic" && room.kind !== "void"}
       />
+      </details>
 
       {room.note ? <p className="text-xs text-ink-2">{room.note}</p> : null}
       {room.aliases.length ? (
         <p className="text-xs text-ink-3">Also called: {room.aliases.join(", ")}</p>
       ) : null}
 
-      <section className="flex flex-col gap-2">
+      <details className="flex flex-col gap-2"><summary className="min-h-8 cursor-pointer py-2 text-xs font-medium">Edit surface colours</summary>
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-medium uppercase tracking-wide text-ink-3">Colours</h3>
           <button
@@ -132,7 +134,7 @@ export function RoomInspector({ roomId }: { roomId: RoomId }) {
             );
           })}
         </ul>
-      </section>
+      </details>
 
       <IssueList issues={issues} />
     </div>

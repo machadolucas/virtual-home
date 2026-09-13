@@ -1,15 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRecordActivity } from "@/features/records/RecordActivity";
 import { FullscreenSurface, FullscreenButton } from "@/ui/FullscreenSurface";
-import { Button, Dialog } from "@/ui";
+import { Button } from "@/ui";
+import Link from "next/link";
+import type { Route } from "next";
 import "pdfjs-dist/web/pdf_viewer.css";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 
 export type PreviewDocument = { id: string; originalFilename?: string; caption?: string | null; mime?: string; hasWebCopy?: boolean };
 
 /** Private files stay behind the session-authenticated attachment endpoint. */
-export function DocumentPreview({ document, compact = false }: { document: PreviewDocument; compact?: boolean }) {
+export function DocumentPreview(props: { document: PreviewDocument; compact?: boolean }) {
+  const active=useRecordActivity();
+  return active ? <ActiveDocumentPreview {...props}/> : <div aria-hidden="true" className="h-20 rounded-lg bg-surface-2"/>;
+}
+function ActiveDocumentPreview({ document, compact = false }: { document: PreviewDocument; compact?: boolean }) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [mime, setMime] = useState(document.mime ?? "");
   const [error, setError] = useState("");
@@ -119,14 +126,9 @@ export function DocumentPreview({ document, compact = false }: { document: Previ
 }
 
 export function DocumentLink({ document, children, className, gallery }: { document: PreviewDocument; children?: ReactNode; className?: string; gallery?: PreviewDocument[] }) {
-  const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState(document);
-  const index = gallery?.findIndex(d => d.id === selected.id) ?? -1;
-  return <><button type="button" className={className ?? "text-left text-sm font-medium text-accent-text underline"} onClick={() => { setSelected(document); setOpen(true); }}>{children ?? document.caption ?? document.originalFilename ?? "View document"}</button>
-    <Dialog open={open} onOpenChange={setOpen} title={selected.caption ?? selected.originalFilename ?? "Document"} description="Preview, search and download this household document." size="lg" className="!max-w-5xl">
-      {gallery && gallery.length > 1 && <div className="mb-2 flex gap-2"><Button size="sm" disabled={index <= 0} onClick={() => setSelected(gallery[index - 1]!)}>Previous file</Button><span>{index + 1} / {gallery.length}</span><Button size="sm" disabled={index >= gallery.length - 1} onClick={() => setSelected(gallery[index + 1]!)}>Next file</Button></div>}
-      {open && <DocumentPreview key={selected.id} document={selected} />}
-    </Dialog></>;
+  const ids = gallery?.slice(0,100).map(item=>item.id);
+  const suffix = ids && ids.length > 1 ? `?gallery=${encodeURIComponent(ids.join(","))}` : "";
+  return <Link scroll={false} href={(`/documents/${encodeURIComponent(document.id)}${suffix}`) as Route} className={className ?? "text-left text-sm font-medium text-accent-text underline"}>{children ?? document.caption ?? document.originalFilename ?? "View document"}</Link>;
 }
 
 /** Defer PDF parsing until its thumbnail actually approaches the visible scroll area. */

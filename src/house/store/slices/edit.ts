@@ -14,6 +14,8 @@ import type { HouseStore, Mutators } from "../createHouseStore";
 
 /** The draft is the authority. Coordinates are ALWAYS physical site metres. */
 export interface EditDraft {
+  newTree?: {name:string;notes:string|null};
+  newEquipment?: {name:string;notes:string|null;category:import("@/db/schema/assets").AssetCategory};
   placementId: PlacementId | null;
   equipmentId: string;
   modelId: string;

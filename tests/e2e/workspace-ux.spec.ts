@@ -31,6 +31,7 @@ test("camera gestures, collapsed panes and fullscreen preserve the placement dra
   try {
     const dismiss = page.getByRole("button", { name: "Dismiss this hint" });
     if (await dismiss.isVisible()) await dismiss.click();
+    await page.getByRole("button", { name: "Equipment", exact:true }).click();
     await page.getByRole("button", { name: /Not placed yet/ }).click();
     await page.getByRole("button", { name: /^Place .+ in the model$/ }).first().click();
     await page.getByLabel("X (m)", { exact: true }).fill("1.25");
@@ -55,13 +56,17 @@ test("camera gestures, collapsed panes and fullscreen preserve the placement dra
     const after = await vh(page).camera();
     expect(after.target).not.toEqual(before.target);
     expect(await vh(page).placementDraft()).toEqual(draft);
+    await page.getByRole("button", {name:"View",exact:true}).click();
+    await page.getByText("Advanced",{exact:true}).click();
     await page.getByRole("combobox", { name: "Camera input", exact: true }).selectOption("trackpad");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "View settings", exact: true })).toHaveCount(0);
     await page.mouse.move(box.x + box.width * .5, box.y + box.height * .3);
     await page.mouse.wheel(80, 40);
     await waitForStableFrames(page, 700);
     expect((await vh(page).camera()).target).not.toEqual(after.target);
     expect(await vh(page).placementDraft()).toEqual(draft);
-    await page.getByRole("button", { name: /Collapse.*(?:details|inspector)/i }).click();
+    await page.getByRole("button", { name: "Collapse house browser",exact:true }).click();
     expect(await vh(page).placementDraft()).toEqual(draft);
   } finally { await context.close(); }
 });

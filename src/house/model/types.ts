@@ -134,6 +134,7 @@ export type LayerId =
   | "yard"
   | "outdoor"
   | "equipment"
+  | "trees"
   | "furnishings"
   | "routes"
   | "annotations";
@@ -144,6 +145,7 @@ export const ALL_LAYERS: readonly LayerId[] = [
   "yard",
   "outdoor",
   "equipment",
+  "trees",
   "furnishings",
   "routes",
   "annotations",
@@ -155,6 +157,7 @@ export const DEFAULT_LAYERS: Record<LayerId, boolean> = {
   yard: true,
   outdoor: true,
   equipment: true,
+  trees: true,
   furnishings: true,
   // On, because it now controls something: while nothing read this flag the lines were drawn
   // anyway, so `false` described the screen incorrectly in the one direction that matters.
@@ -164,6 +167,9 @@ export const DEFAULT_LAYERS: Record<LayerId, boolean> = {
 
 /** A placed piece of equipment. Coordinates are always **physical** metres, never exploded. */
 export interface Placement {
+  /** Unsaved atomic creation metadata; omitted from server responses. */
+  newTree?: {name:string;notes:string|null};
+  newEquipment?: {name:string;notes:string|null;category:import("@/db/schema/assets").AssetCategory};
   id: PlacementId;
   modelId: string;
   equipmentId: string;

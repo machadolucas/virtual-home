@@ -1,62 +1,32 @@
 "use client";
 
-import { PanelBottomClose, PanelBottomOpen } from "lucide-react";
-import { IconButton, Tabs, TabsPanel } from "@/ui";
+import { SlidersHorizontal } from "lucide-react";
+import { Button, Popover } from "@/ui";
 import { CutawayControl } from "./CutawayControl";
 import { ExplodeControl } from "./ExplodeControl";
 import { RouteLegend } from "./RouteLayer";
-import { ViewToolbar } from "./ViewToolbar";
+import { ViewToolbar, RenderingControls } from "./ViewToolbar";
 import { FullscreenButton } from "@/ui/FullscreenSurface";
 import { CameraNavigation } from "./CameraNavigation";
 import { DownloadImageButton } from "./DownloadImageButton";
 
-const TABS = [
-  { value: "view", label: "View" },
-  { value: "layers", label: "Layers" },
-  { value: "rendering", label: "Rendering" },
-];
+/** One set of presentation controls for the desktop popover and phone sheet. */
+export function ViewSettings() {
+  return <div className="grid min-w-0 gap-2 text-xs">
+    <details open className="border-b border-line pb-2"><summary className="min-h-8 cursor-pointer py-2 font-semibold">Visibility</summary><ViewToolbar section="layers" /><RouteLegend /></details>
+    <details className="border-b border-line pb-2"><summary className="min-h-8 cursor-pointer py-2 font-semibold">Cut and separation</summary><div className="grid gap-3 sm:grid-cols-2"><CutawayControl /><ExplodeControl /></div></details>
+    <details className="border-b border-line pb-2"><summary className="min-h-8 cursor-pointer py-2 font-semibold">Lighting</summary><RenderingControls section="lighting" /></details>
+    <details className="border-b border-line pb-2"><summary className="min-h-8 cursor-pointer py-2 font-semibold">Appearance</summary><RenderingControls section="appearance" /></details>
+    <details><summary className="min-h-8 cursor-pointer py-2 font-semibold">Advanced</summary><CameraNavigation inputOnly /><RenderingControls section="advanced" /></details>
+  </div>;
+}
 
-export function ViewControls({ collapsed, onToggle }: { collapsed: boolean; onToggle(): void }) {
-  return (
-    <section aria-label="View controls" className="shrink-0 overflow-hidden rounded-lg border border-line bg-surface">
-      <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-2 py-1">
-        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-ink-3">View controls</span>
-        <div className="min-w-0 flex-1">
-          <ViewToolbar section="presets" />
-        </div>
-        <div className="ml-auto flex items-center gap-1">
-          <CameraNavigation />
-          <FullscreenButton />
-          <DownloadImageButton />
-          <IconButton
-            label={collapsed ? "Show the view controls" : "Collapse the view controls"}
-            size="sm"
-            icon={collapsed ? <PanelBottomOpen aria-hidden="true" /> : <PanelBottomClose aria-hidden="true" />}
-            onClick={onToggle}
-            aria-expanded={!collapsed}
-          />
-        </div>
-      </div>
-      <div hidden={collapsed}>
-        <Tabs items={TABS} ariaLabel="View control groups">
-          <TabsPanel value="view" className="max-h-48 overflow-y-auto p-2">
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] items-start gap-x-4 gap-y-2">
-              <CameraNavigation inputOnly />
-              <CutawayControl />
-              <ExplodeControl />
-            </div>
-          </TabsPanel>
-          <TabsPanel value="layers" className="max-h-48 overflow-y-auto p-2">
-            <div className="flex flex-wrap items-start gap-4">
-              <ViewToolbar section="layers" />
-              <RouteLegend />
-            </div>
-          </TabsPanel>
-          <TabsPanel value="rendering" className="h-56 overflow-y-auto">
-            <ViewToolbar section="rendering" />
-          </TabsPanel>
-        </Tabs>
-      </div>
-    </section>
-  );
+export function ViewControls() {
+  return <div aria-label="View controls" className="pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg border border-line bg-surface/95 p-1 shadow-pop backdrop-blur">
+    <ViewToolbar section="presets" />
+    <CameraNavigation />
+    <FullscreenButton />
+    <DownloadImageButton />
+    <Popover ariaLabel="View settings" align="end" className="w-[36rem] !max-w-[calc(100vw-2rem)]" trigger={<Button size="sm" variant="ghost" icon={<SlidersHorizontal />}>View</Button>}><ViewSettings /></Popover>
+  </div>;
 }

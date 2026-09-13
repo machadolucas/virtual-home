@@ -105,7 +105,7 @@ describe("ownerBucket", () => {
 describe("ownerBucketLabel", () => {
   it("names the partner when the household has one", () => {
     expect(ownerBucketLabel("partner", "Marja")).toBe("Marja's");
-    expect(ownerBucketLabel("partner", null)).toBe("Assigned to the other member");
+    expect(ownerBucketLabel("partner", null)).toBe("Other members");
     expect(ownerBucketLabel("mine", "Marja")).toBe("Yours");
   });
 });
@@ -157,5 +157,26 @@ describe("groupToday", () => {
   it("counts only what it actually placed", () => {
     // The 30-day-out row and the completed row are excluded, so the count is 7, not 9.
     expect(groups.total).toBe(7);
+  });
+});
+
+describe("Today queue filters", () => {
+  it("keeps shared work in mine and supports more than two distinct assignees", async () => {
+    const { belongsToScope } = await import("@/features/maintenance/todayFilters");
+    expect(belongsToScope(task({ id: "shared", dueDate: TODAY }), LUCAS, true)).toBe(true);
+    expect(belongsToScope(task({ id: "mine", dueDate: TODAY, assignmentMode: "user", assigneeUserId: LUCAS }), LUCAS, true)).toBe(true);
+    for (const member of [MARJA, "third-member"]) {
+      const assigned = task({ id: member, dueDate: TODAY, assignmentMode: "user", assigneeUserId: member });
+      expect(belongsToScope(assigned, LUCAS, true)).toBe(false);
+      expect(belongsToScope(assigned, LUCAS, false)).toBe(true);
+    }
+  });
+  it("filters by effective section so blocked due work remains Waiting", async () => {
+    const { inTodayQueue } = await import("@/features/maintenance/todayFilters");
+    const blocked = task({ id: "blocked", dueDate: TODAY, blockedReason: "needs_parts" });
+    expect(inTodayQueue(blocked, TODAY, "waiting")).toBe(true);
+    expect(inTodayQueue(blocked, TODAY, "attention")).toBe(false);
+    expect(inTodayQueue(task({ id: "due", dueDate: TODAY }), TODAY, "attention")).toBe(true);
+    expect(inTodayQueue(task({ id: "done", dueDate: TODAY, status: "completed" }), TODAY, "all")).toBe(false);
   });
 });

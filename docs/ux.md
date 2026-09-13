@@ -71,36 +71,31 @@ missing.
 
 ### House workspace controls
 
-The desktop right panel has one scroll region for details, equipment placement or route editing.
-Floor shortcuts and Sims-style wall modes float together at the bottom-left of the canvas. Floors
-are grouped by building as compact vertical stacks that match their physical order. Beneath them,
-wall modes form one linear spectrum: All cut → Contextual → All up → All up + roof/ceiling. Every
-icon-only button retains an accessible name and hover label.
-Choosing a floor frames it in the regular perspective view, leaves orbit controls available, and
-retains lower supporting floors in that building and every other building. The bottom View controls
-panel contains View (cutaway and explode), Layers (visibility and route legend),
-and Rendering (performance, background, daylight and shadows) tabs. The floating wall mode is
-one of All cut, Contextual, All up, or All up + roof/ceiling; Show inside is the quick contextual
-preset. Closing the shell clears floor isolation and framing focus so the roof is never shown over
-a missing upper floor; choosing a floor opens the shell in Contextual mode. Doors are completely
-hidden in both cut modes and return with All up or the closed mode. Camera presets and Download image remain available when the bottom panel is collapsed.
-Immediate visibility settings use switches. Controls use compact desktop spacing and retain larger
-phone touch targets.
-Infrastructure visibility is split by route type (pipes, ducts, cables, valves, outlets, switches,
-junctions, access points and other), alongside the system-colour legend. Turning one type off does
-not hide the others.
+The left Property browser owns discovery and creation. Spatial breadcrumbs scope short lists;
+search covers the property. Selecting a row inspects it, its chevron browses into it, and Frame is
+an explicit camera action. Add opens equipment, furniture, tree, route, endpoint or annotation
+creation in that same pane. Trees are documented assets and appear under Outside → Trees.
+Creation fields remain beside Add; existing-object edits belong to the floating right inspector.
+Closing the inspector clears a read-only selection or preserves an active edit for Resume details.
 
-Starting an edit opens the right panel. Collapsing it preserves the draft. Explicit Cancel discards it; switching to an incompatible placement or route asks before discarding changes. Desktop panes resize with pointer or keyboard and remember their width.
-Placement cancellation restores the prior exploded view. Save/remove requests disable dismissal
-until the request completes. Placement Save/Cancel actions remain pinned within the scroll region.
-Route editing clears floor isolation without moving the camera so a multi-floor run remains visible.
-The plan editor has its own floor selector. A vertical-riser action adds an endpoint on the destination
-floor at the same relative height; each following point can then be assigned a floor and room.
-Hovering the model or plan shows the next segment in 3D without adding a point until it is clicked.
+The canvas fills the remaining workspace. Browse combines click-to-select with drag-to-orbit;
+empty clicks clear selection. Pan and precision Select remain icon tools with accessible names.
+Room labels have an architectural text treatment; equipment labels are status badges. Only one
+expanded equipment label remains open, and outside interactions collapse it.
 
-Download image saves a PNG of the visible model, background and labels at the current canvas
-resolution. It excludes panels and editing guides, works on desktop and phone, and reports capture
-errors beside the button.
+Camera, floors/walls, fullscreen and image export remain immediately available. View opens one
+popover with Visibility, Cut and separation, Lighting, Appearance and Advanced disclosures. There
+are no nested view/rendering tabs. All existing rendering controls and preference scopes remain.
+Phone Browse/Add, Details and View sheets reuse the desktop contents around a persistent canvas.
+
+Save/Discard/Keep editing guards use the active editor's actual save result before changing edits.
+A failed save retains the draft. Explicit Cancel discards; collapse does not. Physical placement,
+immutable model input, route confidence and floor-specific route points remain unchanged.
+
+The detailed feature descriptions below retain their behavioral requirements. References there
+to the former bottom tray, rendering tabs or Property tree are superseded by this layout.
+
+---
 
 ## 3. Tokens
 
@@ -866,3 +861,31 @@ and moved back through a stable portal when opened. Radix's actual modal content
 closed sheets retain field state without holding focus, scrolling or outside pointer locks. Controlled
 sheets remember the invoking control and restore focus when closed. `Select` portals share the active
 fullscreen overlay container and do not steal focus if it was deliberately moved after choosing.
+
+### Routed record surfaces
+
+Equipment, supply, project, plan, procedure, provider, document and task records use canonical URLs
+and a shared record surface, including their authoring controls. Opening a contextual link intercepts
+the route in the authenticated `@record` slot and retains the originating screen. Direct navigation
+or reload renders the domain's normal hub behind the same surface. Closing a contextual surface returns through the complete record chain to its originating hub,
+including its filters and mounted workspace. Closing a directly loaded surface replaces its URL with
+its canonical hub. Per-entry history metadata preserves ordinary browser navigation: Back and
+Forward continue to navigate record history. History completions have `/history/completions/[id]`;
+legacy `?completion=` links redirect there while retaining supported query context.
+
+The app-level record provider owns retained editor bodies independently of route adapters. Closing a
+surface keeps drafts; explicit Cancel discards them. A small unsaved-drafts entry lets users reopen
+retained forms. Clean cached surfaces are bounded to six; dirty surfaces remain mounted to avoid data
+loss. Retention is in memory for the browser session, not persistent draft storage across reloads;
+leaving/reloading the document still invokes the browser's unsaved-work warning. Page editors outside
+record surfaces retain their navigation warning. Remote refresh waits while edits are unsaved.
+
+A parallel slot has both a default null fallback and explicit null root/catch-all pages, so moving to
+a hub clears the intercepted surface. Record content and authorization are shared with the canonical
+page adapter. The presentation includes a visible Close control even for an unavailable record.
+
+Inactive cached record previews unmount their image/PDF renderer; PDF.js destroys its loading task
+and worker on cleanup. Metadata editors remain mounted. Background library previews also suspend
+while a record surface is active. Static Systems and Shopping routes have explicit paired
+interception adapters: the main slot renders the hub and the record slot renders nothing, preventing
+the dynamic equipment/supply ID match from treating a hub name as a record ID.

@@ -71,8 +71,9 @@ tar -cf - -C "$DATA_DIR/tmp" "$NAME" | "$ZSTD" -19 -T0 -q -o "$OUT"
 chmod 600 "$OUT"
 shasum -a 256 "$OUT" | awk '{print $1}' > "$OUT.sha256"
 
-# 6. verify readability
-"$ZSTD" -dc "$OUT" | tar -tf - >/dev/null || { echo "FATAL: archive unreadable" >&2; rm -f "$OUT" "$OUT.sha256"; exit 1; }
+# 6. Verify readability and drain tar padding. bsdtar may stop at the end marker
+# before zstd finishes writing; draining avoids a false SIGPIPE failure under pipefail.
+"$ZSTD" -dc "$OUT" | { tar -tf - >/dev/null; archive_status=$?; cat >/dev/null; exit "$archive_status"; } || { echo "FATAL: archive unreadable" >&2; rm -f "$OUT" "$OUT.sha256"; exit 1; }
 OUT_BYTES="$(stat -f%z "$OUT")"
 
 # 7. weekly promotion (hardlink)

@@ -1631,6 +1631,19 @@ exports[`migrations > produces the expected schema 1`] = `
     "type": "table",
   },
   {
+    "name": "ha_review",
+    "sql": "CREATE TABLE \`ha_review\` (
+	\`kind\` text NOT NULL,
+	\`registry_id\` text NOT NULL,
+	\`ignored\` integer DEFAULT true NOT NULL,
+	\`updated_at_ms\` integer NOT NULL,
+	\`updated_by\` text NOT NULL,
+	PRIMARY KEY(\`kind\`, \`registry_id\`),
+	FOREIGN KEY (\`updated_by\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict
+)",
+    "type": "table",
+  },
+  {
     "name": "ha_sync_run",
     "sql": "CREATE TABLE \`ha_sync_run\` (
 	\`id\` text PRIMARY KEY NOT NULL,
@@ -2037,6 +2050,19 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`result_json\` text,
 	FOREIGN KEY (\`connection_id\`) REFERENCES \`mcp_connection\`(\`id\`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (\`decided_by\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict
+)",
+    "type": "table",
+  },
+  {
+    "name": "member_access",
+    "sql": "CREATE TABLE \`member_access\` (
+	\`user_id\` text PRIMARY KEY NOT NULL,
+	\`role\` text DEFAULT 'member' NOT NULL,
+	\`is_active\` integer DEFAULT true NOT NULL,
+	\`updated_at_ms\` integer NOT NULL,
+	\`updated_by\` text,
+	FOREIGN KEY (\`user_id\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`updated_by\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict
 )",
     "type": "table",
   },

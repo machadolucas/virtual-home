@@ -1,3 +1,4 @@
+import { RecordSurfaceProvider } from "@/features/records/RecordSurface";
 import { getDb } from "@/db/client";
 import { nowMs } from "@/db/ids";
 import { requireSessionPage } from "@/server/auth/session";
@@ -13,7 +14,7 @@ import { AppShell } from "@/ui/shell";
  * the pathname; each page that needs a precise return target calls
  * `requireSessionPage` itself with its own path.
  */
-export default async function AppLayout({ children }: LayoutProps<"/">) {
+export default async function AppLayout({ children, record }: { children: React.ReactNode; record?: React.ReactNode }) {
   const session = await requireSessionPage("/today");
 
   // Better Auth's inferred user type varies with the enabled plugins, so read
@@ -29,7 +30,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const { connection } = loadMaintenanceHealth(getDb().db, nowMs());
 
   return (
-    <AppShell
+    <RecordSurfaceProvider><AppShell
       user={{
         name,
         username: readString(session.user, "username"),
@@ -38,7 +39,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       connection={connection}
     >
       {children}
-    </AppShell>
+      {record}
+    </AppShell></RecordSurfaceProvider>
   );
 }
 

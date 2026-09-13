@@ -13,7 +13,7 @@
 import { and, eq, inArray, ne } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { newId } from "@/db/ids";
-import { user } from "@/db/schema/auth";
+import { activeMemberIds, isActiveMember } from "@/domain/memberAccess";
 import { userNotifyDevice } from "@/db/schema/household";
 import {
   SLOT_OPEN_STATES,
@@ -53,17 +53,12 @@ export function digestTagFor(userId: string): string {
 
 /** Every user who can be notified. The household has no "inactive" flag beyond Better Auth's ban. */
 export function activeUserIds(tx: Db): string[] {
-  return tx
-    .select({ id: user.id })
-    .from(user)
-    .all()
-    .filter((row) => row.id !== null)
-    .map((row) => row.id);
+  return activeMemberIds(tx);
 }
 
 /** The users an occurrence notifies: its assignee, or the whole household when shared. */
 export function recipientsFor(tx: Db, occ: OccurrenceRow): string[] {
-  if (occ.assignmentMode === "user" && occ.assigneeUserId !== null) return [occ.assigneeUserId];
+  if (occ.assignmentMode === "user" && occ.assigneeUserId !== null) return isActiveMember(tx, occ.assigneeUserId) ? [occ.assigneeUserId] : [];
   return activeUserIds(tx);
 }
 

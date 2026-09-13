@@ -1,4 +1,5 @@
 "use client";
+import { registerEditorActions,requestEditSwitch } from "../edit/confirmSwitch";
 /**
  * The way into the infrastructure data: create a run, draw it, save it — and record the inlets,
  * outlets, shutoffs and meters it runs between.
@@ -19,7 +20,7 @@
  *  - **Saving is explicit.** The draft is mirrored into the route list so the 3D line follows the
  *    points as they move, but nothing reaches the server until "Save path". Closing the path editor discards any unsaved changes.
  */
-import { useState } from "react";
+import { useState,useEffect } from "react";
 import type { InfraCertainty, InfraLifecycle, InfraMedium } from "@/db/schema/infrastructure";
 import { MEDIUM_LABELS, kindOfMedium, systemOfMedium } from "@/features/projects/infraMedium";
 import { ENDPOINT_KIND_SHORT } from "@/features/projects/infraEndpoint";
@@ -98,9 +99,8 @@ export function RouteCreateControl() {
     if (routeDraft) setHeld({ routeId: routeDraft.id, extras: next });
   };
 
-  if (!index) return null;
-
   const start = (): void => {
+    void requestEditSwitch(runtime,()=>{
     setError(null);
     if (name.trim() === "") {
       setError("Give the run a name — “Kitchen extract duct” is what makes it findable later.");
@@ -120,10 +120,11 @@ export function RouteCreateControl() {
     setCreating(false);
     setName("");
     setNominalSize("");
+    });
   };
 
-  const save = async (): Promise<void> => {
-    if (saving || !routeDraft || !extras || !modelId || !fingerprint) return;
+  const save = async (): Promise<boolean> => {
+    if (saving || !routeDraft || !extras || !modelId || !fingerprint) return false;
     setError(null);
     const candidate: RouteSave = {
       ...routeDraft,
@@ -141,6 +142,7 @@ export function RouteCreateControl() {
       const stored = await runtime.dataApi.saveRoute(modelId, fingerprint, candidate);
       upsertRoute(stored);
       endRouteDraft();
+      return true;
     } catch (err) {
       if (err instanceof NotPersistedError) {
         setDataError(
@@ -150,6 +152,7 @@ export function RouteCreateControl() {
       } else {
         setError(err instanceof Error ? err.message : "The run was not saved.");
       }
+      return false;
     } finally {
       setSaving(false);
     }
@@ -160,6 +163,9 @@ export function RouteCreateControl() {
     cancelRouteDraft();
     setError(null);
   };
+  useEffect(()=>registerEditorActions(runtime,"route",{save,discard}));
+  if (!index) return null;
+
 
   return (
     <section className="flex flex-col gap-3 border-t border-line pt-3">

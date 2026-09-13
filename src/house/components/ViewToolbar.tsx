@@ -5,7 +5,6 @@
  * fields, in full, on every change.
  */
 import { HouseBackgroundControl } from "@/features/settings/HouseBackgroundControl";
-import { useState } from "react";
 import {
   BetweenHorizontalEnd,
   Armchair,
@@ -26,17 +25,13 @@ import {
   StickyNote,
   Tags,
   EyeOff,
-  ImageIcon,
-  Lightbulb,
-  SlidersHorizontal,
-  Sun,
   Trees,
   type LucideIcon,
 } from "lucide-react";
 import { ALL_LAYERS, type LayerId, type WallMode } from "@/house/model/types";
 import { displayNameForNode } from "@/house/model/labelPreferences";
 import { ROUTE_KIND_LABEL, ROUTE_KIND_ORDER } from "@/house/model/propertyTree";
-import { Button, Switch, Tabs, TabsPanel } from "@/ui";
+import { Button, Switch } from "@/ui";
 import { resetRenderingPreferences } from "@/house/store/renderingPreferences";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { DaylightControl } from "./DaylightControl";
@@ -47,7 +42,8 @@ const LAYER_LABELS: Record<LayerId, string> = {
   scanReferences: "Scan reference",
   yard: "Yard",
   outdoor: "Terrace and steps",
-  equipment: "Show equipment",
+  equipment: "Equipment",
+  trees: "Trees",
   furnishings: "Furniture",
   routes: "Infrastructure routes",
   annotations: "Notes",
@@ -58,6 +54,7 @@ const LAYER_ICONS: Record<LayerId, LucideIcon> = {
   scanReferences: ScanLine,
   yard: Trees,
   outdoor: Map,
+  trees: Trees,
   equipment: Box,
   furnishings: Armchair,
   routes: Route,
@@ -206,19 +203,9 @@ export function InfrastructureKindToggles({ phone = false }: { phone?: boolean }
   );
 }
 
-type RenderingSection = "light" | "environment" | "quality" | "background";
-
-const RENDERING_TABS = [
-  { value: "light", label: "Light", icon: <Lightbulb aria-hidden="true" />, phoneIconOnly: true },
-  { value: "environment", label: "Environment", icon: <Sun aria-hidden="true" />, phoneIconOnly: true },
-  { value: "quality", label: "Quality", icon: <SlidersHorizontal aria-hidden="true" />, phoneIconOnly: true },
-  { value: "background", label: "Background", icon: <ImageIcon aria-hidden="true" />, phoneIconOnly: true },
-] as const;
-
 /** One focused rendering task at a time; shared by the desktop tray and phone disclosure. */
-export function RenderingControls() {
+export function RenderingControls({ section = "all" }: { section?: "all" | "lighting" | "appearance" | "advanced" }) {
   const runtime = useHouseRuntime();
-  const [section, setSection] = useState<RenderingSection>("light");
   const { performanceMode, background } = useHouseStore(
     useShallow((s) => ({ performanceMode: s.performanceMode, background: s.background })),
   );
@@ -227,39 +214,10 @@ export function RenderingControls() {
 
   return (
     <div className="min-w-0">
-      <Tabs
-        items={RENDERING_TABS}
-        value={section}
-        onValueChange={(value) => setSection(value as RenderingSection)}
-        ariaLabel="Rendering settings"
-        density="compact"
-        className="min-w-0"
-      >
-        <TabsPanel value="light" className="p-2">
-          <DetailedLightControl />
-        </TabsPanel>
-        <TabsPanel value="environment" className="p-2">
-          <DaylightControl section="environment" />
-        </TabsPanel>
-        <TabsPanel value="quality" className="p-2">
-          <div className="grid items-start gap-x-5 md:grid-cols-2">
-            <Toggle
-              icon={Gauge}
-              checked={performanceMode}
-              onChange={setPerformanceMode}
-              label="Performance mode (pixel ratio 1)"
-            />
-            <DaylightControl section="quality" />
-          </div>
-        </TabsPanel>
-        <TabsPanel value="background" className="p-2">
-          <HouseBackgroundControl
-            value={background}
-            onPreview={setBackground}
-            className="max-w-2xl"
-          />
-        </TabsPanel>
-      </Tabs>
+      {section === "all" || section === "lighting" ? <div className="grid gap-3"><DetailedLightControl /><DaylightControl section="environment" /></div> : null}
+      {section === "all" || section === "advanced" ? <div className="grid gap-3"><Toggle icon={Gauge} checked={performanceMode} onChange={setPerformanceMode} label="Performance mode (pixel ratio 1)" /><DaylightControl section="quality" /></div> : null}
+      {section === "all" || section === "appearance" ? <HouseBackgroundControl value={background} onPreview={setBackground} className="max-w-2xl" /> : null}
+      {section === "all" || section === "advanced" ? (
       <div className="flex items-center justify-between gap-3 border-t border-line px-2 py-1">
         <p className="text-[10px] leading-4 text-ink-3">Rendering settings are remembered on this device.</p>
         <Button
@@ -270,7 +228,7 @@ export function RenderingControls() {
           <RotateCcw aria-hidden="true" className="size-3.5" />
           Reset device settings
         </Button>
-      </div>
+      </div>) : null}
     </div>
   );
 }

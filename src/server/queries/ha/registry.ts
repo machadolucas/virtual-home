@@ -9,6 +9,7 @@ import {
   haEntity,
   haEntityState,
   haFloor,
+  haReview,
   location,
   locationMapping,
 } from "@/db/schema";
@@ -91,6 +92,7 @@ export interface RegistryBrowseOptions {
    * them, and they are the bulk of what makes the import list look wrong.
    */
   hideDead?: boolean;
+  includeIgnored?: boolean;
 }
 
 export interface RegistryBrowseResult {
@@ -125,6 +127,7 @@ export function browseRegistry(
   tx: Db,
   options: RegistryBrowseOptions,
 ): RegistryBrowseResult {
+  const ignoredDevices = new Set(tx.select().from(haReview).where(and(eq(haReview.kind, "device"), eq(haReview.ignored, true))).all().map(row => row.registryId));
   const devices = tx
     .select()
     .from(haDevice)
@@ -221,6 +224,7 @@ export function browseRegistry(
 
   const rows: RegistryDeviceRow[] = [];
   for (const device of devices) {
+    if (!options.includeIgnored && ignoredDevices.has(device.deviceId)) continue;
     const area = device.areaId === null ? null : (areaById.get(device.areaId) ?? null);
     const counts =
       entityCounts.get(device.deviceId) ??
@@ -381,7 +385,7 @@ function isVisibleEntity(row: {
 export function readDeviceEntities(
   tx: Db,
   deviceId: string,
-  options: { includeHidden: boolean },
+  options: { includeHidden: boolean; includeIgnored?: boolean },
 ): RegistryEntityRow[] {
   const rows = tx
     .select({
@@ -435,7 +439,9 @@ export function readDeviceEntities(
     }
   }
 
+  const ignored = new Set(tx.select().from(haReview).where(and(eq(haReview.kind, "entity"), eq(haReview.ignored, true))).all().map(row => row.registryId));
   return rows
+    .filter(row => options.includeIgnored || !ignored.has(row.registryId))
     .filter((row) => options.includeHidden || isVisibleEntity(row))
     .map((row) => ({
       ...row,

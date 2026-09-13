@@ -1,6 +1,6 @@
 # virtual-home — agent guide
 
-Local home-management app for one household (two named users). Next.js 16 App Router + a separate
+Local home-management app for one household (owner-managed member accounts). Next.js 16 App Router + a separate
 Node worker sharing `src/domain`. SQLite (Drizzle + better-sqlite3). Better Auth. Home Assistant
 integration (read state, send mobile notifications). 3D house workspace (React Three Fiber) driven by
 a supplied, immutable house-model package.
@@ -52,7 +52,7 @@ Configuration: see `.env.example`. Dev uses `.env.local` (gitignored); productio
    display name. `unknown`/`unavailable` is never a value (never 0 %).
 9. **Notifications**: idempotent by design (tags, nonces, `completion.request_id`); we record `sent`,
    never `delivered`.
-10. Prefer boring, explicit code over clever abstractions. No multi-tenancy, no role hierarchy.
+10. Prefer boring, explicit code over clever abstractions. No multi-tenancy; owner/member authority is limited to account management.
 
 ## Layout
 `src/app` (routes) · `src/domain` (pure logic, shared) · `src/db` (schema, client, migrations) ·

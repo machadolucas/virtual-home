@@ -6,6 +6,7 @@
  * already enforces the §3.2 preconditions inside that transaction, revalidate. No transition logic
  * lives here — duplicating a guard in the UI layer is how the two drift apart.
  */
+import { isActiveMember } from "@/domain/memberAccess";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { writeTx } from "@/db/client";
@@ -191,6 +192,7 @@ export const reassignTask = action(
     const { handle, ctx } = maintenanceContext(session.user.id);
     domainCall("reassign", () =>
       writeTx(handle.db, (tx) => {
+        if (input.assignmentMode === "user" && (!input.assigneeUserId || !isActiveMember(tx, input.assigneeUserId))) throw new ConflictError("inactive_assignee", "Choose an active member.");
         const occ = loadOccurrence(tx, input.occurrenceId);
         if (occ.status !== "pending" && occ.status !== "due") {
           throw new ConflictError("occurrence_not_open", `occurrence is ${occ.status}`);

@@ -739,3 +739,30 @@ furniture, excluding intentional contact with the attached surface and original 
 Numerical equipment edits are checked on Save as well. Preview meshes cast no shadows and are
 excluded from downloaded images. Move mode picks fixtures only; Select picks property surfaces and
 furniture; Place reserves pointer input for positioning. Tool changes clear stale surface hover.
+
+### Creating a documented tree
+
+The house workspace's Add tree form collects a name, height and optional care/planting notes. It
+opens the ordinary placement editor, so drag, numeric physical coordinates, room/floor selection
+and cancellation work consistently with equipment. The draft creates no database rows. Save
+validates the current model fingerprint and physical coordinates, then inserts the outdoor asset
+and its `tree` placement in one `writeTx`. Invalid placement or a failed insertion leaves neither
+record behind. Retrying the same save reuses the draft's stable IDs. The saved record supports
+normal equipment documentation and maintenance; no Home Assistant link is required or fabricated.
+
+Trees have their own visible-by-default `trees` layer. Hiding equipment does not hide trees, and
+hiding trees does not hide other equipment. Tree height remains in physical metres in the existing
+`tree_height_m` field; presentation cutaways and exploded offsets are never persisted.
+
+The same atomic workflow supports Add equipment: the inline form accepts name, category, an
+optional initial silhouette, location note and documentation notes. It creates a physical record
+only when the placement is saved; the form and placement editor do not pre-create orphan records.
+The Add tree form is a specialized version using the outdoor category, tree silhouette and height.
+Offline/session-only storage never reports either creation workflow as successfully persisted.
+
+Editing transitions use the shared Save / Discard / Keep editing dialog. Equipment, route and
+furniture editors register their actual save function; a failed save leaves the current draft open
+and never runs the requested transition. The house workspace keeps the dialog and draft owners
+mounted while browsing or prompting. Furniture joins the model/equipment closest-hit picker, so
+one native pointer handler decides selection; background clicks explicitly clear furniture even
+when no model object was selected.

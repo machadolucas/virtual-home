@@ -54,7 +54,9 @@ test("route editing previews, crosses floors, persists, and filters by infrastru
     await page.reload();
     await waitForHook(page);
     await vh(page).settled();
-    await vh(page).select({ kind: "route", id: stored.id });
+    await page.getByRole("searchbox",{name:"Search the property"}).fill(stored.name);
+    await page.getByRole("list",{name:"House items"}).getByRole("button",{name:new RegExp(`^${stored.name}`)}).click();
+    await page.getByRole("searchbox",{name:"Search the property"}).clear();
     await page.getByRole("button", { name: "Edit path" }).click();
 
     expect(await vh(page).eval(({ hook }) => hook.routeGuides())).toEqual({
@@ -86,12 +88,14 @@ test("route editing previews, crosses floors, persists, and filters by infrastru
     await page.reload();
     await waitForHook(page);
     await vh(page).settled();
-    await vh(page).select({ kind: "route", id: stored.id });
+    await page.getByRole("searchbox",{name:"Search the property"}).fill(stored.name);
+    await page.getByRole("list",{name:"House items"}).getByRole("button",{name:new RegExp(`^${stored.name}`)}).click();
+    await page.getByRole("searchbox",{name:"Search the property"}).clear();
     await page.getByRole("button", { name: "Edit path" }).click();
     expect((await vh(page).eval(({ hook }) => hook.routeDraft()))?.pointPlaces.at(-1)?.floorId).toBe("f-upper");
     await page.getByRole("button", { name: "Cancel path edit" }).click();
 
-    await page.getByRole("tab", { name: "Layers" }).click();
+    await page.getByRole("button", { name: "View",exact:true }).click();
     await expect.poll(() => vh(page).eval(({ hook }) => hook.routeSegments())).toBeGreaterThan(0);
     await page.getByRole("switch", { name: "Pipes" }).click();
     await expect.poll(() => vh(page).eval(({ hook }) => hook.routeSegments())).toBe(0);

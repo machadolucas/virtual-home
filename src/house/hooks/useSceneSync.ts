@@ -373,7 +373,7 @@ export function useSceneSync(): void {
             ];
 
       // Hiding equipment also hides draft silhouettes for a clean model-only view.
-      const drawn = s.layers.equipment ? withDraft : [];
+      const drawn = withDraft.filter(p => p.symbol === "tree" ? s.layers.trees : s.layers.equipment);
 
       markers.set(drawn, stateOf, groupOf, symbolOf);
       applyExplode(index, s.explode);
@@ -388,6 +388,7 @@ export function useSceneSync(): void {
         placements: s.placements,
         editing: s.editing,
         equipmentLayer: s.layers.equipment,
+        treesLayer: s.layers.trees,
       }),
       () => apply(store.getState()),
       { equalityFn: shallow },

@@ -13,6 +13,8 @@ import {
 } from "@/db/schema";
 import { NotFoundError, ValidationError } from "@/domain/errors";
 import { writeAudit } from "@/domain/inventory";
+import { isActiveMember } from "@/domain/memberAccess";
+import { ownerAction } from "@/server/auth/owner";
 import { action } from "@/server/api/action";
 import { readHouseholdRow, userContext } from "@/server/queries/settings/household";
 import { mapDomainErrors } from "@/server/actions/inventory/errors";
@@ -133,7 +135,7 @@ export const updateHouseBackground = action(updateHouseBackgroundInput, async (i
  * A display colour is the one profile field editable from the browser, because it is the one that
  * is purely cosmetic: it tints avatars and attribution chips and grants nothing.
  */
-export const updateDisplayColor = action(updateDisplayColorInput, async (input, session) => {
+export const updateDisplayColor = ownerAction(updateDisplayColorInput, async (input, session) => {
   const { db } = getDb();
   mapDomainErrors(() =>
     writeTx(db, (tx) => {
@@ -158,13 +160,14 @@ export const updateDisplayColor = action(updateDisplayColorInput, async (input, 
   return { ok: true as const };
 });
 
-export const addNotifyDevice = action(addNotifyDeviceInput, async (input, session) => {
+export const addNotifyDevice = ownerAction(addNotifyDeviceInput, async (input, session) => {
   const { db } = getDb();
   const deviceId = mapDomainErrors(() =>
     writeTx(db, (tx) => {
       const ctx = userContext(session, tx);
       const owner = tx.select().from(user).where(eq(user.id, input.userId)).get();
       if (!owner) throw new NotFoundError("user", input.userId);
+      if (!isActiveMember(tx, input.userId)) throw new ValidationError("inactive_member", "Restore this member before registering a phone.");
       const existing = tx
         .select({ id: userNotifyDevice.id, userId: userNotifyDevice.userId })
         .from(userNotifyDevice)
@@ -205,7 +208,7 @@ export const addNotifyDevice = action(addNotifyDeviceInput, async (input, sessio
   return { deviceId };
 });
 
-export const setNotifyDeviceActive = action(setNotifyDeviceActiveInput, async (input, session) => {
+export const setNotifyDeviceActive = ownerAction(setNotifyDeviceActiveInput, async (input, session) => {
   const { db } = getDb();
   mapDomainErrors(() =>
     writeTx(db, (tx) => {
@@ -216,6 +219,7 @@ export const setNotifyDeviceActive = action(setNotifyDeviceActiveInput, async (i
         .where(eq(userNotifyDevice.id, input.deviceId))
         .get();
       if (!row) throw new NotFoundError("user_notify_device", input.deviceId);
+      if (input.isActive && !isActiveMember(tx, row.userId)) throw new ValidationError("inactive_member", "Restore this member before enabling reminders.");
       tx.update(userNotifyDevice)
         .set({ isActive: input.isActive })
         .where(eq(userNotifyDevice.id, input.deviceId))
@@ -233,7 +237,7 @@ export const setNotifyDeviceActive = action(setNotifyDeviceActiveInput, async (i
   return { ok: true as const };
 });
 
-export const removeNotifyDevice = action(removeNotifyDeviceInput, async (input, session) => {
+export const removeNotifyDevice = ownerAction(removeNotifyDeviceInput, async (input, session) => {
   const { db } = getDb();
   mapDomainErrors(() =>
     writeTx(db, (tx) => {

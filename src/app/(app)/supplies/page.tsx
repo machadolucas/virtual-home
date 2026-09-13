@@ -33,7 +33,7 @@ export default async function SuppliesPage({
   await requireSessionPage("/supplies");
   const params = await searchParams;
   const rawFilter = firstValue(params["filter"]);
-  const filter: SupplyFilter = isSupplyFilter(rawFilter) ? rawFilter : "low";
+  const filter: SupplyFilter = isSupplyFilter(rawFilter) ? rawFilter : "all";
   const query = firstValue(params["q"]) ?? "";
 
   const { db, household, today } = pageContext();

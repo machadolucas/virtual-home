@@ -13,7 +13,7 @@ function invalidExports(source: string): string[] {
       let initializer = declaration.initializer;
       while (initializer && (ts.isAsExpression(initializer) || ts.isSatisfiesExpression(initializer) || ts.isParenthesizedExpression(initializer))) initializer = initializer.expression;
       const asyncFunction = initializer && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) && initializer.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword);
-      const actionFactory = initializer && ts.isCallExpression(initializer) && ts.isIdentifier(initializer.expression) && ["action", "freshAction", "bindOperation"].includes(initializer.expression.text);
+      const actionFactory = initializer && ts.isCallExpression(initializer) && ts.isIdentifier(initializer.expression) && ["action", "freshAction", "ownerAction", "bindOperation"].includes(initializer.expression.text);
       if (!asyncFunction && !actionFactory) invalid.push(declaration.name.getText(file));
     }
   }

@@ -1,11 +1,14 @@
 "use client";
 
+import { registerFurnishingSelection } from "../../scene/furnishingSelection";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Furnishing } from "@/house/model/types";
 import { useHouseRuntime, useHouseStore } from "../../hooks/useHouseStore";
 
 interface FurnishingsValue {
   items: Furnishing[];
+  selectedId: string | null;
+  select(id: string | null): void;
   loading: boolean;
   error: string | null;
   staleIds: ReadonlySet<string>;
@@ -25,6 +28,10 @@ export function FurnishingsProvider({ children }: { children: React.ReactNode })
   const runtime = useHouseRuntime();
   const modelId = useHouseStore((s) => s.modelId);
   const fingerprint = useHouseStore((s) => s.fingerprint);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const select = useCallback((id: string | null) => { runtime.select(null); setSelectedId(id); }, [runtime]);
+  useEffect(() => runtime.store.subscribe((next, previous) => { if (next.selection !== previous.selection) setSelectedId(null); }), [runtime]);
+  useEffect(()=>registerFurnishingSelection(runtime,id=>{if(id!==null)runtime.select(null);setSelectedId(id);}),[runtime]);
   const [items, setItems] = useState<Furnishing[]>([]);
   const [loadedFingerprint, setLoadedFingerprint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +97,7 @@ export function FurnishingsProvider({ children }: { children: React.ReactNode })
   }, [runtime.base]);
 
   const loading = !!fingerprint && loadedFingerprint !== fingerprint;
-  const value = useMemo(() => ({ items, loading, error, staleIds, busy, retry, preview, setPreview, requestEdit, registerEditHandler, save, remove }), [items, loading, error, staleIds, busy, retry, preview, requestEdit, registerEditHandler, save, remove]);
+  const value = useMemo(() => ({ items, selectedId, select, loading, error, staleIds, busy, retry, preview, setPreview, requestEdit, registerEditHandler, save, remove }), [items, selectedId, select, loading, error, staleIds, busy, retry, preview, requestEdit, registerEditHandler, save, remove]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

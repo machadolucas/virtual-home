@@ -9,9 +9,10 @@ import {
 import { emitHaBatch, installSyntheticHa, openSyntheticHa } from "./helpers/liveHa";
 
 test("equipment label stays live, expands linked readings, and preserves its saved symbol", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "The 3D label overlay is desktop-only.");
+  test.skip(testInfo.project.name.includes("phone"), "The 3D label overlay is desktop-only.");
   const context = await browser.newContext({
     ...deviceOptionsOfProject(),
+    serviceWorkers: "block",
     baseURL: e2eBaseUrl(),
     extraHTTPHeaders: { "x-forwarded-for": houseClientIp() },
   });
@@ -108,6 +109,12 @@ test("equipment label stays live, expands linked readings, and preserves its sav
     const exportPath = testInfo.outputPath("expanded-label-export.png");
     await image.saveAs(exportPath);
     await testInfo.attach("expanded-label-export.png", { path: exportPath, contentType: "image/png" });
+    await expect(label).toHaveAttribute("aria-expanded", "false");
+    await label.click();
+    await expect(label).toHaveAttribute("aria-expanded", "true");
+    await vh(page).select(null);
+    await expect(label).toHaveAttribute("aria-expanded", "false");
+    await vh(page).select({ kind: "equipment", id: placement.id });
 
     await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
     await page.getByRole("button", { name: "Save placement", exact: true }).click();

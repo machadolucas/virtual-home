@@ -29,6 +29,10 @@ vi.mock("@/server/auth/session", () => {
   }
   return {
     UnauthorizedError,
+    requireFreshSession: async () => {
+      if (mocks.userId.current === null) throw new UnauthorizedError();
+      return { user: { id: mocks.userId.current }, session: { id: "test-session" } };
+    },
     requireSession: async () => {
       if (mocks.userId.current === null) throw new UnauthorizedError();
       return { user: { id: mocks.userId.current }, session: { id: "test-session" } };

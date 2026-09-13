@@ -47,7 +47,7 @@ export function placementYaw(anchor: readonly number[], target: readonly number[
 
 /** Visible fixture bodies are targets in Move and Select, with the same fragment clipping as drawing. */
 export function pickEquipmentBody(runtime: HouseRuntime, clientX: number, clientY: number): { id: string; distance: number } | null {
-  if (!runtime.camera3d || !runtime.canvasEl || !runtime.store.getState().layers.equipment) return null;
+  if (!runtime.camera3d || !runtime.canvasEl || (!runtime.store.getState().layers.equipment && !runtime.store.getState().layers.trees)) return null;
   const rect = runtime.canvasEl.getBoundingClientRect();
   const ray = new THREE.Raycaster();
   ray.setFromCamera(new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1,

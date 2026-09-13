@@ -1,5 +1,6 @@
 "use client";
 
+import { IgnoreButton } from "@/features/ha/ReviewControls";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Cpu, Search, X } from "lucide-react";
@@ -50,6 +51,7 @@ const NO_LOCATION = "__none";
 const NO_ROLE = "__skip";
 
 export interface BrowserDevice {
+  ignored?: boolean;
   deviceId: string;
   name: string | null;
   nameByUser: string | null;
@@ -79,6 +81,7 @@ export interface BrowserFloor {
 }
 
 export interface BrowserEntity {
+  ignored?: boolean;
   registryId: string;
   entityId: string;
   domain: string;
@@ -253,7 +256,8 @@ export function RegistryBrowser({
   const push = useCallback(
     (next: { q?: string; hidden?: boolean; dead?: boolean }) => {
       const current = latest.current;
-      const params = new URLSearchParams();
+      const params = new URLSearchParams(window.location.search);
+      for (const key of ["q", "hidden", "dead"]) params.delete(key);
       const q = next.q === undefined ? current.query : next.q;
       const hidden = next.hidden === undefined ? current.includeHidden : next.hidden;
       const dead = next.dead === undefined ? current.showDead : next.dead;
@@ -363,6 +367,7 @@ export function RegistryBrowser({
         </div>
       </div>
 
+      {selected.size > 0 && <IgnoreButton targets={[...selected].map(registryId => ({ kind: "device" as const, registryId }))} label={`Ignore selected (${selected.size})`} onDone={clearSelection}/>}
       {selected.size > 0 ? (
         <BulkImportBar
           devices={selectedDevices}
@@ -462,7 +467,8 @@ export function RegistryBrowser({
                           </Badge>
                         )}
                       </span>
-                      <span className="shrink-0">
+                      <span className="flex shrink-0 flex-wrap items-center gap-1">
+                        <IgnoreButton ignored={device.ignored} targets={[{ kind: "device", registryId: device.deviceId }]}/>
                         <ImportDialog
                           device={device}
                           entities={entitiesByDevice[device.deviceId] ?? []}
@@ -987,6 +993,7 @@ function ImportDialog({
                       </span>
                     )}
                   </span>
+                  <IgnoreButton ignored={entity.ignored} targets={[{ kind: "entity", registryId: entity.registryId }]}/>
                   <span className="w-44 shrink-0">
                     <Select
                       ariaLabel={`Role for ${entity.entityId}`}

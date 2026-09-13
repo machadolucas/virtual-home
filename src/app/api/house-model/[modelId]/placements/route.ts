@@ -24,6 +24,7 @@
  * four, so `mount` carries the true kind. `mountKind`/`mountSurfaceId`/`mountHeightM`/
  * `mountOffsetM` still travel beside it for callers that read the row shape directly.
  */
+import { createPlacedEquipmentRecord,newTreeInput,newEquipmentInput } from "@/server/operations/assets/tree";
 import { canMountSurface, canAttachSurface } from "@/house/model/mountSurface";
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -271,6 +272,8 @@ const PutSchema = z.object({
    */
   viewMode: z.string().min(1),
   placement: PlacementSchema,
+  newTree: newTreeInput.optional(),
+  newEquipment: newEquipmentInput.optional(),
 });
 
 const mm = (v: number): number => Math.round(v * 1000) / 1000;
@@ -492,6 +495,10 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     });
 
   const p = body.placement;
+  if(body.newTree&&body.newEquipment)throw badRequest("ambiguous_equipment_creation");
+  const newEquipment=body.newEquipment??(body.newTree?{...body.newTree,category:"outdoor" as const}:undefined);
+  if(newEquipment&&(!p.id||p.placementKind!=="body"))throw badRequest("invalid_new_equipment_placement");
+  if(body.newTree&&(p.symbol!=="tree"||p.placementKind!=="body"||!p.id))throw badRequest("invalid_tree_placement");
   const floor = index.floors.get(p.floorId);
   if (!floor) throw badRequest("unknown_floor", { floorId: p.floorId });
   if (p.roomId != null) {
@@ -523,7 +530,7 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     .select({ id: asset.id, name: asset.name, category: asset.category })
     .from(asset)
     .where(eq(asset.id, p.equipmentId))
-    .get();
+    .get() ?? (newEquipment ? {id:p.equipmentId,name:newEquipment.name,category:newEquipment.category} : undefined);
   if (!equipment)
     throw conflict("unknown_equipment", {
       equipmentId: p.equipmentId,
@@ -641,6 +648,10 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
   };
 
   writeTx(db, (tx) => {
+    if(newEquipment){
+      const mapped=tx.select({id:location.id}).from(location).where(and(eq(location.modelRevisionId,revision.id),eq(location.modelNodeId,nodeId))).get();
+      createPlacedEquipmentRecord(tx,session.user.id,p.equipmentId,p.id!,newEquipment,mapped?.id??null,p.symbol??null);
+    }
     // A stale viewer must not create or move a marker for an archived/replaced unit. Keep its
     // historical placement row, but use the same current-equipment policy as both GET lists.
     const currentEquipment = tx.select({ id: asset.id }).from(asset).where(and(
