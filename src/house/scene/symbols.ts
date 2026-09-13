@@ -629,8 +629,8 @@ function buildRaw(symbol: PlacementSymbol): THREE.BufferGeometry {
 
     case "tree":
       // A five-metre deciduous tree: tapered trunk, a few visible branches and an irregular,
-      // layered crown. The placement layer scales the whole silhouette to the saved height, so
-      // a young fruit tree stays slender while a mature yard tree gains an appropriate canopy.
+      // layered crown. Height and width scale independently; the trunk diameter is capped
+      // so tall garden trees remain slender and their planted positions stay readable.
       return mergeGeometries([
         tinted(translated(new THREE.CylinderGeometry(0.18, 0.28, 2.65, 9), 0, 1.325, 0), 0x70513b),
         tinted(translated(rotatedZ(new THREE.CylinderGeometry(0.07, 0.12, 1.25, 7), -0.7), -0.38, 2.65, 0.04), 0x70513b),

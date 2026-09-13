@@ -68,6 +68,11 @@ function darkMaterial(source: THREE.Material): THREE.Material {
   result.polygonOffsetFactor = source.polygonOffsetFactor;
   result.polygonOffsetUnits = source.polygonOffsetUnits;
   result.visible = source.visible;
+  // Tree height clipping is geometry visibility, including in an unlit accumulation pass.
+  if (source.userData.vhTreeCutHeight) {
+    result.onBeforeCompile = source.onBeforeCompile;
+    result.customProgramCacheKey = source.customProgramCacheKey;
+  }
   return result;
 }
 
@@ -94,7 +99,7 @@ function materialKey(material: THREE.Material): string {
     Object.entries(m).filter(([, v]) => typeof v === "number" || typeof v === "boolean" || typeof v === "string" ||
       v instanceof THREE.Color || v instanceof THREE.Vector2).map(([k, v]) => [k, uniformKey(v)]),
     m instanceof THREE.ShaderMaterial ? Object.entries(m.uniforms).map(([key, u]) => [key, uniformKey(u.value)]) : null,
-    m.clippingPlanes?.map(p => [...p.normal.toArray(), p.constant]), m.clipIntersection,
+    m.clippingPlanes?.map(p => [...p.normal.toArray(), p.constant]), m.clipIntersection, m.userData.vhTreeCutHeight?.value,
     Object.values(m).filter(v => v instanceof THREE.Texture).map(t => [t.uuid, t.version, t.matrix.elements])]);
 }
 
@@ -187,7 +192,7 @@ export class BatchedLighting {
           const source = m as THREE.MeshStandardMaterial;
           return [m.opacity, m.alphaTest, m.alphaHash, m.alphaToCoverage, m.side, m.shadowSide, m.visible,
             [source.alphaMap, source.map, source.displacementMap].map(t => t ? [t.uuid, t.version, t.matrix.elements] : null),
-            source.displacementScale, source.displacementBias,
+            source.displacementScale, source.displacementBias, m.userData.vhTreeCutHeight?.value,
             m.clipShadows ? m.clippingPlanes?.map(p => [...p.normal.toArray(), p.constant]) : null];
         })]);
       geometry.push([object.uuid, object.matrixWorld.elements, object.layers.mask, keys, mesh.geometry?.uuid,

@@ -267,3 +267,11 @@ under one account). That is what `workers: 1` in `playwright.config.ts` exists t
   static Systems/Shopping hubs, record-chain Back/Forward/Close with exact origin and focus,
   Safari saved-form reset, PDF search/zoom/fullscreen, inactive renderer cleanup, retained metadata
   drafts, and identical House canvas/camera/selection after closing the full record.
+
+### Outdoor tree cutting and placement (2026-09-13)
+
+`pnpm check` passed 1,742 tests (23 existing skips). Chromium and WebKit rendered two exterior
+trees at different ground elevations and verified crown removal in Contextual/All cut, full-crown
+restoration in All up, unchanged camera and physical positions, one shared instanced tree mesh,
+and no shader errors. Unit regressions cover clipping for shadows and hidden-crown picking,
+60 cm maximum trunk diameter, and trunk collisions without decorative crown obstructions.

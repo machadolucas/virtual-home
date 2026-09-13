@@ -293,7 +293,7 @@ describe("marker layer with symbols", () => {
     }
   });
 
-  it("scales a tree to its configured physical height and gives it a wall-mode cut plane", () => {
+  it("scales a tree to its physical height and gives it terrain-relative contextual cutting", () => {
     const built = buildScene(FIXTURE_DIR);
     const markers = new MarkerLayer(built.index, built.clip);
     try {
@@ -308,8 +308,14 @@ describe("marker layer with symbols", () => {
       const scale = new THREE.Vector3();
       mesh.getMatrixAt(0, matrix);
       matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scale);
-      expect(scale.toArray()).toEqual([2, 2, 2]);
-      expect((mesh.material as THREE.Material).clippingPlanes).toHaveLength(3);
+      expect(scale.y).toBe(2);
+      expect(scale.x * .56).toBeCloseTo(.6);
+      expect(scale.z).toBeCloseTo(scale.x);
+      const material = mesh.material as THREE.Material;
+      expect(material.clippingPlanes).toHaveLength(2);
+      built.clip.setTreeContextCut(true);
+      expect(material.userData.vhTreeCutHeight.value).toBe(.9);
+      expect(mesh.customDepthMaterial?.onBeforeCompile).toBeTypeOf("function");
     } finally {
       markers.dispose();
     }

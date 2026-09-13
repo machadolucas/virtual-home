@@ -181,6 +181,8 @@ export class MarkerLayer {
     for (const state of this.groups.values()) {
       state.mesh.removeFromParent();
       state.mesh.dispose();
+      state.mesh.customDepthMaterial?.dispose();
+      state.mesh.customDistanceMaterial?.dispose();
       if (state.mesh.material !== this.material) {
         const materials = Array.isArray(state.mesh.material) ? state.mesh.material : [state.mesh.material];
         for (const material of materials) material.dispose();

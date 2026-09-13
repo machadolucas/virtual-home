@@ -74,6 +74,7 @@ export interface VhHook {
   lights(): import("../scene/equipmentLights").EquipmentLightSpec[];
   detectionGuide(): { visible: boolean; position: number[]; direction: number[] };
   equipmentCount(): number;
+  trees(): Array<{ group: string; count: number; cutHeightM: number; positions: number[][] }>;
   furnishings(): Array<{ id: string; visible: boolean; size: [number, number, number]; position: number[]; preview: boolean }>;
   occlusionStats(): { queries: number; batches: number };
   daylight(): { position: number[]; intensity: number; shadowMapSize: number; shadowMapAllocated: boolean; radius: number } | null;
@@ -354,6 +355,18 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
       let count = 0;
       runtime.index?.overlay.root.traverse((o) => { if (o instanceof THREE.InstancedMesh && o.name.startsWith("vh-markers-") && isVisibleUp(o)) count += o.count; });
       return count;
+    },
+
+    trees() {
+      return (runtime.markers?.meshes ?? []).filter(mesh => mesh.name.endsWith("-tree")).map(mesh => {
+        const material = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material)!;
+        const positions: number[][] = [];
+        for (let i = 0; i < mesh.count; i++) {
+          const matrix = new THREE.Matrix4(); mesh.getMatrixAt(i, matrix);
+          positions.push(new THREE.Vector3().setFromMatrixPosition(matrix).toArray());
+        }
+        return { group: mesh.name, count: mesh.count, cutHeightM: material.userData.vhTreeCutHeight?.value ?? 10000, positions };
+      });
     },
 
     furnishings() {

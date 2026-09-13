@@ -668,10 +668,12 @@ millimetres. Migrations 0010 and 0012 add the nullable columns.
 LED bars scale along their long axis only. Motion-sensor and camera bodies follow the existing
 `lightAim` yaw/pitch format, as do their selection-only, non-persistent cone meshes.
 
-The tree silhouette is a floor-anchored five-metre deciduous tree by default. Its trunk and crown
-scale proportionally to the saved height. Horizontal/vertical section planes always clip it with its
-presentation group; All cut and Contextual wall modes also lower trees to the same cap as walls, so
-foliage does not obscure an opened dollhouse view. All up and Closed restore the complete crown.
+The tree silhouette is a floor-anchored five-metre deciduous tree by default. Its height scales vertically while width grows slowly and is capped
+at a symbolic 0.6 m trunk diameter. Placement collision uses the trunk rather than decorative foliage. Horizontal/vertical section planes always clip it with its
+presentation group; All cut and Contextual wall modes leave a 0.9 m trunk above each tree’s own
+physical terrain anchor, including exterior trees when no floor is selected. A shared shader uniform
+preserves instanced drawing and applies to visible, shadow and batched-light passes. CPU picking
+ignores clipped crowns. All up and Closed restore the complete crown; no coordinates are changed.
 
 Hot-water tanks use an upright 0.65 × 0.65 × 1.86 m rectangular insulated outer case, like a
 tall appliance cabinet, with service-panel and plumbing details. Ventilation machines use a

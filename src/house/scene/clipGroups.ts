@@ -30,8 +30,9 @@ export class ClipGroups {
   readonly planes = new Map<ExplodeGroup, [THREE.Plane, THREE.Plane]>();
   /** One fixed third plane per surface material for the transient low-wall focus cut. */
   private readonly focusPlanes = new Map<string, THREE.Plane[]>();
-  /** Tree silhouettes use the same low cap as walls while an interior view is open. */
-  private readonly treePlanes = new Map<ExplodeGroup, THREE.Plane[]>();
+  /** Shared by every tree and shadow material; each instance cuts above its own terrain origin. */
+  private readonly treeCutHeight = { value: OFF };
+  private readonly treeObjects = new WeakSet<THREE.Object3D>();
   private readonly surfaceGroups = new Map<string, ExplodeGroup>();
 
   constructor(groups: Iterable<ExplodeGroup>) {
@@ -77,22 +78,57 @@ export class ClipGroups {
     else apply(mat);
   }
 
-  /** Attach the group cut planes and a third plane controlled by the Sims-style wall mode. */
+  /** Trees retain group sections, with an independent metre-height cap above each instance base. */
   attachTree(object: THREE.Object3D, group: ExplodeGroup): void {
-    const mat = (object as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
-    if (!mat) return;
-    const planes = this.ensure(group);
-    const apply = (m: THREE.Material) => {
-      const tree = new THREE.Plane(new THREE.Vector3(0, -1, 0), OFF);
-      m.clippingPlanes = [planes[0], planes[1], tree];
-      m.clipIntersection = false;
-      m.clipShadows = false;
-      const list = this.treePlanes.get(group);
-      if (list) list.push(tree);
-      else this.treePlanes.set(group, [tree]);
+    const mesh = object as THREE.Mesh;
+    if (!mesh.material) return;
+    this.treeObjects.add(object);
+    const configure = (material: THREE.Material) => {
+      material.userData.vhTreeCutHeight = this.treeCutHeight;
+      material.clippingPlanes = this.ensure(group);
+      material.clipIntersection = false;
+      material.clipShadows = true;
+      material.onBeforeCompile = (shader) => {
+        shader.uniforms.vhTreeCutHeight = this.treeCutHeight;
+        shader.vertexShader = `varying float vhTreeHeight;\n${shader.vertexShader}`.replace(
+          "#include <begin_vertex>",
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vhTreeHeight = (instanceMatrix * vec4(transformed, 0.0)).y;
+          #else
+            vhTreeHeight = transformed.y;
+          #endif`,
+        );
+        shader.fragmentShader = `uniform float vhTreeCutHeight;\nvarying float vhTreeHeight;\n${shader.fragmentShader}`.replace(
+          "#include <clipping_planes_fragment>",
+          "#include <clipping_planes_fragment>\nif (vhTreeHeight > vhTreeCutHeight) discard;",
+        );
+      };
+      material.customProgramCacheKey = () => "vh-tree-local-cut-v1";
     };
-    if (Array.isArray(mat)) mat.forEach(apply);
-    else apply(mat);
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) configure(material);
+    mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+    mesh.customDistanceMaterial = new THREE.MeshDistanceMaterial();
+    configure(mesh.customDepthMaterial);
+    configure(mesh.customDistanceMaterial);
+  }
+
+  /** Contextual and All cut keep a short trunk at every terrain elevation, even without a floor. */
+  setTreeContextCut(enabled: boolean): boolean {
+    const next = enabled ? 0.9 : OFF;
+    if (this.treeCutHeight.value === next) return false;
+    this.treeCutHeight.value = next;
+    return true;
+  }
+
+  /** Match the shader cut when raycasting, so hidden crowns cannot steal selection or placement. */
+  keepsTreeHit(hit: THREE.Intersection): boolean {
+    if (!this.treeObjects.has(hit.object) || this.treeCutHeight.value === OFF) return true;
+    const point = hit.object.worldToLocal(hit.point.clone());
+    const mesh = hit.object as THREE.InstancedMesh;
+    const matrix = new THREE.Matrix4();
+    if (mesh.isInstancedMesh && hit.instanceId !== undefined) mesh.getMatrixAt(hit.instanceId, matrix);
+    return point.y - matrix.elements[13]! <= this.treeCutHeight.value + 1e-6;
   }
 
   /** Cut only the supplied wall surfaces down to `worldY`; all others keep their plane off. */
@@ -100,21 +136,6 @@ export class ClipGroups {
     let changed = false;
     for (const [surfaceId, planes] of this.focusPlanes) {
       const next = cuts.get(surfaceId) ?? OFF;
-      for (const plane of planes) {
-        if (Math.abs(plane.constant - next) < 1e-6) continue;
-        plane.normal.set(0, -1, 0);
-        plane.constant = next;
-        changed = true;
-      }
-    }
-    return changed;
-  }
-
-  /** Lower trees along with cut/contextual walls; omitted groups keep their full height. */
-  setTreeCuts(cuts: ReadonlyMap<ExplodeGroup, number>): boolean {
-    let changed = false;
-    for (const [group, planes] of this.treePlanes) {
-      const next = cuts.get(group) ?? OFF;
       for (const plane of planes) {
         if (Math.abs(plane.constant - next) < 1e-6) continue;
         plane.normal.set(0, -1, 0);

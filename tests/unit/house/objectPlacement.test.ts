@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { describe, it, expect } from "vitest";
-import { pickObjectSupport, placementYaw } from "@/house/scene/objectPlacement";
+import { pickEquipmentBody, pickObjectSupport, placementYaw } from "@/house/scene/objectPlacement";
+import { ClipGroups } from "@/house/scene/clipGroups";
 import type { HouseRuntime } from "@/house/runtime";
 import type { Furnishing } from "@/house/model/types";
 
@@ -42,5 +43,31 @@ describe("object placement gestures and support", () => {
     expect(hit?.point.z).toBeCloseTo(.5);
     expect(hit?.normal?.toArray()).toEqual([0, 0, 1]);
     mesh.geometry.dispose(); material.dispose();
+  });
+  it("does not select or attach to a clipped tree crown, while its trunk remains selectable", () => {
+    const scene = new THREE.Scene();
+    const geometry = new THREE.BoxGeometry(.5, 5, .5).translate(0, 2.5, 0);
+    const mesh = new THREE.InstancedMesh(geometry, new THREE.MeshStandardMaterial(), 1);
+    mesh.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, 2, 0)); scene.add(mesh);
+    scene.updateMatrixWorld(true);
+    const clip = new ClipGroups(["site"]); clip.attachTree(mesh, "site");
+    const camera = new THREE.PerspectiveCamera(50, 1, .01, 100);
+    const aim = (y: number) => { camera.position.set(0, y, 5); camera.lookAt(0, y, 0); camera.updateMatrixWorld(true); };
+    const runtime = { scene, clip, camera3d: camera,
+      canvasEl: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }) },
+      markers: { meshes: [mesh], placementAt: () => "tree" }, index: { hiddenGroups: new Set() },
+      store: { getState: () => ({ layers: { trees: true, equipment: true }, placements: [{ id: "tree", floorId: null, roomId: null }] }) },
+    } as unknown as HouseRuntime;
+    aim(5);
+    expect(pickEquipmentBody(runtime, 50, 50)?.id).toBe("tree");
+    expect(pickObjectSupport(runtime, 50, 50, [], null)).not.toBeNull();
+    clip.setTreeContextCut(true);
+    expect(pickEquipmentBody(runtime, 50, 50)).toBeNull();
+    expect(pickObjectSupport(runtime, 50, 50, [], null)).toBeNull();
+    aim(2.5);
+    expect(pickEquipmentBody(runtime, 50, 50)?.id).toBe("tree");
+    clip.setTreeContextCut(false); aim(5);
+    expect(pickEquipmentBody(runtime, 50, 50)?.id).toBe("tree");
+    geometry.dispose(); mesh.material.dispose(); mesh.customDepthMaterial?.dispose(); mesh.customDistanceMaterial?.dispose();
   });
 });

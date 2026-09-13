@@ -123,9 +123,10 @@ export function useSceneSync(): void {
       const manifest = runtime.manifest;
       const resolvedFocus = resolveFocus(s);
       if (!manifest || !runtime.clip) return;
+      const treesChanged = runtime.clip.setTreeContextCut(s.wallMode === "cut" || s.wallMode === "contextual");
+      if (treesChanged) { runtime.occlusionRevision++; runtime.invalidate(); }
       if (s.wallMode === "cut") {
         const cuts = new Map<string, number>();
-        const treeCuts = new Map<string, number>();
         for (const floor of manifest.floors.values()) {
           const wallFaces = [...manifest.surfaces.values()]
             .filter(
@@ -138,24 +139,20 @@ export function useSceneSync(): void {
           for (const sid of focusCutSurfaceIds(manifest, wallFaces)) {
             cuts.set(sid, focusCutYForSurface(manifest, sid, cap, floorY));
           }
-          treeCuts.set(floor.id, cap);
         }
         const wallsChanged = runtime.clip.setFocusCuts(cuts);
-        const treesChanged = runtime.clip.setTreeCuts(treeCuts);
-        if (wallsChanged || treesChanged) { runtime.occlusionRevision++; runtime.invalidate(); }
+        if (wallsChanged) { runtime.occlusionRevision++; runtime.invalidate(); }
         return;
       }
       const focuses = contextualRoomFocuses(s, resolvedFocus);
       if (s.wallMode !== "contextual" || focuses.length === 0 || !runtime.camera3d) {
         if (clearWhenInactive) {
           const wallsChanged = runtime.clip.setFocusCuts(new Map());
-          const treesChanged = runtime.clip.setTreeCuts(new Map());
-          if (wallsChanged || treesChanged) { runtime.occlusionRevision++; runtime.invalidate(); }
+          if (wallsChanged) { runtime.occlusionRevision++; runtime.invalidate(); }
         }
         return;
       }
       const cuts = new Map<string, number>();
-      const treeCuts = new Map<string, number>();
       const camera = runtime.camera3d.getWorldPosition(new THREE.Vector3());
       for (const focus of focuses) {
         if (!focus.roomId || !focus.floorId) continue;
@@ -166,7 +163,6 @@ export function useSceneSync(): void {
           room.floorElevation +
           Math.min(0.9, (room.ceilingHeight ?? 2.5) * 0.4) +
           groupOffset;
-        treeCuts.set(focus.floorId, cap);
         const facing = cameraFacingRoomWalls(
           manifest,
           focus.roomId,
@@ -183,8 +179,7 @@ export function useSceneSync(): void {
         }
       }
       const wallsChanged = runtime.clip.setFocusCuts(cuts);
-      const treesChanged = runtime.clip.setTreeCuts(treeCuts);
-      if (wallsChanged || treesChanged) { runtime.occlusionRevision++; runtime.invalidate(); }
+      if (wallsChanged) { runtime.occlusionRevision++; runtime.invalidate(); }
     };
 
     const apply = (s: HouseStore) => {
@@ -377,7 +372,7 @@ export function useSceneSync(): void {
 
       markers.set(drawn, stateOf, groupOf, symbolOf);
       applyExplode(index, s.explode);
-      // A tree marker may have created a new focus plane after the visibility subscription ran.
+      // A tree marker may have created a new clipping material after the visibility subscription ran.
       // Reapply the active wall mode so its first rendered frame already has the correct cap.
       runtime.refreshFocusClipping?.();
       runtime.invalidate();

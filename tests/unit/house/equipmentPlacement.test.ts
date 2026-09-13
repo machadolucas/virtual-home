@@ -32,6 +32,21 @@ describe("equipment placement envelope", () => {
     expect(equipmentCollisionShape({ ...placement, symbol: "floor_heating" })).toBeNull();
   });
 
+  it("keeps tall tree trunks narrow and permits overlapping decorative crowns", () => {
+    const tree = { ...placement, symbol: "tree" as const, treeHeightM: 30, position: [0, 3, 0] as [number, number, number] };
+    const envelope = equipmentPlacementEnvelope(tree);
+    expect(envelope.widthM).toBeLessThanOrEqual(.601);
+    expect(envelope.depthM).toBeLessThanOrEqual(.601);
+    expect(envelope.position[1]).toBeCloseTo(3);
+    const body = equipmentCollisionShape(tree)!;
+    const beside = equipmentCollisionShape({ ...tree, id: "beside", position: [.8, 3.2, 0] })!;
+    const overlapping = equipmentCollisionShape({ ...tree, id: "overlapping", position: [.2, 3.2, 0] })!;
+    expect(placementShapeCollision(body, beside)).toBe(false);
+    expect(placementShapeCollision(body, overlapping)).toBe(true);
+    const crownNeighbour = equipmentCollisionShape({ ...placement, id: "neighbour", symbol: "fridge", position: [1, 24, 0] })!;
+    expect(placementShapeCollision(body, crownNeighbour)).toBe(false);
+  });
+
   it("allows a remote against the fridge door while rejecting penetration into it", () => {
     const fridge = equipmentCollisionShape({ ...placement, id: "fridge", symbol: "fridge", position: [0, 0, 0] })!;
     const remote = { ...placement, symbol: "remote_control" as const };

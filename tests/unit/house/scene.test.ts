@@ -98,18 +98,48 @@ describe("SceneIndex (fixture)", () => {
     expect(clip.keepsSurface("f-lower", "wall-a", new THREE.Vector3(0, 1.5, 0))).toBe(true);
   });
 
-  it("lowers tree geometry with the wall modes and restores its full height", () => {
-    const clip = new ClipGroups(["f-lower"]);
-    const material = new THREE.MeshBasicMaterial();
-    const tree = new THREE.Mesh(new THREE.BoxGeometry(3, 5, 3), material);
-    clip.attachTree(tree, "f-lower");
+  it("cuts exterior trees above their own sloping terrain bases and restores crowns", () => {
+    const clip = new ClipGroups(["site"]);
+    const material = new THREE.MeshStandardMaterial();
+    const tree = new THREE.InstancedMesh(new THREE.BoxGeometry(3, 5, 3), material, 2);
+    tree.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, -3, 0));
+    tree.setMatrixAt(1, new THREE.Matrix4().makeTranslation(5, 7, 0));
+    // Presentation explosion changes neither the individual cap nor saved physical positions.
+    tree.position.y = 8;
+    tree.updateMatrixWorld();
+    clip.attachTree(tree, "site");
+    const hit = (instanceId: number, y: number) => ({ object: tree, instanceId,
+      point: new THREE.Vector3(0, y + 8, 0), distance: 1 } as THREE.Intersection);
 
-    expect(material.clippingPlanes).toHaveLength(3);
-    expect(clip.setTreeCuts(new Map([["f-lower", 0.9]]))).toBe(true);
-    expect(material.clippingPlanes![2]!.distanceToPoint(new THREE.Vector3(0, 0.5, 0))).toBeGreaterThanOrEqual(0);
-    expect(material.clippingPlanes![2]!.distanceToPoint(new THREE.Vector3(0, 1.5, 0))).toBeLessThan(0);
-    expect(clip.setTreeCuts(new Map())).toBe(true);
-    expect(material.clippingPlanes![2]!.distanceToPoint(new THREE.Vector3(0, 5, 0))).toBeGreaterThanOrEqual(0);
+    expect(material.clippingPlanes).toHaveLength(2);
+    expect(clip.setTreeContextCut(true)).toBe(true);
+    expect(clip.keepsTreeHit(hit(0, -2.5))).toBe(true);
+    expect(clip.keepsTreeHit(hit(0, -1.5))).toBe(false);
+    expect(clip.keepsTreeHit(hit(1, 7.5))).toBe(true);
+    expect(clip.keepsTreeHit(hit(1, 8.5))).toBe(false);
+    expect(clip.setTreeContextCut(true)).toBe(false);
+    expect(clip.setTreeContextCut(false)).toBe(true);
+    expect(clip.keepsTreeHit(hit(1, 30))).toBe(true);
+  });
+
+  it("uses the same tree cut shader for visible and shadow passes and new trees", () => {
+    const clip = new ClipGroups(["site"]);
+    clip.setTreeContextCut(true);
+    const tree = new THREE.Mesh(new THREE.BoxGeometry(3, 5, 3), new THREE.MeshStandardMaterial());
+    clip.attachTree(tree, "site");
+    for (const material of [tree.material, tree.customDepthMaterial!, tree.customDistanceMaterial!]) {
+      const shader = { uniforms: {}, vertexShader: "#include <begin_vertex>",
+        fragmentShader: "#include <clipping_planes_fragment>" } as THREE.WebGLProgramParametersWithUniforms;
+      material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+      expect(shader.uniforms.vhTreeCutHeight?.value).toBe(0.9);
+      expect(shader.vertexShader).toContain("instanceMatrix * vec4(transformed, 0.0)");
+      expect(shader.fragmentShader).toContain("if (vhTreeHeight > vhTreeCutHeight) discard;");
+      expect(material.clipShadows).toBe(true);
+      clip.setCutAll({ enabled: true, y: 2, vertical: null }, () => 4);
+      expect(material.clippingPlanes![0]!.constant).toBe(6);
+    }
+    clip.setTreeContextCut(false);
+    expect(tree.material.userData.vhTreeCutHeight.value).toBe(OFF);
   });
 });
 

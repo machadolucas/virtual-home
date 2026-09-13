@@ -18,6 +18,7 @@ export function pickObjectSupport(runtime: HouseRuntime, clientX: number, client
     if ((object as THREE.Mesh).isMesh && object.parent?.name !== "vh-furniture-preview") candidates.push(object);
   });
   for (const hit of ray.intersectObjects(candidates.filter(isVisibleUp), false)) {
+    if (runtime.clip && !runtime.clip.keepsTreeHit(hit)) continue;
     const mesh = hit.object as THREE.Mesh;
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     if (materials.every((m) => m.clippingPlanes?.some((p) => p.distanceToPoint(hit.point) < 0))) continue;
@@ -54,6 +55,7 @@ export function pickEquipmentBody(runtime: HouseRuntime, clientX: number, client
     -(clientY - rect.top) / rect.height * 2 + 1), runtime.camera3d);
   for (const hit of ray.intersectObjects((runtime.markers?.meshes ?? []).filter(isVisibleUp), false)) {
     if (hit.instanceId === undefined) continue;
+    if (runtime.clip && !runtime.clip.keepsTreeHit(hit)) continue;
     const mesh = hit.object as THREE.Mesh;
     const material = Array.isArray(mesh.material) ? mesh.material[hit.face?.materialIndex ?? 0] : mesh.material;
     if (material?.clippingPlanes?.some((plane) => plane.distanceToPoint(hit.point) < 0)) continue;

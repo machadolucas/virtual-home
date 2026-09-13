@@ -25,9 +25,17 @@ export function equipmentFaceOffset(draft: EditDraft | Placement): number {
   return Math.max(0, -bounds.min.z);
 }
 
-/** Physical render geometry used for mutual object collisions. Floor heating is an underlay. */
+// Foliage is a presentation symbol, not a solid obstacle. Keep the planted trunk as the
+// collision body so overlapping crowns and nearby walls do not prevent documenting a plot.
+const treeTrunk = new THREE.CylinderGeometry(0.18, 0.28, 2.65, 9).translate(0, 1.325, 0);
+function equipmentCollisionGeometry(draft: EditDraft | Placement) {
+  const preview = equipmentPreviewShape(draft);
+  return draft.symbol === "tree" ? { ...preview, geometry: treeTrunk } : preview;
+}
+
+/** Solid body used for mutual collisions; tree foliage and floor-heating underlays are excluded. */
 export function equipmentCollisionShape(draft: EditDraft | Placement): PlacementCollisionShape | null {
-  const { geometry, scale, tilt } = equipmentPreviewShape(draft);
+  const { geometry, scale, tilt } = equipmentCollisionGeometry(draft);
   const symbol = isPlacementSymbol(draft.symbol) ? draft.symbol : defaultSymbol({
     category: draft.category, entityId: draft.entityId, mountKind: draft.mount.kind, isOutdoor: !draft.roomId });
   if (symbol === "floor_heating") return null;
@@ -36,9 +44,9 @@ export function equipmentCollisionShape(draft: EditDraft | Placement): Placement
     geometry, physical, draft.rotationYDeg, scale, tilt);
 }
 
-/** The rendered symbol's yaw-only physical envelope, retaining non-centred mount anchors. */
+/** Solid placement envelope, retaining non-centred mount anchors. */
 export function equipmentPlacementEnvelope(draft: EditDraft | Placement): PlacementEnvelope {
-  const { geometry, scale, tilt } = equipmentPreviewShape(draft);
+  const { geometry, scale, tilt } = equipmentCollisionGeometry(draft);
   geometry.computeBoundingBox();
   const bounds = geometry.boundingBox!.clone().applyMatrix4(new THREE.Matrix4().makeScale(scale.x, scale.y, scale.z));
   bounds.applyMatrix4(new THREE.Matrix4().makeRotationX(tilt));
