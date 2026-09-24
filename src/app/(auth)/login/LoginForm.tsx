@@ -239,7 +239,9 @@ export function LoginForm({ hints, next }: LoginFormProps) {
             id={id}
             name="password"
             type="password"
-            autoComplete="current-password"
+            // Also here: with avatar hints the username field is visually hidden, so the password
+            // field is the one people focus, and this is where the passkey suggestion must appear.
+            autoComplete="current-password webauthn"
             enterKeyHint="go"
             inputSize="lg"
             value={password}
