@@ -81,6 +81,7 @@ pnpm vh-admin init-users                      # first run: creates whichever hou
 pnpm vh-admin list-users                      # includes session and passkey counts
 pnpm vh-admin set-password <username>         # resets and revokes that user's sessions; keeps passkeys
 pnpm vh-admin revoke-sessions --all
+pnpm vh-admin prune-sessions                  # delete expired sessions and expired verification rows now
 pnpm vh-admin list-passkeys <username>        # name, provider, synced/device-bound, created
 pnpm vh-admin remove-passkeys <username>      # deletes all of them; sessions are untouched
 pnpm vh-admin doctor                          # env, perms, integrity, migrations, passkeys, HA, launchd, disk
@@ -88,6 +89,9 @@ pnpm vh-admin doctor                          # env, perms, integrity, migration
 Passkeys are bound to the hostname of `VH_BASE_URL`. Moving the app to another hostname leaves
 every registered passkey unusable (passwords still work): run `remove-passkeys` for each member
 and have them add new ones under Settings → Security.
+Every login page load writes a 5-minute WebAuthn challenge row to `verification` (the autofill
+request), and a sign-in consumes only its own. The worker's hourly housekeeping deletes rows past
+`expiresAt`; `prune-sessions` does the same on demand. Neither touches a live challenge or reset token.
 Passwords are typed at a hidden prompt and are never accepted as an argument (argv is world-readable
 via `ps` and lands in shell history); without a TTY, pipe one in with `--password-from-stdin`. A reset
 revokes that user's sessions, but the 60 s session cookie cache can still satisfy an already-issued

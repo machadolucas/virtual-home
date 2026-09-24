@@ -57,6 +57,9 @@ exact hostname of `VH_BASE_URL` — so only this app's passkeys are ever offered
 - **Sign-in** goes through `session.create.before`, the same hook as passwords, so an inactive or
   banned member's passkey is refused (generic 401) and mints no session. The signature counter is
   checked, so a cloned authenticator with a stale counter is refused.
+- **Challenges** are `verification` rows with a 5-minute expiry and a signed cookie naming them.
+  The login page requests one on every load (conditional UI), and only a completed ceremony
+  consumes it, so expired ones are deleted hourly by the worker (`prune-sessions` on demand).
 - **Rate limits** (per IP): `generate-authenticate-options` 20/min (every login page load starts a
   conditional request), `verify-authentication` 5/min, other `/passkey/*` 30/min.
 - **Removal is explicit.** A password reset (`set-password`, owner reset) and deactivation **keep**

@@ -30,11 +30,12 @@
  */
 import "server-only";
 import { betterAuth } from "better-auth";
-import { and, desc, eq, lt, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb, writeTx } from "@/db/client";
 import { passkey, session, user } from "@/db/schema";
 import { passkeyProviderName } from "@/domain/passkeyProviders";
 import { buildAuthOptions, SYNTHETIC_EMAIL_DOMAIN, type AuthVariant } from "./auth";
+import { deleteExpiredSessions, deleteExpiredVerifications } from "./expiry";
 
 /** Mirrors `emailAndPassword.minPasswordLength` in `buildAuthOptions`. */
 export const MIN_PASSWORD_LENGTH = 12;
@@ -276,10 +277,16 @@ export function revokeSessions(target: string): number {
 
 /** Housekeeping: drop expired session rows (the worker does this hourly too). */
 export function pruneExpiredSessions(nowMs: number = Date.now()): number {
-  return writeTx(
-    getDb().db,
-    (tx) => tx.delete(session).where(lt(session.expiresAt, new Date(nowMs))).run().changes,
-  );
+  return writeTx(getDb().db, (tx) => deleteExpiredSessions(tx, nowMs));
+}
+
+/**
+ * Housekeeping: drop expired `verification` rows — abandoned WebAuthn challenges and unused reset
+ * tokens (the worker does this hourly too; see `src/server/auth/expiry.ts`). Live rows are kept,
+ * so a sign-in or reset in progress is never interrupted.
+ */
+export function pruneExpiredVerifications(nowMs: number = Date.now()): number {
+  return writeTx(getDb().db, (tx) => deleteExpiredVerifications(tx, nowMs));
 }
 
 export interface PasskeyInfo {

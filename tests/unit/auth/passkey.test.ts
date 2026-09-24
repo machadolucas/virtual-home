@@ -14,7 +14,8 @@
  *  - a deactivated member's passkey is refused and mints no session — the hook covers passkey
  *    sign-in, not only passwords;
  *  - the CLI helpers list and remove passkeys, and a password reset keeps them;
- *  - only an owner can remove another member's passkeys, and that removal is audited.
+ *  - only an owner can remove another member's passkeys, and that removal is audited;
+ *  - every options call leaves a 5-minute challenge row, and pruning removes only expired ones.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -24,7 +25,7 @@ import { createHash, generateKeyPairSync, randomBytes, sign, type KeyObject } fr
 import { betterAuth } from "better-auth";
 import { eq } from "drizzle-orm";
 import { setDbForTests, writeTx, type DbHandle } from "@/db/client";
-import { memberAccess, passkey, session, user } from "@/db/schema";
+import { memberAccess, passkey, session, user, verification } from "@/db/schema";
 import { defaultPasskeyName, passkeyProviderName } from "@/domain/passkeyProviders";
 import { testDb } from "../../helpers/db";
 
@@ -92,7 +93,8 @@ function cookiesFrom(res: Response): string {
     .join("; ");
 }
 
-async function passkeySignIn(key: SoftwareKey): Promise<Response> {
+/** `between` runs after the options call and before the verify call (e.g. a housekeeping pass). */
+async function passkeySignIn(key: SoftwareKey, between?: () => unknown): Promise<Response> {
   const optionsRes = await web.handler(
     new Request(`${BASE}/api/auth/passkey/generate-authenticate-options`, {
       headers: { origin: BASE, "x-forwarded-for": clientIp() },
@@ -101,6 +103,7 @@ async function passkeySignIn(key: SoftwareKey): Promise<Response> {
   expect(optionsRes.status).toBe(200);
   const options = (await optionsRes.json()) as { challenge: string; rpId: string };
   expect(options.rpId).toBe(RP_ID);
+  between?.();
 
   key.counter += 1;
   const clientDataJSON = Buffer.from(
@@ -340,5 +343,69 @@ describe("default names", () => {
       "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
     expect(defaultPasskeyName("00000000-0000-0000-0000-000000000000", iphone)).toBe("Safari on iPhone");
     expect(defaultPasskeyName(undefined, undefined)).toBe("Passkey");
+  });
+});
+
+describe("challenge rows in verification", () => {
+  const authenticationChallenges = () =>
+    handle.db
+      .select()
+      .from(verification)
+      .all()
+      .filter((row) => (JSON.parse(row.value) as { type?: string }).type === "authentication");
+
+  async function authenticateOptions(): Promise<Response> {
+    const res = await web.handler(
+      new Request(`${BASE}/api/auth/passkey/generate-authenticate-options`, {
+        headers: { origin: BASE, "x-forwarded-for": clientIp() },
+      }),
+    );
+    expect(res.status).toBe(200);
+    return res;
+  }
+
+  it("every options call (one per login page load) leaves a 5-minute row that only expiry-pruning removes", async () => {
+    writeTx(handle.db, (tx) => tx.delete(verification).run());
+    await authenticateOptions();
+    await authenticateOptions();
+    const rows = authenticationChallenges();
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      const ttl = row.expiresAt.getTime() - row.createdAt.getTime();
+      expect(ttl).toBeGreaterThanOrEqual(299_000);
+      expect(ttl).toBeLessThanOrEqual(301_000);
+    }
+
+    // Nothing is expired yet, so nothing goes.
+    expect(provisioning.pruneExpiredVerifications()).toBe(0);
+    expect(authenticationChallenges()).toHaveLength(2);
+    // Six minutes on, both are dead weight.
+    expect(provisioning.pruneExpiredVerifications(Date.now() + 6 * 60_000)).toBe(2);
+    expect(handle.db.select().from(verification).all()).toHaveLength(0);
+  });
+
+  it("pruning in the middle of a sign-in leaves that sign-in's live challenge alone", async () => {
+    writeTx(handle.db, (tx) => tx.delete(verification).run());
+    // An abandoned, already-expired challenge next to the live one the sign-in below creates.
+    writeTx(handle.db, (tx) =>
+      tx
+        .insert(verification)
+        .values({
+          id: crypto.randomUUID(),
+          identifier: "abandoned",
+          value: JSON.stringify({ type: "authentication", expectedChallenge: "x", userData: { id: "" } }),
+          expiresAt: new Date(Date.now() - 1_000),
+        })
+        .run(),
+    );
+    const key = enrol(userId("lucas"), "Prune key");
+    const pruneBetween = vi.fn(() => provisioning.pruneExpiredVerifications());
+    const res = await passkeySignIn(key, pruneBetween);
+    expect(pruneBetween).toHaveBeenCalledOnce();
+    expect(pruneBetween.mock.results[0]?.value).toBe(1);
+    expect(res.status, await res.clone().text()).toBe(200);
+    // The sign-in consumed its own row; the abandoned one was pruned.
+    expect(handle.db.select().from(verification).all()).toHaveLength(0);
+    writeTx(handle.db, (tx) => tx.delete(passkey).where(eq(passkey.name, "Prune key")).run());
   });
 });

@@ -89,7 +89,7 @@ floor ids remain listable and must be reassigned before they render again.
 | `user` | The household's people. `displayColor` is ours; `username`/`displayUsername` come from the username plugin, `role`/`banned`/`ban*` from the admin plugin. |
 | `session` | Active sessions; `impersonatedBy` from the admin plugin. |
 | `account` | Credential rows (the password hash lives here). |
-| `verification` | Short-lived tokens (password reset, WebAuthn challenges — 5 min). |
+| `verification` | Short-lived tokens (password reset — 15 min, WebAuthn challenges — 5 min). Expired rows are deleted by the worker's hourly housekeeping and by `vh-admin prune-sessions` (`src/server/auth/expiry.ts`); Better Auth itself never sweeps them on the passkey or reset paths. |
 | `passkey` | WebAuthn credentials (`@better-auth/passkey`, migration 0016): COSE public key, `credentialID`, signature `counter`, `deviceType` (`singleDevice`/`multiDevice`), `backedUp`, `transports`, `aaguid`, user-facing `name`. Cascades from `user`. |
 | `rateLimit` | Database-backed rate-limit counters. |
 

@@ -1,5 +1,5 @@
 /**
- * The hourly reaper: four short deletes and a WAL checkpoint.
+ * The hourly reaper: five short deletes and a WAL checkpoint.
  *
  * Design: `docs/design-notes/auth-security-operations.md` §7.2 (outbox retention), §3.5
  * (idempotency keys), §10 (operational hygiene).
@@ -13,15 +13,17 @@
  *  - terminal `ha_control_command` rows older than 7 days — short-lived transport receipts.
  *  - `session` rows past `expiresAt` — Better Auth checks expiry on read, so these are dead
  *    weight, and a table full of them makes the security page unreadable.
+ *  - `verification` rows past `expiresAt` — abandoned WebAuthn challenges (one per login page
+ *    load) and unused reset tokens; nothing else removes them (`src/server/auth/expiry.ts`).
  *  - `PRAGMA wal_checkpoint(PASSIVE)` — PASSIVE, not TRUNCATE: it never blocks the web process's
  *    readers, and a checkpoint that cannot run right now runs on the next pass.
  */
 import { and, inArray, lt } from "drizzle-orm";
 import { writeTx, type DbHandle } from "@/db/client";
-import { session } from "@/db/schema/auth";
 import { haControlCommand } from "@/db/schema/ha";
 import { idempotencyKey } from "@/db/schema/system";
 import type { Clock } from "@/domain/time";
+import { deleteExpiredSessions, deleteExpiredVerifications } from "@/server/auth/expiry";
 import { pruneOutbox } from "@/server/events/outbox";
 import { log } from "@/server/log";
 import { startIntervalJob, type Job } from "./interval";
@@ -48,6 +50,7 @@ export interface HousekeepingResult {
   idempotencyDeleted: number;
   haControlsDeleted: number;
   sessionsDeleted: number;
+  verificationsDeleted: number;
   /** `true` when the checkpoint ran without error. */
   checkpointed: boolean;
 }
@@ -73,11 +76,9 @@ export function runHousekeeping(input: HousekeepingInput): HousekeepingResult {
     return Number(result.changes ?? 0);
   });
 
-  const sessionsDeleted = writeTx(handle.db, (tx) => {
-    // `expiresAt` is a `timestamp_ms` column, so the bound value is a Date, not a number.
-    const result = tx.delete(session).where(lt(session.expiresAt, new Date(now))).run();
-    return Number(result.changes ?? 0);
-  });
+  const sessionsDeleted = writeTx(handle.db, (tx) => deleteExpiredSessions(tx, now));
+
+  const verificationsDeleted = writeTx(handle.db, (tx) => deleteExpiredVerifications(tx, now));
 
   const haControlsDeleted = writeTx(handle.db, (tx) => {
     const result = tx
@@ -103,7 +104,14 @@ export function runHousekeeping(input: HousekeepingInput): HousekeepingResult {
     }
   }
 
-  return { outboxDeleted, idempotencyDeleted, haControlsDeleted, sessionsDeleted, checkpointed };
+  return {
+    outboxDeleted,
+    idempotencyDeleted,
+    haControlsDeleted,
+    sessionsDeleted,
+    verificationsDeleted,
+    checkpointed,
+  };
 }
 
 export interface HousekeepingJobOptions extends HousekeepingInput {
@@ -124,7 +132,8 @@ export function startHousekeepingJob(options: HousekeepingJobOptions): Job {
         result.outboxDeleted +
           result.idempotencyDeleted +
           result.haControlsDeleted +
-          result.sessionsDeleted >
+          result.sessionsDeleted +
+          result.verificationsDeleted >
         0
       ) {
         logger.debug({ ...result }, "housekeeping");

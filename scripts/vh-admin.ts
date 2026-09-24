@@ -49,7 +49,7 @@ const USAGE = `Usage: pnpm vh-admin <command> [args]
   bootstrap-owner <username>        assign the first owner to an existing account
   set-password <username>           reset a password and revoke that user's sessions (keeps passkeys)
   revoke-sessions <username|--all>  delete session rows
-  prune-sessions                    delete expired session rows
+  prune-sessions                    delete expired session and verification (challenge/token) rows
   list-passkeys <username>          one user's passkeys (name, provider, type, created)
   remove-passkeys <username>        delete every passkey of one user (sessions are kept)
   ha-token-check                    GET \${HA_URL}/api/ with the configured token (status only)
@@ -260,7 +260,9 @@ async function cmdPruneSessions(env: Env): Promise<void> {
   const handle = openConfiguredDb(env);
   try {
     const p = await provisioning();
-    console.log(`pruned ${p.pruneExpiredSessions()} expired session(s)`);
+    const sessions = p.pruneExpiredSessions();
+    const verifications = p.pruneExpiredVerifications();
+    console.log(`pruned ${sessions} expired session(s) and ${verifications} expired verification row(s)`);
   } finally {
     handle.close();
   }

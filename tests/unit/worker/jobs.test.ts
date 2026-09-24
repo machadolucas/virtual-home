@@ -15,7 +15,7 @@ import { eq } from "drizzle-orm";
 import { writeTx, type DbHandle } from "@/db/client";
 import { newId } from "@/db/ids";
 import { attachment } from "@/db/schema/attachments";
-import { session } from "@/db/schema/auth";
+import { session, verification } from "@/db/schema/auth";
 import { INTEGRATION_STATUS_HA_ID, integrationStatus } from "@/db/schema/ha";
 import { project, projectLink } from "@/db/schema/infrastructure";
 import { appAlert } from "@/db/schema/inventory";
@@ -97,6 +97,23 @@ describe("housekeeping", () => {
     return id;
   }
 
+  function seedVerification(expiresAtMs: number): string {
+    const id = newId();
+    writeTx(db().db, (tx) => {
+      tx.insert(verification)
+        .values({
+          id,
+          identifier: `challenge-${id}`,
+          value: JSON.stringify({ type: "authentication", expectedChallenge: "x", userData: { id: "" } }),
+          expiresAt: new Date(expiresAtMs),
+          createdAt: new Date(expiresAtMs - 5 * MINUTE_MS),
+          updatedAt: new Date(expiresAtMs - 5 * MINUTE_MS),
+        })
+        .run();
+    });
+    return id;
+  }
+
   it("deletes only the rows that are past their retention", () => {
     const user = seedUser(db(), { username: "lucas", name: "Lucas" });
 
@@ -109,6 +126,9 @@ describe("housekeeping", () => {
     // Sessions: expiry, not age.
     const expired = seedSession(user.id, NOW - MINUTE_MS);
     const live = seedSession(user.id, NOW + DAY_MS);
+    // Verification rows (WebAuthn challenges, reset tokens): expiry, not age.
+    const expiredChallenge = seedVerification(NOW - 1);
+    const liveChallenge = seedVerification(NOW + MINUTE_MS);
 
     const cursorBefore = readCursorSeq(db().db);
 
@@ -122,6 +142,7 @@ describe("housekeeping", () => {
       outboxDeleted: 1,
       idempotencyDeleted: 1,
       sessionsDeleted: 1,
+      verificationsDeleted: 1,
       checkpointed: false,
     });
 
@@ -142,13 +163,26 @@ describe("housekeeping", () => {
     expect(sessions).toEqual([live]);
     expect(sessions).not.toContain(expired);
 
+    const challenges = db()
+      .db.select({ id: verification.id })
+      .from(verification)
+      .all()
+      .map((row) => row.id);
+    expect(challenges).toEqual([liveChallenge]);
+    expect(challenges).not.toContain(expiredChallenge);
+
     // The cursor is deliberately untouched: rewinding it would make every open tab resync.
     expect(readCursorSeq(db().db)).toBe(cursorBefore);
   });
 
   it("is a no-op on a clean database", () => {
     const result = runHousekeeping({ handle: db(), clock: fakeClock(NOW), checkpoint: false });
-    expect(result).toMatchObject({ outboxDeleted: 0, idempotencyDeleted: 0, sessionsDeleted: 0 });
+    expect(result).toMatchObject({
+      outboxDeleted: 0,
+      idempotencyDeleted: 0,
+      sessionsDeleted: 0,
+      verificationsDeleted: 0,
+    });
   });
 
   it("honours overridden retentions", () => {

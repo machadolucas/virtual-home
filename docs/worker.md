@@ -16,7 +16,7 @@ Source: `src/worker/`. Entry `src/worker/index.ts`.
 | Battery condition signals | `conditions.ts` → `domain/condition.ts` | event-driven (bridge callback) |
 | Liveness | `jobs/heartbeat.ts` | every `VH_WORKER_HEARTBEAT_MS` (15 s) |
 | Process metrics + 14-day pruning | `jobs/metrics.ts` | every `VH_METRICS_INTERVAL_MS` (60 s); prune hourly |
-| Housekeeping (outbox, idempotency keys, expired sessions, WAL checkpoint) | `jobs/housekeeping.ts` | hourly |
+| Housekeeping (outbox, idempotency keys, expired sessions, expired `verification` rows — WebAuthn challenges and reset tokens — WAL checkpoint) | `jobs/housekeeping.ts` | hourly (first pass one hour after start) |
 | Integrity check (attachments vs rows, dangling `project_link`) | `jobs/integrity.ts` | daily |
 
 Everything that *decides* anything lives in `src/domain`. `src/worker` is timing, transport and
