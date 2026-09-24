@@ -53,9 +53,4 @@ export async function requireSessionPage(nextPath: string): Promise<Session> {
 }
 
 /** Only same-origin relative paths are valid post-login targets (blocks open redirects). */
-export function safeNextPath(raw: string | null | undefined): string {
-  if (!raw) return "/today";
-  if (!/^\/(?!\/)/.test(raw)) return "/today";
-  if (raw.includes("\\") || raw.includes("\n") || raw.includes("\r")) return "/today";
-  return raw;
-}
+export { safeNextPath } from "@/domain/nextPath";

@@ -38,6 +38,8 @@ let web: ReturnType<typeof betterAuth>;
 let provisioning: typeof import("@/server/auth/provisioning");
 
 const b64url = (bytes: Buffer): string => bytes.toString("base64url");
+/** A fresh client address per request: the per-IP rate limits must not couple these tests. */
+const clientIp = (): string => `10.9.${randomBytes(1)[0]}.${(randomBytes(1)[0]! % 250) + 1}`;
 
 interface SoftwareKey {
   credentialId: Buffer;
@@ -93,7 +95,7 @@ function cookiesFrom(res: Response): string {
 async function passkeySignIn(key: SoftwareKey): Promise<Response> {
   const optionsRes = await web.handler(
     new Request(`${BASE}/api/auth/passkey/generate-authenticate-options`, {
-      headers: { origin: BASE },
+      headers: { origin: BASE, "x-forwarded-for": clientIp() },
     }),
   );
   expect(optionsRes.status).toBe(200);
@@ -120,7 +122,12 @@ async function passkeySignIn(key: SoftwareKey): Promise<Response> {
   return web.handler(
     new Request(`${BASE}/api/auth/passkey/verify-authentication`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: BASE, cookie: cookiesFrom(optionsRes) },
+      headers: {
+        "content-type": "application/json",
+        origin: BASE,
+        cookie: cookiesFrom(optionsRes),
+        "x-forwarded-for": clientIp(),
+      },
       body: JSON.stringify({
         response: {
           id: b64url(key.credentialId),
@@ -136,6 +143,40 @@ async function passkeySignIn(key: SoftwareKey): Promise<Response> {
       }),
     }),
   );
+}
+
+/**
+ * Only the session-token cookie. The 60 s cookie cache (`vh.session_data`) is left out on purpose,
+ * so the server reads the session row — the test ages that row directly.
+ */
+function sessionCookie(res: Response): string {
+  const line = res.headers.getSetCookie().find((c) => c.startsWith("vh.session_token="));
+  expect(line).toBeDefined();
+  return line!.split(";")[0]!;
+}
+
+async function passwordSignIn(username: string, password: string): Promise<Response> {
+  return web.handler(
+    new Request(`${BASE}/api/auth/sign-in/username`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: BASE, "x-forwarded-for": clientIp() },
+      body: JSON.stringify({ username, password }),
+    }),
+  );
+}
+
+async function registerOptions(cookie: string): Promise<Response> {
+  return web.handler(
+    new Request(`${BASE}/api/auth/passkey/generate-register-options`, {
+      headers: { origin: BASE, cookie, "x-forwarded-for": clientIp() },
+    }),
+  );
+}
+
+function ageSession(cookie: string, byMs: number): void {
+  const token = decodeURIComponent(cookie.split("=")[1]!).split(".")[0]!;
+  const past = new Date(Date.now() - byMs);
+  writeTx(handle.db, (tx) => tx.update(session).set({ createdAt: past }).where(eq(session.token, token)).run());
 }
 
 function userId(username: string): string {
@@ -200,6 +241,39 @@ describe("passkey sign-in", () => {
       counter: 0,
     };
     expect((await passkeySignIn(stranger)).status).toBe(401);
+  });
+});
+
+describe("passkey registration needs a recent sign-in", () => {
+  it("a fresh password session may start registration; the same session 11 minutes later may not", async () => {
+    const { PASSKEY_REGISTRATION_MAX_SESSION_AGE_MS } = await import("@/server/auth/auth");
+    expect(PASSKEY_REGISTRATION_MAX_SESSION_AGE_MS).toBe(10 * 60 * 1000);
+    const signedIn = await passwordSignIn("lucas", PASSWORD);
+    expect(signedIn.status).toBe(200);
+    const cookie = sessionCookie(signedIn);
+
+    const fresh = await registerOptions(cookie);
+    expect(fresh.status, await fresh.clone().text()).toBe(200);
+    expect(((await fresh.json()) as { rp: { id: string } }).rp.id).toBe(RP_ID);
+
+    ageSession(cookie, PASSKEY_REGISTRATION_MAX_SESSION_AGE_MS + 60_000);
+    const stale = await registerOptions(cookie);
+    expect(stale.status).toBe(403);
+    await expect(stale.json()).resolves.toMatchObject({ code: "PASSKEY_REAUTH_REQUIRED" });
+  });
+
+  it("a session minted by a passkey sign-in counts as fresh too", async () => {
+    const key = enrol(userId("lucas"), "Fresh-session key");
+    const signedIn = await passkeySignIn(key);
+    expect(signedIn.status).toBe(200);
+    expect((await registerOptions(sessionCookie(signedIn))).status).toBe(200);
+    // Leave the passkey inventory as the provisioning tests below expect it.
+    writeTx(handle.db, (tx) => tx.delete(passkey).where(eq(passkey.name, "Fresh-session key")).run());
+  });
+
+  it("without a session the endpoint still answers 401, not the re-auth code", async () => {
+    const res = await registerOptions("");
+    expect(res.status).toBe(401);
   });
 });
 

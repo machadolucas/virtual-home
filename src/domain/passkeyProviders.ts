@@ -39,6 +39,12 @@ export function passkeyProviderName(aaguid: string | null | undefined): string |
   return PASSKEY_PROVIDERS[key] ?? null;
 }
 
+/**
+ * Error code for "this session is too old to add a passkey" (the registration guard in
+ * `src/server/auth/auth.ts`). Shared so the Security page can offer "sign in again".
+ */
+export const PASSKEY_REAUTH_REQUIRED = "PASSKEY_REAUTH_REQUIRED";
+
 /** Longest name we store; `update-passkey` accepts any non-empty string, so the UI caps it too. */
 export const PASSKEY_NAME_MAX = 60;
 

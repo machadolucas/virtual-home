@@ -1,6 +1,6 @@
 import "server-only";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, username } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
@@ -9,7 +9,7 @@ import { getDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { loadEnv } from "@/env";
 import { isActiveMember } from "@/domain/memberAccess";
-import { defaultPasskeyName } from "@/domain/passkeyProviders";
+import { defaultPasskeyName, PASSKEY_REAUTH_REQUIRED } from "@/domain/passkeyProviders";
 import { log } from "@/server/log";
 
 /**
@@ -27,6 +27,32 @@ export interface AuthVariant {
 
 export const SYNTHETIC_EMAIL_DOMAIN = "virtual-home.local";
 
+/**
+ * A passkey can only be added from a session that signed in within this window.
+ *
+ * `session.freshAge` is 0 (list-sessions needs it), so the plugin's own `freshSessionMiddleware`
+ * admits any live session. Without this guard a stolen session cookie could register the thief's
+ * passkey — a credential that survives the victim changing their password. Requiring a recent
+ * sign-in (password or passkey; both create a new session) closes that path without changing
+ * `freshAge` for everything else.
+ */
+export const PASSKEY_REGISTRATION_MAX_SESSION_AGE_MS = 10 * 60 * 1000;
+/** `@better-auth/passkey` 1.7.5: the first step of registration; `verify-registration` needs its challenge. */
+const PASSKEY_REGISTER_OPTIONS_PATH = "/passkey/generate-register-options";
+
+const passkeyRegistrationGuard = createAuthMiddleware(async (ctx) => {
+  if (ctx.path !== PASSKEY_REGISTER_OPTIONS_PATH) return;
+  const current = await getSessionFromCtx(ctx);
+  if (!current) return; // the endpoint's own session middleware answers 401
+  const createdMs = new Date(current.session.createdAt).getTime();
+  if (!Number.isFinite(createdMs) || Date.now() - createdMs > PASSKEY_REGISTRATION_MAX_SESSION_AGE_MS) {
+    throw new APIError("FORBIDDEN", {
+      code: PASSKEY_REAUTH_REQUIRED,
+      message: "For security, sign in again to add a passkey.",
+    });
+  }
+});
+
 export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
   const env = loadEnv();
   return {
@@ -40,6 +66,10 @@ export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
     // Every session is minted through this hook — password sign-in, passkey sign-in
     // (`/passkey/verify-authentication`) and CLI provisioning alike — so an inactive or banned
     // member can hold a password or a passkey and still never get a session.
+    // Applies to every instance built here, the CLI variants included (they never register
+    // passkeys: registration needs a browser ceremony).
+    hooks: { before: passkeyRegistrationGuard },
+
     databaseHooks: { session: { create: { before: async data => { if (!isActiveMember(getDb().db, data.userId)) throw new APIError("UNAUTHORIZED", { message: "Invalid username or password" }); return { data }; } } } },
 
     emailAndPassword: {

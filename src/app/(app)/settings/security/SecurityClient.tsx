@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useState, useSyncExternalStore } from "react";
 import {
@@ -30,7 +31,8 @@ import {
   toasts,
 } from "@/ui";
 import type { DeviceLabel } from "@/domain/deviceLabel";
-import { PASSKEY_NAME_MAX } from "@/domain/passkeyProviders";
+import { safeNextPath } from "@/domain/nextPath";
+import { PASSKEY_NAME_MAX, PASSKEY_REAUTH_REQUIRED } from "@/domain/passkeyProviders";
 
 export interface SessionRow {
   id: string;
@@ -261,16 +263,29 @@ function Passkeys({ passkeys }: { passkeys: readonly PasskeyRow[] }) {
   const router = useRouter();
   const supported = useWebAuthnSupported();
   const [adding, setAdding] = useState(false);
+  const [needsReauth, setNeedsReauth] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function signInAgain() {
+    setSigningOut(true);
+    await authClient.signOut();
+    router.push(`/login?next=${encodeURIComponent(safeNextPath("/settings/security"))}` as Route);
+  }
 
   async function add() {
     setAdding(true);
+    setNeedsReauth(false);
     // No name: the server labels it from the authenticator (AAGUID) or this browser.
     const result = await authClient.passkey.addPasskey();
     setAdding(false);
     if (result.error) {
       // Browser-side failures carry a WebAuthn code; server refusals carry a status.
       const code = "code" in result.error ? result.error.code : undefined;
-      if (code === "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED") {
+      if (code === PASSKEY_REAUTH_REQUIRED) {
+        // The session is older than the registration window (a stolen cookie must not be able to
+        // plant a passkey); a fresh sign-in reopens it.
+        setNeedsReauth(true);
+      } else if (code === "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED") {
         toasts.error("Already registered", "This authenticator already holds a passkey for you here.");
       } else if (code === "ERROR_CEREMONY_ABORTED" || code === "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY") {
         toasts.info("No passkey added", "The request was cancelled.");
@@ -302,6 +317,14 @@ function Passkeys({ passkeys }: { passkeys: readonly PasskeyRow[] }) {
       }
       flush
     >
+      {needsReauth ? (
+        <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3">
+          <p className="flex-1 text-sm font-medium text-ink">For security, sign in again to add a passkey.</p>
+          <Button size="sm" variant="primary" loading={signingOut} onClick={signInAgain}>
+            Sign in again
+          </Button>
+        </div>
+      ) : null}
       {passkeys.length === 0 ? (
         <p className="px-4 py-3 text-sm leading-6 text-ink-2">
           {supported
