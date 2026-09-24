@@ -1,13 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import {
+  Cloud,
+  FingerprintPattern,
   Laptop,
   LogOut,
   Monitor,
+  Pencil,
+  Plus,
   Smartphone,
   Tablet,
+  Trash2,
   TriangleAlert,
 } from "lucide-react";
 import { authClient } from "@/server/auth/client";
@@ -15,14 +20,17 @@ import {
   Badge,
   Button,
   Checkbox,
+  Dialog,
   EmptyState,
   Field,
+  IconButton,
   Input,
   Panel,
   cn,
   toasts,
 } from "@/ui";
-import type { DeviceLabel } from "./device";
+import type { DeviceLabel } from "@/domain/deviceLabel";
+import { PASSKEY_NAME_MAX } from "@/domain/passkeyProviders";
 
 export interface SessionRow {
   id: string;
@@ -34,6 +42,18 @@ export interface SessionRow {
   createdLabel: string;
   expiresLabel: string;
   current: boolean;
+}
+
+export interface PasskeyRow {
+  id: string;
+  /** Stored label (a default is assigned at registration). */
+  name: string;
+  /** From the AAGUID when known, e.g. "iCloud Keychain". */
+  provider: string | null;
+  /** `multiDevice`: synced by a password manager; otherwise bound to one authenticator. */
+  synced: boolean;
+  backedUp: boolean;
+  createdLabel: string;
 }
 
 export type SessionListState =
@@ -50,10 +70,17 @@ const FORM_ICON = {
   unknown: Monitor,
 } as const;
 
-export function SecurityClient({ list }: { list: SessionListState }) {
+export function SecurityClient({
+  list,
+  passkeys,
+}: {
+  list: SessionListState;
+  passkeys: readonly PasskeyRow[];
+}) {
   return (
     <>
       <ChangePassword />
+      <Passkeys passkeys={passkeys} />
       <Sessions list={list} />
     </>
   );
@@ -212,6 +239,219 @@ function ChangePassword() {
         </div>
       </form>
     </Panel>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Passkeys                                                                    */
+/* -------------------------------------------------------------------------- */
+
+const noSubscribe = () => () => {};
+
+/** WebAuthn exists in this browser. `false` during SSR, so the button renders disabled first. */
+function useWebAuthnSupported(): boolean {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => typeof window.PublicKeyCredential !== "undefined",
+    () => false,
+  );
+}
+
+function Passkeys({ passkeys }: { passkeys: readonly PasskeyRow[] }) {
+  const router = useRouter();
+  const supported = useWebAuthnSupported();
+  const [adding, setAdding] = useState(false);
+
+  async function add() {
+    setAdding(true);
+    // No name: the server labels it from the authenticator (AAGUID) or this browser.
+    const result = await authClient.passkey.addPasskey();
+    setAdding(false);
+    if (result.error) {
+      // Browser-side failures carry a WebAuthn code; server refusals carry a status.
+      const code = "code" in result.error ? result.error.code : undefined;
+      if (code === "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED") {
+        toasts.error("Already registered", "This authenticator already holds a passkey for you here.");
+      } else if (code === "ERROR_CEREMONY_ABORTED" || code === "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY") {
+        toasts.info("No passkey added", "The request was cancelled.");
+      } else if (result.error.status === 429) {
+        toasts.error("Too many attempts", "Wait a minute and try again.");
+      } else {
+        toasts.error("Could not add a passkey", result.error.message ?? undefined);
+      }
+      return;
+    }
+    toasts.success("Passkey added", "Use it from the sign-in page on this device.");
+    router.refresh();
+  }
+
+  return (
+    <Panel
+      title="Passkeys"
+      subtitle="Sign in with Face ID, Touch ID or a security key instead of typing the password. A passkey only works on this site, so it never gets offered to a neighbouring app. The password keeps working."
+      actions={
+        <Button
+          size="sm"
+          icon={<Plus aria-hidden="true" />}
+          loading={adding}
+          disabled={!supported}
+          onClick={add}
+        >
+          Add a passkey
+        </Button>
+      }
+      flush
+    >
+      {passkeys.length === 0 ? (
+        <p className="px-4 py-3 text-sm leading-6 text-ink-2">
+          {supported
+            ? "No passkeys yet. Add one on each device you sign in from."
+            : "This browser does not support passkeys. The password still works."}
+        </p>
+      ) : (
+        <ul className="flex list-none flex-col" aria-label="Your passkeys">
+          {passkeys.map((row) => (
+            <PasskeyItem key={row.id} row={row} />
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+function PasskeyItem({ row }: { row: PasskeyRow }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(row.name);
+  const [saving, setSaving] = useState(false);
+  const trimmed = name.trim();
+
+  async function rename(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (trimmed === "" || trimmed === row.name) {
+      setEditing(false);
+      setName(row.name);
+      return;
+    }
+    setSaving(true);
+    const result = await authClient.passkey.updatePasskey({ id: row.id, name: trimmed });
+    setSaving(false);
+    if (result.error) {
+      toasts.error("Could not rename the passkey", result.error.message ?? undefined);
+      return;
+    }
+    setEditing(false);
+    toasts.success("Passkey renamed", trimmed);
+    router.refresh();
+  }
+
+  const details = [
+    row.provider && row.provider !== row.name ? row.provider : null,
+    row.synced ? "synced" : "this device only",
+    row.synced && !row.backedUp ? "not backed up" : null,
+    `added ${row.createdLabel}`,
+  ].filter(Boolean);
+
+  return (
+    <li className="flex flex-wrap items-start gap-3 border-b border-line px-4 py-3 last:border-b-0">
+      <span
+        aria-hidden="true"
+        className="grid size-8 shrink-0 place-items-center rounded-md border border-line bg-surface-2 text-ink-3 [&_svg]:size-4"
+      >
+        {row.synced ? <Cloud /> : <FingerprintPattern />}
+      </span>
+      <div className="min-w-0 flex-1">
+        {editing ? (
+          <form onSubmit={rename} className="flex flex-wrap items-center gap-2">
+            <Input
+              aria-label={`New name for ${row.name}`}
+              value={name}
+              maxLength={PASSKEY_NAME_MAX}
+              onChange={(event) => setName(event.target.value)}
+              className="w-56"
+              autoFocus
+            />
+            <Button type="submit" size="sm" variant="primary" loading={saving} disabled={trimmed === ""}>
+              Save
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={saving}
+              onClick={() => {
+                setEditing(false);
+                setName(row.name);
+              }}
+            >
+              Cancel
+            </Button>
+          </form>
+        ) : (
+          <span className="text-sm font-semibold text-ink">{row.name}</span>
+        )}
+        <p className="vh-tnum mt-0.5 text-xs leading-5 text-ink-3">{details.join(" · ")}</p>
+      </div>
+      {editing ? null : (
+        <span className="flex items-center gap-1">
+          <IconButton
+            label={`Rename ${row.name}`}
+            variant="ghost"
+            size="sm"
+            icon={<Pencil aria-hidden="true" />}
+            onClick={() => setEditing(true)}
+          />
+          <DeletePasskey row={row} />
+        </span>
+      )}
+    </li>
+  );
+}
+
+/** Behind a confirmation: the passkey must be registered again from its device to undo this. */
+function DeletePasskey({ row }: { row: PasskeyRow }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function remove() {
+    setBusy(true);
+    const result = await authClient.passkey.deletePasskey({ id: row.id });
+    setBusy(false);
+    if (result.error) {
+      toasts.error("Could not delete the passkey", result.error.message ?? undefined);
+      return;
+    }
+    setOpen(false);
+    toasts.success("Passkey deleted", row.name);
+    router.refresh();
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={setOpen}
+      trigger={
+        <IconButton label={`Delete ${row.name}`} variant="ghost" size="sm" icon={<Trash2 aria-hidden="true" />} />
+      }
+      title={`Delete ${row.name}?`}
+      description="It stops working for this site immediately."
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="danger" loading={busy} onClick={remove}>
+            Delete passkey
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm leading-6 text-ink-2">
+        Devices already signed in stay signed in. Your password manager may still list the passkey;
+        remove it there too so it is not offered again.
+      </p>
+    </Dialog>
   );
 }
 

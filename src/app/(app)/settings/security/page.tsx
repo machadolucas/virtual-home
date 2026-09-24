@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { asc, eq } from "drizzle-orm";
+import { getDb } from "@/db/client";
+import { passkey } from "@/db/schema";
+import { passkeyProviderName } from "@/domain/passkeyProviders";
 import { getAuth } from "@/server/auth/auth";
 import { getFreshSession, requireSessionPage } from "@/server/auth/session";
 import { loadEnv } from "@/env";
 import { PageHeader } from "@/ui/shell";
-import { describeDevice } from "./device";
-import { SecurityClient, type SessionListState, type SessionRow } from "./SecurityClient";
+import { describeDevice } from "@/domain/deviceLabel";
+import { SecurityClient, type PasskeyRow, type SessionListState, type SessionRow } from "./SecurityClient";
 
 export const metadata: Metadata = { title: "Security" };
 
@@ -22,15 +26,16 @@ export default async function SecuritySettingsPage() {
   if (!session) redirect(`/login?next=${encodeURIComponent(SELF)}`);
 
   const list = await loadSessions(session.session.token);
+  const passkeys = loadPasskeys(session.user.id);
 
   return (
     <>
       <PageHeader
         eyebrow="Settings"
         title="Security"
-        description="Your password and the devices signed in as you. There are no roles in this app: the only privileged tier is shell access to the machine it runs on."
+        description="Your password, your passkeys and the devices signed in as you. Owners manage other members' accounts; the recovery tier is shell access to the machine it runs on."
       />
-      <SecurityClient list={list} />
+      <SecurityClient list={list} passkeys={passkeys} />
       <p className="text-xs leading-5 text-ink-3">
         Forgotten passwords are reset from the server with{" "}
         <code className="font-mono">pnpm vh-admin set-password</code>. There is no email transport
@@ -38,6 +43,27 @@ export default async function SecuritySettingsPage() {
       </p>
     </>
   );
+}
+
+/**
+ * The signed-in user's own passkeys, read straight from our `passkey` table (the same rows
+ * `/passkey/list-user-passkeys` returns). Public keys and credential IDs never leave the server.
+ */
+function loadPasskeys(userId: string): PasskeyRow[] {
+  return getDb()
+    .db.select()
+    .from(passkey)
+    .where(eq(passkey.userId, userId))
+    .orderBy(asc(passkey.createdAt))
+    .all()
+    .map((row) => ({
+      id: row.id,
+      name: row.name ?? passkeyProviderName(row.aaguid) ?? "Passkey",
+      provider: passkeyProviderName(row.aaguid),
+      synced: row.deviceType === "multiDevice",
+      backedUp: row.backedUp,
+      createdLabel: formatInstant(row.createdAt ? row.createdAt.getTime() : null),
+    }));
 }
 
 async function loadSessions(currentToken: string): Promise<SessionListState> {

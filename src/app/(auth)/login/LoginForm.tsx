@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { KeyRound, TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { FingerprintPattern, KeyRound, TriangleAlert } from "lucide-react";
 import { authClient } from "@/server/auth/client";
 import { Avatar, Button, Checkbox, Field, Input, cn, focusRing } from "@/ui";
 import type { LoginHint } from "./hints";
@@ -22,6 +22,29 @@ const RATE_LIMIT_ERROR = "Too many attempts, wait a minute";
  */
 const MISSING_USERNAME = "Enter your username";
 const MISSING_PASSWORD = "Enter your password";
+/** One message for an unknown passkey, a deactivated account and a failed signature alike. */
+const PASSKEY_REFUSED = "That passkey was not accepted. Use your password instead.";
+const PASSKEY_CANCELLED = "Passkey sign-in was cancelled.";
+
+/** `NotAllowedError` / abort codes the passkey client reports for a dismissed or aborted ceremony. */
+function isCancelled(code: string | undefined): boolean {
+  return code === "AUTH_CANCELLED" || code === "ERROR_CEREMONY_ABORTED" || code === "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY";
+}
+
+/**
+ * Conditional UI: the browser offers saved passkeys inside the username field's autofill list.
+ * Needs `autocomplete="… webauthn"` on an input that is in the DOM when the request starts.
+ */
+async function conditionalMediationAvailable(): Promise<boolean> {
+  if (typeof window === "undefined" || typeof window.PublicKeyCredential === "undefined") return false;
+  const probe = window.PublicKeyCredential.isConditionalMediationAvailable;
+  if (typeof probe !== "function") return false;
+  try {
+    return await probe.call(window.PublicKeyCredential);
+  } catch {
+    return false;
+  }
+}
 
 /** Which field the error belongs on. `null` when it is about the pair, not either one. */
 type ErrorField = "username" | "password" | null;
@@ -38,7 +61,44 @@ export function LoginForm({ hints, next }: LoginFormProps) {
   // With hints on screen the username field is present but visually hidden;
   // this reveals it for an account that is not in the list.
   const [showUsername, setShowUsername] = useState(hints.length === 0);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
   const passwordRef = useRef<HTMLInputElement | null>(null);
+
+  // Start the autofill (conditional) passkey request once. Picking a passkey from the username
+  // field's suggestions resolves it; the explicit button below aborts it and starts a modal one
+  // (the WebAuthn client allows one ceremony at a time). Failures here are silent — the user did
+  // not ask for anything yet, and the password path is right there.
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (!(await conditionalMediationAvailable()) || !active) return;
+      const result = await authClient.signIn.passkey({ autoFill: true });
+      if (active && result.data) window.location.assign(next);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [next]);
+
+  async function signInWithPasskey() {
+    if (busy || passkeyBusy) return;
+    setError(null);
+    setErrorField(null);
+    setPasskeyBusy(true);
+    const result = await authClient.signIn.passkey();
+    if (result.data) {
+      // Same full navigation as the password path, for the same reason.
+      window.location.assign(next);
+      return;
+    }
+    setPasskeyBusy(false);
+    const failure = result.error;
+    if (failure) {
+      if (failure.status === 429) setError(RATE_LIMIT_ERROR);
+      else if (isCancelled("code" in failure ? failure.code : undefined)) setError(PASSKEY_CANCELLED);
+      else setError(PASSKEY_REFUSED);
+    }
+  }
 
   function pick(hint: LoginHint) {
     setUsername(hint.username);
@@ -156,7 +216,8 @@ export function LoginForm({ hints, next }: LoginFormProps) {
               id={id}
               name="username"
               type="text"
-              autoComplete="username"
+              // `webauthn` lets the browser list this site's passkeys in the autofill menu.
+              autoComplete="username webauthn"
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
@@ -209,8 +270,21 @@ export function LoginForm({ hints, next }: LoginFormProps) {
         </p>
       ) : null}
 
-      <Button type="submit" variant="primary" size="lg" loading={busy} fullWidth>
+      <Button type="submit" variant="primary" size="lg" loading={busy} disabled={passkeyBusy} fullWidth>
         {busy ? "Signing in…" : "Sign in"}
+      </Button>
+
+      <Button
+        type="button"
+        variant="secondary"
+        size="lg"
+        loading={passkeyBusy}
+        disabled={busy}
+        onClick={signInWithPasskey}
+        icon={<FingerprintPattern aria-hidden="true" />}
+        fullWidth
+      >
+        Sign in with passkey
       </Button>
 
       {hints.length > 0 && !showUsername ? (

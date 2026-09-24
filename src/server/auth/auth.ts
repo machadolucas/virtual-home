@@ -4,10 +4,12 @@ import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, username } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
+import { passkey } from "@better-auth/passkey";
 import { getDb } from "@/db/client";
 import * as schema from "@/db/schema";
 import { loadEnv } from "@/env";
 import { isActiveMember } from "@/domain/memberAccess";
+import { defaultPasskeyName } from "@/domain/passkeyProviders";
 import { log } from "@/server/log";
 
 /**
@@ -35,6 +37,9 @@ export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
     telemetry: { enabled: false },
     database: drizzleAdapter(getDb().db, { provider: "sqlite", schema }),
 
+    // Every session is minted through this hook — password sign-in, passkey sign-in
+    // (`/passkey/verify-authentication`) and CLI provisioning alike — so an inactive or banned
+    // member can hold a password or a passkey and still never get a session.
     databaseHooks: { session: { create: { before: async data => { if (!isActiveMember(getDb().db, data.userId)) throw new APIError("UNAUTHORIZED", { message: "Invalid username or password" }); return { data }; } } } },
 
     emailAndPassword: {
@@ -76,6 +81,13 @@ export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
         "/sign-in/email": { window: 60, max: 5 },
         "/reset-password": { window: 300, max: 5 },
         "/request-password-reset": { window: 300, max: 3 },
+        // Passkey sign-in. The options call runs on every login page load (conditional UI) and
+        // again for the button, so it gets more room than the verify step, which is the actual
+        // credential check. Each options call also writes a short-lived verification row.
+        "/passkey/generate-authenticate-options": { window: 60, max: 20 },
+        "/passkey/verify-authentication": { window: 60, max: 5 },
+        // Registration, list, rename, delete: all need a session; this only caps a runaway client.
+        "/passkey/*": { window: 60, max: 30 },
       },
     },
 
@@ -101,6 +113,24 @@ export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
     plugins: [
       username({ minUsernameLength: 3, maxUsernameLength: 30 }),
       admin(),
+      passkey({
+        // A passkey is bound to this exact hostname, which is the point: password autofill matches
+        // the registrable domain and mixes sibling apps, a passkey never does. The RP ID cannot be
+        // an IP address, so development must use `localhost`, not 127.0.0.1.
+        rpID: new URL(env.VH_BASE_URL).hostname,
+        rpName: "Virtual Home",
+        origin: new URL(env.VH_BASE_URL).origin,
+        // Discoverable credentials only: sign-in starts with no username (the passkey button and
+        // conditional UI), so a non-resident key could be registered but never used.
+        authenticatorSelection: { residentKey: "required", userVerification: "preferred" },
+        registration: {
+          // `generate-register-options` and `verify-registration` use `freshSessionMiddleware`,
+          // which `session.freshAge: 0` above keeps open to any signed-in session.
+          afterVerification: ({ ctx, verification }) => ({
+            name: defaultPasskeyName(verification.registrationInfo?.aaguid, ctx.headers?.get("user-agent")),
+          }),
+        },
+      }),
       ...(variant.provisioning ? [] : [nextCookies()]), // browser integration must be last
     ],
   };

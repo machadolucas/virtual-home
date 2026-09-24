@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { newId } from "@/db/ids";
 import type { Db } from "@/db/client";
-import { auditLog, conditionRule, maintenanceOccurrence, maintenancePlan, mcpConnection, mcpRequest, memberAccess, session, user, userNotifyDevice, notificationRecipientState, haNotifyCommand } from "@/db/schema";
+import { auditLog, conditionRule, maintenanceOccurrence, maintenancePlan, mcpConnection, mcpRequest, memberAccess, passkey, session, user, userNotifyDevice, notificationRecipientState, haNotifyCommand } from "@/db/schema";
 import { activeMemberIds, isActiveMember, readMemberAccess } from "@/domain/memberAccess";
 import { ensureRecipientStates, enqueueClearCommands } from "@/domain/notify/recipients";
 import { systemClock } from "@/domain/time";
@@ -58,4 +58,17 @@ export function updateMember(db: Db, actorId: string, input: { userId: string; n
     db.update(userNotifyDevice).set({ isActive: false }).where(eq(userNotifyDevice.userId, input.userId)).run();
   }
   auditMember(db, actorId, input.userId, input.active ? "member_updated" : "member_deactivated", input.active ? "Member profile and access updated" : "Member deactivated; open work reassigned and access revoked");
+}
+/**
+ * The owner's explicit "Remove passkeys". Deliberately separate from a password reset and from
+ * deactivation, which both keep passkeys (a deactivated member gets no session regardless).
+ * Sessions are untouched: this decides which credentials can sign in next, not who is signed in.
+ */
+export function deleteMemberPasskeys(db: Db, actorId: string, userId: string): number {
+  assertOwner(db, actorId);
+  const target = db.select({ id: user.id }).from(user).where(eq(user.id, userId)).get();
+  if (!target) throw new HttpError(404, "not_found", "Member not found.");
+  const removed = db.delete(passkey).where(eq(passkey.userId, userId)).run().changes;
+  auditMember(db, actorId, userId, "passkeys_removed", `Removed ${removed} passkey${removed === 1 ? "" : "s"}`);
+  return removed;
 }

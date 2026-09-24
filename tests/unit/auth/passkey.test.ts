@@ -1,0 +1,270 @@
+/**
+ * Passkeys through the real `@better-auth/passkey` endpoints, with a software authenticator.
+ *
+ * The browser half of WebAuthn is replaced by `node:crypto`: a P-256 key pair stands in for the
+ * authenticator, its public key is stored the way the plugin stores one (COSE, base64), and each
+ * assertion is signed exactly as an authenticator signs it (authenticatorData ‖ SHA-256 of
+ * clientDataJSON). Everything on the server side is the production code path: the options
+ * endpoint, the signed challenge cookie, `verifyAuthenticationResponse`, `createSession` and the
+ * `session.create.before` hook in `buildAuthOptions`.
+ *
+ * What this pins down:
+ *  - the RP ID is the hostname of `VH_BASE_URL`;
+ *  - a passkey signs an active member in;
+ *  - a deactivated member's passkey is refused and mints no session — the hook covers passkey
+ *    sign-in, not only passwords;
+ *  - the CLI helpers list and remove passkeys, and a password reset keeps them;
+ *  - only an owner can remove another member's passkeys, and that removal is audited.
+ */
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
+import { createHash, generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto";
+import { betterAuth } from "better-auth";
+import { eq } from "drizzle-orm";
+import { setDbForTests, writeTx, type DbHandle } from "@/db/client";
+import { memberAccess, passkey, session, user } from "@/db/schema";
+import { defaultPasskeyName, passkeyProviderName } from "@/domain/passkeyProviders";
+import { testDb } from "../../helpers/db";
+
+const BASE = "http://localhost:3010"; // must match VH_BASE_URL in tests/setup.ts
+const RP_ID = "localhost";
+const PASSWORD = "correct-horse-battery-staple";
+const ICLOUD_AAGUID = "fbfc3007-154e-4ecc-8c0b-6e020557d7bd";
+
+let handle: DbHandle;
+let web: ReturnType<typeof betterAuth>;
+let provisioning: typeof import("@/server/auth/provisioning");
+
+const b64url = (bytes: Buffer): string => bytes.toString("base64url");
+
+interface SoftwareKey {
+  credentialId: Buffer;
+  privateKey: KeyObject;
+  counter: number;
+}
+
+/** COSE_Key for an ES256 public key: {1: 2 (EC2), 3: -7 (ES256), -1: 1 (P-256), -2: x, -3: y}. */
+function coseEs256(x: Buffer, y: Buffer): Buffer {
+  return Buffer.concat([
+    Buffer.from([0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20]),
+    x,
+    Buffer.from([0x22, 0x58, 0x20]),
+    y,
+  ]);
+}
+
+/** Register a software passkey for `userId` by writing the row the plugin would have written. */
+function enrol(userId: string, name = "Test key"): SoftwareKey {
+  const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const jwk = publicKey.export({ format: "jwk" });
+  const cose = coseEs256(Buffer.from(jwk.x!, "base64url"), Buffer.from(jwk.y!, "base64url"));
+  const credentialId = randomBytes(16);
+  writeTx(handle.db, (tx) =>
+    tx
+      .insert(passkey)
+      .values({
+        id: crypto.randomUUID(),
+        name,
+        publicKey: cose.toString("base64"),
+        userId,
+        credentialID: b64url(credentialId),
+        counter: 0,
+        deviceType: "multiDevice",
+        backedUp: true,
+        transports: "internal",
+        createdAt: new Date(),
+        aaguid: ICLOUD_AAGUID,
+      })
+      .run(),
+  );
+  return { credentialId, privateKey, counter: 0 };
+}
+
+/** `name=value` pairs from every Set-Cookie header, ready for a Cookie header. */
+function cookiesFrom(res: Response): string {
+  return res.headers
+    .getSetCookie()
+    .map((line) => line.split(";")[0])
+    .join("; ");
+}
+
+async function passkeySignIn(key: SoftwareKey): Promise<Response> {
+  const optionsRes = await web.handler(
+    new Request(`${BASE}/api/auth/passkey/generate-authenticate-options`, {
+      headers: { origin: BASE },
+    }),
+  );
+  expect(optionsRes.status).toBe(200);
+  const options = (await optionsRes.json()) as { challenge: string; rpId: string };
+  expect(options.rpId).toBe(RP_ID);
+
+  key.counter += 1;
+  const clientDataJSON = Buffer.from(
+    JSON.stringify({ type: "webauthn.get", challenge: options.challenge, origin: BASE, crossOrigin: false }),
+  );
+  const counter = Buffer.alloc(4);
+  counter.writeUInt32BE(key.counter);
+  const authenticatorData = Buffer.concat([
+    createHash("sha256").update(RP_ID).digest(),
+    Buffer.from([0x05]), // user present + user verified
+    counter,
+  ]);
+  const signature = sign(
+    "sha256",
+    Buffer.concat([authenticatorData, createHash("sha256").update(clientDataJSON).digest()]),
+    key.privateKey,
+  );
+
+  return web.handler(
+    new Request(`${BASE}/api/auth/passkey/verify-authentication`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: BASE, cookie: cookiesFrom(optionsRes) },
+      body: JSON.stringify({
+        response: {
+          id: b64url(key.credentialId),
+          rawId: b64url(key.credentialId),
+          type: "public-key",
+          response: {
+            clientDataJSON: b64url(clientDataJSON),
+            authenticatorData: b64url(authenticatorData),
+            signature: b64url(signature),
+          },
+          clientExtensionResults: {},
+        },
+      }),
+    }),
+  );
+}
+
+function userId(username: string): string {
+  return handle.db.select().from(user).where(eq(user.username, username)).get()!.id;
+}
+
+function sessionCount(id: string): number {
+  return handle.db.select().from(session).where(eq(session.userId, id)).all().length;
+}
+
+beforeAll(async () => {
+  handle = testDb();
+  setDbForTests(handle);
+  provisioning = await import("@/server/auth/provisioning");
+  const { buildAuthOptions } = await import("@/server/auth/auth");
+  web = betterAuth(buildAuthOptions());
+  await provisioning.createUser({ username: "lucas", name: "Lucas", password: PASSWORD });
+  await provisioning.createUser({ username: "marja", name: "Marja", password: PASSWORD });
+});
+
+afterAll(() => {
+  setDbForTests(null);
+  handle.close();
+});
+
+describe("passkey sign-in", () => {
+  it("signs an active member in and records the new signature counter", async () => {
+    const lucas = userId("lucas");
+    const key = enrol(lucas);
+    const res = await passkeySignIn(key);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const body = (await res.json()) as { user: { id: string } };
+    expect(body.user.id).toBe(lucas);
+    expect(res.headers.getSetCookie().some((c) => c.startsWith("vh.session_token="))).toBe(true);
+    expect(sessionCount(lucas)).toBe(1);
+    const row = handle.db.select().from(passkey).where(eq(passkey.userId, lucas)).get();
+    expect(row?.counter).toBe(1);
+  });
+
+  it("refuses a deactivated member's passkey and mints no session", async () => {
+    const marja = userId("marja");
+    const key = enrol(marja);
+    writeTx(handle.db, (tx) =>
+      tx.insert(memberAccess).values({ userId: marja, role: "member", isActive: false, updatedAtMs: Date.now(), updatedBy: null }).run(),
+    );
+    const res = await passkeySignIn(key);
+    expect(res.status).toBe(401);
+    expect(res.headers.getSetCookie().some((c) => c.startsWith("vh.session_token="))).toBe(false);
+    expect(sessionCount(marja)).toBe(0);
+    // Deactivation keeps the passkey: reactivating restores it without re-enrolment.
+    expect(handle.db.select().from(passkey).where(eq(passkey.userId, marja)).all()).toHaveLength(1);
+
+    writeTx(handle.db, (tx) => tx.update(memberAccess).set({ isActive: true }).where(eq(memberAccess.userId, marja)).run());
+    expect((await passkeySignIn(key)).status).toBe(200);
+    expect(sessionCount(marja)).toBe(1);
+  });
+
+  it("refuses a passkey the server does not know", async () => {
+    const stranger: SoftwareKey = {
+      credentialId: randomBytes(16),
+      privateKey: generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey,
+      counter: 0,
+    };
+    expect((await passkeySignIn(stranger)).status).toBe(401);
+  });
+});
+
+describe("provisioning helpers", () => {
+  it("listPasskeys shows labels and provider without key material", () => {
+    const rows = provisioning.listPasskeys("LUCAS");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ name: "Test key", provider: "iCloud Keychain", deviceType: "multiDevice", backedUp: true });
+    expect(JSON.stringify(rows)).not.toMatch(/publicKey|credentialID/);
+    expect(provisioning.listUsers().find((u) => u.username === "lucas")?.passkeys).toBe(1);
+  });
+
+  it("a password reset keeps passkeys", async () => {
+    await provisioning.setPassword("lucas", "a-different-long-passphrase");
+    expect(provisioning.listPasskeys("lucas")).toHaveLength(1);
+  });
+
+  it("removePasskeys deletes only that user's passkeys", () => {
+    enrol(userId("lucas"), "Second key");
+    expect(provisioning.removePasskeys("lucas")).toBe(2);
+    expect(provisioning.listPasskeys("lucas")).toHaveLength(0);
+    expect(provisioning.listPasskeys("marja")).toHaveLength(1);
+    expect(() => provisioning.removePasskeys("nobody")).toThrow(/no such user/);
+  });
+
+  it("the table cascades from user (accounts are never deleted here, but the FK must say so)", () => {
+    const fks = handle.sqlite.prepare("PRAGMA foreign_key_list(passkey)").all() as {
+      table: string;
+      from: string;
+      on_delete: string;
+    }[];
+    expect(fks).toEqual([expect.objectContaining({ table: "user", from: "userId", on_delete: "CASCADE" })]);
+  });
+});
+
+describe("owner removal", () => {
+  it("only an owner can remove a member's passkeys, and the removal is audited", async () => {
+    const { bootstrapOwner, deleteMemberPasskeys } = await import("@/server/services/members");
+    const { auditLog } = await import("@/db/schema");
+    const lucas = userId("lucas");
+    const marja = userId("marja");
+    writeTx(handle.db, (tx) => bootstrapOwner(tx, "lucas"));
+    enrol(lucas, "Owner key");
+
+    expect(() => writeTx(handle.db, (tx) => deleteMemberPasskeys(tx, marja, lucas))).toThrow(/owner/i);
+    expect(provisioning.listPasskeys("lucas")).toHaveLength(1);
+
+    const sessionsBefore = sessionCount(marja);
+    expect(writeTx(handle.db, (tx) => deleteMemberPasskeys(tx, lucas, marja))).toBe(1);
+    expect(provisioning.listPasskeys("marja")).toHaveLength(0);
+    // Sessions are a separate decision (password reset / revoke-sessions).
+    expect(sessionCount(marja)).toBe(sessionsBefore);
+    const audit = handle.db.select().from(auditLog).where(eq(auditLog.action, "passkeys_removed")).all();
+    expect(audit).toEqual([expect.objectContaining({ actorUserId: lucas, entityId: marja, summary: "Removed 1 passkey" })]);
+  });
+});
+
+describe("default names", () => {
+  it("prefers the provider, then the registering device, then 'Passkey'", () => {
+    expect(passkeyProviderName(ICLOUD_AAGUID.toUpperCase())).toBe("iCloud Keychain");
+    expect(passkeyProviderName("00000000-0000-0000-0000-000000000000")).toBeNull();
+    expect(defaultPasskeyName(ICLOUD_AAGUID, null)).toBe("iCloud Keychain");
+    const iphone =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+    expect(defaultPasskeyName("00000000-0000-0000-0000-000000000000", iphone)).toBe("Safari on iPhone");
+    expect(defaultPasskeyName(undefined, undefined)).toBe("Passkey");
+  });
+});

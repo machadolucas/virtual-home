@@ -15,6 +15,11 @@
  *    mail involved.
  *  - **sessions** — plain Drizzle reads and deletes on `session`. That table is part of *our*
  *    schema (we generate its migration), so this is ordinary data access, not an internals gamble.
+ *  - **passkeys** — the same, on `passkey`. Removing a user's passkeys is always an explicit act
+ *    (`remove-passkeys`, or the owner's "Remove passkeys"): a password reset and a deactivation
+ *    both keep them, because a deactivated member cannot get a session anyway (the
+ *    `session.create.before` hook in `buildAuthOptions`) and a forgotten password says nothing
+ *    about whether a passkey was compromised.
  *
  * `tests/unit/auth/provisioning.test.ts` is the contract test that makes a Better Auth version
  * bump fail the build instead of the household (§4.2). `better-auth` is pinned exactly.
@@ -27,7 +32,8 @@ import "server-only";
 import { betterAuth } from "better-auth";
 import { and, desc, eq, lt, sql } from "drizzle-orm";
 import { getDb, writeTx } from "@/db/client";
-import { session, user } from "@/db/schema";
+import { passkey, session, user } from "@/db/schema";
+import { passkeyProviderName } from "@/domain/passkeyProviders";
 import { buildAuthOptions, SYNTHETIC_EMAIL_DOMAIN, type AuthVariant } from "./auth";
 
 /** Mirrors `emailAndPassword.minPasswordLength` in `buildAuthOptions`. */
@@ -100,6 +106,8 @@ export interface UserRow {
   activeSessions: number;
   /** `session.updatedAt` of the most recently touched session, or null when there is none. */
   lastSeenAtMs: number | null;
+  /** Registered passkeys. */
+  passkeys: number;
 }
 
 function findByUsername(username: string) {
@@ -235,6 +243,11 @@ export function listUsers(): UserRow[] {
       .orderBy(desc(session.updatedAt))
       .limit(1)
       .get();
+    const keys = db
+      .select({ n: sql<number>`count(*)` })
+      .from(passkey)
+      .where(eq(passkey.userId, row.id))
+      .get();
     return {
       id: row.id,
       username: row.username ?? row.displayUsername ?? "",
@@ -244,6 +257,7 @@ export function listUsers(): UserRow[] {
       createdAtMs: row.createdAt.getTime(),
       activeSessions: active?.n ?? 0,
       lastSeenAtMs: latest?.updatedAt ? latest.updatedAt.getTime() : null,
+      passkeys: keys?.n ?? 0,
     };
   });
 }
@@ -266,4 +280,52 @@ export function pruneExpiredSessions(nowMs: number = Date.now()): number {
     getDb().db,
     (tx) => tx.delete(session).where(lt(session.expiresAt, new Date(nowMs))).run().changes,
   );
+}
+
+export interface PasskeyInfo {
+  id: string;
+  /** The stored label; null only for rows written before a default name existed. */
+  name: string | null;
+  /** From the AAGUID when it is one we know (`src/domain/passkeyProviders.ts`). */
+  provider: string | null;
+  /** `singleDevice` (bound to one authenticator) or `multiDevice` (synced, e.g. iCloud Keychain). */
+  deviceType: string;
+  backedUp: boolean;
+  createdAtMs: number | null;
+}
+
+/**
+ * One user's passkeys, oldest first. Never returns the public key or the credential ID: neither is
+ * a secret, but nothing an operator does needs them, and a list that prints less leaks less.
+ */
+export function listPasskeys(target: string): PasskeyInfo[] {
+  const username = normalizeUsername(target);
+  const row = findByUsername(username);
+  if (!row) throw new ProvisioningError(`no such user: ${username}`, "unknown_user");
+  return getDb()
+    .db.select()
+    .from(passkey)
+    .where(eq(passkey.userId, row.id))
+    .orderBy(passkey.createdAt)
+    .all()
+    .map((key) => ({
+      id: key.id,
+      name: key.name,
+      provider: passkeyProviderName(key.aaguid),
+      deviceType: key.deviceType,
+      backedUp: key.backedUp,
+      createdAtMs: key.createdAt ? key.createdAt.getTime() : null,
+    }));
+}
+
+/**
+ * Delete every passkey of one user. Returns the count. Sessions are untouched: this is about which
+ * credentials can sign in *next*, and `revoke-sessions` / `set-password` handle the devices that
+ * are signed in now.
+ */
+export function removePasskeys(target: string): number {
+  const username = normalizeUsername(target);
+  const row = findByUsername(username);
+  if (!row) throw new ProvisioningError(`no such user: ${username}`, "unknown_user");
+  return writeTx(getDb().db, (tx) => tx.delete(passkey).where(eq(passkey.userId, row.id)).run().changes);
 }

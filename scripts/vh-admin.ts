@@ -45,11 +45,13 @@ const USAGE = `Usage: pnpm vh-admin <command> [args]
 
   init-users                        create the household accounts that are missing (interactive)
   create-user <username> <name>     create one account
-  list-users                        accounts with session counts
+  list-users                        accounts with session and passkey counts
   bootstrap-owner <username>        assign the first owner to an existing account
-  set-password <username>           reset a password and revoke that user's sessions
+  set-password <username>           reset a password and revoke that user's sessions (keeps passkeys)
   revoke-sessions <username|--all>  delete session rows
   prune-sessions                    delete expired session rows
+  list-passkeys <username>          one user's passkeys (name, provider, type, created)
+  remove-passkeys <username>        delete every passkey of one user (sessions are kept)
   ha-token-check                    GET \${HA_URL}/api/ with the configured token (status only)
   model-import <dir>                validate and install a house-model package
   doctor                            environment, permissions, integrity, migrations, HA, launchd, disk
@@ -164,8 +166,8 @@ async function cmdListUsers(env: Env): Promise<void> {
       return;
     }
     console.log(
-      ["username", "name", "email", "created", "sessions", "last seen"]
-        .map((h, i) => h.padEnd([12, 16, 32, 17, 8, 17][i] ?? 12))
+      ["username", "name", "email", "created", "sessions", "passkeys", "last seen"]
+        .map((h, i) => h.padEnd([12, 16, 32, 17, 9, 9, 17][i] ?? 12))
         .join(""),
     );
     for (const row of rows) {
@@ -174,7 +176,8 @@ async function cmdListUsers(env: Env): Promise<void> {
           row.name.padEnd(16) +
           row.email.padEnd(32) +
           stamp(row.createdAtMs).padEnd(17) +
-          String(row.activeSessions).padEnd(8) +
+          String(row.activeSessions).padEnd(9) +
+          String(row.passkeys).padEnd(9) +
           stamp(row.lastSeenAtMs),
       );
     }
@@ -209,6 +212,45 @@ async function cmdRevokeSessions(env: Env, target: string): Promise<void> {
     const all = target === "--all" || target === "*";
     const n = p.revokeSessions(all ? "*" : target);
     console.log(`revoked ${n} session(s)${all ? " (all users)" : ` for ${target}`}`);
+  } finally {
+    handle.close();
+  }
+}
+
+async function cmdListPasskeys(env: Env, username: string): Promise<void> {
+  const handle = openConfiguredDb(env);
+  try {
+    const p = await provisioning();
+    const rows = p.listPasskeys(username);
+    if (rows.length === 0) {
+      console.log(`${username} has no passkeys`);
+      return;
+    }
+    console.log(
+      ["name", "provider", "type", "backed up", "created"]
+        .map((h, i) => h.padEnd([28, 26, 14, 11, 17][i] ?? 12))
+        .join(""),
+    );
+    for (const row of rows) {
+      console.log(
+        (row.name ?? "(unnamed)").slice(0, 27).padEnd(28) +
+          (row.provider ?? "unknown").padEnd(26) +
+          (row.deviceType === "multiDevice" ? "synced" : "device-bound").padEnd(14) +
+          (row.backedUp ? "yes" : "no").padEnd(11) +
+          stamp(row.createdAtMs),
+      );
+    }
+  } finally {
+    handle.close();
+  }
+}
+
+async function cmdRemovePasskeys(env: Env, username: string): Promise<void> {
+  const handle = openConfiguredDb(env);
+  try {
+    const p = await provisioning();
+    const n = p.removePasskeys(username);
+    console.log(`removed ${n} passkey(s) for ${username}; sessions were not touched (use revoke-sessions)`);
   } finally {
     handle.close();
   }
@@ -348,10 +390,18 @@ function checkDatabase(env: Env): void {
 
     const sessions = handle.sqlite.prepare("SELECT count(*) AS n FROM session").get() as { n: number };
     const users = handle.sqlite.prepare("SELECT count(*) AS n FROM user").get() as { n: number };
+    // The passkey table arrives with migration 0016; on an older database it is simply absent.
+    const hasPasskeys = handle.sqlite
+      .prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'passkey'")
+      .get() as { n: number };
+    const passkeys =
+      hasPasskeys.n > 0
+        ? (handle.sqlite.prepare("SELECT count(*) AS n FROM passkey").get() as { n: number }).n
+        : null;
     report(
       users.n > 0 ? "ok" : "warn",
       "accounts",
-      `${users.n} user(s), ${sessions.n} session row(s)${users.n === 0 ? " — run `pnpm vh-admin init-users`" : ""}`,
+      `${users.n} user(s), ${sessions.n} session row(s), ${passkeys === null ? "no passkey table (pending migration)" : `${passkeys} passkey(s)`}${users.n === 0 ? " — run `pnpm vh-admin init-users`" : ""}`,
     );
   } finally {
     handle.close();
@@ -532,6 +582,14 @@ async function main(): Promise<void> {
       return;
     case "prune-sessions":
       await cmdPruneSessions(env);
+      return;
+    case "list-passkeys":
+      need(args, 1, "list-passkeys <username>");
+      await cmdListPasskeys(env, args[0]!);
+      return;
+    case "remove-passkeys":
+      need(args, 1, "remove-passkeys <username>");
+      await cmdRemovePasskeys(env, args[0]!);
       return;
     case "ha-token-check":
       await cmdHaTokenCheck(env);

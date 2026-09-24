@@ -7,7 +7,7 @@ import { user } from "@/db/schema";
 import { assertOwner, ownerAction } from "@/server/auth/owner";
 import { createUser, setPassword, ProvisioningError } from "@/server/auth/provisioning";
 import { HttpError } from "@/server/api/handler";
-import { auditMember, updateMember } from "@/server/services/members";
+import { auditMember, deleteMemberPasskeys, updateMember } from "@/server/services/members";
 
 export const createMember = ownerAction(z.object({ username: z.string().trim().min(3).max(30), name: z.string().trim().min(1).max(120), password: z.string().min(12).max(128) }), async (input, session) => {
   const result = await createUser(input).catch(error => { if (error instanceof ProvisioningError) throw new HttpError(400, error.code, error.message); throw error; });
@@ -25,4 +25,8 @@ export const resetMemberPassword = ownerAction(z.object({ userId: z.string().uui
   await setPassword(target.username, input.password).catch(error => { if (error instanceof ProvisioningError) throw new HttpError(400, error.code, error.message); throw error; });
   writeTx(db, tx => { assertOwner(tx, session.user.id); auditMember(tx, session.user.id, input.userId, "password_reset", "Member password reset and sessions revoked"); });
   revalidatePath("/settings/users"); return {};
+});
+export const removeMemberPasskeys = ownerAction(z.object({ userId: z.string().uuid() }), (input, session) => {
+  const removed = writeTx(getDb().db, tx => deleteMemberPasskeys(tx, session.user.id, input.userId));
+  revalidatePath("/settings/users"); revalidatePath("/settings/security"); return { removed };
 });

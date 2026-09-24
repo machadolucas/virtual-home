@@ -1,8 +1,8 @@
 import "server-only";
 import { readMemberAccess } from "@/domain/memberAccess";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
-import { user, userNotifyDevice } from "@/db/schema";
+import { passkey, user, userNotifyDevice } from "@/db/schema";
 
 export interface NotifyDeviceRow {
   id: string;
@@ -22,6 +22,8 @@ export interface HouseholdMember {
   devices: NotifyDeviceRow[];
   role: "owner" | "member";
   active: boolean;
+  /** Registered passkeys; the owner's "Remove passkeys" needs to know whether there are any. */
+  passkeyCount: number;
 }
 
 /**
@@ -51,6 +53,14 @@ export function listMembers(tx: Db): HouseholdMember[] {
       },
     ]);
   }
+  const passkeys = new Map(
+    tx
+      .select({ userId: passkey.userId, n: sql<number>`count(*)` })
+      .from(passkey)
+      .groupBy(passkey.userId)
+      .all()
+      .map((row) => [row.userId, row.n]),
+  );
   return users.map((row) => ({
     id: row.id,
     role: readMemberAccess(tx, row.id)?.role ?? "member",
@@ -60,6 +70,7 @@ export function listMembers(tx: Db): HouseholdMember[] {
     displayColor: row.displayColor,
     createdAtMs: row.createdAt.getTime(),
     devices: devices.get(row.id) ?? [],
+    passkeyCount: passkeys.get(row.id) ?? 0,
   }));
 }
 
