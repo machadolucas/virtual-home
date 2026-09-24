@@ -1,10 +1,11 @@
 /**
- * Better Auth 1.7.3 tables — GIVEN, not designed here. Do not hand-tune the column set.
+ * Better Auth 1.7.5 tables — GIVEN, not designed here. Do not hand-tune the column set.
  *
  * Derived from `getSchema()` of the exact options in `src/server/auth/auth.ts` (email+password,
- * `username()` and `admin()` plugins, `rateLimit.storage = 'database'` with `modelName: 'rateLimit'`,
- * `user.additionalFields.displayColor`, `advanced.database.generateId = 'uuid'`) and cross-checked
- * against the schema the Better Auth CLI generates for the Drizzle sqlite provider.
+ * `username()`, `admin()` and `passkey()` plugins, `rateLimit.storage = 'database'` with
+ * `modelName: 'rateLimit'`, `user.additionalFields.displayColor`,
+ * `advanced.database.generateId = 'uuid'`) and cross-checked against the schema the Better Auth
+ * CLI generates for the Drizzle sqlite provider.
  *
  * Two rules keep this file compatible with the adapter:
  *  1. **Export names are model names.** `@better-auth/drizzle-adapter` addresses tables as
@@ -16,8 +17,10 @@
  *     hands the driver `Date` objects, so their instants use `integer(..., { mode: 'timestamp_ms' })`.
  *     Domain tables use plain `integer('*_ms')` numbers. Never copy this pattern outside this file.
  *
- * On a Better Auth upgrade: regenerate (`pnpm dlx @better-auth/cli generate`) and diff, rather than
- * editing by hand.
+ * On a Better Auth upgrade: regenerate and diff, rather than editing by hand. The CLI moved from
+ * `@better-auth/cli` (last release 1.4.x) to the `auth` package, pinned to the same version as
+ * `better-auth`: `pnpm dlx auth@<version> generate --config <file> --output <file>` against a
+ * throwaway config that mirrors `buildAuthOptions()` (the real module imports `server-only`).
  */
 import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
@@ -107,6 +110,35 @@ export const verification = sqliteTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [index("verification_identifier_idx").on(t.identifier)],
+);
+
+/**
+ * WebAuthn credentials (`@better-auth/passkey`). One row per registered passkey; deleting the user
+ * cascades. `publicKey` is the COSE public key (base64) — not a secret, but never shown in the UI.
+ * `credentialID` is indexed rather than unique because that is what the plugin's schema declares.
+ * `createdAt` has no SQL default because the plugin's schema gives it none and always writes it.
+ */
+export const passkey = sqliteTable(
+  "passkey",
+  {
+    id: text("id").primaryKey(),
+    name: text("name"),
+    publicKey: text("publicKey").notNull(),
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    credentialID: text("credentialID").notNull(),
+    counter: integer("counter").notNull(),
+    deviceType: text("deviceType").notNull(),
+    backedUp: integer("backedUp", { mode: "boolean" }).notNull(),
+    transports: text("transports"),
+    createdAt: integer("createdAt", { mode: "timestamp_ms" }),
+    aaguid: text("aaguid"),
+  },
+  (t) => [
+    index("passkey_userId_idx").on(t.userId),
+    index("passkey_credentialID_idx").on(t.credentialID),
+  ],
 );
 
 /**

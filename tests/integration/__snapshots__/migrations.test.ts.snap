@@ -583,6 +583,16 @@ exports[`migrations > produces the expected schema 1`] = `
     "type": "index",
   },
   {
+    "name": "passkey_credentialID_idx",
+    "sql": "CREATE INDEX \`passkey_credentialID_idx\` ON \`passkey\` (\`credentialID\`)",
+    "type": "index",
+  },
+  {
+    "name": "passkey_userId_idx",
+    "sql": "CREATE INDEX \`passkey_userId_idx\` ON \`passkey\` (\`userId\`)",
+    "type": "index",
+  },
+  {
     "name": "rateLimit_key_unique",
     "sql": "CREATE UNIQUE INDEX \`rateLimit_key_unique\` ON \`rateLimit\` (\`key\`)",
     "type": "index",
@@ -2386,6 +2396,24 @@ exports[`migrations > produces the expected schema 1`] = `
 	FOREIGN KEY (\`part_id\`) REFERENCES \`part\`(\`id\`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT "ck_part_supplier_price" CHECK(last_price_cents IS NULL OR last_price_cents >= 0),
 	CONSTRAINT "ck_part_supplier_pack" CHECK(pack_qty_milli IS NULL OR pack_qty_milli > 0)
+)",
+    "type": "table",
+  },
+  {
+    "name": "passkey",
+    "sql": "CREATE TABLE \`passkey\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`name\` text,
+	\`publicKey\` text NOT NULL,
+	\`userId\` text NOT NULL,
+	\`credentialID\` text NOT NULL,
+	\`counter\` integer NOT NULL,
+	\`deviceType\` text NOT NULL,
+	\`backedUp\` integer NOT NULL,
+	\`transports\` text,
+	\`createdAt\` integer,
+	\`aaguid\` text,
+	FOREIGN KEY (\`userId\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE cascade
 )",
     "type": "table",
   },
