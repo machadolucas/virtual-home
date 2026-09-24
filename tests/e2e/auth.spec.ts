@@ -65,7 +65,10 @@ test("a private attachment needs the session cookie", async ({ browser }) => {
     await login(page, "lucas");
 
     // Distinct bytes per project: identical content would be deduplicated (200, not 201).
-    const url = await uploadPhoto(signedIn.request, test.info().project.name === "phone" ? 2 : 1);
+    const url = await uploadPhoto(
+      signedIn.request,
+      ["desktop", "phone", "webkit", "phone-webkit"].indexOf(test.info().project.name) + 1,
+    );
 
     // With the cookie: the bytes, and a cache directive that keeps them out of shared caches.
     const ok = await signedIn.request.get(url);
@@ -248,7 +251,7 @@ test("an off-site next param cannot bounce the browser off the origin", async ({
   try {
     const page = await context.newPage();
     await login(page, "lucas", { next: "https://evil.example/steal", expectPath: "/today" });
-    await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/today$/);
+    await expect(page).toHaveURL(/^http:\/\/localhost:\d+\/today$/);
   } finally {
     await context.close();
   }

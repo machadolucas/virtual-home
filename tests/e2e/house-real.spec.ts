@@ -133,8 +133,8 @@ function cliEnv(dataDir: string): NodeJS.ProcessEnv {
     ...process.env,
     VH_ROLE: "cli",
     VH_DATA_DIR: dataDir,
-    VH_BASE_URL: `http://127.0.0.1:${process.env["VH_E2E_PORT"] ?? 3011}`,
-    VH_TRUSTED_ORIGINS: `http://127.0.0.1:${process.env["VH_E2E_PORT"] ?? 3011}`,
+    VH_BASE_URL: `http://localhost:${process.env["VH_E2E_PORT"] ?? 3011}`,
+    VH_TRUSTED_ORIGINS: `http://localhost:${process.env["VH_E2E_PORT"] ?? 3011}`,
     BETTER_AUTH_SECRET:
       process.env["BETTER_AUTH_SECRET"] ?? "e2e-real-model-spec-secret-that-is-long-enough",
     LOG_LEVEL: "warn",
@@ -200,7 +200,7 @@ test.beforeAll(async ({ playwright }) => {
   // The signed-in workspace is what the tests use; this bare context only waits for the server to
   // notice the new pointer.
   const request = await playwright.request.newContext({
-    baseURL: `http://127.0.0.1:${process.env["VH_E2E_PORT"] ?? 3011}`,
+    baseURL: `http://localhost:${process.env["VH_E2E_PORT"] ?? 3011}`,
   });
   try {
     // `/status` needs a session, so the poll accepts a 401 as "not yet" — the installed-ness we

@@ -37,7 +37,11 @@ import type { DbHandle } from "@/db/client";
 process.env.VH_DIST_DIR = process.env.VH_DIST_DIR ?? ".next-e2e";
 
 const PORT = Number(process.env["VH_E2E_PORT"] ?? 3011);
-const BASE_URL = `http://127.0.0.1:${PORT}`;
+/**
+ * The app's public origin. `localhost` because it becomes the passkey RP ID, which cannot be an IP
+ * address; the server itself still binds 127.0.0.1 only (`HOST` below and `next start -H`).
+ */
+const BASE_URL = `http://localhost:${PORT}`;
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const FIXTURE_MODEL_DIR = path.join(REPO_ROOT, "tests/fixtures/model/house-model");
 const DATA_DIR_MODE = 0o700;

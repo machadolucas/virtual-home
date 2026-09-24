@@ -5,7 +5,10 @@ import { defineConfig, devices } from "@playwright/test";
  * temporary data directory and seeded users (see tests/e2e/README.md).
  */
 const PORT = Number(process.env.VH_E2E_PORT ?? 3011);
-const baseURL = `http://127.0.0.1:${PORT}`;
+// `localhost`, not 127.0.0.1: the passkey RP ID is the base URL's hostname, and WebAuthn refuses an
+// IP address as an RP ID. The server still binds 127.0.0.1 only (tests/e2e/start-server.ts); the
+// health probe below uses that address so it never depends on how `localhost` resolves.
+const baseURL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -24,7 +27,7 @@ export default defineConfig({
   },
   webServer: {
     command: `pnpm exec tsx tests/e2e/start-server.ts`,
-    url: `${baseURL}/api/health`,
+    url: `http://127.0.0.1:${PORT}/api/health`,
     timeout: 180_000,
     reuseExistingServer: !process.env.CI,
     env: { VH_E2E_PORT: String(PORT) },

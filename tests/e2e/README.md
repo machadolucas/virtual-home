@@ -6,6 +6,10 @@
 2. runs `next build` once (cached under `.next-e2e`) and `next start` on port 3011 with
    `NEXT_PUBLIC_VH_TEST_HOOK=1` so `window.__vh` is available for viewer assertions.
 
+The server binds `127.0.0.1`, but the app's base URL (and every test's `baseURL`) is
+`http://localhost:3011`: the passkey RP ID is the base URL's hostname, and WebAuthn rejects an IP
+address as an RP ID. Only the `webServer` health probe uses `127.0.0.1` directly.
+
 Projects: `desktop` (Chromium 1600×1000), `phone` (iPhone 14 Chromium), `webkit` (desktop Safari engine) and `phone-webkit` (iPhone 14 Safari engine). Install engines with `pnpm exec playwright install chromium webkit`.
 Real household data is never used by default; the real model package is exercised only by
 `house-real.spec.ts`, and only when you point it at a copy yourself (below).
@@ -15,6 +19,7 @@ Real household data is never used by default; the real model package is exercise
 | Spec | Model | Projects | What it covers |
 |---|---|---|---|
 | `auth.spec.ts` | — | both | Sign-in, private files, session revocation, deep links, open redirect. |
+| `passkey.spec.ts` | — | Chromium (`desktop`, `phone`) | Register a passkey in Security, conditional-UI sign-in, "Sign in with passkey", rename, delete, refusal after delete. Uses the CDP virtual authenticator, which WebKit lacks. |
 | `house.spec.ts` | fixture | desktop | Load integrity, selection + URL sync, click picking, colour isolation, visibility and views, explode offsets, on-demand rendering, asset auth/ETag, mount→unmount→mount disposal. |
 | `house-real.spec.ts` | **real**, opt-in | desktop | The same numeric checks against the household's own package, plus load timing and orbit frame times. Writes `test-results/house-measurements.json`. |
 | `screenshots.spec.ts` | fixture | desktop + phone | The `docs/design-notes/house-workspace-3d.md` §13.4 capture list, into `test-results/screenshots/`. Entries needing a placement, a route, a garage/structure asset, a Home Assistant connection or a seeded task are `test.skip` with the reason. |

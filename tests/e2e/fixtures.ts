@@ -5,7 +5,7 @@
  * accounts, so the passwords live in one place. Nothing here imports Playwright at runtime (only
  * its types), which is what lets the server bootstrap reuse this module.
  *
- * These are throwaway passwords for a throwaway data directory on 127.0.0.1. Real household
+ * These are throwaway passwords for a throwaway data directory on loopback. Real household
  * passwords never appear in this repository (CLAUDE.md rule 1).
  */
 import { randomInt } from "node:crypto";
@@ -79,7 +79,7 @@ export function nextClientIp(): string {
 
 /** Where `start-server.ts` put the app; the same expression `playwright.config.ts` uses. */
 export function e2eBaseUrl(): string {
-  return `http://127.0.0.1:${Number(process.env["VH_E2E_PORT"] ?? 3011)}`;
+  return `http://localhost:${Number(process.env["VH_E2E_PORT"] ?? 3011)}`;
 }
 
 /**
