@@ -62,8 +62,12 @@ const nextConfig: NextConfig = {
           { key: "Referrer-Policy", value: "same-origin" },
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
           {
+            // WebAuthn is allowed for this origin only (passkey sign-in and registration); any
+            // cross-origin frame — which frame-ancestors/X-Frame-Options already forbid — gets none.
             key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=(), usb=(), payment=()",
+            value:
+              "camera=(), microphone=(), geolocation=(), usb=(), payment=(), " +
+              "publickey-credentials-get=(self), publickey-credentials-create=(self)",
           },
         ],
       },
