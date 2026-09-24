@@ -46,23 +46,28 @@ and throw `SQLITE_BUSY` *mid-transaction*, which `busy_timeout` cannot rescue.
 
 ### The one exception: Better Auth
 
-`src/db/schema/auth.ts` holds five tables Better Auth 1.7.3 owns — `user`, `session`, `account`,
-`verification`, `rateLimit`. They keep **camelCase column names** and use
+`src/db/schema/auth.ts` holds six tables Better Auth 1.7.5 owns — `user`, `session`, `account`,
+`verification`, `passkey`, `rateLimit`. They keep **camelCase column names** and use
 `integer(..., { mode: 'timestamp_ms' })` for instants, because the Drizzle adapter hands the driver
 `Date` objects. Never copy that pattern anywhere else.
 
 The adapter addresses tables as `schema[model]` and columns as `table[field]` — by the *JavaScript*
 keys — so the export names and property names in that file are load-bearing and the SQL names are
 not. `rateLimit` keeps its model name as its SQL table name so "table name == model name" holds for
-all five. On a Better Auth upgrade, regenerate and diff rather than hand-editing:
+all six. On a Better Auth upgrade, regenerate and diff rather than hand-editing. Since 1.5 the CLI
+is the `auth` package (the old `@better-auth/cli` stops at 1.4.x); pin it to the `better-auth`
+version:
 
 ```
-pnpm dlx @better-auth/cli generate --config <throwaway config> --output <file> -y
+pnpm dlx auth@<better-auth version> generate --config <throwaway config> --output <file> -y
 ```
 
-The current column set was verified against `getSchema()` of the exact options in
-`src/server/auth/auth.ts` (email+password, `username()` + `admin()` plugins,
-`rateLimit.storage = 'database'`, `user.additionalFields.displayColor`, `generateId: 'uuid'`).
+The throwaway config mirrors `buildAuthOptions()` without importing it (the real module pulls in
+`server-only` and the environment). The generator now emits snake_case SQL names; ours stay
+camelCase — cosmetic, and not worth rebuilding live tables. The current column set (1.7.5, checked
+with `auth@1.7.5`) matches the exact options in `src/server/auth/auth.ts` (email+password,
+`username()` + `admin()` + `passkey()` plugins, `rateLimit.storage = 'database'`,
+`user.additionalFields.displayColor`, `generateId: 'uuid'`).
 
 ## Modules
 
@@ -84,7 +89,8 @@ floor ids remain listable and must be reassigned before they render again.
 | `user` | The household's people. `displayColor` is ours; `username`/`displayUsername` come from the username plugin, `role`/`banned`/`ban*` from the admin plugin. |
 | `session` | Active sessions; `impersonatedBy` from the admin plugin. |
 | `account` | Credential rows (the password hash lives here). |
-| `verification` | Short-lived tokens (password reset). |
+| `verification` | Short-lived tokens (password reset, WebAuthn challenges — 5 min). |
+| `passkey` | WebAuthn credentials (`@better-auth/passkey`, migration 0016): COSE public key, `credentialID`, signature `counter`, `deviceType` (`singleDevice`/`multiDevice`), `backedUp`, `transports`, `aaguid`, user-facing `name`. Cascades from `user`. |
 | `rateLimit` | Database-backed rate-limit counters. |
 
 ### `household.ts` — M0 settings, devices, audit

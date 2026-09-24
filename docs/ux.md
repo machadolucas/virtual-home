@@ -298,10 +298,26 @@ right trade for two accounts on a private hostname (see
   component see the new cookie on the first request.
 - Recovery is CLI-only (`pnpm vh-admin set-password`), stated in small text on the page. There is no
   mail transport, so there is no reset link to send — and none to steal.
+- **Passkeys.** The username field carries `autocomplete="username webauthn"` (and the password
+  field `current-password webauthn`, because with avatar hints the username field is visually
+  hidden and the password field is the one people focus) and, where
+  `PublicKeyCredential.isConditionalMediationAvailable()` says so, the page starts a conditional
+  passkey request on load: the browser lists this site's passkeys in the username autofill. A
+  secondary "Sign in with passkey" button starts the modal request (aborting the conditional one).
+  Both end in the same full navigation to `next`. A dismissed prompt says "cancelled"; any refusal
+  (unknown passkey, inactive account) gets one generic message pointing at the password.
 
 ## 9. Settings → Security
 
 Reads a **fresh** session (bypassing the 60 s cookie cache) because it shows and revokes sessions.
+
+Panels: Password, **Passkeys**, Signed-in devices. The Passkeys panel lists the user's own passkeys
+(name, provider when the AAGUID is known, synced vs this-device-only, not-backed-up warning, added
+date), adds one ("Add a passkey", named automatically; a session that signed in more than 10
+minutes ago gets "For security, sign in again to add a passkey." with a sign-in-again button that
+returns to this page), renames inline and deletes behind a
+confirmation that notes signed-in devices stay signed in. Owners remove *another* member's passkeys
+from Settings → Users → Manage member ("Remove passkeys", two-step).
 
 Better Auth puts `/list-sessions` behind its fresh-session middleware (`freshAge` is 10 minutes), so
 an ordinary long-lived session gets `403 SESSION_NOT_FRESH` instead of a list. That is a normal

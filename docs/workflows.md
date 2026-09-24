@@ -82,7 +82,10 @@ household member who quarantined or restored each file.
 ## Household members and access
 
 Settings → Users lets owners create members, change names, usernames and account access, reset passwords,
-and manage notification devices. Other members retain full household feature access and can view
+remove a member's passkeys, and manage notification devices. Password resets and deactivation keep
+passkeys; "Remove passkeys" is the only browser path that deletes someone else's, and it leaves
+their sessions alone. Every member adds, renames and deletes their own passkeys under
+Settings → Security. Other members retain full household feature access and can view
 who receives reminders. New accounts default to member; owner access is limited to account
 management and does not grant a generic authentication administration API.
 

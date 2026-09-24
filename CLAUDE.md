@@ -15,7 +15,7 @@ only; `docs/*.md` and code win where they differ).
 - `pnpm test` / `pnpm test:e2e` — Vitest / Playwright.
 - `pnpm db:generate` — drizzle-kit SQL migration from `src/db/schema/*`; `pnpm db:migrate` applies
   (with a pre-migration backup in production).
-- `pnpm vh-admin <cmd>` — server-side admin CLI (users, passwords, sessions, model import, doctor).
+- `pnpm vh-admin <cmd>` — server-side admin CLI (users, passwords, sessions, passkeys, model import, doctor).
 - `pnpm build` — `next build` + esbuild worker bundle to `dist/worker`.
 
 If `pnpm dev` renders but nothing is clickable, the page did not hydrate: check the terminal for

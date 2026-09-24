@@ -207,3 +207,18 @@ distinction limited to account administration. The first owner is explicitly sel
 new accounts default to member. Removal means deactivation with historical attribution retained.
 Fresh ownership checks, last-owner protection, access revocation, active-work reassignment and
 blocked generic admin endpoints are required; public signup and MCP user administration stay absent.
+
+## D-035 Passkeys alongside passwords
+Saved-password autofill matches the registrable domain, so sibling apps under one parent domain
+are offered each other's logins; a WebAuthn passkey is bound to its RP ID (the exact hostname), so
+it is offered only here. `@better-auth/passkey` is pinned with `better-auth` (1.7.5). RP ID and
+origin derive from `VH_BASE_URL` — no new configuration, no hostname in the repo — which makes an IP
+base URL unusable for passkeys (e2e moved to `localhost`). Passkeys are an additional credential,
+never the only one: every account keeps its password, and recovery stays the CLI. Only
+discoverable credentials are registered, because sign-in starts without a username (button and
+conditional UI). Session creation for every method goes through the existing
+`session.create.before` hook, so inactive members are refused uniformly. A password reset or a
+deactivation keeps passkeys; removing them is an explicit, audited owner action or
+`vh-admin remove-passkeys`, and neither revokes sessions. Because `freshAge` stays 0, adding a
+passkey separately requires a session created in the last 10 minutes, so a stolen long-lived
+cookie cannot plant a credential that outlives a password change.
