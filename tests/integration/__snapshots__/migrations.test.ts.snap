@@ -2412,7 +2412,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`backedUp\` integer NOT NULL,
 	\`transports\` text,
 	\`createdAt\` integer,
-	\`aaguid\` text,
+	\`aaguid\` text, \`lastUsedAt\` integer,
 	FOREIGN KEY (\`userId\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE cascade
 )",
     "type": "table",

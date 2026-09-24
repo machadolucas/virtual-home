@@ -5,7 +5,8 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, username } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { passkey } from "@better-auth/passkey";
-import { getDb } from "@/db/client";
+import { and, eq } from "drizzle-orm";
+import { getDb, writeTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import { loadEnv } from "@/env";
 import { isActiveMember } from "@/domain/memberAccess";
@@ -53,6 +54,37 @@ const passkeyRegistrationGuard = createAuthMiddleware(async (ctx) => {
   }
 });
 
+/** `@better-auth/passkey` 1.7.5: the sign-in step that checks the assertion and mints the session. */
+const PASSKEY_VERIFY_AUTHENTICATION_PATH = "/passkey/verify-authentication";
+
+/**
+ * Stamp `passkey.lastUsedAt` (our column, not the plugin's) after a passkey sign-in.
+ *
+ * An after-hook rather than the plugin's `authentication.afterVerification`, because that callback
+ * runs *before* the session is created: a deactivated member's valid signature would be recorded
+ * as a use even though `session.create.before` then refuses the sign-in. Here the stamp needs
+ * `newSession`, which only exists once a session was actually minted, and it is scoped to that
+ * session's user (`credentialID` is indexed, not unique). A failed stamp is logged and never fails
+ * the sign-in.
+ */
+const passkeyLastUsedStamp = createAuthMiddleware(async (ctx) => {
+  if (ctx.path !== PASSKEY_VERIFY_AUTHENTICATION_PATH) return;
+  const userId = ctx.context.newSession?.user.id;
+  const credentialId: unknown = (ctx.body as { response?: { id?: unknown } } | undefined)?.response?.id;
+  if (!userId || typeof credentialId !== "string" || credentialId === "") return;
+  try {
+    writeTx(getDb().db, (tx) =>
+      tx
+        .update(schema.passkey)
+        .set({ lastUsedAt: new Date() })
+        .where(and(eq(schema.passkey.credentialID, credentialId), eq(schema.passkey.userId, userId)))
+        .run(),
+    );
+  } catch (err) {
+    log.warn({ err, userId }, "could not record passkey last use");
+  }
+});
+
 export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
   const env = loadEnv();
   return {
@@ -68,7 +100,7 @@ export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
     // member can hold a password or a passkey and still never get a session.
     // Applies to every instance built here, the CLI variants included (they never register
     // passkeys: registration needs a browser ceremony).
-    hooks: { before: passkeyRegistrationGuard },
+    hooks: { before: passkeyRegistrationGuard, after: passkeyLastUsedStamp },
 
     databaseHooks: { session: { create: { before: async data => { if (!isActiveMember(getDb().db, data.userId)) throw new APIError("UNAUTHORIZED", { message: "Invalid username or password" }); return { data }; } } } },
 

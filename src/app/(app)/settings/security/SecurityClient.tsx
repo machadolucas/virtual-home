@@ -56,6 +56,8 @@ export interface PasskeyRow {
   synced: boolean;
   backedUp: boolean;
   createdLabel: string;
+  /** Last passkey sign-in; null when none has been recorded (the column is newer than the passkeys). */
+  lastUsedLabel: string | null;
 }
 
 export type SessionListState =
@@ -373,6 +375,7 @@ function PasskeyItem({ row }: { row: PasskeyRow }) {
     row.synced ? "synced" : "this device only",
     row.synced && !row.backedUp ? "not backed up" : null,
     `added ${row.createdLabel}`,
+    row.lastUsedLabel ? `last used ${row.lastUsedLabel}` : "no sign-in recorded yet",
   ].filter(Boolean);
 
   return (

@@ -82,7 +82,7 @@ pnpm vh-admin list-users                      # includes session and passkey cou
 pnpm vh-admin set-password <username>         # resets and revokes that user's sessions; keeps passkeys
 pnpm vh-admin revoke-sessions --all
 pnpm vh-admin prune-sessions                  # delete expired sessions and expired verification rows now
-pnpm vh-admin list-passkeys <username>        # name, provider, synced/device-bound, created
+pnpm vh-admin list-passkeys <username>        # name, provider, synced/device-bound, created, last used
 pnpm vh-admin remove-passkeys <username>      # deletes all of them; sessions are untouched
 pnpm vh-admin doctor                          # env, perms, integrity, migrations, passkeys, HA, launchd, disk
 ```

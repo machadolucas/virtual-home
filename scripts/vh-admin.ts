@@ -50,7 +50,7 @@ const USAGE = `Usage: pnpm vh-admin <command> [args]
   set-password <username>           reset a password and revoke that user's sessions (keeps passkeys)
   revoke-sessions <username|--all>  delete session rows
   prune-sessions                    delete expired session and verification (challenge/token) rows
-  list-passkeys <username>          one user's passkeys (name, provider, type, created)
+  list-passkeys <username>          one user's passkeys (name, provider, type, created, last used)
   remove-passkeys <username>        delete every passkey of one user (sessions are kept)
   ha-token-check                    GET \${HA_URL}/api/ with the configured token (status only)
   model-import <dir>                validate and install a house-model package
@@ -227,8 +227,8 @@ async function cmdListPasskeys(env: Env, username: string): Promise<void> {
       return;
     }
     console.log(
-      ["name", "provider", "type", "backed up", "created"]
-        .map((h, i) => h.padEnd([28, 26, 14, 11, 17][i] ?? 12))
+      ["name", "provider", "type", "backed up", "created", "last used"]
+        .map((h, i) => h.padEnd([28, 26, 14, 11, 18, 17][i] ?? 12))
         .join(""),
     );
     for (const row of rows) {
@@ -237,7 +237,8 @@ async function cmdListPasskeys(env: Env, username: string): Promise<void> {
           (row.provider ?? "unknown").padEnd(26) +
           (row.deviceType === "multiDevice" ? "synced" : "device-bound").padEnd(14) +
           (row.backedUp ? "yes" : "no").padEnd(11) +
-          stamp(row.createdAtMs),
+          stamp(row.createdAtMs).padEnd(18) +
+          (row.lastUsedAtMs === null ? "never recorded" : stamp(row.lastUsedAtMs)),
       );
     }
   } finally {

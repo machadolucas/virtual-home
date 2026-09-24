@@ -56,7 +56,10 @@ exact hostname of `VH_BASE_URL` — so only this app's passkeys are ever offered
   IDs are never shown.
 - **Sign-in** goes through `session.create.before`, the same hook as passwords, so an inactive or
   banned member's passkey is refused (generic 401) and mints no session. The signature counter is
-  checked, so a cloned authenticator with a stale counter is refused.
+  checked, so a cloned authenticator with a stale counter is refused. A successful passkey sign-in
+  stamps `passkey.lastUsedAt` (a `hooks.after` that requires the new session, so a refused sign-in
+  is not recorded as a use); Security and `vh-admin list-passkeys` show it, which makes a passkey
+  nobody recognises using easier to spot.
 - **Challenges** are `verification` rows with a 5-minute expiry and a signed cookie naming them.
   The login page requests one on every load (conditional UI), and only a completed ceremony
   consumes it, so expired ones are deleted hourly by the worker (`prune-sessions` on demand).

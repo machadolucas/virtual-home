@@ -92,6 +92,7 @@ test("register a passkey, sign in with it, rename it and delete it", async ({ br
     // Named by the server from the registering browser (the virtual authenticator's AAGUID is in
     // no provider map), e.g. "Chrome on Mac", or "Safari on iPhone" under the phone project's UA.
     await expect(list.getByRole("listitem").first()).toContainText(/ on |Passkey/);
+    await expect(list.getByRole("listitem").first()).toContainText("no sign-in recorded yet");
 
     // Signing out lands on /login, where conditional UI offers the passkey and the virtual
     // authenticator accepts it: the user is signed straight back in.
@@ -115,6 +116,8 @@ test("register a passkey, sign in with it, rename it and delete it", async ({ br
     // Rename.
     await other.goto("/settings/security");
     const item = other.getByRole("list", { name: "Your passkeys" }).getByRole("listitem").first();
+    // Both passkey sign-ins above are recorded as uses.
+    await expect(item).toContainText("last used");
     await item.getByRole("button", { name: /^Rename / }).click();
     await item.getByRole("textbox", { name: /^New name for / }).fill("E2E test key");
     await item.getByRole("button", { name: "Save" }).click();

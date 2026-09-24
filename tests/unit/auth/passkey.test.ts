@@ -15,7 +15,9 @@
  *    sign-in, not only passwords;
  *  - the CLI helpers list and remove passkeys, and a password reset keeps them;
  *  - only an owner can remove another member's passkeys, and that removal is audited;
- *  - every options call leaves a 5-minute challenge row, and pruning removes only expired ones.
+ *  - a passkey sign-in stamps `lastUsedAt`, a refused one does not;
+ *  - every options call leaves a 5-minute challenge row, and pruning removes only expired ones;
+ *  - a real registration ceremony with Apple's all-zero AAGUID is named from the user agent.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -217,6 +219,8 @@ describe("passkey sign-in", () => {
     expect(sessionCount(lucas)).toBe(1);
     const row = handle.db.select().from(passkey).where(eq(passkey.userId, lucas)).get();
     expect(row?.counter).toBe(1);
+    expect(row?.lastUsedAt).toBeInstanceOf(Date);
+    expect(Math.abs(Date.now() - row!.lastUsedAt!.getTime())).toBeLessThan(60_000);
   });
 
   it("refuses a deactivated member's passkey and mints no session", async () => {
@@ -230,11 +234,15 @@ describe("passkey sign-in", () => {
     expect(res.headers.getSetCookie().some((c) => c.startsWith("vh.session_token="))).toBe(false);
     expect(sessionCount(marja)).toBe(0);
     // Deactivation keeps the passkey: reactivating restores it without re-enrolment.
-    expect(handle.db.select().from(passkey).where(eq(passkey.userId, marja)).all()).toHaveLength(1);
+    const kept = handle.db.select().from(passkey).where(eq(passkey.userId, marja)).all();
+    expect(kept).toHaveLength(1);
+    // A valid signature that got no session is not a use.
+    expect(kept[0]?.lastUsedAt).toBeNull();
 
     writeTx(handle.db, (tx) => tx.update(memberAccess).set({ isActive: true }).where(eq(memberAccess.userId, marja)).run());
     expect((await passkeySignIn(key)).status).toBe(200);
     expect(sessionCount(marja)).toBe(1);
+    expect(handle.db.select().from(passkey).where(eq(passkey.userId, marja)).get()?.lastUsedAt).toBeInstanceOf(Date);
   });
 
   it("refuses a passkey the server does not know", async () => {
@@ -285,6 +293,8 @@ describe("provisioning helpers", () => {
     const rows = provisioning.listPasskeys("LUCAS");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ name: "Test key", provider: "iCloud Keychain", deviceType: "multiDevice", backedUp: true });
+    // Signed in with in the first test above.
+    expect(rows[0]?.lastUsedAtMs).toEqual(expect.any(Number));
     expect(JSON.stringify(rows)).not.toMatch(/publicKey|credentialID/);
     expect(provisioning.listUsers().find((u) => u.username === "lucas")?.passkeys).toBe(1);
   });
@@ -407,5 +417,104 @@ describe("challenge rows in verification", () => {
     // The sign-in consumed its own row; the abandoned one was pruned.
     expect(handle.db.select().from(verification).all()).toHaveLength(0);
     writeTx(handle.db, (tx) => tx.delete(passkey).where(eq(passkey.name, "Prune key")).run());
+  });
+});
+
+describe("registration ceremony with Apple's all-zero AAGUID", () => {
+  const ZERO_AAGUID = Buffer.alloc(16);
+  const IPHONE_SAFARI =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+
+  /** CBOR byte-string header for `length` bytes (major type 2). */
+  function cborBytesHeader(length: number): Buffer {
+    if (length < 24) return Buffer.from([0x40 + length]);
+    if (length < 256) return Buffer.from([0x58, length]);
+    return Buffer.from([0x59, length >> 8, length & 0xff]);
+  }
+
+  /** `{ fmt: "none", attStmt: {}, authData }` — what Safari sends under `attestation: "none"`. */
+  function noneAttestation(authData: Buffer): Buffer {
+    return Buffer.concat([
+      Buffer.from([0xa3, 0x63, ...Buffer.from("fmt"), 0x64, ...Buffer.from("none")]),
+      Buffer.from([0x67, ...Buffer.from("attStmt"), 0xa0]),
+      Buffer.from([0x68, ...Buffer.from("authData")]),
+      cborBytesHeader(authData.length),
+      authData,
+    ]);
+  }
+
+  it("names the passkey after the registering browser, and a sign-in with it stamps lastUsedAt", async () => {
+    await provisioning.createUser({ username: "ana", name: "Ana", password: PASSWORD });
+    const signedIn = await passwordSignIn("ana", PASSWORD);
+    expect(signedIn.status).toBe(200);
+    const sessionCookies = cookiesFrom(signedIn);
+
+    const optionsRes = await registerOptions(sessionCookies);
+    expect(optionsRes.status, await optionsRes.clone().text()).toBe(200);
+    const options = (await optionsRes.json()) as { challenge: string };
+
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const jwk = publicKey.export({ format: "jwk" });
+    const cose = coseEs256(Buffer.from(jwk.x!, "base64url"), Buffer.from(jwk.y!, "base64url"));
+    const credentialId = randomBytes(16);
+    const credentialIdLength = Buffer.alloc(2);
+    credentialIdLength.writeUInt16BE(credentialId.length);
+    const authData = Buffer.concat([
+      createHash("sha256").update(RP_ID).digest(),
+      Buffer.from([0x5d]), // UP | UV | backup-eligible | backed-up | attested credential data
+      Buffer.alloc(4), // counter 0
+      ZERO_AAGUID,
+      credentialIdLength,
+      credentialId,
+      cose,
+    ]);
+    const clientDataJSON = Buffer.from(
+      JSON.stringify({ type: "webauthn.create", challenge: options.challenge, origin: BASE, crossOrigin: false }),
+    );
+
+    const verified = await web.handler(
+      new Request(`${BASE}/api/auth/passkey/verify-registration`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: BASE,
+          "user-agent": IPHONE_SAFARI,
+          cookie: `${sessionCookies}; ${cookiesFrom(optionsRes)}`,
+          "x-forwarded-for": clientIp(),
+        },
+        body: JSON.stringify({
+          response: {
+            id: b64url(credentialId),
+            rawId: b64url(credentialId),
+            type: "public-key",
+            response: {
+              clientDataJSON: b64url(clientDataJSON),
+              attestationObject: b64url(noneAttestation(authData)),
+              transports: ["internal", "hybrid"],
+            },
+            clientExtensionResults: {},
+          },
+        }),
+      }),
+    );
+    expect(verified.status, await verified.clone().text()).toBe(200);
+
+    const ana = userId("ana");
+    const stored = handle.db.select().from(passkey).where(eq(passkey.userId, ana)).all();
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({
+      name: "Safari on iPhone",
+      aaguid: "00000000-0000-0000-0000-000000000000",
+      deviceType: "multiDevice",
+      backedUp: true,
+      lastUsedAt: null,
+    });
+    expect(provisioning.listPasskeys("ana")[0]).toMatchObject({ provider: null, lastUsedAtMs: null });
+
+    const signIn = await passkeySignIn({ credentialId, privateKey, counter: 0 });
+    expect(signIn.status, await signIn.clone().text()).toBe(200);
+    const after = handle.db.select().from(passkey).where(eq(passkey.userId, ana)).get();
+    expect(after?.lastUsedAt).toBeInstanceOf(Date);
+    expect(provisioning.listPasskeys("ana")[0]?.lastUsedAtMs).toEqual(after!.lastUsedAt!.getTime());
   });
 });

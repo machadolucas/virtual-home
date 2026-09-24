@@ -63,6 +63,7 @@ function loadPasskeys(userId: string): PasskeyRow[] {
       synced: row.deviceType === "multiDevice",
       backedUp: row.backedUp,
       createdLabel: formatInstant(row.createdAt ? row.createdAt.getTime() : null),
+      lastUsedLabel: row.lastUsedAt ? formatInstant(row.lastUsedAt.getTime()) : null,
     }));
 }
 

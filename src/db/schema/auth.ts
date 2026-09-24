@@ -117,6 +117,11 @@ export const verification = sqliteTable(
  * cascades. `publicKey` is the COSE public key (base64) — not a secret, but never shown in the UI.
  * `credentialID` is indexed rather than unique because that is what the plugin's schema declares.
  * `createdAt` has no SQL default because the plugin's schema gives it none and always writes it.
+ *
+ * `lastUsedAt` is **ours**, not the plugin's: the adapter never reads or writes it (it maps only
+ * the fields the plugin declares). The `hooks.after` on `/passkey/verify-authentication` in
+ * `src/server/auth/auth.ts` stamps it once a passkey sign-in has actually minted a session. Null
+ * means no sign-in has been recorded — including every sign-in before migration 0017 added it.
  */
 export const passkey = sqliteTable(
   "passkey",
@@ -134,6 +139,8 @@ export const passkey = sqliteTable(
     transports: text("transports"),
     createdAt: integer("createdAt", { mode: "timestamp_ms" }),
     aaguid: text("aaguid"),
+    // Not in the plugin schema — see above.
+    lastUsedAt: integer("lastUsedAt", { mode: "timestamp_ms" }),
   },
   (t) => [
     index("passkey_userId_idx").on(t.userId),

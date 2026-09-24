@@ -299,6 +299,8 @@ export interface PasskeyInfo {
   deviceType: string;
   backedUp: boolean;
   createdAtMs: number | null;
+  /** Last passkey sign-in (`passkey.lastUsedAt`); null when none has been recorded. */
+  lastUsedAtMs: number | null;
 }
 
 /**
@@ -322,6 +324,7 @@ export function listPasskeys(target: string): PasskeyInfo[] {
       deviceType: key.deviceType,
       backedUp: key.backedUp,
       createdAtMs: key.createdAt ? key.createdAt.getTime() : null,
+      lastUsedAtMs: key.lastUsedAt ? key.lastUsedAt.getTime() : null,
     }));
 }
 
