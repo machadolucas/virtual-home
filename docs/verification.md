@@ -297,7 +297,9 @@ both have WebGL 2, and nothing needs Home Assistant. The failures were stale spe
 - **Environment gates** (skip with a grep-able reason, opt-in to assert): WebGL 2 probe for every
   House spec (`VH_E2E_REQUIRE_WEBGL=1`); WebKit offline service-worker navigation in `pwa.spec.ts`
   (`VH_E2E_WEBKIT_OFFLINE=1`). See `tests/e2e/README.md` → Environment-gated specs.
-- **App defect found, not fixed here:** Better Auth's `revokeOtherSessions` revokes at most 100
-  sessions (`findMany`'s default `defaultFindManyLimit`), so a newer device survives "Sign out other
-  devices" once a user has more than 100 session rows. Worked around in `auth.spec.ts`; the fix
-  belongs in `src/server/auth/auth.ts`.
+- **App defect found and fixed:** Better Auth's `revokeOtherSessions` revoked at most 100 sessions
+  (`listSessions` → `findMany` with the default `defaultFindManyLimit`), so a newer device survived
+  "Sign out other devices" once a user had more than 100 session rows. An after-hook in
+  `buildAuthOptions()` now deletes the rest by `userId`; `tests/unit/auth/revoke-other-sessions.test.ts`
+  covers 152 sessions (53 survived without the fix), and `auth.spec.ts` exercises it in the browser
+  once the shared e2e database passes 100 sessions.

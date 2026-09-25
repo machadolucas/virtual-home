@@ -5,7 +5,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, username } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { passkey } from "@better-auth/passkey";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { getDb, writeTx } from "@/db/client";
 import * as schema from "@/db/schema";
 import { loadEnv } from "@/env";
@@ -67,7 +67,9 @@ const PASSKEY_VERIFY_AUTHENTICATION_PATH = "/passkey/verify-authentication";
  * session's user (`credentialID` is indexed, not unique). A failed stamp is logged and never fails
  * the sign-in.
  */
-const passkeyLastUsedStamp = createAuthMiddleware(async (ctx) => {
+type AuthHookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
+
+async function stampPasskeyLastUsed(ctx: AuthHookContext): Promise<void> {
   if (ctx.path !== PASSKEY_VERIFY_AUTHENTICATION_PATH) return;
   const userId = ctx.context.newSession?.user.id;
   const credentialId: unknown = (ctx.body as { response?: { id?: unknown } } | undefined)?.response?.id;
@@ -83,6 +85,37 @@ const passkeyLastUsedStamp = createAuthMiddleware(async (ctx) => {
   } catch (err) {
     log.warn({ err, userId }, "could not record passkey last use");
   }
+}
+
+const REVOKE_OTHER_SESSIONS_PATH = "/revoke-other-sessions";
+
+/**
+ * Finish "Sign out other devices" for users with more than 100 sessions.
+ *
+ * Better Auth 1.7.5's `revokeOtherSessions` finds the sessions to delete with `listSessions`, which
+ * goes through the adapter's `findMany` without a limit — so the default
+ * `advanced.database.defaultFindManyLimit` of 100 applies and any session beyond the first 100 rows
+ * survives, typically the newest device. Raising that limit globally would change every other
+ * `findMany`; instead, once the endpoint has succeeded, delete the user's remaining sessions except
+ * the one making the request, by `userId` in one statement. There is no secondary session storage
+ * here, so the table is the whole truth.
+ */
+async function finishRevokeOtherSessions(ctx: AuthHookContext): Promise<void> {
+  if (ctx.path !== REVOKE_OTHER_SESSIONS_PATH) return;
+  if (ctx.context.returned instanceof APIError) return;
+  const current = await getSessionFromCtx(ctx, { disableCookieCache: true });
+  if (!current) return;
+  writeTx(getDb().db, (tx) =>
+    tx
+      .delete(schema.session)
+      .where(and(eq(schema.session.userId, current.user.id), ne(schema.session.token, current.session.token)))
+      .run(),
+  );
+}
+
+const afterAuthEndpoint = createAuthMiddleware(async (ctx) => {
+  await stampPasskeyLastUsed(ctx);
+  await finishRevokeOtherSessions(ctx);
 });
 
 export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
@@ -100,7 +133,7 @@ export function buildAuthOptions(variant: AuthVariant = {}): BetterAuthOptions {
     // member can hold a password or a passkey and still never get a session.
     // Applies to every instance built here, the CLI variants included (they never register
     // passkeys: registration needs a browser ceremony).
-    hooks: { before: passkeyRegistrationGuard, after: passkeyLastUsedStamp },
+    hooks: { before: passkeyRegistrationGuard, after: afterAuthEndpoint },
 
     databaseHooks: { session: { create: { before: async data => { if (!isActiveMember(getDb().db, data.userId)) throw new APIError("UNAUTHORIZED", { message: "Invalid username or password" }); return { data }; } } } },
 

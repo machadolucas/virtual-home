@@ -24,6 +24,9 @@ Better Auth username + password (min 12 chars), no public sign-up, no email. 30-
 `sameSite=lax`, `httpOnly`, Secure iff https base URL, 60 s cookie cache (fresh check for security
 pages and destructive actions). Login rate limit 5/min per IP (`x-forwarded-for` from Caddy; app is
 loopback-bound). Recovery: `pnpm vh-admin set-password <user>` on the server.
+"Sign out other devices" (`/revoke-other-sessions`) deletes **every** other session of the user:
+Better Auth 1.7.5 alone stops at its 100-row `findMany` default, so a `hooks.after` in
+`buildAuthOptions` removes the remainder by `userId` once the endpoint succeeds.
 
 ## Passkeys
 `@better-auth/passkey` (pinned with `better-auth`) adds WebAuthn passkeys **alongside** the password;
