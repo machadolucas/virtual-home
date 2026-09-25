@@ -90,6 +90,30 @@ export function nextClientIp(): string {
   return `10.${randomInt(64, 128)}.${randomInt(0, 256)}.${randomInt(1, 255)}`;
 }
 
+export type E2eBrowser = "chromium" | "webkit";
+
+/**
+ * The browser engines this run may launch: `VH_E2E_BROWSERS`, a comma-separated list of
+ * `chromium` and/or `webkit` (default: both). `playwright.config.ts` drops the projects of any
+ * engine not listed, and specs that launch an engine of their own (route-audit's WebKit phone
+ * audit) skip that part. `VH_E2E_BROWSERS=chromium` is how the suite runs on a memory-constrained
+ * host, where Playwright's WebKit with WebGL is the heaviest thing in the run.
+ */
+export function e2eBrowsers(): ReadonlySet<E2eBrowser> {
+  const raw = (process.env["VH_E2E_BROWSERS"] ?? "").trim().toLowerCase();
+  if (raw === "" || raw === "all") return new Set<E2eBrowser>(["chromium", "webkit"]);
+  const picked = raw.split(",").map((part) => part.trim()).filter(Boolean);
+  for (const name of picked) {
+    if (name !== "chromium" && name !== "webkit") {
+      throw new Error(`VH_E2E_BROWSERS: unknown browser "${name}" (use chromium, webkit or all)`);
+    }
+  }
+  return new Set(picked as E2eBrowser[]);
+}
+
+/** The skip reason when a spec would launch an engine `VH_E2E_BROWSERS` excludes; grep for it. */
+export const BROWSER_EXCLUDED = "browser engine excluded by VH_E2E_BROWSERS";
+
 /** Where `start-server.ts` put the app; the same expression `playwright.config.ts` uses. */
 export function e2eBaseUrl(): string {
   return `http://localhost:${Number(process.env["VH_E2E_PORT"] ?? 3011)}`;

@@ -294,6 +294,9 @@ both have WebGL 2, and nothing needs Home Assistant. The failures were stale spe
   bucket; a controlling service worker hid WebKit fetches from `page.route()`; dismissed View
   popovers were still "visible" while animating out; drags started on room-label buttons; WebKit
   commits client navigations late (route-audit); 80-light batching needs >2 min on SwiftShader.
+- **Engine selection:** `VH_E2E_BROWSERS=chromium` runs only the Chromium projects and skips
+  route-audit's own WebKit launch. It is the way to run the suite on a memory-constrained host:
+  WebKit runs took a 16 GB host from 0 to 8 GB of swap within an hour and brought it down.
 - **Environment gates** (skip with a grep-able reason, opt-in to assert): WebGL 2 probe for every
   House spec (`VH_E2E_REQUIRE_WEBGL=1`); WebKit offline service-worker navigation in `pwa.spec.ts`
   (`VH_E2E_WEBKIT_OFFLINE=1`). See `tests/e2e/README.md` → Environment-gated specs.

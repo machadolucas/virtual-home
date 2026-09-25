@@ -1,5 +1,5 @@
 import { expect, test, webkit, type Page, type BrowserContextOptions } from "@playwright/test";
-import { login, nextClientIp, e2eBaseUrl } from "./fixtures";
+import { BROWSER_EXCLUDED, e2eBaseUrl, e2eBrowsers, login, nextClientIp } from "./fixtures";
 
 const STATIC_ROUTES = [
   "/today", "/house", "/equipment", "/equipment/new", "/equipment/systems",
@@ -150,6 +150,8 @@ const surfaces: { name: string; engine?: "webkit"; context: BrowserContextOption
   { name: "webkit-phone", engine: "webkit", context: { colorScheme: "dark", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
 ];
 for (const surface of surfaces) test(`route/layout audit: ${surface.name}`, async ({ browser }, info) => {
+  // This audit launches its own WebKit browser whatever the project, so it honours the engine knob.
+  test.skip(surface.engine === "webkit" && !e2eBrowsers().has("webkit"), BROWSER_EXCLUDED);
   test.setTimeout(240000);
   const ownedBrowser = surface.engine === "webkit" ? await webkit.launch() : null;
   const context = await (ownedBrowser ?? browser).newContext({ ...surface.context, baseURL: e2eBaseUrl(), extraHTTPHeaders: { "x-forwarded-for": nextClientIp() } });

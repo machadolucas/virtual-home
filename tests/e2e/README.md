@@ -39,6 +39,7 @@ grep-able reason instead of failing, and each has an opt-in to assert anyway:
 | WebGL 2 | every House spec, via `openHouse()` / `openHouseSession()` (`requireWebGL()` in `helpers/house.ts`) | the browser cannot create a `webgl2` context (a container with no GPU and no software rasteriser) | `needs WebGL 2 in the test browser` | `VH_E2E_REQUIRE_WEBGL=1` fails instead of skipping |
 | Offline service-worker navigation | `pwa.spec.ts` › "offline, a household page falls back…" | on WebKit, `page.goto()` under `context.setOffline(true)` fails with "WebKit encountered an internal error" (Playwright's WebKit harness, not Safari); the navigation itself is the probe | `needs service-worker offline navigation` | `VH_E2E_WEBKIT_OFFLINE=1` asserts on WebKit too |
 | Real model package | `house-real.spec.ts` | `VH_REAL_MODEL_DIR` is unset | (described below) | set `VH_REAL_MODEL_DIR` |
+| Browser engines | `playwright.config.ts` projects; route-audit's WebKit phone audit | `VH_E2E_BROWSERS` does not list the engine | `browser engine excluded by VH_E2E_BROWSERS` | `VH_E2E_BROWSERS=all` (the default) |
 
 Headless Chromium and Playwright's WebKit both have WebGL 2 on the Mac mini, so no House spec is
 skipped there for rendering. Nothing needs a Home Assistant connection: the harness blanks
@@ -72,21 +73,24 @@ it cannot stage marked individually.
 
 ### Running on a shared 16 GB home server
 
-Run one project at a time and serialise with any other heavy job on the host; a full four-project
-run on top of the server's other services pushed a 16 GB host into swap. Reuse the build between
-projects:
+Playwright's WebKit with WebGL is by far the heaviest part of the suite. On a 16 GB host that also
+runs other services, WebKit runs pushed swap from 0 to 8 GB within an hour and took the host down,
+so run **Chromium only** there, one worker (the config's default), serialised with any other heavy
+job:
 
 ```bash
-pnpm exec playwright test --project=desktop              # builds .next-e2e once
-VH_E2E_SKIP_BUILD=1 pnpm exec playwright test --project=webkit
-VH_E2E_SKIP_BUILD=1 pnpm exec playwright test --project=phone
-VH_E2E_SKIP_BUILD=1 pnpm exec playwright test --project=phone-webkit
+VH_E2E_BROWSERS=chromium pnpm test:e2e      # desktop + phone projects; no WebKit is launched
 ```
 
-Headless Chromium renders WebGL with SwiftShader by default (software), WebKit uses the GPU, so
-shader-heavy specs are several times slower on the Chromium projects; `isSoftwareWebGL()` lets a
-spec size its budget from the renderer instead of the project name. `route-audit.spec.ts` is the
-heaviest file (each project runs four layout audits, one in its own WebKit browser).
+`VH_E2E_BROWSERS` is a comma-separated list of `chromium` and/or `webkit` (default `all`: every
+project). It drops the projects of engines not listed, and `route-audit.spec.ts`'s
+`webkit-phone` layout audit — which launches its own WebKit browser inside any project — skips with
+`browser engine excluded by VH_E2E_BROWSERS`. Run the WebKit projects on a machine with memory to
+spare (`VH_E2E_BROWSERS=webkit`, or the default).
+
+Headless Chromium renders WebGL with SwiftShader (software), so shader-heavy specs are slower there
+than on WebKit's GPU path; `isSoftwareWebGL()` lets a spec size its budget from the renderer instead
+of the project name.
 
 ## Running
 
