@@ -7,7 +7,6 @@ import {
   Cloud,
   FingerprintPattern,
   Laptop,
-  LogOut,
   Monitor,
   Pencil,
   Plus,
@@ -60,10 +59,14 @@ export interface PasskeyRow {
   lastUsedLabel: string | null;
 }
 
-export type SessionListState =
-  | { kind: "ok"; sessions: readonly SessionRow[] }
-  | { kind: "not-fresh" }
-  | { kind: "failed" };
+/** `sessions` is every active session: the current device first, then newest first. */
+export type SessionListState = { kind: "ok"; sessions: readonly SessionRow[] } | { kind: "failed" };
+
+/**
+ * Rows shown before "Show all". A household has a handful of devices; a list past this is almost
+ * always stale browser sessions, and "Sign out others" reaches every one of them either way.
+ */
+export const SESSIONS_SHOWN_INITIALLY = 20;
 
 const MIN_PASSWORD_LENGTH = 12;
 
@@ -489,6 +492,7 @@ function Sessions({ list }: { list: SessionListState }) {
   const router = useRouter();
   const [pending, setPending] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   async function revoke(row: SessionRow) {
     setPending(row.id);
@@ -514,27 +518,6 @@ function Sessions({ list }: { list: SessionListState }) {
     router.refresh();
   }
 
-  if (list.kind === "not-fresh") {
-    return (
-      <Panel title="Signed-in devices">
-        <EmptyState
-          icon={<LogOut />}
-          title="Sign in again to see your devices"
-          description="The device list is only released to a session that authenticated in the last few minutes, so a borrowed browser tab cannot enumerate where you are signed in."
-          bullets={[
-            "Signing out and back in takes a moment and unlocks the list.",
-            "You can still sign every other device out without the list — the button below does not need a fresh session.",
-          ]}
-          actions={
-            <Button variant="danger" loading={bulkBusy} onClick={revokeOthers}>
-              Sign out all other devices
-            </Button>
-          }
-        />
-      </Panel>
-    );
-  }
-
   if (list.kind === "failed") {
     return (
       <Panel title="Signed-in devices">
@@ -552,12 +535,17 @@ function Sessions({ list }: { list: SessionListState }) {
     );
   }
 
+  const total = list.sessions.length;
   const others = list.sessions.filter((row) => !row.current);
+  const shown = showAll ? list.sessions : list.sessions.slice(0, SESSIONS_SHOWN_INITIALLY);
+  const hidden = total - shown.length;
 
   return (
     <Panel
       title="Signed-in devices"
-      subtitle="Every active session for your account. Revoking one takes effect within a minute."
+      subtitle={`${total} active ${total === 1 ? "session" : "sessions"} for your account${
+        hidden > 0 ? `, newest ${shown.length} shown` : ""
+      }. Revoking one takes effect within a minute.`}
       actions={
         others.length > 0 ? (
           <Button variant="danger" size="sm" loading={bulkBusy} onClick={revokeOthers}>
@@ -568,7 +556,7 @@ function Sessions({ list }: { list: SessionListState }) {
       flush
     >
       <ul className="flex list-none flex-col">
-        {list.sessions.map((row) => {
+        {shown.map((row) => {
           const Icon = FORM_ICON[row.device.form];
           return (
             <li
@@ -618,6 +606,13 @@ function Sessions({ list }: { list: SessionListState }) {
           );
         })}
       </ul>
+      {hidden > 0 ? (
+        <div className="border-t border-line px-4 py-3">
+          <Button variant="secondary" size="sm" onClick={() => setShowAll(true)}>
+            Show all {total} sessions
+          </Button>
+        </div>
+      ) : null}
     </Panel>
   );
 }

@@ -146,6 +146,9 @@ test("signing out other devices ends the other browser's session", async ({ brow
 
     await pageA.goto("/settings/security");
     await expect(pageA.getByRole("heading", { name: "Security", level: 1 })).toBeVisible();
+    // The list reads every session, so the device in hand is on it even past 100 rows (Better
+    // Auth's own listSessions stopped at the first 100 and usually left it out).
+    await expect(pageA.getByText("This device", { exact: true })).toBeVisible();
     await pageA.getByRole("button", { name: /Sign out (all )?other/ }).click();
     await expect(pageA.getByText("Other devices signed out")).toBeVisible();
 
@@ -173,6 +176,7 @@ test("signing out other devices ends the other browser's session", async ({ brow
     // The revoking device stays signed in — that is the whole point of "others".
     await pageA.reload();
     await expect(pageA.getByRole("heading", { name: "Security", level: 1 })).toBeVisible();
+    await expect(pageA.getByText(/^1 active session for your account\./)).toBeVisible();
   } finally {
     await first.close();
     await second.close();

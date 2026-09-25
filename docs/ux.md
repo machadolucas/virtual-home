@@ -319,11 +319,15 @@ returns to this page), renames inline and deletes behind a
 confirmation that notes signed-in devices stay signed in. Owners remove *another* member's passkeys
 from Settings → Users → Manage member ("Remove passkeys", two-step).
 
-Better Auth puts `/list-sessions` behind its fresh-session middleware (`freshAge` is 10 minutes), so
-an ordinary long-lived session gets `403 SESSION_NOT_FRESH` instead of a list. That is a normal
-state for this page, not an error: it renders an explanation and still offers "sign out all other
-devices", which does not require freshness. Password change and single-session revoke work from any
-valid session.
+Signed-in devices lists **every** active session of the user (unexpired, impersonations hidden),
+this device first and then newest first, with the total in the panel subtitle. The first 20 rows
+are shown with a "Show all N sessions" button below them; "Sign out others" reaches every session
+whether or not it is shown. The list is read from the `session` table
+(`src/server/queries/settings/sessions.ts`), not Better Auth's `/list-sessions`: in 1.7.5 that
+endpoint stops at the adapter's 100-row `findMany` default, so a user with more sessions saw only
+the oldest 100, usually without the device in hand. `freshAge` is 0, so there is no "not fresh"
+state to render; the page's own fresh `getSession` read is the gate. Password change and
+single-session revoke work from any valid session.
 
 ## 10. Maintenance screens
 

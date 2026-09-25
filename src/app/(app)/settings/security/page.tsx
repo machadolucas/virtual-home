@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { passkey } from "@/db/schema";
 import { passkeyProviderName } from "@/domain/passkeyProviders";
-import { getAuth } from "@/server/auth/auth";
 import { getFreshSession, requireSessionPage } from "@/server/auth/session";
+import { log } from "@/server/log";
+import { listActiveSessions } from "@/server/queries/settings/sessions";
 import { loadEnv } from "@/env";
 import { PageHeader } from "@/ui/shell";
 import { describeDevice } from "@/domain/deviceLabel";
-import { SecurityClient, type PasskeyRow, type SessionListState, type SessionRow } from "./SecurityClient";
+import { SecurityClient, type PasskeyRow, type SessionListState } from "./SecurityClient";
 
 export const metadata: Metadata = { title: "Security" };
 
@@ -25,7 +25,7 @@ export default async function SecuritySettingsPage() {
   const session = await getFreshSession();
   if (!session) redirect(`/login?next=${encodeURIComponent(SELF)}`);
 
-  const list = await loadSessions(session.session.token);
+  const list = loadSessions(session.user.id, session.session.token);
   const passkeys = loadPasskeys(session.user.id);
 
   return (
@@ -67,72 +67,28 @@ function loadPasskeys(userId: string): PasskeyRow[] {
     }));
 }
 
-async function loadSessions(currentToken: string): Promise<SessionListState> {
-  const requestHeaders = await headers();
+/**
+ * Every active session of the signed-in user, read from our `session` table. Not Better Auth's
+ * `listSessions`: in 1.7.5 it stops at the adapter's 100-row `findMany` default, so a user with
+ * more sessions saw the oldest 100 and usually not the device in hand (see `listActiveSessions`).
+ */
+function loadSessions(userId: string, currentToken: string): SessionListState {
   try {
-    const result = await getAuth().api.listSessions({ headers: requestHeaders });
-    const rows = toArray(result)
-      .map((entry) => toRow(entry, currentToken))
-      .filter((row): row is RowWithSort => row !== null)
-      // Current device first, then most recently created.
-      .sort((a, b) => Number(b.current) - Number(a.current) || b.createdMs - a.createdMs);
+    const rows = listActiveSessions(getDb().db, userId, currentToken, Date.now()).map((row) => ({
+      id: row.id,
+      token: row.token,
+      device: describeDevice(row.userAgent),
+      userAgent: row.userAgent,
+      ipAddress: row.ipAddress,
+      createdLabel: formatInstant(row.createdMs),
+      expiresLabel: formatInstant(row.expiresMs),
+      current: row.current,
+    }));
     return { kind: "ok", sessions: rows };
-  } catch (error) {
-    return { kind: isNotFresh(error) ? "not-fresh" : "failed" };
+  } catch (err) {
+    log.warn({ err, userId }, "could not read the session list");
+    return { kind: "failed" };
   }
-}
-
-/** `listSessions` returns an array; tolerate a `{ sessions: [] }` envelope. */
-function toArray(result: unknown): readonly unknown[] {
-  if (Array.isArray(result)) return result;
-  if (result && typeof result === "object") {
-    const nested = (result as Record<string, unknown>)["sessions"];
-    if (Array.isArray(nested)) return nested;
-  }
-  return [];
-}
-
-interface RowWithSort extends SessionRow {
-  createdMs: number;
-}
-
-function toRow(entry: unknown, currentToken: string): RowWithSort | null {
-  if (!entry || typeof entry !== "object") return null;
-  const record = entry as Record<string, unknown>;
-  const token = str(record["token"]);
-  const id = str(record["id"]) ?? token;
-  if (!token || !id) return null;
-
-  const userAgent = str(record["userAgent"]);
-  const createdMs = ms(record["createdAt"]);
-  const expiresMs = ms(record["expiresAt"]);
-
-  return {
-    id,
-    token,
-    device: describeDevice(userAgent),
-    userAgent,
-    ipAddress: str(record["ipAddress"]),
-    createdLabel: formatInstant(createdMs),
-    expiresLabel: formatInstant(expiresMs),
-    current: token === currentToken,
-    createdMs: createdMs ?? 0,
-  };
-}
-
-function str(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-/** Instants are epoch milliseconds everywhere in this app (CLAUDE.md rule 4). */
-function ms(value: unknown): number | null {
-  if (value instanceof Date) return value.getTime();
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Date.parse(value);
-    return Number.isNaN(parsed) ? null : parsed;
-  }
-  return null;
 }
 
 /** Household-local wall clock, so "signed in 21:40" means what the user saw. */
@@ -143,22 +99,4 @@ function formatInstant(value: number | null): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
-}
-
-/**
- * `/list-sessions` is behind Better Auth's fresh-session middleware, so an
- * ordinary long-lived session gets 403 SESSION_NOT_FRESH rather than a list.
- * That is a normal state for this page, not an error to log.
- */
-function isNotFresh(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const record = error as Record<string, unknown>;
-  if (record["status"] === "FORBIDDEN" || record["statusCode"] === 403) return true;
-  const body = record["body"];
-  if (body && typeof body === "object") {
-    const code = (body as Record<string, unknown>)["code"];
-    if (typeof code === "string" && code.includes("FRESH")) return true;
-  }
-  const message = record["message"];
-  return typeof message === "string" && /fresh/i.test(message);
 }

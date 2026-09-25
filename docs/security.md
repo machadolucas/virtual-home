@@ -27,6 +27,8 @@ loopback-bound). Recovery: `pnpm vh-admin set-password <user>` on the server.
 "Sign out other devices" (`/revoke-other-sessions`) deletes **every** other session of the user:
 Better Auth 1.7.5 alone stops at its 100-row `findMany` default, so a `hooks.after` in
 `buildAuthOptions` removes the remainder by `userId` once the endpoint succeeds.
+Settings → Security lists the sessions from the `session` table (`listActiveSessions`), not
+`/list-sessions`, for the same reason: that endpoint shows at most 100.
 
 ## Passkeys
 `@better-auth/passkey` (pinned with `better-auth`) adds WebAuthn passkeys **alongside** the password;
