@@ -69,8 +69,22 @@ test("bulk import readings, link primary, and remove equipment for reimport", as
 
   await page.goto("/equipment");
   const sections = page.getByRole("navigation", { name: "Sections", exact: true }).filter({ visible: true });
-  for (const label of ["Equipment", "Projects", "Plans", "Procedures", "Shopping list"]) {
-    await expect(sections.getByRole("link", { name: label, exact: true })).toBeAttached();
+  if (testInfo.project.use.isMobile) {
+    // The phone tab bar keeps four destinations and moves the rest behind "More sections".
+    for (const label of ["Equipment", "Shopping list"]) {
+      await expect(sections.getByRole("link", { name: label, exact: true })).toBeAttached();
+    }
+    await sections.getByRole("button", { name: "More sections", exact: true }).click();
+    const all = page.getByRole("dialog", { name: "All sections", exact: true });
+    for (const label of ["Projects", "Plans", "Procedures"]) {
+      await expect(all.getByRole("link", { name: label, exact: true })).toBeVisible();
+    }
+    await page.keyboard.press("Escape");
+    await expect(all).toBeHidden();
+  } else {
+    for (const label of ["Equipment", "Projects", "Plans", "Procedures", "Shopping list"]) {
+      await expect(sections.getByRole("link", { name: label, exact: true })).toBeAttached();
+    }
   }
   const dialog = page.getByRole("dialog");
   await page.getByRole("searchbox", { name: "Filter equipment" }).fill(name);

@@ -414,7 +414,22 @@ export async function openViewSection(page: Page, section: ViewSection): Promise
   // popover carries this aria-label; the phone sheet is kept mounted and is named by its title.)
   await expect(page.locator('[aria-label="View settings"][data-state="closed"]')).toHaveCount(0);
   const summary = page.locator("summary:visible").filter({hasText:new RegExp(`^${section}$`)});
-  if (!await summary.isVisible()) await page.getByRole("button", {name:"View",exact:true}).click();
+  if (!await summary.isVisible()) {
+    const houseTools = page.getByRole("navigation", { name: "House tools", exact: true });
+    // Detected by test id, not role: a modal sheet marks the rest of the page aria-hidden, which
+    // takes the tool bar out of the accessibility tree while it is still on screen.
+    if (await page.getByTestId("vh-phone-workspace").isVisible()) {
+      // Phone: View is a bottom sheet, and a selection opens the modal "Selected item" sheet over
+      // the tool bar, so close whatever sheet is up before pressing the bar's View button.
+      for (let i = 0; i < 3 && (await page.getByRole("dialog").filter({ visible: true }).count()) > 0; i++) {
+        await page.keyboard.press("Escape");
+      }
+      await expect(page.getByRole("dialog").filter({ visible: true })).toHaveCount(0);
+      await houseTools.getByRole("button", { name: "View", exact: true }).click();
+    } else {
+      await page.getByRole("button", {name:"View",exact:true}).click();
+    }
+  }
   const details = summary.locator("..");
   if (await details.getAttribute("open") === null) await summary.click();
 }

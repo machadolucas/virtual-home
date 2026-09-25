@@ -29,13 +29,16 @@ test("furniture catalog creates, edits, reloads, cancels and controls the layer"
     await expect.poll(async () => page.evaluate(() => window.__vh!.furnishings().find((item) => item.preview)?.size))
       .toEqual([1.2, 0.8, 0.7]);
     if (phone) {
-      const form = page.getByRole("heading", { name: "Add furniture", exact: true }).locator("../..");
-      const clearance = await form.evaluate((element) => {
-        const next = element.nextElementSibling;
-        return next ? next.getBoundingClientRect().top - element.getBoundingClientRect().bottom : null;
-      });
-      expect(clearance).not.toBeNull();
-      expect(clearance!).toBeGreaterThanOrEqual(0);
+      // In the phone's Browse sheet the form's Save must be reachable: on screen and not covered by
+      // the sheet chrome or the tab bar. (The old check measured the gap to a sibling panel that the
+      // scoped browser no longer renders next to the form.)
+      const save = page.getByRole("button", { name: "Save", exact: true });
+      await save.scrollIntoViewIfNeeded();
+      expect(await save.evaluate((button) => {
+        const box = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        return box.bottom <= window.innerHeight && !!hit && button.contains(hit);
+      })).toBe(true);
     }
     await testInfo.attach("furniture-editor", { body: await page.screenshot(), contentType: "image/png" });
     await page.getByRole("button", { name: "Save", exact: true }).click();

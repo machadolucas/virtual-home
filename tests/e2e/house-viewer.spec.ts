@@ -3,8 +3,11 @@ import sharp from "sharp";
 import { openHouseSession, openRenderingCategory, openViewSection, vh, waitForStableFrames, idleFrames } from "./helpers/house";
 
 async function imageDownload(page: Page): Promise<Buffer> {
+  // On phones the button lives in the View sheet rather than on the canvas.
+  const button = page.getByRole("button", { name: "Download image", exact: true }).filter({ visible: true });
+  if ((await button.count()) === 0) await openViewSection(page, "Visibility");
   const downloaded = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download image", exact: true }).click();
+  await button.click();
   const download = await downloaded;
   expect(download.suggestedFilename()).toMatch(/^house-view-.*\.png$/);
   expect(await download.failure()).toBeNull();
