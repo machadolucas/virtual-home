@@ -87,8 +87,47 @@ test("the tablet PWA installs a public shell without caching household pages", a
       ).toBe(true);
     }
 
+  } finally {
+    await context.close();
+  }
+});
+
+/**
+ * Whether this browser can deliver a service-worker response to a navigation while Playwright's
+ * offline emulation is on. Chromium can. Playwright's WebKit cannot: the worker is installed and
+ * controls the page (the test above proves it), but `page.goto()` under `setOffline(true)` fails
+ * with "WebKit encountered an internal error" before the worker's fallback is used, and the page
+ * stays where it was. That is the harness, not Safari — so the offline fallback is asserted where
+ * the harness supports it and skipped, with this reason, where that exact failure occurs.
+ */
+const OFFLINE_SW_SKIP =
+  "needs service-worker offline navigation, which Playwright's WebKit offline emulation cannot deliver — set VH_E2E_WEBKIT_OFFLINE=1 to assert it anyway";
+
+test("offline, a household page falls back to the public offline document", async ({ browser, browserName }) => {
+  const context = await openContext(browser);
+  const page = await context.newPage();
+  try {
+    await login(page, "lucas");
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.ready;
+    });
+    await expect
+      .poll(() => page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? null))
+      .toContain("/sw.js");
+    // The install step precaches the offline document; wait for it rather than racing it.
+    await expect.poll(() => page.evaluate(() => caches.match("/offline.html").then(Boolean))).toBe(true);
+
     await context.setOffline(true);
-    await page.goto("/house", { waitUntil: "domcontentloaded" });
+    // The navigation is its own capability probe: only the known WebKit-harness failure is skipped,
+    // so a Playwright release that fixes it starts asserting again without a code change.
+    const failed = await page.goto("/house", { waitUntil: "domcontentloaded" }).then(() => null, (error: Error) => error);
+    if (failed) {
+      test.skip(
+        browserName === "webkit" && /internal error/i.test(failed.message) && process.env["VH_E2E_WEBKIT_OFFLINE"] !== "1",
+        OFFLINE_SW_SKIP,
+      );
+      throw failed;
+    }
     await expect(page.getByRole("heading", { name: "Connection required", level: 1 })).toBeVisible();
     await expect(page.getByText(/keeps household information on the home server/)).toBeVisible();
     expect(await page.evaluate(() => caches.match("/house").then(Boolean))).toBe(false);
