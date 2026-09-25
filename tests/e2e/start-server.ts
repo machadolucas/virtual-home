@@ -339,17 +339,39 @@ function cleanup(): void {
   if (dataDir) fs.rmSync(dataDir, { recursive: true, force: true });
 }
 
+/**
+ * Checkouts the production web service runs from: the gui LaunchAgent plist's WorkingDirectory,
+ * plus what launchd reports for a loaded job in either domain. A system LaunchDaemon's plist is
+ * root-only (0600), but `launchctl print system/<label>` is readable without privileges.
+ */
+function productionRoots(): string[] {
+  const label = "net.machadolucas.virtual-home.web";
+  const roots: string[] = [];
+  const plist = path.join(os.homedir(), "Library/LaunchAgents", `${label}.plist`);
+  if (fs.existsSync(plist)) {
+    roots.push(execFileSync("/usr/bin/plutil", ["-extract", "WorkingDirectory", "raw", "-o", "-", plist], { encoding: "utf8" }).trim());
+  }
+  for (const target of [`gui/${process.getuid?.() ?? 0}/${label}`, `system/${label}`]) {
+    try {
+      const out = execFileSync("launchctl", ["print", target], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+      const dir = /^\tworking directory = (.+)$/m.exec(out)?.[1]?.trim();
+      if (dir) roots.push(dir);
+    } catch {
+      // not loaded in this domain
+    }
+  }
+  return roots;
+}
+
 async function main(): Promise<void> {
   // The production launchd service reads .next from its checkout. Even with synthetic data,
   // rebuilding .next there would replace live assets. The exact dedicated .next-e2e output
   // is safe; next.config.ts applies it to both build and start. Reject symlink aliases too.
   const testOutput = path.join(REPO_ROOT, ".next-e2e");
   if (fs.existsSync(testOutput) && fs.lstatSync(testOutput).isSymbolicLink()) throw new Error("E2E output must not be a symlink.");
-  if (process.platform === "darwin") {
-    const plist = path.join(os.homedir(), "Library/LaunchAgents/net.machadolucas.virtual-home.web.plist");
-    if (fs.existsSync(plist)) {
-      const installedRoot = execFileSync("/usr/bin/plutil", ["-extract", "WorkingDirectory", "raw", "-o", "-", plist], { encoding: "utf8" }).trim();
-      if (fs.realpathSync(installedRoot) === fs.realpathSync(REPO_ROOT) && process.env.VH_DIST_DIR !== ".next-e2e") {
+  if (process.platform === "darwin" && process.env.VH_DIST_DIR !== ".next-e2e") {
+    for (const installedRoot of productionRoots()) {
+      if (fs.existsSync(installedRoot) && fs.realpathSync(installedRoot) === fs.realpathSync(REPO_ROOT)) {
         throw new Error("This checkout serves production. Run Playwright from an isolated checkout; rebuilding .next here would replace live production assets.");
       }
     }
