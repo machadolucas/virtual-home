@@ -271,6 +271,8 @@ describe("storeUpload — rejections", () => {
       expect((err as UploadError).status).toBe(413);
       expect((err as UploadError).code).toBe("upload_too_large");
     }
+    // The cap trips on the first chunk, before the staging stream has finished opening its file.
+    expect(await tmpEntries()).toEqual([]);
   });
 
   it("rejects an executable renamed to .jpg — the filename is never trusted", async () => {

@@ -153,7 +153,13 @@ async function stageStream(source: Readable, dest: string, maxBytes: number): Pr
     out.end();
     await finished(out);
   } catch (err) {
+    // The stream opens its file asynchronously. When the first chunk already fails (over the cap),
+    // `open` can still be pending, and removing `dest` right away runs before the file exists and
+    // leaves a `.part` behind in tmp/. A destroyed fs stream emits `close` only after its fd is
+    // opened and closed again, so wait for that first.
+    const closed = out.closed ? Promise.resolve() : once(out, "close").catch(() => undefined);
     out.destroy();
+    await closed;
     await fs.rm(dest, { force: true });
     throw err;
   }
