@@ -306,3 +306,11 @@ both have WebGL 2, and nothing needs Home Assistant. The failures were stale spe
   `buildAuthOptions()` now deletes the rest by `userId`; `tests/unit/auth/revoke-other-sessions.test.ts`
   covers 152 sessions (53 survived without the fix), and `auth.spec.ts` exercises it in the browser
   once the shared e2e database passes 100 sessions.
+- **Also fixed on the way:** pooled 3D labels kept a stale `data-anchor` on hidden slots, so two
+  elements claimed one label (the live-labels spec held the hidden one and timed out); and the
+  `haBridge` unit tests read the outbox cursor before the socket's `subscribed` status row had been
+  published, and advanced the clock before the hourly re-list had re-armed (8/8 clean runs after).
+- **Result on the Mac mini, Chromium only** (`VH_E2E_BROWSERS=chromium pnpm test:e2e`, one worker):
+  **157 passed, 103 skipped, 0 failed** in 14.8 min — desktop 105 / 25 / 0, phone 52 / 78 / 0.
+  Swap stayed at 0.6–0.7 GB for the whole run (lowest free memory 30 %). WebKit projects were not run
+  on this host. Unit: 143 files, 1758 passed, 23 skipped.
