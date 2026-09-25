@@ -101,6 +101,17 @@ afterEach(async () => {
   handle.close();
 });
 
+/**
+ * The socket emits `snapshot` and only then subscribes (another round trip over the real
+ * WebSocket) before it reports `subscribed`, which writes — and publishes — an integration-status
+ * row. Tests that read the outbox cursor or count writes must start after that row, or it lands
+ * inside their window: "expected 8 to be 7", or a burst that "splits" into two rows.
+ */
+async function subscribed(socket: HaSocket): Promise<void> {
+  await nextState(socket, "subscribed");
+  await flush();
+}
+
 /** Real ws I/O under a fake clock: allow generous wall-clock slack; the assertions are about counts, not timing. */
 const settle = <T,>(fn: () => T | Promise<T>) => vi.waitFor(fn, { timeout: 8000, interval: 25 });
 
@@ -111,6 +122,7 @@ describe("ha bridge", { retry: 2 }, () => {
     const snapshotSeen = nextSnapshot(socket);
     socket.start();
     await snapshotSeen;
+    await subscribed(socket);
     await flush();
 
     expect(one<{ n: number }>(handle, `SELECT count(*) AS n FROM ha_entity`)?.n).toBe(
@@ -163,6 +175,7 @@ describe("ha bridge", { retry: 2 }, () => {
     const snapshotSeen = nextSnapshot(socket);
     socket.start();
     await snapshotSeen;
+    await subscribed(socket);
     await flush();
 
     const assetId = seedAsset(handle, { name: "Bedroom door sensor" });
@@ -204,6 +217,7 @@ describe("ha bridge", { retry: 2 }, () => {
     const snapshotSeen = nextSnapshot(socket);
     socket.start();
     await snapshotSeen;
+    await subscribed(socket);
     await flush();
 
     const assetId = seedAsset(handle, { name: "Bedroom door sensor" });
@@ -236,6 +250,7 @@ describe("ha bridge", { retry: 2 }, () => {
     const snapshotSeen = nextSnapshot(socket);
     socket.start();
     await snapshotSeen;
+    await subscribed(socket);
     await flush();
 
     expect(signals.map((signal) => signal.registryId).sort()).toEqual([
@@ -261,6 +276,7 @@ describe("ha bridge", { retry: 2 }, () => {
     const snapshotSeen = nextSnapshot(socket);
     socket.start();
     await snapshotSeen;
+    await subscribed(socket);
     await flush();
 
     const assetId = seedAsset(handle, { name: "Bedroom door sensor" });
@@ -306,6 +322,7 @@ describe("ha bridge", { retry: 2 }, () => {
     const firstSnapshot = nextSnapshot(socket);
     socket.start();
     await firstSnapshot;
+    await subscribed(socket);
     await flush();
     expect(readIntegrationStatus(handle.db)?.state).toBe("subscribed");
     const runsBefore = one<{ n: number }>(handle, `SELECT count(*) AS n FROM ha_sync_run`)!.n;
@@ -377,6 +394,7 @@ describe("ha bridge", { retry: 2 }, () => {
     const snapshotSeen = nextSnapshot(socket);
     socket.start();
     await snapshotSeen;
+    await subscribed(socket);
     await flush();
     const runsBefore = one<{ n: number }>(handle, `SELECT count(*) AS n FROM ha_sync_run`)!.n;
 
@@ -389,7 +407,9 @@ describe("ha bridge", { retry: 2 }, () => {
       );
     });
 
-    // And it re-arms itself.
+    // And it re-arms itself — once the re-list promise settles, which is after the row above is
+    // written. Advancing before that would schedule the next run an hour after the advance.
+    await settle(() => expect(clock.nextDueInMs).toBeLessThanOrEqual(3_600_000));
     clock.advance(3_600_000);
     await settle(() => {
       expect(one<{ n: number }>(handle, `SELECT count(*) AS n FROM ha_sync_run`)!.n).toBe(
@@ -403,6 +423,7 @@ describe("ha bridge", { retry: 2 }, () => {
     const snapshotSeen = nextSnapshot(socket);
     socket.start();
     await snapshotSeen;
+    await subscribed(socket);
     await flush();
 
     const assetId = seedAsset(handle, { name: "Bedroom door sensor" });
