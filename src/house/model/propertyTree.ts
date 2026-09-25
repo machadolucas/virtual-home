@@ -319,37 +319,6 @@ export function buildPropertyTree({
   return map;
 }
 
-export function initiallyExpandedPropertyTreeNodes(nodes: ReadonlyMap<string, PropertyTreeNode>): Set<string> {
-  return new Set(
-    [...nodes.values()]
-      .filter((node) =>
-        node.children.length > 0 &&
-        (node.kind === "building" || node.kind === "floor" || (node.kind === "section" && node.label === "Rooms")),
-      )
-      .map((node) => node.id),
-  );
-}
-
-/** Keep the tree's single tab stop on a visible row after live data or expansion changes. */
-export function repairedPropertyTreeFocus(
-  nodes: ReadonlyMap<string, PropertyTreeNode>,
-  previousNodes: ReadonlyMap<string, PropertyTreeNode>,
-  visible: readonly PropertyTreeNode[],
-  focusId: string,
-): string {
-  const visibleIds = new Set(visible.map((node) => node.id));
-  if (visibleIds.has(focusId)) return focusId;
-
-  let cursor = nodes.get(focusId) ?? previousNodes.get(focusId);
-  const visited = new Set<string>();
-  while (cursor?.parent && !visited.has(cursor.id)) {
-    visited.add(cursor.id);
-    if (visibleIds.has(cursor.parent)) return cursor.parent;
-    cursor = nodes.get(cursor.parent) ?? previousNodes.get(cursor.parent);
-  }
-  return visible[0]?.id ?? "";
-}
-
 function section(id: string, label: string, depth: number, parent: string, floorId: string): PropertyTreeNode {
   return { id, label, depth, kind: "section", selection: null, children: [], parent, floorId };
 }

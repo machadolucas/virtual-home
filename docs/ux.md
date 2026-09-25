@@ -707,8 +707,8 @@ equipment labels visible; phones expose the same switch beside the model.
 ### Live fixtures
 
 Furniture is a separate model layer and a separate lightweight record. Furniture is listed by floor
-in the property tree; the property panel's compact furniture controls (and the phone House screen)
-can add regular or L-shaped sofas, single or double beds, bedside tables,
+in the House browser (`ScopedBrowser`, which scopes the same `buildPropertyTree` hierarchy); its
+Add menu (and the phone House screen) can add regular or L-shaped sofas, single or double beds, bedside tables,
 chairs, dining tables, computer desks, bicycles, shelves, cabinets/wardrobes, kitchen counters,
 rugs, benches, TV racks, stools and outdoor wheelie bins. Every object previews while its physical X/Y/Z position, width, depth, height or
 yaw is edited; Save persists it, Cancel restores the previous view and saved object. Furniture has

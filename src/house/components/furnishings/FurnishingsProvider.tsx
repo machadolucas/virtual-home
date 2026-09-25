@@ -11,9 +11,7 @@ interface FurnishingsValue {
   select(id: string | null): void;
   loading: boolean;
   error: string | null;
-  staleIds: ReadonlySet<string>;
   busy: boolean;
-  retry(): void;
   preview: Furnishing | null;
   setPreview(item: Furnishing | null): void;
   requestEdit(id: string): void;
@@ -35,10 +33,7 @@ export function FurnishingsProvider({ children }: { children: React.ReactNode })
   const [items, setItems] = useState<Furnishing[]>([]);
   const [loadedFingerprint, setLoadedFingerprint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [staleIds, setStaleIds] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
-  const [loadNonce, setLoadNonce] = useState(0);
-  const retry = useCallback(() => { setError(null); setLoadNonce((value) => value + 1); }, []);
   const [preview, setPreview] = useState<Furnishing | null>(null);
   const editHandler = useRef<((id: string) => void) | null>(null);
   const requestEdit = useCallback((id: string) => editHandler.current?.(id), []);
@@ -50,11 +45,10 @@ export function FurnishingsProvider({ children }: { children: React.ReactNode })
     void fetch(`${runtime.base}/furnishings`, { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Could not load furniture (${response.status})`);
-        return response.json() as Promise<{ furnishings?: Furnishing[]; stale?: string[] }>;
+        return response.json() as Promise<{ furnishings?: Furnishing[] }>;
       })
       .then((body) => {
         setItems(body.furnishings ?? []);
-        setStaleIds(new Set(body.stale ?? []));
         setLoadedFingerprint(fingerprint);
         setError(null);
       })
@@ -62,7 +56,7 @@ export function FurnishingsProvider({ children }: { children: React.ReactNode })
         if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not load furniture");
       });
     return () => controller.abort();
-  }, [runtime.base, modelId, fingerprint, loadNonce]);
+  }, [runtime.base, modelId, fingerprint]);
 
   const save = useCallback(async (item: Omit<Furnishing, "modelId" | "id"> & { id?: string }) => {
     if (!modelId || !fingerprint) throw new Error("The house model is not ready");
@@ -77,7 +71,6 @@ export function FurnishingsProvider({ children }: { children: React.ReactNode })
       if (!response.ok || !body.furnishing) throw new Error(body.error ?? "Could not save furniture");
       setItems((current) => [...current.filter((x) => x.id !== body.furnishing!.id), body.furnishing!]
         .sort((a, b) => a.name.localeCompare(b.name)));
-      setStaleIds((current) => { const next = new Set(current); next.delete(body.furnishing!.id); return next; });
       setError(null);
       return body.furnishing;
     } finally { setBusy(false); }
@@ -91,13 +84,12 @@ export function FurnishingsProvider({ children }: { children: React.ReactNode })
       });
       if (!response.ok) throw new Error("Could not delete furniture");
       setItems((current) => current.filter((x) => x.id !== id));
-      setStaleIds((current) => { const next = new Set(current); next.delete(id); return next; });
       setError(null);
     } finally { setBusy(false); }
   }, [runtime.base]);
 
   const loading = !!fingerprint && loadedFingerprint !== fingerprint;
-  const value = useMemo(() => ({ items, selectedId, select, loading, error, staleIds, busy, retry, preview, setPreview, requestEdit, registerEditHandler, save, remove }), [items, selectedId, select, loading, error, staleIds, busy, retry, preview, requestEdit, registerEditHandler, save, remove]);
+  const value = useMemo(() => ({ items, selectedId, select, loading, error, busy, preview, setPreview, requestEdit, registerEditHandler, save, remove }), [items, selectedId, select, loading, error, busy, preview, requestEdit, registerEditHandler, save, remove]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

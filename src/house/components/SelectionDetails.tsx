@@ -3,7 +3,7 @@ import { Button } from "@/ui";
 import { useHouseRuntime, useHouseStore } from "../hooks/useHouseStore";
 import { useFurnishings } from "./furnishings/FurnishingsProvider";
 import { useFurnitureEditor } from "./furnishings/FurnitureEditorContext";
-import { FurnitureInspector } from "./furnishings/FurnishingsPanel";
+import { FurnitureInspector } from "./furnishings/FurnitureInspector";
 import { PlacementEditor } from "./edit/PlacementEditor";
 import { RouteEditors } from "./routeEditor/RouteEditors";
 import { RouteCreateControl } from "./routeEditor/RouteCreateControl";

@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_LABEL_PREFERENCES } from "@/house/model/labelPreferences";
 import { buildManifestIndex } from "@/house/model/manifestIndex";
-import {
-  buildPropertyTree,
-  initiallyExpandedPropertyTreeNodes,
-  repairedPropertyTreeFocus,
-  type PropertyTreeNode,
-} from "@/house/model/propertyTree";
+import { buildPropertyTree } from "@/house/model/propertyTree";
 import type { Furnishing, Manifest, Placement, Route } from "@/house/model/types";
 import { FIXTURE_DIR, loadManifest } from "./glb";
 
@@ -109,16 +104,6 @@ describe("property tree model", () => {
     expect(nodes.get("route:f-upper:route-one")?.selection).toEqual({ kind: "route", id: "route-one" });
   });
 
-  it("opens buildings, floors and room sections initially while leaving detail sections folded", () => {
-    const expanded = initiallyExpandedPropertyTreeNodes(build());
-    expect(expanded).toContain("building:b-fx");
-    expect(expanded).toContain("floor:f-lower");
-    expect(expanded).toContain("section:f-lower:rooms");
-    expect(expanded).not.toContain("section:f-lower:equipment");
-    expect(expanded).not.toContain("section:f-lower:infrastructure");
-    expect(expanded).not.toContain("room:r-l-a");
-  });
-
   it("keeps the single-floor building fold while placing sections below the folded floor row", () => {
     const floor = manifest.floors[0]!;
     const building = manifest.buildings[0]!;
@@ -143,33 +128,5 @@ describe("property tree model", () => {
     const nodes = build({ furnishings: [{ ...furnishing, id: "stale-chair", floorId: "removed-floor" }] });
     expect(nodes.get("section:unassigned-furniture")?.children).toEqual(["furnishing:stale-chair"]);
     expect(nodes.get("furnishing:stale-chair")?.secondary).toBe("Needs a floor");
-  });
-
-  it("repairs focus to a visible ancestor when a focused row moves or is deleted", () => {
-    const before = build();
-    const expanded = new Set([
-      "building:b-fx",
-      "floor:f-lower",
-      "section:f-lower:furniture",
-    ]);
-    const visible = (nodes: ReadonlyMap<string, PropertyTreeNode>) => {
-      const result: Array<NonNullable<ReturnType<typeof nodes.get>>> = [];
-      const walk = (id: string) => {
-        const node = nodes.get(id);
-        if (!node) return;
-        result.push(node);
-        if (expanded.has(id)) for (const child of node.children) walk(child);
-      };
-      for (const node of nodes.values()) if (node.parent === null) walk(node.id);
-      return result;
-    };
-
-    const moved = build({ furnishings: [{ ...furnishing, floorId: "f-upper" }] });
-    expect(repairedPropertyTreeFocus(moved, before, visible(moved), "furnishing:furniture-one"))
-      .toBe("floor:f-upper");
-
-    const removed = build({ furnishings: [] });
-    expect(repairedPropertyTreeFocus(removed, before, visible(removed), "furnishing:furniture-one"))
-      .toBe("section:f-lower:furniture");
   });
 });

@@ -8,7 +8,7 @@ import { buildPropertyTree, type PropertyTreeNode } from "../model/propertyTree"
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { useFurnishings } from "./furnishings/FurnishingsProvider";
 import { useFurnitureEditor } from "./furnishings/FurnitureEditorContext";
-import { FurnitureInspector } from "./furnishings/FurnishingsPanel";
+import { FurnitureInspector } from "./furnishings/FurnitureInspector";
 import { PlaceableList } from "./edit/PlaceableList";
 import { PlacementEditor } from "./edit/PlacementEditor";
 import { requestEditSwitch } from "./edit/confirmSwitch";
