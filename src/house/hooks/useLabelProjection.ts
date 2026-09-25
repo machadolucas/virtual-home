@@ -131,6 +131,7 @@ export class LabelPool {
   hideAll(): void {
     for (const entry of this.labels) {
       entry.el.hidden = true;
+      entry.el.removeAttribute("data-anchor");
       entry.anchorId = null;
       entry.badgeEnabled = false;
       entry.expandable = false;
@@ -342,6 +343,10 @@ function write(
     const slot = pool.labels[i];
     if (!slot) continue;
       slot.el.hidden = true;
+      // A pooled slot is reassigned by depth order every frame. Leaving the old anchor on a hidden
+      // slot made two elements claim the same `data-anchor`, and anything that had found the label
+      // by it (a test, a script) kept holding the hidden one after the label moved slots.
+      slot.el.removeAttribute("data-anchor");
       slot.anchorId = null;
       slot.badgeEnabled = false;
       slot.expandable = false;
