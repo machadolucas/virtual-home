@@ -5,11 +5,17 @@ APP_DIR="${VH_APP_DIR:-$HOME/git/virtual-home}"
 DATA_DIR="${VH_DATA_DIR:-$HOME/virtual-home-data}"
 ENV_FILE="$DATA_DIR/secrets/vh.env"
 LOG_DIR="$DATA_DIR/logs"
+# shellcheck source=../lib/launchd.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/launchd.sh"
 mkdir -p "$LOG_DIR"
 for i in 3 2 1; do
   [ -f "$LOG_DIR/worker.launchd.log.$i" ] && mv -f "$LOG_DIR/worker.launchd.log.$i" "$LOG_DIR/worker.launchd.log.$((i+1))" || true
 done
 [ -f "$LOG_DIR/worker.launchd.log" ] && mv -f "$LOG_DIR/worker.launchd.log" "$LOG_DIR/worker.launchd.log.1" || true
+# While $DATA_DIR/run/hold exists (update.sh / restore.sh --force in system mode), wait instead of
+# starting. A system LaunchDaemon has KeepAlive=true, so launchd relaunches this wrapper as soon as
+# the old process is stopped; it must not start on a half-migrated database or a half-built app.
+vh_wait_for_hold "$DATA_DIR" worker
 if [ ! -f "$ENV_FILE" ]; then echo "FATAL: missing $ENV_FILE" >&2; exit 78; fi
 if [ "$(stat -f '%Lp' "$ENV_FILE")" != "600" ]; then echo "FATAL: $ENV_FILE must be mode 600" >&2; exit 78; fi
 set -a; . "$ENV_FILE"; set +a
@@ -22,4 +28,6 @@ NODE_DIR="${VH_NODE_DIR:-$(/bin/ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/nu
 [ "$("$NODE_DIR/node" -p 'process.versions.node.split(".")[0]')" -ge 24 ] || { echo "FATAL: node 24+ required, found $("$NODE_DIR/node" -v)" >&2; exit 78; }
 export PATH="$NODE_DIR:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 cd "$APP_DIR"
+# The pid survives the exec below, so $DATA_DIR/run/worker.pid names the node process launchd supervises.
+vh_write_pidfile "$DATA_DIR" worker
 exec node dist/worker/index.mjs

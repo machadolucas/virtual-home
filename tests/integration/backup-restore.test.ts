@@ -29,6 +29,7 @@ import { runMigrations } from "@/db/migrate";
 import { newId, nowMs } from "@/db/ids";
 import { attachment } from "@/db/schema";
 import { seedUser } from "../helpers/db";
+import { createFakeLaunchd } from "../helpers/fakeLaunchd";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const BACKUP_SH = path.join(REPO_ROOT, "scripts/backup.sh");
@@ -416,6 +417,45 @@ describe.skipIf(missing.length > 0)("backup and restore round trip", () => {
       expect(result.stderr).toContain("FATAL");
       expect(result.stderr).toContain("--force");
     });
+
+    it.skipIf(process.platform !== "darwin")(
+      "--force in system mode holds the daemons, restores the live directory, then releases them",
+      async () => {
+        // launchd is faked (tests/helpers/fakeLaunchd.ts): the real jobs on this machine are never touched.
+        const f = createFakeLaunchd({ domain: "system" });
+        try {
+          fs.mkdirSync(path.join(f.dataDir, "db"), { recursive: true });
+          fs.writeFileSync(path.join(f.dataDir, "db", "app.db"), "");
+          f.supervise("system", "web");
+          f.supervise("system", "worker");
+          await f.waitFor(() => f.pidfile("web") !== null && f.pidfile("worker") !== null);
+          const before = { web: f.pidfile("web"), worker: f.pidfile("worker") };
+
+          const result = spawnSync("bash", [RESTORE_SH, archive, "--force"], {
+            cwd: REPO_ROOT,
+            env: f.env,
+            encoding: "utf8",
+            timeout: 120_000,
+          });
+          expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+          expect(result.stdout).toContain(`restore complete into ${f.dataDir}`);
+          expect(result.stdout).toContain("web: healthy");
+          expect(f.alive(before.web)).toBe(false);
+          expect(f.alive(before.worker)).toBe(false);
+          for (const role of ["web", "worker"] as const) {
+            expect(f.pidfile(role)).not.toBe(before[role]);
+            expect(f.alive(f.pidfile(role))).toBe(true);
+          }
+          expect(fs.existsSync(path.join(f.dataDir, "run", "hold"))).toBe(false);
+          expect(countRows(path.join(f.dataDir, "db", "app.db"))["users"]).toBe(payload.rowCounts.users);
+          // The live secrets file is kept, so the installation stays in system mode.
+          expect(fs.readFileSync(path.join(f.dataDir, "secrets", "vh.env"), "utf8")).toContain("VH_LAUNCHD_DOMAIN=system");
+        } finally {
+          f.cleanup();
+        }
+      },
+      120_000,
+    );
 
     it("refuses an archive whose checksum does not match", () => {
       const tampered = path.join(tempDir("vh-backup-bad-"), path.basename(archive));
