@@ -33,6 +33,19 @@ export const E2E_PLACEABLE_NAMES = ["Yard lamp", "Eave spot", "Porch light", "Vi
 /** The first of them, for tests that only need one. */
 export const E2E_PLACEABLE_NAME = E2E_PLACEABLE_NAMES[0];
 
+/**
+ * One set of synthetic Home Assistant registry rows per Playwright project, so a spec that imports
+ * and deletes "its" device on one project cannot take it away from the next. Keys are the project
+ * names with `-` folded to `_`, because they become part of entity ids (`sensor.e2e_<key>_…`).
+ * Adding a project to `playwright.config.ts` means adding its key here.
+ */
+export const E2E_HA_FIXTURE_KEYS = ["desktop", "phone", "webkit", "phone_webkit"] as const;
+
+/** The `E2E_HA_FIXTURE_KEYS` entry for a Playwright project name. */
+export function haFixtureKey(projectName: string): string {
+  return projectName.replace(/-/g, "_");
+}
+
 export const E2E_USERS = {
   lucas: {
     username: "lucas",

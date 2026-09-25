@@ -31,7 +31,7 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { E2E_PLACEABLE_NAMES, E2E_USERS } from "./fixtures";
+import { E2E_HA_FIXTURE_KEYS, E2E_PLACEABLE_NAMES, E2E_USERS } from "./fixtures";
 import type { DbHandle } from "@/db/client";
 
 process.env.VH_DIST_DIR = process.env.VH_DIST_DIR ?? ".next-e2e";
@@ -262,7 +262,7 @@ async function seedHaImportDevices(handle: DbHandle): Promise<void> {
   const { writeTx } = await import("@/db/client");
   const at = Date.now();
   writeTx(handle.db, (tx) => {
-    for (const viewport of ["desktop", "phone"]) {
+    for (const viewport of E2E_HA_FIXTURE_KEYS) {
       const deviceId = `e2e-${viewport}-motion`;
       tx.insert(haDevice).values({ deviceId, name: `E2E ${viewport} motion`, manufacturer: "Synthetic", model: "Test sensor", firstSeenMs: at, lastSeenMs: at }).run();
       for (const kind of ["occupancy", "temperature", "humidity", "illuminance", "battery", "signal"]) {
