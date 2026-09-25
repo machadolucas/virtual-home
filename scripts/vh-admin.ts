@@ -18,6 +18,7 @@ import "./lib/serverOnly";
 
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { openDatabase, setDbForTests, type DbHandle } from "@/db/client";
@@ -432,23 +433,81 @@ function checkExposure(env: Env): void {
   }
 }
 
-async function checkLaunchd(): Promise<void> {
+/** Output of `launchctl print <target>`, or null when the job is not loaded there. */
+async function launchctlPrint(target: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("launchctl", ["print", target], { timeout: 10_000 });
+    return stdout;
+  } catch {
+    return null;
+  }
+}
+
+/** A top-level `launchctl print` field (one leading tab; nested dictionaries are indented deeper). */
+const launchdField = (out: string, field: string): string | undefined =>
+  new RegExp(`^\\t${field} = (.+)$`, "m").exec(out)?.[1]?.trim();
+
+/**
+ * Supervision, in the mode `VH_LAUNCHD_DOMAIN` selects (`scripts/lib/launchd.sh`): `gui` (default)
+ * = per-user LaunchAgents in `gui/<uid>`, `system` = LaunchDaemons that run as this user. The
+ * other domain is checked too, because a job loaded in both fights itself for the port.
+ * `launchctl print system/…` needs no privileges.
+ */
+async function checkLaunchd(env: Env): Promise<void> {
   if (process.platform !== "darwin") {
     report("info", "launchd", `not macOS (${process.platform}); supervision is out of scope here`);
     return;
   }
+  const configured = process.env.VH_LAUNCHD_DOMAIN?.trim() || "gui";
+  if (configured !== "gui" && configured !== "system") {
+    report("fail", "launchd", `VH_LAUNCHD_DOMAIN must be "gui" or "system", got "${configured}"`);
+    return;
+  }
   const uid = process.getuid?.() ?? 0;
+  const target = (domain: "gui" | "system", job: string): string =>
+    domain === "system" ? `system/${LAUNCHD_PREFIX}.${job}` : `gui/${uid}/${LAUNCHD_PREFIX}.${job}`;
+  const other = configured === "gui" ? "system" : "gui";
+  const me = os.userInfo().username;
+  report(
+    "info",
+    "launchd domain",
+    configured === "system"
+      ? "system (LaunchDaemons running as this user; they survive the end of the login session)"
+      : "gui (LaunchAgents; they run only while this user has a login session)",
+  );
   for (const job of LAUNCHD_JOBS) {
-    const label = `gui/${uid}/${LAUNCHD_PREFIX}.${job}`;
-    try {
-      const { stdout } = await execFileAsync("launchctl", ["print", label], { timeout: 10_000 });
-      const state = /^\s*state = (.+)$/m.exec(stdout)?.[1]?.trim() ?? "unknown";
-      const exit = /^\s*last exit code = (.+)$/m.exec(stdout)?.[1]?.trim();
+    const out = await launchctlPrint(target(configured, job));
+    if (out === null) {
+      report(configured === "system" && job !== "backup" ? "warn" : "info", `launchd ${job}`, `${target(configured, job)} not loaded`);
+    } else {
+      const state = launchdField(out, "state") ?? "unknown";
+      const exit = launchdField(out, "last exit code");
+      const user = launchdField(out, "username");
       const detail = `state = ${state}${exit ? `, last exit code = ${exit}` : ""}`;
-      report(state === "running" || state === "waiting" ? "ok" : "warn", `launchd ${job}`, detail);
-    } catch {
-      report("info", `launchd ${job}`, "not loaded");
+      // The backup job is calendar-scheduled (03:30): "not running" between runs is its normal state.
+      const healthy = state === "running" || state === "waiting" || (job === "backup" && state === "not running");
+      if (configured === "system" && user !== undefined && user !== me) {
+        report("warn", `launchd ${job}`, `${detail}, but it runs as ${user}, not ${me}`);
+      } else {
+        report(healthy ? "ok" : "warn", `launchd ${job}`, job === "backup" && healthy ? `${detail} (scheduled)` : detail);
+      }
     }
+    if ((await launchctlPrint(target(other, job))) !== null) {
+      report(
+        "warn",
+        `launchd ${job}`,
+        `also loaded as ${target(other, job)} although VH_LAUNCHD_DOMAIN=${configured}; boot that one out`,
+      );
+    }
+  }
+  const hold = path.join(env.VH_DATA_DIR, "run", "hold");
+  if (fs.existsSync(hold)) {
+    report(
+      "warn",
+      "launchd hold",
+      `${hold} exists: web and worker wait instead of starting (an update or restore is running, or ` +
+        "one aborted; `scripts/services.sh release` lets them start)",
+    );
   }
 }
 
@@ -508,7 +567,7 @@ async function cmdDoctor(): Promise<void> {
   checkExposure(env);
   checkDatabase(env);
   await checkHa(env);
-  await checkLaunchd();
+  await checkLaunchd(env);
   await checkDisk(env);
   console.log(`\ndoctor: ${worst === "ok" ? "all good" : worst.toUpperCase()}`);
   if (worst === "fail") process.exitCode = 1;
