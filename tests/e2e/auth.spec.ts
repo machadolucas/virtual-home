@@ -163,20 +163,28 @@ test("signing out other devices ends the other browser's session", async ({ brow
     expect(survivor.status()).toBe(200);
     expect(await survivor.json()).not.toBeNull();
 
-    /**
-     * KNOWN DEFECT, deliberately not asserted here: navigating the signed-out browser to
-     * `/settings/security` within the 60 s cookie-cache window produces
-     * `ERR_TOO_MANY_REDIRECTS` instead of the login form. The page's `getFreshSession()` fails
-     * and redirects to `/login?next=…`, but `/login` re-checks with `getSession()`, which the
-     * still-valid `vh.session_data` snapshot satisfies, so it redirects straight back. The fix
-     * belongs in `src/app/(auth)/login/page.tsx` (read the session without the cookie cache
-     * before bouncing) or in the security page; either way it is outside this file.
-     */
-
     // The revoking device stays signed in — that is the whole point of "others".
     await pageA.reload();
     await expect(pageA.getByRole("heading", { name: "Security", level: 1 })).toBeVisible();
     await expect(pageA.getByText(/^1 active session for your account\./)).toBeVisible();
+
+    // The signed-out browser still holds its session cookie and, for up to 60 s, a cookie-cache
+    // snapshot that says it is signed in. Opening the Security page (which reads the session
+    // fresh) must land on the sign-in form in one redirect, not bounce: `/login` checks with the
+    // same fresh read, and the proxy never matches `/login`. This used to be recorded here as a
+    // known ERR_TOO_MANY_REDIRECTS defect; it does not reproduce and is now asserted instead.
+    const pageB2 = await second.newPage();
+    const landed = await pageB2.goto("/settings/security");
+    expect(landed?.status()).toBe(200);
+    expect(new URL(pageB2.url()).pathname).toBe("/login");
+    expect(new URL(pageB2.url()).searchParams.get("next")).toBe("/settings/security");
+    let hops = 0;
+    for (let request = landed?.request().redirectedFrom(); request; request = request.redirectedFrom()) hops += 1;
+    expect(hops).toBe(1);
+    await expect(pageB2.getByRole("button", { name: E2E_USERS.lucas.name })).toBeVisible();
+    // Signing in again from there returns to the page that was asked for.
+    await login(pageB2, "lucas", { next: "/settings/security" });
+    await expect(pageB2.getByRole("heading", { name: "Security", level: 1 })).toBeVisible();
   } finally {
     await first.close();
     await second.close();
