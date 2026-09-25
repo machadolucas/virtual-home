@@ -286,12 +286,87 @@ export function houseUrl(options: OpenHouseOptions = {}): string {
 }
 
 /**
+ * Keep the PWA's service worker out of the house specs (`pwa.spec.ts` is where it is tested).
+ *
+ * Once `/sw.js` controls a WebKit page, the page's `fetch()`es no longer reach `page.route()`
+ * reliably — even API requests the worker passes straight through — so a spec that fulfils
+ * `/placements`, `/controls` or `/furnishings` with synthetic rows silently gets the real, empty
+ * responses instead. `serviceWorkers: "block"` is not applied consistently by WebKit either (see
+ * `helpers/liveHa.ts`), so registration is refused in the page before the first navigation.
+ */
+export async function disableServiceWorkerRegistration(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    if (!("serviceWorker" in navigator)) return;
+    try {
+      Object.defineProperty(navigator.serviceWorker, "register", {
+        configurable: true,
+        value: () => Promise.reject(new Error("Service workers are disabled in the house specs")),
+      });
+    } catch {
+      // Already refused by `installSyntheticHa`, whose definition is not configurable.
+    }
+  });
+}
+
+/**
  * Sign in, land on `/house`, wait for the test hook, then for the load to settle.
  *
  * The load probe is installed *before* the first navigation so `measureLoad()` can report timings
  * for whichever document ends up being the workspace.
  */
+/** The skip reason for hosts without WebGL 2; grep for it. */
+export const NEEDS_WEBGL =
+  "needs WebGL 2 in the test browser (a GPU or software rasteriser) — set VH_E2E_REQUIRE_WEBGL=1 to fail instead of skip";
+
+/**
+ * Skip the calling test when the browser cannot create a WebGL 2 context — the House workspace is
+ * three.js and renders nothing without one, so every assertion after sign-in would fail for a
+ * reason that has nothing to do with the app. A capability probe, not a host check: headless
+ * Chromium and WebKit on the Mac mini both have WebGL 2, while a container without a GPU or a
+ * software rasteriser does not. `VH_E2E_REQUIRE_WEBGL=1` turns the skip into a failure, for hosts
+ * where losing WebGL would itself be the regression.
+ */
+export async function requireWebGL(page: Page): Promise<void> {
+  const available = await page.evaluate(() => {
+    try {
+      return document.createElement("canvas").getContext("webgl2") !== null;
+    } catch {
+      return false;
+    }
+  });
+  if (!available && process.env["VH_E2E_REQUIRE_WEBGL"] === "1") {
+    throw new Error("VH_E2E_REQUIRE_WEBGL=1, but this browser cannot create a WebGL 2 context");
+  }
+  test.skip(!available, NEEDS_WEBGL);
+}
+
+/**
+ * The WebGL renderer string, e.g. "ANGLE (… SwiftShader driver)" for headless Chromium's default
+ * software rasteriser, "Apple GPU" for Playwright's WebKit on a Mac. Probed on whatever page is
+ * open (about:blank is fine), so a spec can size its budget before the expensive part starts.
+ */
+export async function webglRenderer(page: Page): Promise<string | null> {
+  return page.evaluate(() => {
+    const gl = document.createElement("canvas").getContext("webgl2");
+    if (!gl) return null;
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    return String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+  });
+}
+
+/** Software rasterisers compile and draw shader-heavy scenes an order of magnitude slower. */
+export async function isSoftwareWebGL(page: Page): Promise<boolean> {
+  return /SwiftShader|llvmpipe|softpipe|Software/i.test((await webglRenderer(page)) ?? "");
+}
+
 export async function openHouse(page: Page, options: OpenHouseOptions = {}): Promise<void> {
+  await requireWebGL(page);
+  // Specs that use Playwright's own `page` fixture never claimed a client address, so every one of
+  // them signed in as the same client and shared one 5-per-minute bucket; a few fast house specs
+  // in a row got "Too many attempts" and timed out in `login()`. A page-level address costs
+  // nothing for contexts that already set one (`openHouseSession`), and fixes those that did not.
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": nextClientIp() });
+  await disableServiceWorkerRegistration(page);
   await installLoadProbe(page);
   const target = houseUrl(options);
   await login(page, options.as ?? "lucas", { next: target, expectPath: "/house" });
@@ -325,13 +400,52 @@ export async function openHouseSession(
 
 export type RenderingCategory = "Light" | "Environment" | "Quality" | "Background";
 
-/** Open the responsive rendering surface and focus one of its task-sized categories. */
-export async function openRenderingCategory(page: Page, category: RenderingCategory): Promise<void> {
-  const section = { Light: "Lighting", Environment: "Lighting", Quality: "Advanced", Background: "Appearance" }[category];
+/** Sections of the View settings popover (desktop) and sheet (phone), in `ViewSettings` order. */
+export type ViewSection = "Visibility" | "Cut and separation" | "Lighting" | "Appearance" | "Advanced";
+
+/**
+ * Open View settings and expand one section. The old desktop tab strip (Layers, …) is gone: every
+ * presentation control now lives in these collapsible sections, and only Visibility starts open.
+ */
+export async function openViewSection(page: Page, section: ViewSection): Promise<void> {
+  // A desktop popover that was just dismissed (an outside click, Escape) stays in the DOM while it
+  // animates out, still "visible" but about to detach. Deciding against that ghost made the next
+  // click wait forever for a control that had gone, so let the exit finish first. (Only the
+  // popover carries this aria-label; the phone sheet is kept mounted and is named by its title.)
+  await expect(page.locator('[aria-label="View settings"][data-state="closed"]')).toHaveCount(0);
   const summary = page.locator("summary:visible").filter({hasText:new RegExp(`^${section}$`)});
   if (!await summary.isVisible()) await page.getByRole("button", {name:"View",exact:true}).click();
   const details = summary.locator("..");
   if (await details.getAttribute("open") === null) await summary.click();
+}
+
+/**
+ * Close View settings if it is open. On desktop it is a popover floating over the canvas, so a
+ * scripted drag at the canvas centre would land on the popover instead of orbiting the camera.
+ */
+export async function closeViewSettings(page: Page): Promise<void> {
+  const view = page.getByRole("dialog", { name: "View settings", exact: true });
+  if (await view.isVisible()) {
+    await page.keyboard.press("Escape");
+    await expect(view).toBeHidden();
+  }
+  await expect(page.locator('[aria-label="View settings"][data-state="closed"]')).toHaveCount(0);
+}
+
+/**
+ * Press a Floor focus button ("All", "Lower floor", …). They sit on the desktop canvas, and inside
+ * the View sheet on phones, which is opened first when the button is not on screen.
+ */
+export async function focusFloor(page: Page, label: string): Promise<void> {
+  const button = page.getByRole("region", { name: "Floor focus" }).getByRole("button", { name: label, exact: true });
+  if (!(await button.isVisible())) await openViewSection(page, "Visibility");
+  await button.click();
+}
+
+/** Open the responsive rendering surface and focus one of its task-sized categories. */
+export async function openRenderingCategory(page: Page, category: RenderingCategory): Promise<void> {
+  const sections: Record<RenderingCategory, ViewSection> = { Light: "Lighting", Environment: "Lighting", Quality: "Advanced", Background: "Appearance" };
+  await openViewSection(page, sections[category]);
 }
 
 /**
@@ -597,6 +711,31 @@ export interface CanvasPickPoint {
  * lands on the label — which selects the room, but through the DOM path, not through the 3D pick,
  * and it also re-frames the camera. Offsetting a little finds bare canvas over the same floor.
  */
+/**
+ * A page point near `fraction` (of the canvas box) where nothing covers the canvas, for scripted
+ * drags. The overlays are responsive — at 1280 px the view-controls bar wraps onto a second row,
+ * and room labels are real buttons — so a hard-coded offset can start a drag on a control.
+ */
+export async function bareCanvasPoint(page: Page, fraction: readonly [number, number]): Promise<{ x: number; y: number }> {
+  const point = await page.evaluate(([fx, fy]) => {
+    const canvas = document.querySelector("canvas");
+    if (!canvas) return null;
+    const box = canvas.getBoundingClientRect();
+    const x0 = box.left + box.width * fx, y0 = box.top + box.height * fy;
+    for (let radius = 0; radius <= Math.max(box.width, box.height); radius += 16) {
+      for (let step = 0; step < Math.max(1, radius / 4); step++) {
+        const angle = (step / Math.max(1, radius / 4)) * Math.PI * 2;
+        const x = x0 + Math.cos(angle) * radius, y = y0 + Math.sin(angle) * radius;
+        if (x < box.left + 4 || y < box.top + 4 || x > box.right - 4 || y > box.bottom - 4) continue;
+        if (document.elementFromPoint(x, y) === canvas) return { x, y };
+      }
+    }
+    return null;
+  }, fraction);
+  if (!point) throw new Error(`no uncovered canvas point near ${fraction.join(", ")}`);
+  return point;
+}
+
 export async function findCanvasPick(
   page: Page,
   base: readonly [number, number],

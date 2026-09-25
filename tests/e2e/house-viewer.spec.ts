@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import sharp from "sharp";
-import { openHouseSession, openRenderingCategory, waitForStableFrames, idleFrames } from "./helpers/house";
+import { openHouseSession, openRenderingCategory, openViewSection, vh, waitForStableFrames, idleFrames } from "./helpers/house";
 
 async function imageDownload(page: Page): Promise<Buffer> {
   const downloaded = page.waitForEvent("download");
@@ -39,39 +39,45 @@ test("PNG includes the rendered scene, background and visible labels", async ({ 
   } finally { await context.close(); }
 });
 
-test("compact controls are separate and collapsing placement cancels it", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Desktop panels; phone retains its numeric editor.");
+test("compact controls are separate and collapsing a placement keeps its draft", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name.includes("phone"), "Desktop panels; phone retains its numeric editor.");
   const { context, page } = await openHouseSession(browser);
   try {
-    const inspector = page.getByRole("complementary", { name: "Inspector", exact: true });
-    const controls = page.getByRole("region", { name: "View controls", exact: true });
+    // Camera, floors/walls, fullscreen and export stay on the canvas; everything else is one View
+    // popover with disclosures, not nested tabs (docs/ux.md §2).
+    const controls = page.locator('[aria-label="View controls"]');
     const wallModes = page.getByRole("radiogroup", { name: "Wall display", exact: true });
     await expect(wallModes).toBeVisible();
     await expect(controls.getByRole("radiogroup", { name: "Wall display", exact: true })).toHaveCount(0);
     await wallModes.getByRole("radio", { name: "Contextual", exact: true }).click();
     await expect(wallModes.getByRole("radio", { name: "Contextual", exact: true })).toHaveAttribute("aria-checked", "true");
-    const treeRows = page.getByRole("tree", { name: "Property structure", exact: true }).getByRole("treeitem");
-    expect((await treeRows.first().boundingBox())!.height).toBeLessThanOrEqual(29);
-    await expect(inspector.getByRole("switch", { name: "Roof (H)" })).toHaveCount(0);
-    await controls.getByRole("tab", { name: "Layers", exact: true }).click();
-    await expect(controls.getByRole("switch", { name: "Roof (H)" })).toBeVisible();
-    await openRenderingCategory(page, "Light");
-    await expect(controls.getByRole("slider", { name: "Detailed lights" })).toBeVisible();
-    await controls.getByRole("tab", { name: "Background", exact: true }).click();
-    await expect(controls.getByRole("radiogroup", { name: "3D background" })).toBeVisible();
-    await page.getByRole("button", { name: "Collapse the view controls", exact: true }).click();
     await expect(controls.getByRole("button", { name: "Download image", exact: true })).toBeVisible();
     await expect(controls.getByRole("button", { name: "Overview (R)" })).toBeVisible();
-    await page.getByRole("button", { name: "Collapse the inspector", exact: true }).click();
-    await page.getByRole("button", { name: /Not placed yet/ }).click();
-    const place = page.getByRole("button", { name: "Place Viewer test lamp in the model", exact: true });
-    await place.click();
+    await expect(page.getByRole("switch", { name: "Roof (H)" })).toHaveCount(0);
+    const view = page.getByRole("dialog", { name: "View settings", exact: true });
+    await openViewSection(page, "Visibility");
+    await expect(view.getByRole("switch", { name: "Roof (H)" })).toBeVisible();
+    await openRenderingCategory(page, "Light");
+    await expect(view.getByRole("slider", { name: "Detailed lights" })).toBeVisible();
+    await openRenderingCategory(page, "Background");
+    await expect(view.getByRole("radiogroup", { name: "3D background" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(view).toBeHidden();
+
+    // Placement is created in the browser pane. Collapsing that pane hides the draft; only an
+    // explicit Cancel discards it, and a failed save keeps it.
+    const panel = page.getByRole("complementary", { name: "Property browser" });
+    await panel.locator('[aria-label="Browse category"]').getByRole("button", { name: "Equipment", exact: true }).click();
+    await panel.getByRole("button", { name: /Not placed yet/ }).click();
+    await panel.getByRole("button", { name: "Place Viewer test lamp in the model", exact: true }).click();
     await page.getByLabel("X (m)", { exact: true }).fill("8");
-    await page.getByRole("button", { name: "Collapse the inspector", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Place equipment", exact: true })).toBeHidden();
-    await expect(page.getByRole("button", { name: "Show the inspector", exact: true })).toBeVisible();
-    await place.click();
-    await expect(page.getByLabel("X (m)", { exact: true })).not.toHaveValue("8");
+    const draft = await vh(page).placementDraft();
+    expect(draft).not.toBeNull();
+    await page.getByRole("button", { name: "Collapse house browser", exact: true }).click();
+    await expect(page.getByLabel("X (m)", { exact: true })).toBeHidden();
+    await page.getByRole("button", { name: "Show house browser", exact: true }).click();
+    await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("8");
+    expect(await vh(page).placementDraft()).toEqual(draft);
 
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -81,17 +87,18 @@ test("compact controls are separate and collapsing placement cancels it", async 
       await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "test_save_rejected" }) });
     });
     await page.getByRole("button", { name: "Save placement", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Collapse the inspector", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "Cancel (Esc)", exact: true })).toBeDisabled();
     release();
     await expect(page.getByRole("button", { name: "Save placement", exact: true })).toBeEnabled();
+    await expect(page.getByLabel("X (m)", { exact: true })).toHaveValue("8");
     await page.getByRole("button", { name: "Cancel (Esc)", exact: true }).click();
+    await expect.poll(() => vh(page).placementDraft()).toBeNull();
     await testInfo.attach("compact-controls.png", { body: await page.screenshot(), contentType: "image/png" });
   } finally { await context.close(); }
 });
 
 test("solid and gradient backgrounds are baked into the PNG", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Background settings live in the desktop controls.");
+  test.skip(testInfo.project.name.includes("phone"), "Background settings live in the desktop controls.");
   const { context, page } = await openHouseSession(browser);
   try {
     await openRenderingCategory(page, "Background");
@@ -100,6 +107,8 @@ test("solid and gradient backgrounds are baked into the PNG", async ({ browser }
     await waitForStableFrames(page);
     const solid = await sharp(await imageDownload(page)).ensureAlpha().raw().toBuffer();
     expect([...solid.subarray(0, 4)]).toEqual([244, 244, 242, 255]);
+    // Download image sits outside the View popover, so pressing it dismissed the popover.
+    await openRenderingCategory(page, "Background");
     await page.getByRole("button", { name: "Cool fade, dark", exact: true }).click();
     await expect(page.getByTestId("vh-canvas-host")).toHaveAttribute("style", /linear-gradient/);
     await waitForStableFrames(page);
@@ -107,6 +116,7 @@ test("solid and gradient backgrounds are baked into the PNG", async ({ browser }
     expect(gradient[0]).toBeGreaterThan(gradient[gradient.length - 4]!);
     expect(gradient[3]).toBe(255);
   } finally {
+    await openRenderingCategory(page, "Background");
     await page.getByRole("button", { name: "Follows the theme", exact: true }).click();
     await expect(page.getByTestId("vh-canvas-host")).not.toHaveAttribute("style", /background/);
     // Background persistence is debounced; leave it time to complete before the next test.
@@ -117,9 +127,10 @@ test("solid and gradient backgrounds are baked into the PNG", async ({ browser }
 
 
 test("hovering an elevated surface shows a ground projection without changing the draft", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Pointer placement is desktop only.");
+  test.skip(testInfo.project.name.includes("phone"), "Pointer placement is desktop only.");
   const { context, page } = await openHouseSession(browser);
   try {
+    await page.locator('[aria-label="Browse category"]').getByRole("button", { name: "Equipment", exact: true }).click();
     await page.getByRole("button", { name: /Not placed yet/ }).click();
     await page.getByRole("button", { name: "Place Viewer test lamp in the model", exact: true }).click();
     await waitForStableFrames(page, 1000);
@@ -141,61 +152,62 @@ test("hovering an elevated surface shows a ground projection without changing th
   } finally { await context.close(); }
 });
 
-test("rendering controls use focused keyboard-accessible categories without desktop panel scrolling", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Phone has its compact floor and equipment view.");
+test("rendering controls use focused keyboard-accessible disclosures without desktop panel scrolling", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name.includes("phone"), "Phone has its compact floor and equipment view.");
   const { context, page } = await openHouseSession(browser);
   try {
-    const controls = page.getByRole("region", { name: "View controls", exact: true });
+    const view = page.getByRole("dialog", { name: "View settings", exact: true });
     await openRenderingCategory(page, "Light");
-    const categories = controls.getByRole("tablist", { name: "Rendering settings", exact: true });
-    await expect(categories.getByRole("tab")).toHaveCount(4);
-    await expect(controls.getByRole("slider", { name: "Detailed lights", exact: true })).toBeVisible();
-    await expect(controls.getByRole("radiogroup", { name: "3D background" })).toBeHidden();
-    await categories.getByRole("tab", { name: "Light", exact: true }).focus();
-    await page.keyboard.press("ArrowRight");
-    await expect(categories.getByRole("tab", { name: "Environment", exact: true })).toHaveAttribute("data-state", "active");
-    await categories.getByRole("tab", { name: "Quality", exact: true }).click();
-    const performance = controls.getByRole("switch", { name: "Performance mode (pixel ratio 1)", exact: true });
+    // One popover of disclosures (Visibility open by default), never nested tabs.
+    await expect(view.getByRole("tablist")).toHaveCount(0);
+    await expect(view.getByRole("slider", { name: "Detailed lights", exact: true })).toBeVisible();
+    await expect(view.getByRole("radiogroup", { name: "3D background" })).toBeHidden();
+    const advanced = view.locator("summary").filter({ hasText: /^Advanced$/ });
+    await advanced.focus();
+    await page.keyboard.press("Enter");
+    const performance = view.getByRole("switch", { name: "Performance mode (pixel ratio 1)", exact: true });
     await expect(performance).toBeVisible();
-    const renderingPanel = controls.getByRole("tabpanel", { name: "Quality", exact: true });
-    expect(await renderingPanel.evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true);
+    const box = (await view.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
     const palette = (await page.getByRole("radiogroup", { name: "Pointer tool", exact: true }).boundingBox())!;
     expect(palette.width).toBeLessThan(60);
     await testInfo.attach("compact-rendering-controls.png", { body: await page.screenshot(), contentType: "image/png" });
   } finally { await context.close(); }
 });
 
-test("phone keeps light detail and daylight overrides in a collapsed rendering disclosure", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name !== "phone", "Phone-only rendering controls.");
+test("phone keeps light detail and daylight overrides in collapsed View disclosures", async ({ browser }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("phone"), "Phone-only rendering controls.");
   const { context, page } = await openHouseSession(browser);
   try {
-    const lighting = page.getByText("Rendering", { exact: true });
-    const shadows = page.getByRole("switch", { name: "Soft shadows", exact: true });
-    const detail = page.getByRole("slider", { name: "Detailed lights", exact: true });
+    await page.getByRole("navigation", { name: "House tools" }).getByRole("button", { name: "View", exact: true }).click();
+    const sheet = page.getByRole("dialog", { name: "View settings", exact: true });
+    const lighting = sheet.locator("summary").filter({ hasText: /^Lighting$/ });
+    const shadows = sheet.getByRole("switch", { name: "Soft shadows", exact: true });
+    const detail = sheet.getByRole("slider", { name: "Detailed lights", exact: true });
     await expect(lighting).toBeVisible();
     await expect(shadows).toBeHidden();
     await expect(detail).toBeHidden();
     await lighting.click();
     await expect(detail).toBeVisible();
-    const categories = page.getByRole("tablist", { name: "Rendering settings", exact: true });
-    const categoryBox = (await categories.boundingBox())!;
+    const detailBox = (await detail.boundingBox())!;
     const viewport = page.viewportSize()!;
-    expect(categoryBox.x).toBeGreaterThanOrEqual(0);
-    expect(categoryBox.x + categoryBox.width).toBeLessThanOrEqual(viewport.width);
+    expect(detailBox.x).toBeGreaterThanOrEqual(0);
+    expect(detailBox.x + detailBox.width).toBeLessThanOrEqual(viewport.width);
     await detail.fill("2");
     await expect(detail).toHaveValue("2");
-    await page.getByRole("switch", { name: "Batched lighting", exact: true }).click();
-    await page.getByRole("button", { name: "Use recommended", exact: true }).click();
+    await sheet.getByRole("switch", { name: "Batched lighting", exact: true }).click();
+    await sheet.getByRole("button", { name: "Use recommended", exact: true }).click();
     await expect(detail).toHaveValue((await detail.getAttribute("max"))!);
-    await page.getByRole("switch", { name: "Try higher limits", exact: true }).click();
+    await sheet.getByRole("switch", { name: "Try higher limits", exact: true }).click();
     await expect(detail).toHaveAttribute("max", "64");
     await detail.fill("48");
     await expect(detail).toHaveValue("48");
-    await page.getByRole("tab", { name: "Environment", exact: true }).click();
-    await expect(page.getByRole("radio", { name: "Live time", exact: true })).toBeVisible();
-    await page.getByRole("tab", { name: "Quality", exact: true }).click();
+    await expect(sheet.getByRole("radio", { name: "Live time", exact: true })).toBeVisible();
+    await sheet.locator("summary").filter({ hasText: /^Advanced$/ }).click();
     await expect(shadows).toBeVisible();
-    await expect(page.getByRole("button", { name: "All", exact: true }).locator("svg")).toHaveCount(1);
+    await expect(sheet.getByRole("button", { name: "All", exact: true }).locator("svg")).toHaveCount(1);
   } finally {
     await context.close();
   }

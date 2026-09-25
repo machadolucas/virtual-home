@@ -84,7 +84,7 @@ test.skip(
 );
 
 test.beforeEach(({}, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "the acceptance numbers are for the desktop project");
+  test.skip(testInfo.project.name.includes("phone"), "the acceptance numbers are for the desktop project");
 });
 
 // ---------------------------------------------------------------------------

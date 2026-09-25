@@ -16,6 +16,7 @@
 import { expect, test } from "@playwright/test";
 import { e2eBaseUrl } from "./fixtures";
 import {
+  bareCanvasPoint,
   clickCanvasAt,
   deviceOptionsOfProject,
   findCanvasPick,
@@ -540,10 +541,10 @@ test("floor shortcuts stay in perspective and keep camera orbit available", asyn
     const dy = before.position[1] - before.target[1];
     const dz = before.position[2] - before.target[2];
     expect(Math.hypot(dx, dz) / dy).toBeLessThan(0.05);
-    const canvas = (await page.locator("canvas").boundingBox())!;
-    await page.mouse.move(canvas.x + canvas.width * 0.6, canvas.y + 140);
+    const start = await bareCanvasPoint(page, [0.6, 0.2]);
+    await page.mouse.move(start.x, start.y);
     await page.mouse.down();
-    await page.mouse.move(canvas.x + canvas.width * 0.6 + 60, canvas.y + 80, { steps: 8 });
+    await page.mouse.move(start.x + 60, start.y - 60, { steps: 8 });
     await page.mouse.up();
     await expect.poll(async () => (await vh(page).camera()).position).not.toEqual(before.position);
     await waitForStableFrames(page);

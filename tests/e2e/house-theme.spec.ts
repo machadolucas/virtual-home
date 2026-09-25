@@ -45,7 +45,7 @@ function toRgb(hex: string): string {
  * token blocks — the one the owner was on when the workspace stayed light. The explicit
  * `data-theme="dark"` path is checked separately below.
  */
-async function darkHouse(browser: Browser): Promise<{ context: BrowserContext; page: Page }> {
+async function darkHouse(browser: Browser, options: { sel?: string } = {}): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
     baseURL: e2eBaseUrl(),
     viewport: { width: 1600, height: 1000 },
@@ -53,7 +53,7 @@ async function darkHouse(browser: Browser): Promise<{ context: BrowserContext; p
     extraHTTPHeaders: { "x-forwarded-for": houseClientIp() },
   });
   const page = await context.newPage();
-  await openHouse(page);
+  await openHouse(page, options);
   return { context, page };
 }
 
@@ -93,7 +93,8 @@ async function resetBackground(page: Page): Promise<void> {
 
 test.describe("the House workspace follows the interface theme", () => {
   test("the shell, both panels and the canvas host paint the dark tokens", async ({ browser }) => {
-    const { context, page } = await darkHouse(browser);
+    // A selection, so the floating inspector is on screen too.
+    const { context, page } = await darkHouse(browser, { sel: "room:r-l-a" });
     try {
       const t = await tokens(page);
       // Sanity: a dark context really did select the dark ramp. Without this the assertions below
@@ -106,11 +107,22 @@ test.describe("the House workspace follows the interface theme", () => {
 
       // The gutter the three regions sit in.
       expect(await bg('[data-testid="vh-workspace"]')).toBe(toRgb(t["--vh-paper-0"] as string));
-      // Tree panel and inspector: panel surfaces.
-      expect(await bg('aside[aria-label="Property tree"]')).toBe(
+      // Property browser and inspector: panel surfaces. The inspector floats over the canvas as
+      // the same surface token at 95 % (`bg-surface/95`, a colour-mix the browser reports in its
+      // own colour space), so it is compared with a probe element painted by that same utility.
+      expect(await bg('aside[aria-label="Property browser"]')).toBe(
         toRgb(t["--vh-paper-1"] as string),
       );
-      expect(await bg('aside[aria-label="Inspector"]')).toBe(toRgb(t["--vh-paper-1"] as string));
+      const translucentSurface = await page.evaluate(() => {
+        const probe = document.createElement("div");
+        probe.className = "bg-surface/95";
+        document.body.append(probe);
+        const colour = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return colour;
+      });
+      expect(await bg('aside[aria-label="Inspector"]')).toBe(translucentSurface);
+      expect(translucentSurface).not.toBe("rgb(255, 255, 255)");
       // The 3D view's own ground, which used to be a hardcoded `#f4f4f2`.
       expect(await bg('[data-testid="vh-canvas-host"]')).toBe(
         toRgb(t["--vh-viewport"] as string),
@@ -144,10 +156,10 @@ test.describe("the House workspace follows the interface theme", () => {
     }
   });
 
-  test("the tree's search field is readable", async ({ browser }) => {
+  test("the property browser's search field is readable", async ({ browser }) => {
     const { context, page } = await darkHouse(browser);
     try {
-      const field = page.getByLabel("Search rooms and equipment");
+      const field = page.getByLabel("Search the property");
       await expect(field).toBeVisible();
 
       const measured = await field.evaluate((el) => {
@@ -171,10 +183,10 @@ test.describe("the House workspace follows the interface theme", () => {
       expect(measured.background).toBe(toRgb(t["--vh-paper-2"] as string));
 
       // Still functional: the field is a real search box, not just a readable box. Scoped to the
-      // tree panel because the canvas host carries a hidden mirror list of the same room names.
+      // browser panel because the canvas host carries a hidden mirror list of the same room names.
       await field.fill("Room A");
       await expect(
-        page.locator('aside[aria-label="Property tree"]').getByRole("button", { name: /Room A/ }),
+        page.locator('aside[aria-label="Property browser"]').getByRole("button", { name: /^Room A/ }),
       ).toBeVisible();
     } finally {
       await context.close();
@@ -278,11 +290,11 @@ test.describe("the configurable 3D background", () => {
       await vh(page).ready();
       expect((await vh(page).status()).phase).toBe("ready");
 
-      // `alpha: true` changes the drawing buffer, not the materials. The inventory is the same one
-      // `house.spec.ts` pins: MeshStandardMaterial plus the LineBasicMaterial edge overlays.
+      // `alpha: true` changes the drawing buffer, not the materials. The absolute inventory is
+      // pinned once, in `house.spec.ts` (surface, edge, lighting and shadow programs); this test is
+      // about the delta, so it only needs a compiled scene to compare against.
       const before = await vh(page).renderInfo();
       expect(before.programs).toBeGreaterThan(0);
-      expect(before.programs).toBeLessThanOrEqual(4);
 
       // A background change must not compile a program or add a draw call — it is CSS.
       await withSavedBackground(page, async () => {

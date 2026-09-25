@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openHouse, openHouseSession, waitForStableFrames } from "./helpers/house";
+import { openHouse, openHouseSession, openViewSection, waitForStableFrames } from "./helpers/house";
 import { emitHaBatch, installSyntheticHa, openSyntheticHa } from "./helpers/liveHa";
 
 test("LED length and sensor aim survive saves; selection guides and equipment can be hidden", async ({ browser }, testInfo) => {
@@ -52,15 +52,13 @@ test("LED length and sensor aim survive saves; selection guides and equipment ca
     await page.evaluate(() => window.__vh!.select(null));
     await expect.poll(() => page.evaluate(() => window.__vh!.detectionGuide().visible)).toBe(false);
     await page.evaluate((id) => window.__vh!.select({ kind: "equipment", id: id! }), placementId);
-    if (testInfo.project.name !== "phone") {
-      await page.getByRole("tab", { name: "Layers", exact: true }).click();
-    }
-    await page.getByRole("switch", { name: "Show equipment", exact: true }).click();
+    await openViewSection(page, "Visibility");
+    await page.getByRole("switch", { name: "Equipment", exact: true }).click();
     await expect.poll(() => page.evaluate(() => window.__vh!.equipmentCount())).toBe(0);
     await expect.poll(() => page.evaluate(() => window.__vh!.detectionGuide().visible)).toBe(false);
     await expect(page.locator('[data-anchor^="equipment:"]:visible')).toHaveCount(0);
     await expect(page.locator("[data-placement]")).toHaveCount(0);
-    await page.getByRole("switch", { name: "Show equipment", exact: true }).click();
+    await page.getByRole("switch", { name: "Equipment", exact: true }).click();
     await expect.poll(() => page.evaluate(() => window.__vh!.equipmentCount())).toBeGreaterThan(0);
   } finally {
     if (placementId) await page.request.delete(`/api/house-model/fixture-house/placements/${placementId}`);

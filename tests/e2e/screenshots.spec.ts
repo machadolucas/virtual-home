@@ -23,6 +23,9 @@ import {
   houseClientIp,
   openHouse,
   openHouseSession,
+  openViewSection,
+  closeViewSettings,
+  focusFloor,
   setSurfaceColour,
   vh,
   waitForStableFrames,
@@ -37,6 +40,8 @@ test.beforeAll(() => {
 
 /** Capture the viewport once the scene has stopped asking for frames. */
 async function capture(page: Page, name: string): Promise<void> {
+  // The View popover floats over the canvas; the capture list is about the scene.
+  await closeViewSettings(page);
   await waitForStableFrames(page, 250);
   const file = path.join(OUT_DIR, `${name}.png`);
   await page.screenshot({ path: file, animations: "disabled" });
@@ -68,16 +73,16 @@ test.describe("desktop scenes", () => {
     try {
       // 2. Dollhouse, lower floor (the fixture's analogue of the ground floor).
       await page.getByRole("button", { name: "Show inside (D)" }).click();
-      await page.getByRole("button", { name: "Lower floor", exact: true }).click();
+      await focusFloor(page, "Lower floor");
       await capture(page, "02-dollhouse-lower-floor");
 
       // 3. Dollhouse, upper floor.
-      await page.getByRole("button", { name: "Upper floor", exact: true }).click();
+      await focusFloor(page, "Upper floor");
       await capture(page, "03-dollhouse-upper-floor");
 
       // 4. Floor isolation in perspective, roof and ceilings back on.
       await page.getByRole("button", { name: "Overview (R)" }).click();
-      await page.getByRole("button", { name: "Upper floor", exact: true }).click();
+      await focusFloor(page, "Upper floor");
       await capture(page, "04-floor-isolation-upper-perspective");
     } finally {
       await context.close();
@@ -92,20 +97,21 @@ test.describe("desktop scenes", () => {
       // 5. Top-down ortho plan of the lower floor with a horizontal cut. `S` puts the cut 1.2 m
       // above the active floor's own elevation rather than at a hard-coded height, so the same
       // action is meaningful for any package.
-      await page.getByRole("button", { name: "Lower floor", exact: true }).click();
-      await page.getByRole("button", { name: "Plan view (P)" }).click();
+      await focusFloor(page, "Lower floor");
+      await region.press("p"); // top-down plan (the toolbar button became the P shortcut)
       await region.press("s");
       await capture(page, "05-plan-lower-floor-cut");
 
       // 6. The same for the upper floor; its cut follows its own datum.
       await region.press("s");
-      await page.getByRole("button", { name: "Upper floor", exact: true }).click();
-      await page.getByRole("button", { name: "Plan view (P)" }).click();
+      await focusFloor(page, "Upper floor");
+      await region.press("p"); // top-down plan (the toolbar button became the P shortcut)
       await region.press("s");
       await capture(page, "06-plan-upper-floor-cut");
 
       // 7. A vertical section. The X midpoint comes from the manifest bounds.
       await page.getByRole("button", { name: "Overview (R)" }).click();
+      await openViewSection(page, "Cut and separation");
       await page.getByRole("button", { name: "Cut along X" }).click();
       await capture(page, "07-section-vertical-x");
     } finally {
@@ -118,6 +124,7 @@ test.describe("desktop scenes", () => {
     try {
       // The toggle, not the slider: the gap already sits at `DEFAULT_EXPLODE_GAP` (2.5 m), so
       // filling the range with 2.5 changes no value and therefore fires no `input` event.
+      await openViewSection(page, "Cut and separation");
       await page.getByRole("button", { name: /^(On|Off) \(X\)$/ }).click();
       await expect.poll(() => vh(page).worldY("fixture-upper", "f-upper")).toBeCloseTo(2.5, 6);
       await capture(page, "08-exploded-floors-2.5m");
@@ -142,6 +149,7 @@ test.describe("desktop scenes", () => {
       await capture(page, "10-room-selected-inspector");
 
       // 11. One surface recoloured; the neighbouring room's faces are visibly unchanged.
+      await page.getByText("Edit surface colours", { exact: true }).click();
       await page.getByRole("button", { name: "Reset room" }).click();
       await setSurfaceColour(page, "s-r-l-a-floor", "#c2185b");
       await expect.poll(() => vh(page).materialHex("s-r-l-a-floor")).toBe("#c2185b");
@@ -199,7 +207,7 @@ test.describe("desktop scenes", () => {
     const { context, page } = await openHouseSession(browser);
     try {
       // The one opt-in asset the fixture does have: `fixture-scan`, `loadByDefault: false`.
-    await page.getByRole("tab", { name: "Layers", exact: true }).click();
+      await openViewSection(page, "Visibility");
       await page.getByRole("switch", { name: "Scan reference" }).click();
       await expect
         .poll(() => vh(page).status().then((s) => s.loadedAssetIds.includes("fixture-scan")), {
@@ -297,7 +305,7 @@ test.describe("desktop scenes", () => {
     try {
       const page = await context.newPage();
       await openHouse(page, {});
-      await page.getByRole("button", { name: "Upper floor", exact: true }).click();
+      await focusFloor(page, "Upper floor");
       // Same framing as 04, with instant camera cuts instead of transitions.
       await capture(page, "22-floor-isolation-upper-reduced-motion");
     } finally {
@@ -327,13 +335,14 @@ test.describe("phone scenes", () => {
     try {
       // On a phone the workspace takes its `PhoneHouse` branch: single column, the 3D view demoted
       // to context, and the written note plus the photo carrying the actual locating.
-      await expect(page.getByRole("heading", { name: "Fixture house", level: 1 })).toBeVisible();
+      await expect(page.getByTestId("vh-phone-workspace")).toBeVisible();
+      await expect(page.getByRole("navigation", { name: "House tools" })).toBeVisible();
       await capture(page, "24-phone-house-plan");
 
       // Isolating a floor from the phone's floor chips is the same store write as the desktop's.
       // Numbered `24b` deliberately: it is a second view of §13.4 #24, not §13.4 #25 (which is a
       // Locate-mode capture needing a placement and a close-up photo — skipped below).
-      await page.getByRole("button", { name: "Lower floor", exact: true }).click();
+      await focusFloor(page, "Lower floor");
       await capture(page, "24b-phone-house-floor-isolated");
     } finally {
       await context.close();

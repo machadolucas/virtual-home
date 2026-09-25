@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
 import sharp from "sharp";
-import { openHouse, openRenderingCategory, waitForStableFrames } from "./helpers/house";
+import { closeViewSettings, openHouse, openRenderingCategory, waitForStableFrames } from "./helpers/house";
 import { emitHaBatch, installSyntheticHa, openSyntheticHa } from "./helpers/liveHa";
 
 test("all active lights remain represented without camera-dependent slot swapping", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Camera rotation and shader validation in the desktop scene.");
+  test.skip(testInfo.project.name.includes("phone"), "Camera rotation and shader validation in the desktop scene.");
   const errors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   await installSyntheticHa(page);
@@ -33,6 +33,7 @@ test("all active lights remain represented without camera-dependent slot swappin
   expect(before.filter((l) => l.castShadow).length).toBe(Math.min(16, maximum));
   const canvas = page.locator("canvas").first();
   const box = (await canvas.boundingBox())!;
+  await closeViewSettings(page);
   await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.55);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.35, { steps: 24 });
@@ -42,6 +43,7 @@ test("all active lights remain represented without camera-dependent slot swappin
   expect(after.map((l) => l.id).sort()).toEqual(before.map((l) => l.id).sort());
   expect(after.filter((l) => l.castShadow).map((l) => l.id).sort()).toEqual(before.filter((l) => l.castShadow).map((l) => l.id).sort());
   expect(after.every((l) => l.intensity > 0)).toBe(true);
+  await openRenderingCategory(page, "Light");
   await limit.fill("0");
   await waitForStableFrames(page, 900);
   expect(await page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.castShadow).length)).toBe(0);
@@ -49,6 +51,10 @@ test("all active lights remain represented without camera-dependent slot swappin
   await waitForStableFrames(page, 900);
   expect(await page.evaluate(() => window.__vh!.renderedLights().filter((l) => l.castShadow).length)).toBe(Math.min(40, maximum));
   expect(errors.filter((error) => /THREE|shader|WebGL/i.test(error))).toEqual([]);
+  // Element screenshots include whatever DOM floats over the canvas, and the View popover (whose
+  // height changes with the "WebGL rejected" alert) sits right on it: compare the scene alone.
+  await closeViewSettings(page);
+  await waitForStableFrames(page, 900);
   const baselineImage = await canvas.screenshot();
   await testInfo.attach("baseline.png", { body: baselineImage, contentType: "image/png" });
   const baseline = await sharp(baselineImage).removeAlpha().raw().toBuffer();
@@ -56,6 +62,7 @@ test("all active lights remain represented without camera-dependent slot swappin
     const gl = (element as HTMLCanvasElement).getContext("webgl2")!;
     return gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) as number;
   });
+  await openRenderingCategory(page, "Light");
   await page.getByRole("switch", { name: "Try higher limits", exact: true }).click();
   await expect(limit).toHaveAttribute("max", "64");
   await limit.fill("64");
@@ -75,6 +82,7 @@ test("all active lights remain represented without camera-dependent slot swappin
   }
   await page.getByRole("switch", { name: "Try higher limits", exact: true }).click();
   await expect(limit).toHaveAttribute("max", String(maximum));
+  await closeViewSettings(page);
   await waitForStableFrames(page, 900);
   const restoredImage = await canvas.screenshot();
   await testInfo.attach("restored.png", { body: restoredImage, contentType: "image/png" });
@@ -88,7 +96,7 @@ test("all active lights remain represented without camera-dependent slot swappin
 });
 
 test("an overflow wall lamp visibly illuminates several surfaces at night", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Desktop pixel comparison; shared renderer.");
+  test.skip(testInfo.project.name.includes("phone"), "Desktop pixel comparison; shared renderer.");
   await installSyntheticHa(page);
   const placements = Array.from({ length: 7 }, (_, i) => ({
     id: `lamp-${i}`, modelId: "fixture-house", equipmentId: `lamp-${i}`, name: `Lamp ${i}`,
@@ -102,7 +110,6 @@ test("an overflow wall lamp visibly illuminates several surfaces at night", asyn
   await openHouse(page, { sel: "room:r-l-a" });
   await openRenderingCategory(page, "Light");
   await page.getByRole("slider", { name: "Detailed lights", exact: true }).fill("6");
-  await page.getByRole("tab", { name: "Environment", exact: true }).click();
   const controls = page.getByRole("group", { name: "Daylight and shadows", exact: true });
   await controls.getByText("Location and north", { exact: true }).click();
   await controls.getByLabel("Latitude", { exact: true }).fill("45");
@@ -110,6 +117,7 @@ test("an overflow wall lamp visibly illuminates several surfaces at night", asyn
   await controls.getByLabel(/Preview date and time/).fill("2026-03-20T00:00");
   await openSyntheticHa(page);
   await emitHaBatch(page, placements.map((p, i) => ({ topic: "ha.state", key: p.entityId, payload: { state: i < 6 ? "on" : "off", attributes: { brightness: 255 }, lastUpdated: Date.now() } })));
+  await closeViewSettings(page); // compare the scene, not the popover floating over it
   await waitForStableFrames(page, 900);
   const canvas = page.locator("canvas").first();
   const off = await sharp(await canvas.screenshot()).removeAlpha().raw().toBuffer();

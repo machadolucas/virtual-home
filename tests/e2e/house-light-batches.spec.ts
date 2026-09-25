@@ -1,12 +1,15 @@
 import { expect, test } from "@playwright/test";
 import sharp from "sharp";
-import { openHouse, openRenderingCategory, waitForStableFrames } from "./helpers/house";
+import { closeViewSettings, isSoftwareWebGL, openHouse, openRenderingCategory, waitForStableFrames } from "./helpers/house";
 import { emitHaBatch, installSyntheticHa, openSyntheticHa } from "./helpers/liveHa";
 
 test("80 shadowed lights use bounded batches and reuse unchanged contributions", async ({ page }, info) => {
 
-  // Software WebGL can spend tens of seconds compiling the initial mixed detailed/overflow shaders.
-  test.setTimeout(120_000);
+  // Headless Chromium renders with SwiftShader by default, where compiling the mixed
+  // detailed/overflow shaders for 80 shadowed lights takes well over a minute (measured 1.5–2 min on
+  // the Mac mini, against ~10 s for WebKit on the GPU). The budget follows the renderer rather than
+  // the project name.
+  test.setTimeout((await isSoftwareWebGL(page)) ? 300_000 : 120_000);
   const errors: string[] = [];
   page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
   await installSyntheticHa(page);
@@ -52,7 +55,8 @@ test("80 shadowed lights use bounded batches and reuse unchanged contributions",
     console.log("Frame drivers", await page.evaluate(() => window.__vh!.frameDrivers()));
     throw error;
   });
-  if (info.project.name !== "phone") {
+  if (!info.project.name.includes("phone")) {
+  await closeViewSettings(page);
   const canvasBox = (await page.locator("canvas").first().boundingBox())!;
   await page.mouse.move(canvasBox.x + canvasBox.width * 0.5, canvasBox.y + canvasBox.height * 0.5);
   await page.mouse.down();
@@ -71,7 +75,7 @@ test("80 shadowed lights use bounded batches and reuse unchanged contributions",
 });
 
 test("batched direct light matches single-pass colours and shadows", async ({ page }, info) => {
-  test.skip(info.project.name === "phone", "Desktop pixel comparison.");
+  test.skip(info.project.name.includes("phone"), "Desktop pixel comparison.");
   await installSyntheticHa(page);
   const placements = [0, 1].map(i => ({
     id: `compare-${i}`, modelId: "fixture-house", equipmentId: `compare-${i}`, name: `Compare ${i}`,
@@ -95,6 +99,7 @@ test("batched direct light matches single-pass colours and shadows", async ({ pa
   for (let i = 0; i < single.length; i++) difference += Math.abs(single[i]! - batched[i]!);
   expect(difference / single.length).toBeLessThan(2);
   await page.getByRole("switch", { name: "Batched lighting", exact: true }).click();
+  await closeViewSettings(page); // the popover floats over the inspector's actions
   await page.evaluate(() => window.__vh!.select({ kind: "equipment", id: "compare-0" }));
   await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
   await waitForStableFrames(page, 900);

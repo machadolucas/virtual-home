@@ -4,7 +4,7 @@ import { emitHaBatch, installSyntheticHa, openSyntheticHa } from "./helpers/live
 import { openHouse, openHouseSession, waitForStableFrames } from "./helpers/house";
 
 test("spotlight aim previews independently and survives saving and reopening", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Mouse aiming; phone uses numeric beam angles.");
+  test.skip(testInfo.project.name.includes("phone"), "Mouse aiming; phone uses numeric beam angles.");
   const { context, page } = await openHouseSession(browser);
   let placementId: string | undefined;
   try {
@@ -62,7 +62,7 @@ test("spotlight aim previews independently and survives saving and reopening", a
 });
 
 test("HA lights fade, settle idle, and illuminate through bounded wall-occluded shadows", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Pixel comparison of desktop room framing.");
+  test.skip(testInfo.project.name.includes("phone"), "Pixel comparison of desktop room framing.");
   await installSyntheticHa(page);
   const placement = {
     id: "live-light", modelId: "fixture-house", equipmentId: "live-light-equipment", name: "Live test downlight",
@@ -160,7 +160,7 @@ test("HA lights fade, settle idle, and illuminate through bounded wall-occluded 
 });
 
 test("a lit room does not illuminate the neighbouring room through its wall", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Pixel comparison of desktop room framing.");
+  test.skip(testInfo.project.name.includes("phone"), "Pixel comparison of desktop room framing.");
   await installSyntheticHa(page);
   const placement = {
     id: "occluded-light", modelId: "fixture-house", equipmentId: "occluded-equipment", name: "Occlusion test lamp",

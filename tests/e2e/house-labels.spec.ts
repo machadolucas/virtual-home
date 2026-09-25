@@ -1,21 +1,28 @@
 import { expect, test } from "@playwright/test";
-import { openHouseSession, vh, waitForHook } from "./helpers/house";
+import { openHouseSession, openViewSection, vh, waitForHook } from "./helpers/house";
 
 test("area labels can be renamed, hidden globally and restored after reload", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "The persistent room-label form is covered in the desktop inspector.");
+  test.skip(testInfo.project.name.includes("phone"), "The persistent room-label form is covered in the desktop inspector.");
   const { context, page } = await openHouseSession(browser, { sel: "room:r-l-a" });
   try {
-    const tree = page.getByRole("tree", { name: "Property structure" });
+    // The label form sits behind the room inspector's "Edit room labels" disclosure, and the
+    // property browser's search is where a renamed room is found again.
+    const panel = page.getByRole("complementary", { name: "Property browser" });
+    const renamedRow = panel.getByRole("list", { name: "House items" }).getByRole("button", { name: /^Studio/ });
+    await page.locator("summary").filter({ hasText: /^Edit room labels$/ }).click();
     await page.getByLabel("Display name").fill("Studio");
     await page.getByRole("button", { name: "Save label" }).click();
-    await expect(tree.locator('[data-node="room:r-l-a"]')).toContainText("Studio");
+    await panel.getByRole("searchbox", { name: "Search the property" }).fill("Studio");
+    await expect(renamedRow.first()).toBeVisible();
 
     await page.reload();
     await waitForHook(page);
     await vh(page).settled();
-    await expect(tree.locator('[data-node="room:r-l-a"]')).toContainText("Studio");
+    await panel.getByRole("searchbox", { name: "Search the property" }).fill("Studio");
+    await expect(renamedRow.first()).toBeVisible();
+    await expect(page.locator("ul.sr-only button", { hasText: "Studio" })).not.toHaveCount(0);
 
-    await page.getByRole("tab", { name: "Layers" }).click();
+    await openViewSection(page, "Visibility");
     const areaLabels = page.getByRole("switch", { name: "Area labels" });
     await expect(areaLabels).toBeChecked();
     await areaLabels.click();

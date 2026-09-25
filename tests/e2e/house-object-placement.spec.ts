@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { openHouseSession, waitForStableFrames } from "./helpers/house";
 
 test("equipment stacks on equipment and furniture, previews without changing draft, and rotates on drag", async ({ browser }, info) => {
-  test.skip(info.project.name === "phone", "Pointer placement is a desktop interaction.");
+  test.skip(info.project.name.includes("phone"), "Pointer placement is a desktop interaction.");
   const { context, page } = await openHouseSession(browser);
   const ids: string[] = [];
   let furnitureId: string | undefined;
@@ -109,7 +109,7 @@ async function screen(page:Page, position:[number,number,number]) {
 }
 
 test("other model objects accept precise attachment without changing the draft on hover", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Mouse placement; phone uses numeric coordinates.");
+  test.skip(testInfo.project.name.includes("phone"), "Mouse placement; phone uses numeric coordinates.");
   const { context, page } = await openHouseSession(browser);
   let id: string | undefined;
   try {

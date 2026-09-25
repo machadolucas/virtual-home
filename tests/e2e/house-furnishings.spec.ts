@@ -1,12 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
-import { idleFrames, openHouseSession, waitForStableFrames } from "./helpers/house";
+import { idleFrames, openHouseSession, openViewSection, waitForStableFrames } from "./helpers/house";
 
 test("furniture catalog creates, edits, reloads, cancels and controls the layer", async ({ browser }, testInfo) => {
+  const phone = testInfo.project.name.includes("phone");
   const { context, page } = await openHouseSession(browser);
   let furnishingId: string | null = null;
   try {
-    await page.locator("summary").filter({ hasText: "Furniture" }).click();
-    await page.getByRole("button", { name: "Add furniture" }).click();
+    await openBrowser(page, phone);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await page.locator('[aria-label="Add to house"]').getByRole("button", { name: "Furniture", exact: true }).click();
     await expect(page.getByRole("region", { name: "Furniture catalog" })).toBeVisible();
     await page.getByRole("searchbox", { name: "Search furniture" }).fill("sofa");
     await expect(page.getByRole("button", { name: "Place Sofa", exact: true })).toBeVisible();
@@ -26,7 +28,7 @@ test("furniture catalog creates, edits, reloads, cancels and controls the layer"
 
     await expect.poll(async () => page.evaluate(() => window.__vh!.furnishings().find((item) => item.preview)?.size))
       .toEqual([1.2, 0.8, 0.7]);
-    if (testInfo.project.name === "phone") {
+    if (phone) {
       const form = page.getByRole("heading", { name: "Add furniture", exact: true }).locator("../..");
       const clearance = await form.evaluate((element) => {
         const next = element.nextElementSibling;
@@ -37,12 +39,9 @@ test("furniture catalog creates, edits, reloads, cancels and controls the layer"
     }
     await testInfo.attach("furniture-editor", { body: await page.screenshot(), contentType: "image/png" });
     await page.getByRole("button", { name: "Save", exact: true }).click();
-    if (testInfo.project.name === "phone") {
-      await expect(page.getByText("E2E sofa", { exact: false })).toBeVisible();
-    } else {
-      await page.locator('[data-node="section:f-lower:furniture"]').click();
-      await expect(page.locator('[data-node^="furnishing:"]').filter({ hasText: "E2E sofa" })).toBeVisible();
-    }
+    await openBrowser(page, phone);
+    await showFurnitureCategory(page);
+    await expect(furnitureRow(page, "E2E sofa")).toBeVisible();
 
     const status = await page.evaluate(() => window.__vh!.status());
     const endpoint = `/api/house-model/${status.modelId}/furnishings`;
@@ -53,30 +52,26 @@ test("furniture catalog creates, edits, reloads, cancels and controls the layer"
     await page.waitForFunction(() => window.__vh?.status().phase === "ready");
     await expect.poll(async () => (await (await page.request.get(endpoint)).json()).furnishings.some((item: { id: string }) => item.id === furnishingId)).toBe(true);
 
-    if (testInfo.project.name === "phone") {
-      await page.locator("summary").filter({ hasText: "Furniture" }).click();
-      await page.getByText("E2E sofa", { exact: false }).click();
-    } else {
-      await page.locator('[data-node="section:f-lower:furniture"]').click();
-      await page.locator('[data-node^="furnishing:"]').filter({ hasText: "E2E sofa" }).click();
-    }
+    await editFurniture(page, phone, "E2E sofa");
     await page.getByLabel("Width", { exact: true }).fill("1.4");
     await expect.poll(async () => page.evaluate(() => window.__vh!.furnishings().find((item) => item.preview)?.size[0])).toBeCloseTo(1.4, 2);
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect.poll(async () => page.evaluate(() => window.__vh!.furnishings().find((item) => !item.preview)?.size[0])).toBeCloseTo(1.2, 2);
 
-    const toggleName = testInfo.project.name === "phone" ? "Show furniture" : "Furniture";
-    const toggle = page.getByRole("switch", { name: toggleName, exact: true });
-    if (testInfo.project.name !== "phone") await page.getByRole("tab", { name: "Layers" }).click();
+    // The furniture layer switch is under View settings → Visibility on both form factors.
+    if (phone) await page.keyboard.press("Escape");
+    await openViewSection(page, "Visibility");
+    const toggle = page.getByRole("switch", { name: "Furniture", exact: true });
     await toggle.click();
     await expect.poll(async () => page.evaluate(() => window.__vh!.furnishings().length)).toBe(0);
     await toggle.click();
     await expect.poll(async () => page.evaluate(() => window.__vh!.furnishings().find((item) => !item.preview)?.visible)).toBe(true);
 
-    if (testInfo.project.name === "desktop") {
-      await page.getByRole("button", { name: "Lower floor", exact: true }).click();
+    if (!phone) {
+      await page.getByRole("region", { name: "Floor focus" }).getByRole("button", { name: "Lower floor", exact: true }).click();
       await expect.poll(async () => page.evaluate(() => window.__vh!.furnishings().find((item) => !item.preview)?.visible)).toBe(true);
     }
+    await page.keyboard.press("Escape");
     await waitForStableFrames(page, 700);
     await expect.poll(async () => {
       const idle = await idleFrames(page, 1_000);
@@ -87,10 +82,8 @@ test("furniture catalog creates, edits, reloads, cancels and controls the layer"
       position: [2.3, 0, 2.7], widthM: 1.2, depthM: 0.7, heightM: 0.8, rotationYDeg: 35,
     });
     await testInfo.attach("furniture-controls", { body: await page.screenshot(), contentType: "image/png" });
-    if (testInfo.project.name !== "phone") {
-      await page.locator('[data-node^="furnishing:"]').filter({ hasText: "E2E sofa" }).click();
-      await expect(page.getByRole("heading", { name: "Edit furniture", exact: true })).toBeVisible();
-    }
+    await editFurniture(page, phone, "E2E sofa");
+    await expect(page.getByRole("heading", { name: "Edit furniture", exact: true })).toBeVisible();
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await expect.poll(async () => (await (await page.request.get(endpoint)).json()).furnishings.some((item: { id: string }) => item.id === furnishingId)).toBe(false);
@@ -101,8 +94,34 @@ test("furniture catalog creates, edits, reloads, cancels and controls the layer"
   }
 });
 
+/** The property browser: a side panel on desktop, the "Browse / Add" sheet on phones. */
+async function openBrowser(page: Page, phone: boolean): Promise<void> {
+  if (phone && !(await page.getByRole("heading", { name: "Browse house", exact: true }).isVisible())) {
+    await page.getByRole("button", { name: "Browse / Add", exact: true }).click();
+  }
+  await expect(page.getByRole("heading", { name: "Browse house", exact: true })).toBeVisible();
+}
+
+/** A furniture row in the browser's Furniture category (its button reads "<name> <secondary>"). */
+function furnitureRow(page: Page, name: string) {
+  return page.getByRole("list", { name: "House items" }).getByRole("button", { name: new RegExp(`^${name}\\b`) });
+}
+
+async function showFurnitureCategory(page: Page): Promise<void> {
+  await page.locator('[aria-label="Browse category"]').getByRole("button", { name: "Furniture", exact: true }).click();
+}
+
+/** Find a piece through the browser's Furniture category, inspect it and open its edit form. */
+async function editFurniture(page: Page, phone: boolean, name: string): Promise<void> {
+  await openBrowser(page, phone);
+  await showFurnitureCategory(page);
+  await furnitureRow(page, name).click();
+  await page.getByRole("button", { name: "Edit furniture", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Edit furniture", exact: true })).toBeVisible();
+}
+
 test("desktop pointer placement previews without mutating fields and rejects wall collisions", async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name === "phone", "Pointer placement is exercised on desktop; phone uses numeric coordinates.");
+  test.skip(testInfo.project.name.includes("phone"), "Pointer placement is exercised on desktop; phone uses numeric coordinates.");
   const { context, page } = await openHouseSession(browser);
   let furnishingId: string | null = null;
   let hiddenFurnishingId: string | null = null;
@@ -132,15 +151,15 @@ test("desktop pointer placement previews without mutating fields and rejects wal
     await page.reload();
     await page.waitForFunction(() => window.__vh?.status().phase === "ready");
     await page.getByRole("button", { name: "Show inside (D)" }).click();
-    await page.getByRole("button", { name: "Lower floor", exact: true }).click();
+    await page.getByRole("region", { name: "Floor focus" }).getByRole("button", { name: "Lower floor", exact: true }).click();
     await waitForStableFrames(page, 1_000);
     await expect.poll(async () => page.evaluate(
       (id) => window.__vh!.furnishings().find((item) => item.id === id)?.visible,
       hiddenFurnishingId,
     )).toBe(false);
 
-    await page.locator("summary").filter({ hasText: "Furniture" }).click();
-    await page.getByRole("button", { name: "Add furniture" }).click();
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await page.locator('[aria-label="Add to house"]').getByRole("button", { name: "Furniture", exact: true }).click();
     await page.getByRole("button", { name: "Place Chair", exact: true }).click();
     const originalDraft = await coordinateValues(page);
     // Keep the rotation anchor clear of the existing chair; object collisions are now enforced.
@@ -177,6 +196,9 @@ test("desktop pointer placement previews without mutating fields and rejects wal
     await page.getByRole("radio", { name: "Select (V)" }).click();
     const chair = await canvasPoint(page, [2.3, 0.45, 2.7]);
     await page.mouse.click(chair.x, chair.y);
+    // A pick opens the read-only details first; editing is the explicit next step.
+    await expect(page.getByRole("heading", { name: "E2E pointer chair", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Edit furniture", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Edit furniture", exact: true })).toBeVisible();
     await expect(page.getByLabel("Name", { exact: true })).toHaveValue("E2E pointer chair");
     await page.getByLabel("Width", { exact: true }).fill("1.2");

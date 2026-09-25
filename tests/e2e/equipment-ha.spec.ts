@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { login, nextClientIp } from "./fixtures";
+import { haFixtureKey, login, nextClientIp } from "./fixtures";
 
 test("bulk import readings, link primary, and remove equipment for reimport", async ({ page }, testInfo) => {
   page.setDefaultTimeout(10_000);
   await page.context().setExtraHTTPHeaders({ "x-forwarded-for": nextClientIp() });
-  const viewport = testInfo.project.name;
+  const viewport = haFixtureKey(testInfo.project.name);
   const name = `E2E ${viewport} motion`;
   const temperature = `sensor.e2e_${viewport}_temperature`;
   const battery = `sensor.e2e_${viewport}_battery`;
@@ -39,26 +39,31 @@ test("bulk import readings, link primary, and remove equipment for reimport", as
   await expect(page.getByRole("link", { name: "Import from Home Assistant", exact: true })).toBeVisible();
   await page.getByRole("link", { name: new RegExp(name) }).click();
   await expect(page).toHaveURL(/\/equipment\/[^/?]+$/);
+  // Home Assistant links live on the record's Connections tab; the record opens on Overview.
+  const connectionsTab = page.getByRole("tab", { name: "Connections", exact: true });
+  await connectionsTab.click();
   await expect(page.getByText(temperature, { exact: true })).toBeVisible();
   const equipmentUrl = page.url();
   await page.getByRole("button", { name: "Link an entity", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByRole("combobox", { name: /^Entity/ }).click();
+  // The record itself is an "Equipment" dialog now, so the link dialog is named explicitly.
+  const linkDialog = page.getByRole("dialog", { name: "Link a Home Assistant entity", exact: true });
+  await linkDialog.getByRole("combobox", { name: /^Entity/ }).click();
   const optionSearch = page.getByRole("searchbox", { name: "Search options", exact: true });
   await expect(optionSearch).toBeFocused();
   await optionSearch.fill("battery");
   await expect(page.getByRole("option").filter({ hasText: battery })).toBeVisible();
   await optionSearch.press("Escape");
   await expect(optionSearch).toBeHidden();
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole("combobox", { name: /^Entity/ }).click();
+  await expect(linkDialog).toBeVisible();
+  await linkDialog.getByRole("combobox", { name: /^Entity/ }).click();
   await expect(page.getByRole("option").first()).toContainText(`e2e_${viewport}_`);
   await expect(page.getByRole("option").filter({ hasText: battery })).toHaveCount(1);
   await expect(page.getByRole("option").filter({ hasText: disabledSignal })).toHaveCount(0);
   await page.getByRole("option").filter({ hasText: occupancy }).click();
-  await dialog.getByRole("button", { name: "Link it", exact: true }).click();
-  await expect(dialog).toBeHidden();
+  await linkDialog.getByRole("button", { name: "Link it", exact: true }).click();
+  await expect(linkDialog).toBeHidden();
   await page.reload();
+  await connectionsTab.click();
   await expect(page.getByText(occupancy, { exact: true })).toBeVisible();
   await expect(page.getByText("Primary", { exact: true })).toBeVisible();
 
@@ -67,6 +72,7 @@ test("bulk import readings, link primary, and remove equipment for reimport", as
   for (const label of ["Equipment", "Projects", "Plans", "Procedures", "Shopping list"]) {
     await expect(sections.getByRole("link", { name: label, exact: true })).toBeAttached();
   }
+  const dialog = page.getByRole("dialog");
   await page.getByRole("searchbox", { name: "Filter equipment" }).fill(name);
   await page.getByRole("checkbox", { name: "Select all filtered", exact: true }).check();
   await page.getByRole("button", { name: "Remove selected", exact: true }).click();
@@ -99,7 +105,7 @@ test("bulk import readings, link primary, and remove equipment for reimport", as
   await expect(page.getByRole("heading", { name: "Equipment trash", exact: true })).toBeVisible();
   await page.getByRole("searchbox", { name: "Filter equipment" }).fill(name);
   await page.getByRole("checkbox", { name: "Select all filtered", exact: true }).check();
-  if (viewport === "desktop") await page.setViewportSize({ width: 1000, height: 850 });
+  if (!testInfo.project.use.isMobile) await page.setViewportSize({ width: 1000, height: 850 });
   const selectionSummary = page.getByText(/shown · .* selected · up to/);
   const deleteButton = page.getByRole("button", { name: "Delete permanently", exact: true });
   const summaryBox = await selectionSummary.boundingBox();
@@ -116,8 +122,9 @@ test("bulk import readings, link primary, and remove equipment for reimport", as
   await dialog.getByRole("button", { name: "Delete permanently", exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByRole("link", { name: new RegExp(name) })).toHaveCount(0);
-  // Next can stream a not-found page with HTTP 200 once its shell was sent.
+  // A record URL opens its surface over the hub; a deleted one says so there instead of a 404.
   await page.goto(equipmentUrl);
-  await expect(page.getByRole("heading", { name: "404", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Equipment", exact: true }).getByRole("status"))
+    .toContainText("This record is unavailable");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

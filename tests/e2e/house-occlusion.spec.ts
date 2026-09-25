@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openHouse, waitForStableFrames } from "./helpers/house";
+import { focusFloor, openHouse, openViewSection, waitForStableFrames } from "./helpers/house";
 
 test("equipment occlusion hides downstairs markers and labels behind the upstairs floor", async ({ page }, testInfo) => {
   const base = { modelId: "fixture-house", rotationYDeg: 0, lightAim: null, locationNote: "", photoId: null, entityId: null, symbol: "sensor", category: "safety", linkedEntities: [], surfaceId: null };
@@ -10,7 +10,7 @@ test("equipment occlusion hides downstairs markers and labels behind the upstair
     ], stale: [], partialFields: [] } });
   });
   await openHouse(page);
-  await page.getByRole("button", { name: "Upper floor", exact: true }).click();
+  await focusFloor(page, "Upper floor");
   await waitForStableFrames(page);
   await page.evaluate(() => window.__vh!.select({ kind: "equipment", id: "downstairs" }));
   const downstairs = page.locator('[data-placement="downstairs"]');
@@ -19,7 +19,7 @@ test("equipment occlusion hides downstairs markers and labels behind the upstair
   await expect(upstairs).toBeVisible();
   expect(await page.evaluate(() => window.__vh!.equipmentCount())).toBe(2);
   await expect(page.locator('[data-anchor="equipment:downstairs"]:visible')).toHaveCount(0);
-  if (testInfo.project.name !== "phone") await page.getByRole("tab", { name: "Layers", exact: true }).click();
+  await openViewSection(page, "Visibility");
   const toggle = page.getByRole("switch", { name: "Hide occluded equipment", exact: true });
   await expect(toggle).toBeChecked();
   await toggle.click();
@@ -41,15 +41,16 @@ test("equipment occlusion hides downstairs markers and labels behind the upstair
   await expect(downstairs).toBeVisible();
   await expect(page.locator('[data-anchor="equipment:downstairs"]:visible')).toHaveCount(1);
   await toggle.click();
-  if (testInfo.project.name !== "phone") {
+  if (!testInfo.project.name.includes("phone")) {
     await page.getByRole("button", { name: "Orthographic", exact: true }).click();
     await expect.poll(() => page.evaluate(() => window.__vh!.camera().projection)).toBe("ortho");
     await expect(downstairs).toBeHidden();
   }
-  await page.getByRole("button", { name: "Lower floor", exact: true }).click();
+  await focusFloor(page, "Lower floor");
   await expect(downstairs).toBeVisible();
   await expect(upstairs).toBeHidden();
   await expect.poll(() => page.evaluate(() => window.__vh!.equipmentCount())).toBe(1);
+  await openViewSection(page, "Visibility");
   await toggle.click(); // Hidden-floor models stay hidden even with occlusion disabled.
   await expect.poll(() => page.evaluate(() => window.__vh!.equipmentCount())).toBe(1);
 });
