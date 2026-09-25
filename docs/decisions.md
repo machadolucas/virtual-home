@@ -222,3 +222,14 @@ deactivation keeps passkeys; removing them is an explicit, audited owner action 
 `vh-admin remove-passkeys`, and neither revokes sessions. Because `freshAge` stays 0, adding a
 passkey separately requires a session created in the last 10 minutes, so a stolen long-lived
 cookie cannot plant a credential that outlives a password change.
+
+## D-036 LaunchDaemons as the app user, without sudo after install
+LaunchAgents die with the login session, and a session can end without a reboot (a WindowServer
+crash under memory pressure), which takes the app down until someone logs in. `VH_LAUNCHD_DOMAIN=system`
+runs the same three jobs as LaunchDaemons with `UserName`/`GroupName` set to the installing user, so
+they start at boot and survive that. The default stays `gui` so other installs are unaffected. Only
+the one-time install needs root, and the installer prints those lines instead of running sudo.
+Updates and restores cannot `bootout` a system job without root, so they use a hold file the
+wrappers wait on, stop web and worker by pid (the processes are the user's own), and rely on
+`KeepAlive=true` for the relaunch; `launchctl print system/<label>` gives the pid unprivileged. The
+wrappers' pidfiles, written just before `exec node`, distinguish "node started" from "wrapper waiting".

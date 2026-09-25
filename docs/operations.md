@@ -34,31 +34,52 @@ Caddy: add the site block from `deploy/Caddyfile.example` (reverse proxy to `127
 `flush_interval -1` for SSE, `max_size 32MB`), reload Caddy, then open `https://<host>/api/health`.
 
 Home Assistant token: HA → Profile → Security → Long-lived access tokens → name `virtual-home-worker`
-→ paste into `vh.env` as `HA_TOKEN=` → `launchctl kickstart -k gui/$(id -u)/net.machadolucas.virtual-home.worker`.
+→ paste into `vh.env` as `HA_TOKEN=` → `./scripts/services.sh restart worker`.
 
-## Supervision (launchd user agents)
-Jobs: `net.machadolucas.virtual-home.web`, `.worker` (`KeepAlive` on crash only; a config error exits
-78 and stays down), `.backup` (daily 03:30). Wrapper scripts load `secrets/vh.env` and rotate
-`logs/*.launchd.log` on every start; application logs go to `logs/web.log` / `logs/worker.log`
-(pino-roll, 20 MB × 14).
+## Supervision
+Jobs: `net.machadolucas.virtual-home.web`, `.worker`, `.backup` (daily 03:30). Wrapper scripts load
+`secrets/vh.env`, rotate `logs/*.launchd.log` on every start, and write `run/web.pid` /
+`run/worker.pid` just before they exec node (so a pidfile means node started). Application logs go
+to `logs/web.log` / `logs/worker.log` (pino-roll, 20 MB × 14).
+
+Two modes, chosen by `VH_LAUNCHD_DOMAIN` in `vh.env` (`scripts/lib/launchd.sh`; the switch-over is in
+[deploy-mac-mini.md](deploy-mac-mini.md#supervision-mode-gui-or-system)):
+
+- **`gui`** (default): LaunchAgents in `gui/<uid>`. `KeepAlive` on crash only, so a config error
+  (exit 78) stays down. They run only inside a logged-in session: automatic login brings them back
+  after a reboot, but a session that ends without a reboot takes them down until someone logs in.
+- **`system`**: LaunchDaemons in `system/`, running as the same user, independent of any session.
+  `KeepAlive` is unconditional for web and worker, so a config error retries every 10 s. Nothing
+  day-to-day needs sudo: `launchctl print system/<label>` is readable unprivileged, the processes
+  belong to the app user, and stopping one by pid makes launchd relaunch it.
+
+**The hold file.** In system mode `update.sh` and `restore.sh --force` cannot boot the jobs out
+without sudo, so they create `run/hold`, stop web and worker by pid, and wait for them to exit.
+launchd relaunches the wrappers at once; each wrapper waits (polling every 2 s) while `run/hold`
+exists, then starts normally. At the end the script removes the hold and waits for both new pids
+and `/api/health`. If a step fails in between, the services stay held (the equivalent of staying
+booted out in gui mode) and the script says so; `./scripts/services.sh release` starts whatever is
+built, and `vh-admin doctor` warns while a hold file exists.
 
 ```bash
-launchctl print gui/$(id -u)/net.machadolucas.virtual-home.web | grep -E 'state|last exit'
-launchctl kickstart -k gui/$(id -u)/net.machadolucas.virtual-home.worker   # restart
+./scripts/services.sh status                  # domain, state, pid and pidfile per job; "HELD" if held
+./scripts/services.sh restart [web|worker]    # gui: kickstart -k; system: stop by pid, wait for the relaunch
+./scripts/services.sh hold | release          # system mode only
+launchctl print gui/$(id -u)/net.machadolucas.virtual-home.web | grep -E 'state|last exit'   # gui
+launchctl print system/net.machadolucas.virtual-home.web      | grep -E 'state|last exit'   # system, no sudo
 tail -f ~/virtual-home-data/logs/worker.log
 ```
-User agents run only inside a logged-in user session. Either enable automatic login for the service
-user on the mini, or install the plists as LaunchDaemons (`/Library/LaunchDaemons`, add
-`<key>UserName</key>`, `sudo launchctl bootstrap system …`). Decide at deployment; the installer
-assumes user agents.
 
 ## Update
 ```bash
 cd ~/git/virtual-home && ./scripts/update.sh
 ```
 Order: pre-update backup → `git pull --ff-only` → install → typecheck + unit tests → stop worker, then
-web (boot out the launchd jobs to prevent KeepAlive restarting during the build) → migrate → build → bootstrap web (health wait) → bootstrap worker. Migrations are forward-only and
-additive-first; a failed migration prints the restore + rollback commands.
+web (gui: boot out the launchd jobs to prevent KeepAlive restarting during the build; system: hold,
+then stop by pid) → migrate → build → gui: bootstrap web (health wait), then bootstrap worker;
+system: release the hold, then wait for both new pids and the health endpoint. In system mode the
+script refuses to start unless both daemons are loaded and no gui copy of a job is. Migrations are
+forward-only and additive-first; a failed migration prints the restore + rollback commands.
 
 ## Backup and restore
 `scripts/backup.sh [--label L] [--keep-forever]` produces a consistent archive (SQLite online backup +
@@ -69,7 +90,10 @@ integrity check, attachments, reversible quarantine, model packages, redacted en
 
 `scripts/restore.sh <archive> [--target DIR] [--force]` verifies the checksum, restores into an
 **empty** directory by default (or stops services and overwrites with `--force`), checks integrity,
-and reports row counts. Secrets are never in archives: after a restore set `BETTER_AUTH_SECRET` (all
+and reports row counts. With `--force`, gui mode sends the jobs SIGTERM and leaves them to launchd, as
+before; system mode holds and stops them first and releases them at the end, waiting for health
+(unless it had to write a secret-less `vh.env`, in which case they stay held until you fill it in
+and run `services.sh release`). Secrets are never in archives: after a restore set `BETTER_AUTH_SECRET` (all
 sessions invalid) and `HA_TOKEN`.
 
 The round trip is exercised by `tests/integration/backup-restore.test.ts`.
@@ -96,7 +120,7 @@ Passwords are typed at a hidden prompt and are never accepted as an argument (ar
 via `ps` and lands in shell history); without a TTY, pipe one in with `--password-from-stdin`. A reset
 revokes that user's sessions, but the 60 s session cookie cache can still satisfy an already-issued
 cookie on read paths for up to a minute — security pages and destructive actions re-check immediately.
-Rotate `BETTER_AUTH_SECRET`: backup → edit `vh.env` → restart web → `revoke-sessions --all` → sign in again.
+Rotate `BETTER_AUTH_SECRET`: backup → edit `vh.env` → restart web (`services.sh restart web`) → `revoke-sessions --all` → sign in again.
 Rotate `HA_TOKEN`: create the new token first → edit `vh.env` → restart worker → verify HA state on
 Settings → System → delete the old token in HA.
 

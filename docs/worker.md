@@ -87,12 +87,15 @@ Production:
 
 ```bash
 pnpm build                                                        # next build + esbuild worker bundle
-launchctl kickstart -k gui/$(id -u)/net.machadolucas.virtual-home.worker
+./scripts/services.sh restart worker     # gui: launchctl kickstart -k; system: stop by pid, launchd relaunches
 tail -f ~/virtual-home-data/logs/worker.log
 ```
 
 `scripts/launchd/run-worker.sh` sources `$VH_DATA_DIR/secrets/vh.env` (mode 0600 enforced) and
-`exec`s `node dist/worker/index.mjs`. Logs: JSON to `logs/worker.log` (rolling daily, 20 MB, 14
+`exec`s `node dist/worker/index.mjs`. Before that it waits while `$VH_DATA_DIR/run/hold` exists
+(system mode's update/restore hold), and it writes `run/worker.pid` just before the exec. The job is
+a LaunchAgent (`gui/<uid>`) or, with `VH_LAUNCHD_DOMAIN=system`, a LaunchDaemon that runs as the same
+user; see `docs/operations.md` (Supervision). Logs: JSON to `logs/worker.log` (rolling daily, 20 MB, 14
 files); launchd's own stdout/stderr goes to `logs/worker.launchd.log`.
 
 To verify a bundle without starting it:
@@ -128,8 +131,9 @@ Work down this list; each step distinguishes a different box.
 
 1. **Is the worker alive?** `integration_status.heartbeat_at_ms` is bumped every 15 s *regardless
    of HA state*, and `worker_heartbeat('worker')` carries `worker_id` and `tick_count`. A stale
-   heartbeat means the worker is down — check `logs/worker.launchd.log` and
-   `launchctl print gui/$(id -u)/net.machadolucas.virtual-home.worker`. Do not blame HA for this.
+   heartbeat means the worker is down — check `logs/worker.launchd.log*`, `scripts/services.sh status`
+   (which also shows a leftover hold) or `launchctl print gui/$(id -u)/net.machadolucas.virtual-home.worker`
+   (`system/net.machadolucas.virtual-home.worker` in system mode). Do not blame HA for this.
 2. **Is the schema behind?** A worker that exited 78 with "database schema is N migration(s)
    behind" needs `pnpm db:migrate`, not a restart.
 3. **Is the tick running?** `worker_heartbeat('notification_tick').last_ok_ms` should be under a

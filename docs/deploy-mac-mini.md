@@ -60,7 +60,9 @@ nano ~/virtual-home-data/secrets/vh.env
 
 Then run the installer again. It installs dependencies, builds the web app and the worker, applies
 migrations (taking a backup first if a database already exists), installs the three launchd
-services, and waits for the health endpoint:
+services, and waits for the health endpoint. By default those are per-user LaunchAgents; to run
+them as LaunchDaemons that survive logout, see [Supervision mode](#supervision-mode-gui-or-system)
+before this step:
 
 ```bash
 ./scripts/install-macmini.sh
@@ -121,7 +123,8 @@ web service. Nothing else changes — that is the only place the origin is confi
 1. HA → profile → Security → Long-lived access tokens → create one named `virtual-home-worker`.
 2. Put it in `~/virtual-home-data/secrets/vh.env` as `HA_TOKEN=…` (never anywhere else; it is not
    entered in the browser and never logged).
-3. Restart the worker: `launchctl kickstart -k gui/$(id -u)/net.machadolucas.virtual-home.worker`
+3. Restart the worker: `./scripts/services.sh restart worker` (either mode; in gui mode this is
+   `launchctl kickstart -k gui/$(id -u)/net.machadolucas.virtual-home.worker`)
 4. Open Settings → Home Assistant: the connection should reach `subscribed`, with a version and a
    recent "last successful message".
 5. Settings → Users: give each person their notify service (`notify.mobile_app_lucas_iphone`,
@@ -135,8 +138,9 @@ web service. Nothing else changes — that is the only place the origin is confi
 ```bash
 pnpm vh-admin doctor                                     # env, permissions, integrity, migrations, HA, services, disk
 curl -fsS http://127.0.0.1:3010/api/health               # {"status":"ok"}
-launchctl print gui/$(id -u)/net.machadolucas.virtual-home.web    | grep -E 'state|last exit'
-launchctl print gui/$(id -u)/net.machadolucas.virtual-home.worker | grep -E 'state|last exit'
+./scripts/services.sh status                             # domain, state, pid of each job, and any hold
+launchctl print gui/$(id -u)/net.machadolucas.virtual-home.web | grep -E 'state|last exit'   # gui mode
+launchctl print system/net.machadolucas.virtual-home.web      | grep -E 'state|last exit'   # system mode (no sudo)
 tail -f ~/virtual-home-data/logs/worker.log
 ```
 
@@ -157,6 +161,7 @@ Then in a browser at your `VH_BASE_URL`:
 
 ```bash
 cd ~/git/virtual-home && ./scripts/update.sh    # backup → pull → test → migrate → build → restart, in that order
+./scripts/services.sh restart [web|worker]      # restart without sudo, in either mode
 ./scripts/backup.sh                             # on demand; nightly at 03:30 by launchd
 ./scripts/restore.sh <archive> --target /tmp/restore-test
 WARMUP_S=600 ./scripts/measure-resources.sh     # record p50/p95 RSS in operations.md
@@ -170,8 +175,9 @@ the trust model is in [security.md](security.md).
 ## Caveats specific to this machine
 
 - **launchd user agents run only while the user is logged in.** Either enable automatic login for
-  this account, or move the three plists to `/Library/LaunchDaemons` with a `UserName` key and
-  `sudo launchctl bootstrap system …`. Without one of those, a reboot leaves the app down.
+  this account, or switch to system mode (below). Without one of those, a reboot leaves the app
+  down. Automatic login is not enough on its own if the session can end without a reboot (a
+  WindowServer crash under memory pressure ends it and takes every LaunchAgent with it).
 - **Port 3010** is the default because 3000 is often taken. If the installer reports a conflict,
   change `PORT` in `vh.env` and the Caddy upstream together.
 - **The web process must not be started with `pnpm exec`** in production; the launchd wrapper execs
@@ -180,3 +186,53 @@ the trust model is in [security.md](security.md).
   measured table in [operations.md](operations.md) and re-measure here before setting an alert.
 - **HA history proxy**: `VH_HA_HISTORY_ENABLED=false` in `vh.env` removes the only path that lets the
   web process hold the HA token, if you would rather keep it worker-only.
+
+## Supervision mode: gui or system
+
+`VH_LAUNCHD_DOMAIN` in `secrets/vh.env` chooses how launchd runs the three jobs. Leave it unset
+unless you need system mode; the scripts behave exactly as before.
+
+| | `gui` (default) | `system` |
+|---|---|---|
+| Plists | `~/Library/LaunchAgents/`, written and loaded by the installer | `/Library/LaunchDaemons/`, root:wheel 0600, installed once with sudo |
+| Runs as | the logged-in user | the same user (`UserName`/`GroupName`, plus `HOME`/`USER`/`LOGNAME` in the plist) |
+| Needs a login session | yes | no: starts at boot, survives logout and a lost session |
+| web/worker `KeepAlive` | on crash only; a config error (exit 78) stays down | always: anything that exits is relaunched (a config error retries every 10 s, so read `*.launchd.log*`) |
+| Update / restore stop the services by | `launchctl bootout` + `bootstrap` | a hold file plus a stop by pid, no sudo (see [operations.md](operations.md#supervision)) |
+| Restart | `launchctl kickstart -k gui/$(id -u)/<label>` or `services.sh restart` | `services.sh restart` (stop by pid; launchd relaunches) or `sudo launchctl kickstart -k system/<label>` |
+
+The installer never runs sudo. In system mode it renders the three plists for the user running it
+into `$VH_DATA_DIR/launchd-staged/` and prints the lines that install them:
+
+```bash
+./scripts/install-macmini.sh --plists-only --domain system   # render only: no install, build or migration
+```
+
+`--domain` overrides `vh.env` for that run, so you can stage the daemons before switching. Run it
+as the app user, never with sudo (the plists take `UserName` and `HOME` from whoever runs it).
+
+### Switching an installation from gui to system
+
+Stage first (above), then as root, in one go (substitute the data dir and user):
+
+```bash
+DATA=/path/to/virtual-home-data; APP_USER=<app user>; P=net.machadolucas.virtual-home
+F="$DATA/secrets/vh.env"   # edited as the app user, so it stays theirs and mode 0600
+sudo -u "$APP_USER" sh -c "sed -i '' '/^VH_LAUNCHD_DOMAIN=/d' '$F' && echo VH_LAUNCHD_DOMAIN=system >> '$F'"
+UID_N=$(id -u "$APP_USER"); H=$(dscl . -read "/Users/$APP_USER" NFSHomeDirectory | awk '{print $2}')
+for j in worker web backup; do launchctl bootout "gui/$UID_N/$P.$j" 2>/dev/null || true; done
+sudo -u "$APP_USER" mkdir -p "$H/Library/LaunchAgents.disabled"
+for j in web worker backup; do sudo -u "$APP_USER" mv "$H/Library/LaunchAgents/$P.$j.plist" "$H/Library/LaunchAgents.disabled/"; done
+for j in web worker backup; do install -o root -g wheel -m 600 "$DATA/launchd-staged/$P.$j.plist" "/Library/LaunchDaemons/$P.$j.plist"; done
+for j in web worker backup; do launchctl bootstrap system "/Library/LaunchDaemons/$P.$j.plist"; done
+```
+
+Moving the agent plists out of `~/Library/LaunchAgents` matters: left there, they load again at the
+next login and fight the daemons for the port. Then check `curl -fsS http://127.0.0.1:3010/api/health`,
+`./scripts/services.sh status` and `pnpm vh-admin doctor` (it reports the domain, warns about a job
+loaded in both domains, and about a leftover hold file).
+
+Going back is the same in reverse: remove the `VH_LAUNCHD_DOMAIN` line, `launchctl bootout
+system/<label>` for the three jobs, delete their plists from `/Library/LaunchDaemons`, move the agent
+plists back and `launchctl bootstrap gui/<uid>` them (as the user), or just re-run
+`./scripts/install-macmini.sh --plists-only`.
