@@ -98,6 +98,33 @@ test("furniture catalog creates, edits, reloads, cancels and controls the layer"
 });
 
 /** The property browser: a side panel on desktop, the "Browse / Add" sheet on phones. */
+test("a failed furniture load is reported in the browser and Retry loads it", async ({ browser }, testInfo) => {
+  const phone = testInfo.project.name.includes("phone");
+  const { context, page } = await openHouseSession(browser);
+  try {
+    const status = await page.evaluate(() => window.__vh!.status());
+    const endpoint = `/api/house-model/${status.modelId}/furnishings`;
+    // Fail only the list read; the reload below is what issues it.
+    await page.route(`**${endpoint}`, (route) =>
+      route.request().method() === "GET" ? route.fulfill({ status: 503, body: "{}" }) : route.fallback(),
+    );
+    await page.reload();
+    await page.waitForFunction(() => window.__vh?.status().phase === "ready");
+    await openBrowser(page, phone);
+    const alert = page.getByRole("alert").filter({ hasText: "Could not load furniture (503)" });
+    await expect(alert).toBeVisible();
+
+    await page.unroute(`**${endpoint}`);
+    const reloaded = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === endpoint && response.request().method() === "GET" && response.ok());
+    await alert.getByRole("button", { name: "Retry", exact: true }).click();
+    await reloaded;
+    await expect(alert).toBeHidden();
+  } finally {
+    await context.close();
+  }
+});
+
 async function openBrowser(page: Page, phone: boolean): Promise<void> {
   if (phone && !(await page.getByRole("heading", { name: "Browse house", exact: true }).isVisible())) {
     await page.getByRole("button", { name: "Browse / Add", exact: true }).click();

@@ -12,6 +12,8 @@ interface FurnishingsValue {
   loading: boolean;
   error: string | null;
   busy: boolean;
+  /** Load the list again after a failed load. */
+  retry(): void;
   preview: Furnishing | null;
   setPreview(item: Furnishing | null): void;
   requestEdit(id: string): void;
@@ -34,6 +36,8 @@ export function FurnishingsProvider({ children }: { children: React.ReactNode })
   const [loadedFingerprint, setLoadedFingerprint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadNonce, setLoadNonce] = useState(0);
+  const retry = useCallback(() => { setError(null); setLoadNonce((value) => value + 1); }, []);
   const [preview, setPreview] = useState<Furnishing | null>(null);
   const editHandler = useRef<((id: string) => void) | null>(null);
   const requestEdit = useCallback((id: string) => editHandler.current?.(id), []);
@@ -56,7 +60,7 @@ export function FurnishingsProvider({ children }: { children: React.ReactNode })
         if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not load furniture");
       });
     return () => controller.abort();
-  }, [runtime.base, modelId, fingerprint]);
+  }, [runtime.base, modelId, fingerprint, loadNonce]);
 
   const save = useCallback(async (item: Omit<Furnishing, "modelId" | "id"> & { id?: string }) => {
     if (!modelId || !fingerprint) throw new Error("The house model is not ready");
@@ -89,7 +93,7 @@ export function FurnishingsProvider({ children }: { children: React.ReactNode })
   }, [runtime.base]);
 
   const loading = !!fingerprint && loadedFingerprint !== fingerprint;
-  const value = useMemo(() => ({ items, selectedId, select, loading, error, busy, preview, setPreview, requestEdit, registerEditHandler, save, remove }), [items, selectedId, select, loading, error, busy, preview, requestEdit, registerEditHandler, save, remove]);
+  const value = useMemo(() => ({ items, selectedId, select, loading, error, busy, retry, preview, setPreview, requestEdit, registerEditHandler, save, remove }), [items, selectedId, select, loading, error, busy, retry, preview, requestEdit, registerEditHandler, save, remove]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

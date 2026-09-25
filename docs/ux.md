@@ -715,6 +715,9 @@ yaw is edited; Save persists it, Cancel restores the previous view and saved obj
 no maintenance, documents or Home Assistant controls. A package revision keeps these records by
 stable `modelId`; a removed floor is shown in the list as needing reassignment rather than dropping
 the record.
+If the furniture list fails to load, the House browser (desktop panel and the phone Browse sheet)
+says so in an alert with **Retry**; until it loads, furniture is missing from the list and the
+model, and saving a piece is refused.
 
 Equipment labels show their main linked reading. Clicking a label expands its other linked readings;
 battery-linked equipment includes its percentage. The placement's chosen silhouette survives save
