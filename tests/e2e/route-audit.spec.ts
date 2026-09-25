@@ -103,6 +103,9 @@ test("project links and booking changes work by named records, without copied ID
   const completedLink = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "Project", exact: true }) }).locator('a[href^="/history/completions/"], a[href^="/history?completion="]').first();
   await completedLink.click();
   await expect(page.getByRole("dialog", { name: "Recorded completion", exact: true })).toBeVisible();
+  // The record opens over the project before its URL commits (WebKit commits noticeably later), so
+  // wait for the navigation to land; otherwise the goto below races it and is "interrupted".
+  await expect(page).toHaveURL(/\/history(\/completions\/|\?completion=)/);
   await page.goto(taskUrl);
   await expect(page.getByRole("heading", { name: task, exact: true })).toBeVisible();
 
