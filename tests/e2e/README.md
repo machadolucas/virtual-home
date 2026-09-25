@@ -18,7 +18,7 @@ Real household data is never used by default; the real model package is exercise
 
 | Spec | Model | Projects | What it covers |
 |---|---|---|---|
-| `auth.spec.ts` | — | both | Sign-in, private files, session revocation, deep links, open redirect. |
+| `auth.spec.ts` | — | all four | Sign-in, private files, session revocation, deep links, open redirect. |
 | `passkey.spec.ts` | — | Chromium (`desktop`, `phone`) | Register a passkey in Security, conditional-UI sign-in, "Sign in with passkey", rename, delete, refusal after delete. Uses the CDP virtual authenticator, which WebKit lacks. |
 | `house.spec.ts` | fixture | desktop | Load integrity, selection + URL sync, click picking, colour isolation, visibility and views, explode offsets, on-demand rendering, asset auth/ETag, mount→unmount→mount disposal. |
 | `house-real.spec.ts` | **real**, opt-in | desktop | The same numeric checks against the household's own package, plus load timing and orbit frame times. Writes `test-results/house-measurements.json`. |
@@ -27,6 +27,66 @@ Real household data is never used by default; the real model package is exercise
 `tests/e2e/helpers/house.ts` holds everything the house specs share: `openHouse`/`openHouseSession`,
 the typed `vh(page)` wrappers over `window.__vh`, `measureLoad`, `idleFrames`,
 `waitForStableFrames`, `orbitScripted` and the colour/diff helpers.
+
+## Environment-gated specs
+
+`pnpm test:e2e` is expected to be green on the Mac mini with nothing set. A few checks depend on
+what the test browser can do rather than on the app; they probe for the capability and skip with a
+grep-able reason instead of failing, and each has an opt-in to assert anyway:
+
+| Gate | Where | Skips when | Reason text (grep for it) | Force it |
+|---|---|---|---|---|
+| WebGL 2 | every House spec, via `openHouse()` / `openHouseSession()` (`requireWebGL()` in `helpers/house.ts`) | the browser cannot create a `webgl2` context (a container with no GPU and no software rasteriser) | `needs WebGL 2 in the test browser` | `VH_E2E_REQUIRE_WEBGL=1` fails instead of skipping |
+| Offline service-worker navigation | `pwa.spec.ts` › "offline, a household page falls back…" | on WebKit, `page.goto()` under `context.setOffline(true)` fails with "WebKit encountered an internal error" (Playwright's WebKit harness, not Safari); the navigation itself is the probe | `needs service-worker offline navigation` | `VH_E2E_WEBKIT_OFFLINE=1` asserts on WebKit too |
+| Real model package | `house-real.spec.ts` | `VH_REAL_MODEL_DIR` is unset | (described below) | set `VH_REAL_MODEL_DIR` |
+
+Headless Chromium and Playwright's WebKit both have WebGL 2 on the Mac mini, so no House spec is
+skipped there for rendering. Nothing needs a Home Assistant connection: the harness blanks
+`HA_URL`/`HA_TOKEN`, seeds synthetic registry rows (one set per project, `E2E_HA_FIXTURE_KEYS` in
+`fixtures.ts`) and drives live state through `helpers/liveHa.ts`'s synthetic event stream.
+
+The remaining skips are by design, not environment: desktop-only interactions skip the two phone
+projects (`project.name.includes("phone")`), the passkey spec needs Chromium's CDP virtual
+authenticator, and `screenshots.spec.ts` captures only on `desktop`/`phone` with the §13.4 entries
+it cannot stage marked individually.
+
+### Rules the suite depends on
+
+- **Every House spec signs in from its own client address.** `openHouse()` gives the page a random
+  `x-forwarded-for`, so specs using Playwright's `page` fixture no longer share one 5-per-minute
+  sign-in bucket (they used to hit "Too many attempts, wait a minute" when several ran back to back).
+- **No service worker in the House specs.** Once `/sw.js` controls a WebKit page, `page.route()`
+  stops seeing the page's API requests, so synthetic `/placements`, `/controls` or `/furnishings`
+  responses were silently replaced by real, empty ones. `openHouse()` refuses registration before
+  the first navigation; `pwa.spec.ts` is where the worker is tested.
+- **View settings is a popover over the canvas.** Close it (`closeViewSettings()`) before a
+  scripted drag or an element screenshot of the canvas, and reopen it (`openViewSection()`) after
+  clicking anything outside it — an outside click dismisses it. `openViewSection()` waits for a
+  dismissed popover to finish animating out, because deciding against that ghost made the next click
+  wait forever.
+- **Start drags on bare canvas.** Room labels are buttons and the view bar wraps at 1280 px, so a
+  hard-coded start point can land on a control; `bareCanvasPoint()` finds an uncovered point.
+- **A timed-out test leaks its rows.** Teardown closes the context before a `finally` can delete
+  what the test created, and the suite shares one database; later specs then miss a seeded
+  "Not placed yet" asset or see extra geometry. Fix the first failure in a run before the rest.
+
+### Running on a shared 16 GB home server
+
+Run one project at a time and serialise with any other heavy job on the host; a full four-project
+run on top of the server's other services pushed a 16 GB host into swap. Reuse the build between
+projects:
+
+```bash
+pnpm exec playwright test --project=desktop              # builds .next-e2e once
+VH_E2E_SKIP_BUILD=1 pnpm exec playwright test --project=webkit
+VH_E2E_SKIP_BUILD=1 pnpm exec playwright test --project=phone
+VH_E2E_SKIP_BUILD=1 pnpm exec playwright test --project=phone-webkit
+```
+
+Headless Chromium renders WebGL with SwiftShader by default (software), WebKit uses the GPU, so
+shader-heavy specs are several times slower on the Chromium projects; `isSoftwareWebGL()` lets a
+spec size its budget from the renderer instead of the project name. `route-audit.spec.ts` is the
+heaviest file (each project runs four layout audits, one in its own WebKit browser).
 
 ## Running
 
@@ -121,13 +181,10 @@ so no household geometry, database row or render survives the run.
 
 ## Notes and known gaps
 
-- **No equipment, no placements, no routes.** The bootstrap seeds two users and the model package,
-  and it does not call `registerRevision`, so `listPlacements()`/`listRoutes()` answer
-  `NotPersistedError`. Every check that needs a placement — edit mode, the save-payload invariant,
-  the equipment layer, the route editors, the Home Assistant marker styling — is `test.skip` with
-  that reason rather than faked. `house-real.spec.ts` gets a revision anyway, by importing through
-  `vh-admin` (above); the fixture harness would need `start-server.ts` to do the same, plus one
-  seeded equipment asset, before those skips could become real tests.
+- **Seeded data.** The bootstrap registers the fixture revision and seeds the unplaced equipment in
+  `E2E_PLACEABLE_NAMES` plus synthetic Home Assistant registry rows per project. Specs that place
+  one of those assets delete the placement afterwards, which returns it to "Not placed yet" for the
+  next spec (several specs share a name, so a leaked placement cascades — see the rule above).
 - **Screenshots are reviewed by eye.** No pixel comparison: a software-rasterised headless render is
   not the target machine's GPU. Each capture is still taken only after `__vh.settled` and 250 ms of
   unchanged `invalidateCount()`, so `frameloop="demand"` cannot yield a half-drawn frame.

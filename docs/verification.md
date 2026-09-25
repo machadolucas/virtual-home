@@ -277,3 +277,27 @@ trees at different ground elevations and verified crown removal in Contextual/Al
 restoration in All up, unchanged camera and physical positions, one shared instanced tree mesh,
 and no shader errors. Unit regressions cover clipping for shadows and hidden-crown picking,
 60 cm maximum trunk diameter, and trunk collisions without decorative crown obstructions.
+
+### E2E baseline on the Mac mini (2026-09-25)
+
+At d890cbb, 97 non-auth Playwright tests failed on the Mac mini. Triage found no app regression and
+no missing capability on this host — headless Chromium (SwiftShader) and Playwright's WebKit (GPU)
+both have WebGL 2, and nothing needs Home Assistant. The failures were stale specs and races:
+
+- **Stale after the 2026-09-13 redesign** (property tree → scoped browser, Layers/Rendering tabs →
+  View popover disclosures, records → surfaces over their hub, equipment detail → tabs, phone
+  View/Download → sheets, phone tab bar → More): house-focus, -labels, -furnishings, -viewer,
+  -theme, -optics, -occlusion, -light-*, screenshots, equipment-ha. Rewritten against the current UI.
+- **Harness gaps:** HA registry rows were seeded only for `desktop`/`phone`; desktop-only skips
+  tested `=== "phone"` and so ran on `phone-webkit`.
+- **Races / flakes, fixed at the cause:** page-fixture house specs shared one sign-in rate-limit
+  bucket; a controlling service worker hid WebKit fetches from `page.route()`; dismissed View
+  popovers were still "visible" while animating out; drags started on room-label buttons; WebKit
+  commits client navigations late (route-audit); 80-light batching needs >2 min on SwiftShader.
+- **Environment gates** (skip with a grep-able reason, opt-in to assert): WebGL 2 probe for every
+  House spec (`VH_E2E_REQUIRE_WEBGL=1`); WebKit offline service-worker navigation in `pwa.spec.ts`
+  (`VH_E2E_WEBKIT_OFFLINE=1`). See `tests/e2e/README.md` → Environment-gated specs.
+- **App defect found, not fixed here:** Better Auth's `revokeOtherSessions` revokes at most 100
+  sessions (`findMany`'s default `defaultFindManyLimit`), so a newer device survives "Sign out other
+  devices" once a user has more than 100 session rows. Worked around in `auth.spec.ts`; the fix
+  belongs in `src/server/auth/auth.ts`.
