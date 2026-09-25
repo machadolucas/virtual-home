@@ -16,8 +16,29 @@ async function choose(page: Page, name: string | RegExp, label: string | RegExp)
   await page.getByRole("combobox", { name }).click();
   await page.getByRole("option", { name: label, exact: typeof label === "string" }).click();
 }
+/**
+ * `page.goto()` that tolerates losing a race to the app's own pending navigation.
+ *
+ * Record surfaces are intercepted routes, and several actions (recording a completion, following a
+ * legacy `/history?completion=` link that the server redirects) end with the client router
+ * committing a navigation to the record the user is already looking at. WebKit commits it
+ * noticeably later than Chromium, so a `goto` issued right after can be "interrupted by another
+ * navigation". Only that specific error is handled: wait for the app's navigation to finish, then
+ * go where the test asked. Any other failure still throws.
+ */
+async function gotoSettled(page: Page, url: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await page.goto(url);
+    } catch (error) {
+      if (attempt >= 2 || !/is interrupted by another navigation/.test((error as Error).message)) throw error;
+      await page.waitForLoadState("load");
+    }
+  }
+}
+
 async function open(page: Page, route: string) {
-  const response = new URL(page.url()).pathname === route ? null : await page.goto(route);
+  const response = new URL(page.url()).pathname === route ? null : await gotoSettled(page, route);
   if (response) expect(response.status(), route).toBeLessThan(400);
   await expect(page.locator("main").first()).toBeVisible();
   if (route === "/house") await expect(page.getByRole("application", { name: "House 3D view" })).toBeVisible();
@@ -90,7 +111,7 @@ test("project links and booking changes work by named records, without copied ID
   await page.getByRole("button", { name: "Save service record", exact: true }).click();
   await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
 
-  await page.goto(projectUrl);
+  await gotoSettled(page, projectUrl);
   for (const [kind, query] of [["Task", task], ["Completed work", task], ["Service document", doc]]) {
     await choose(page, "What kind", kind!);
     await page.getByRole("searchbox", { name: "Search records", exact: true }).fill(query!);
@@ -103,10 +124,10 @@ test("project links and booking changes work by named records, without copied ID
   const completedLink = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "Project", exact: true }) }).locator('a[href^="/history/completions/"], a[href^="/history?completion="]').first();
   await completedLink.click();
   await expect(page.getByRole("dialog", { name: "Recorded completion", exact: true })).toBeVisible();
-  // The record opens over the project before its URL commits (WebKit commits noticeably later), so
-  // wait for the navigation to land; otherwise the goto below races it and is "interrupted".
-  await expect(page).toHaveURL(/\/history(\/completions\/|\?completion=)/);
-  await page.goto(taskUrl);
+  // The project links to the legacy `/history?completion=` URL; the server redirects it to the
+  // canonical record, which is where the next navigation (gotoSettled) may race the app.
+  await page.waitForURL(/\/history\/completions\//);
+  await gotoSettled(page, taskUrl);
   await expect(page.getByRole("heading", { name: task, exact: true })).toBeVisible();
 
   // Give the route audit representative dynamic supply and procedure pages, created through UI.
