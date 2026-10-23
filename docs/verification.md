@@ -3,6 +3,13 @@
 Living record of what is checked automatically, what was measured, and what remains unverified.
 Update the tables when results change; never record a number that was not measured.
 
+## 2026-10-23 editing and panel regressions
+
+- `pnpm check`: typecheck and lint passed; 145 test files passed, 1,773 tests passed and 23 skipped.
+- `VH_E2E_BROWSERS=chromium pnpm exec playwright test tests/e2e/record-surfaces.spec.ts tests/e2e/procedures.spec.ts --grep-invert 'opening a house equipment record'`: 14 passed across desktop and phone, one worker. Covers mouse-wheel scrolling, local equipment Save/Discard, record navigation, repeated procedure saves and frozen history.
+- Hue profile selection, bounded guide geometry, model metadata readback and saved range preservation have unit coverage. House context/camera assertions were extended for equipment editing but the WebGL test was not run on this production host. No Safari/WebKit rendering verification was performed in this change.
+- Heavy checks and isolated browser builds ran through `~/claude/scripts/heavy-job.sh`; the live `.next` build was not replaced by the test harness.
+
 ## Automated
 | Area | Where | Status |
 |---|---|---|

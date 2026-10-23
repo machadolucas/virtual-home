@@ -233,3 +233,8 @@ Updates and restores cannot `bootout` a system job without root, so they use a h
 wrappers wait on, stop web and worker by pid (the processes are the user's own), and rely on
 `KeepAlive=true` for the relaunch; `launchctl print system/<label>` gives the pid unprivileged. The
 wrappers' pidfiles, written just before `exec node`, distinguish "node started" from "wrapper waiting".
+
+## D-037 Procedure edits save as immutable versions
+The procedure screen edits current content directly; Save writes a new version and makes it current
+atomically. Existing task and completion references stay on their original version. The household
+UI has one Save action and no draft/publish step; older versions remain available read-only.

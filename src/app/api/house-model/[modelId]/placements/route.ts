@@ -397,6 +397,7 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
       photoAttachmentId: assetPlacement.photoAttachmentId,
       needsReconciliation: assetPlacement.needsReconciliation,
       name: asset.name,
+      modelName: asset.modelName,
       // Read-only, for the view's symbol inference — a wall-mounted sensor and a wall lamp are
       // different silhouettes, and the category is what tells them apart.
       category: asset.category,
@@ -438,6 +439,7 @@ export const GET = authed<Ctx>(async (_session, req, ctx) => {
       modelId,
       equipmentId: row.assetId,
       name: row.name,
+      modelName: row.modelName,
       position: [mm(row.posX), mm(row.posY), mm(row.posZ)],
       rotationYDeg: row.rotYawDeg ?? 0,
       mount: clientMount(row.mountKind, row.mountSurfaceId, height, row.mountOffsetM),
@@ -527,10 +529,10 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     });
 
   const equipment = db
-    .select({ id: asset.id, name: asset.name, category: asset.category })
+    .select({ id: asset.id, name: asset.name, category: asset.category, modelName: asset.modelName })
     .from(asset)
     .where(eq(asset.id, p.equipmentId))
-    .get() ?? (newEquipment ? {id:p.equipmentId,name:newEquipment.name,category:newEquipment.category} : undefined);
+    .get() ?? (newEquipment ? {id:p.equipmentId,name:newEquipment.name,category:newEquipment.category,modelName:null} : undefined);
   if (!equipment)
     throw conflict("unknown_equipment", {
       equipmentId: p.equipmentId,
@@ -715,6 +717,7 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     modelId,
     equipmentId: p.equipmentId,
     name: equipment.name,
+    modelName: equipment.modelName,
     position,
     rotationYDeg: stored?.rotYawDeg ?? mm(p.rotationYDeg),
     lightAim: stored?.lightAimYawDeg != null && stored.lightAimPitchDeg != null

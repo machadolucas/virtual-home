@@ -116,7 +116,7 @@ test("equipment label stays live, expands linked readings, and preserves its sav
     await expect(label).toHaveAttribute("aria-expanded", "false");
     await vh(page).select({ kind: "equipment", id: placement.id });
 
-    await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
+    await page.getByRole("button", { name: "Edit in 3D (E)", exact: true }).click();
     await page.getByRole("button", { name: "Save placement", exact: true }).click();
     await expect.poll(() => savedPlacement).not.toBeNull();
     expect(savedPlacement).toMatchObject({ symbol: "lamp_post" });

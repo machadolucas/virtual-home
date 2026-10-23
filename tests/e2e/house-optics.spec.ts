@@ -17,12 +17,12 @@ test("LED length and sensor aim survive saves; selection guides and equipment ca
       await page.reload();
       await page.waitForFunction(() => window.__vh?.status().phase === "ready");
       await page.evaluate((id) => window.__vh!.select({ kind: "equipment", id: id! }), placementId);
-      await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
+      await page.getByRole("button", { name: "Edit in 3D (E)", exact: true }).click();
     };
     await edit();
     await page.getByLabel("LED bar length (m)", { exact: true }).fill("2.4");
     await page.getByRole("button", { name: "Save placement", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Adjust placement", exact: true })).toBeHidden();
+    await expect(page.getByRole("heading", { name: "Edit in 3D", exact: true })).toBeHidden();
     await edit();
     await expect(page.getByLabel("LED bar length (m)", { exact: true })).toHaveValue("2.4");
     await page.getByRole("combobox", { name: "Shown as", exact: true }).click();
@@ -31,7 +31,7 @@ test("LED length and sensor aim survive saves; selection guides and equipment ca
     await page.getByLabel("Yaw (°)", { exact: true }).fill("45");
     await page.getByLabel("Pitch (°)", { exact: true }).fill("-20");
     await page.getByRole("button", { name: "Save placement", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Adjust placement", exact: true })).toBeHidden();
+    await expect(page.getByRole("heading", { name: "Edit in 3D", exact: true })).toBeHidden();
     await page.reload();
     await page.waitForFunction(() => window.__vh?.status().phase === "ready");
     expect((await (await page.request.get(endpoint)).json()).placements.find((p: { id: string }) => p.id === placementId)).toMatchObject({ symbol: "motion_sensor", detectionRangeM: 3, lightAim: { yawDeg: 45, pitchDeg: -20 } });
@@ -41,7 +41,7 @@ test("LED length and sensor aim survive saves; selection guides and equipment ca
     expect(direction[1]).toBeCloseTo(-Math.sin(20 * Math.PI / 180));
     await waitForStableFrames(page);
     await testInfo.attach("motion-sensor-guide.png", { body: await page.screenshot(), contentType: "image/png" });
-    await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
+    await page.getByRole("button", { name: "Edit in 3D (E)", exact: true }).click();
     await page.getByRole("combobox", { name: "Shown as", exact: true }).click();
     await page.getByRole("option", { name: "Sensor", exact: true }).click();
     await expect(page.getByLabel("Yaw (°)", { exact: true })).toHaveCount(0);

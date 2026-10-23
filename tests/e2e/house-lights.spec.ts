@@ -19,7 +19,7 @@ test("spotlight aim previews independently and survives saving and reopening", a
     await page.reload();
     await page.waitForFunction(() => window.__vh?.status().phase === "ready");
     await page.evaluate((id) => window.__vh!.select({ kind: "equipment", id: id! }), placementId);
-    await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
+    await page.getByRole("button", { name: "Edit in 3D (E)", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "Shown as", exact: true })).toContainText("Downlight");
     const coordinates = await Promise.all(["X", "Y", "Z"].map((axis) => page.getByLabel(`${axis} (m)`, { exact: true }).inputValue()));
     await page.getByRole("button", { name: "Aim in 3D view", exact: true }).click();
@@ -43,13 +43,13 @@ test("spotlight aim previews independently and survives saving and reopening", a
     await page.getByLabel("Yaw (°)", { exact: true }).fill("35");
     await page.getByLabel("Pitch (°)", { exact: true }).fill("-40");
     await page.getByRole("button", { name: "Save placement", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Adjust placement", exact: true })).toBeHidden();
+    await expect(page.getByRole("heading", { name: "Edit in 3D", exact: true })).toBeHidden();
     await page.reload();
     await page.waitForFunction(() => window.__vh?.status().phase === "ready");
     const reloaded = await (await page.request.get(endpoint)).json();
     expect(reloaded.placements.find((p: { id: string }) => p.id === placementId)).toMatchObject({ symbol: "downlight", lightAim: { yawDeg: 35, pitchDeg: -40 }, position: coordinates.map(Number) });
     await page.evaluate((id) => window.__vh!.select({ kind: "equipment", id: id! }), placementId);
-    await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
+    await page.getByRole("button", { name: "Edit in 3D (E)", exact: true }).click();
     await expect(page.getByLabel("Yaw (°)", { exact: true })).toHaveValue("35");
     await expect(page.getByLabel("Pitch (°)", { exact: true })).toHaveValue("-40");
     await waitForStableFrames(page);

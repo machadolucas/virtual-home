@@ -2,7 +2,7 @@ import type { Route } from "next";
 import { Tabs, TabsPanel } from "@/ui/Tabs";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, MapPin, Pencil } from "lucide-react";
+import { ArrowLeft, MapPin } from "lucide-react";
 import { requireSessionPage } from "@/server/auth/session";
 import { Badge, EmptyState, Panel, StatusBadge, StatusDot, buttonClasses } from "@/ui";
 import { PageHeader, PageScroll } from "@/ui/shell";
@@ -25,7 +25,8 @@ import { formatQuantity } from "@/features/inventory/units";
 import { EquipmentHaControls } from "@/features/assets/EquipmentHaControls";
 import { AssetCloseUpPhotos } from "@/features/assets/AssetCloseUpPhotos";
 import { AssetDocuments } from "@/features/assets/AssetDocuments";
-import { EquipmentForm, type EquipmentFormInitial } from "../EquipmentForm";
+import type { EquipmentFormInitial } from "../EquipmentForm";
+import { EquipmentEditButton, EquipmentEditContent, EquipmentEditMode } from "../EquipmentEditMode";
 import { ConsumablesEditor } from "./ConsumablesEditor";
 import { LinksPanel } from "./LinksPanel";
 import { ReplaceFlow, RetireButton } from "./ReplaceFlow";
@@ -97,7 +98,34 @@ export default async function EquipmentDetailPage({
       .join(" · "),
   }));
 
+  const editForm = {
+    initial: toFormInitial(detail),
+    locations: listLocationOptions(db).map((location) => ({
+      value: location.id,
+      label: location.name,
+      hint: location.parentName ?? location.kind,
+    })),
+    parents: listAssetOptions(db)
+      .filter((option) => option.id !== assetId)
+      .map((option) => ({
+        value: option.id,
+        label: option.name,
+        hint: option.locationName ?? undefined,
+      })),
+    parts: listPartOptions(db).map((part) => ({
+      value: part.id,
+      label: part.name,
+      hint: part.spec ?? part.unit,
+    })),
+    systems: listSystems(db).map((system) => ({
+      value: system.id,
+      label: system.name,
+      hint: SYSTEM_KIND_LABEL[system.kind],
+    })),
+  };
+
   return (
+    <EquipmentEditMode initialEditing={editing}>
     <PageScroll>
       <PageHeader
         eyebrow={CATEGORY_LABEL[asset.category]}
@@ -113,13 +141,7 @@ export default async function EquipmentDetailPage({
               <ArrowLeft aria-hidden="true" className="size-4" />
               All equipment
             </Link>
-            <Link
-              href={editing ? `/equipment/${assetId}` : `/equipment/${assetId}?edit=1`}
-              className={buttonClasses({ variant: editing ? "primary" : "secondary" })}
-            >
-              <Pencil aria-hidden="true" className="size-4" />
-              {editing ? "Stop editing" : "Edit details"}
-            </Link>
+            <EquipmentEditButton />
           </>
         }
       >
@@ -153,33 +175,7 @@ export default async function EquipmentDetailPage({
         </div>
       </PageHeader>
 
-      {editing ? (
-        <EquipmentForm
-          initial={toFormInitial(detail)}
-          locations={listLocationOptions(db).map((location) => ({
-            value: location.id,
-            label: location.name,
-            hint: location.parentName ?? location.kind,
-          }))}
-          parents={listAssetOptions(db)
-            .filter((option) => option.id !== assetId)
-            .map((option) => ({
-              value: option.id,
-              label: option.name,
-              hint: option.locationName ?? undefined,
-            }))}
-          parts={listPartOptions(db).map((part) => ({
-            value: part.id,
-            label: part.name,
-            hint: part.spec ?? part.unit,
-          }))}
-          systems={listSystems(db).map((system) => ({
-            value: system.id,
-            label: system.name,
-            hint: SYSTEM_KIND_LABEL[system.kind],
-          }))}
-        />
-      ) : (
+      <EquipmentEditContent form={editForm}>
         <Tabs ariaLabel="Equipment details" items={[{ value: "overview", label: "Overview" }, { value: "maintenance", label: "Maintenance" }, { value: "documents", label: "Documents" }, { value: "connections", label: "Connections" }, { value: "history", label: "History" }]}>
           <TabsPanel value="overview" className="flex flex-col gap-4 pt-4">
           {detail.replacedBy === null ? null : (
@@ -551,8 +547,9 @@ export default async function EquipmentDetailPage({
 
           </TabsPanel>
         </Tabs>
-      )}
+      </EquipmentEditContent>
     </PageScroll>
+    </EquipmentEditMode>
   );
 }
 

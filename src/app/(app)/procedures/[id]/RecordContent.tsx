@@ -13,8 +13,7 @@ import { loadProcedureDetail } from "@/server/queries/maintenance/procedures";
 export const metadata: Metadata = { title: "Procedure" };
 
 /**
- * One procedure: its version history, the version currently being shown, and — when that version
- * is the draft — the editor.
+ * One procedure: its version history and current editor. Older versions remain read-only.
  *
  * `?version=<id>` shows an older version read-only, which is how you check what a task from two
  * years ago actually said.
@@ -35,7 +34,7 @@ export default async function ProcedurePage(props: {
 
   const members = loadMembers(db, { includeInactive: true });
   const shown = detail.shown;
-  const draft = detail.versions.find((version) => version.status === "draft") ?? null;
+  const history = detail.versions.filter((version) => version.status !== "draft");
 
   return (
     <PageScroll>
@@ -48,63 +47,13 @@ export default async function ProcedurePage(props: {
         title={detail.title}
         description={detail.summary ?? undefined}
         actions={
-          shown === null ? null : detail.editable ? (
-            <Badge tone="due">Editing draft v{shown.version}</Badge>
-          ) : (
+          shown === null ? null : detail.editable ? null : (
             <Badge tone={shown.versionId === detail.currentVersionId ? "ok" : "unknown"}>
-              v{shown.version} {shown.versionId === detail.currentVersionId ? "in force" : "superseded"}
+              v{shown.version} · {shown.versionId === detail.currentVersionId ? "current" : "earlier"} version
             </Badge>
           )
         }
       />
-
-      <Panel title="Versions" flush subtitle="Publishing freezes a version; nothing is ever deleted.">
-        <ul>
-          {detail.versions.map((version) => (
-            <li
-              key={version.id}
-              className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-4 py-2.5 last:border-b-0"
-            >
-              <span className="flex flex-wrap items-baseline gap-2 text-sm">
-                <Link
-                  href={`/procedures/${detail.id}?version=${version.id}`}
-                  className="vh-tnum text-ink hover:text-accent-text hover:underline"
-                >
-                  v{version.version}
-                </Link>
-                <Badge
-                  tone={
-                    version.status === "draft"
-                      ? "due"
-                      : version.id === detail.currentVersionId
-                        ? "ok"
-                        : "unknown"
-                  }
-                  size="sm"
-                >
-                  {version.status === "draft"
-                    ? "Draft"
-                    : version.id === detail.currentVersionId
-                      ? "In force"
-                      : "Superseded"}
-                </Badge>
-                {version.changeNote !== null ? (
-                  <span className="text-xs text-ink-2">{version.changeNote}</span>
-                ) : null}
-              </span>
-              <span className="vh-tnum text-xs text-ink-3">
-                {version.publishedAtMs === null
-                  ? `created ${formatInstant(version.createdAtMs, tz)}`
-                  : `published ${formatInstant(version.publishedAtMs, tz)}${
-                      members.find((member) => member.id === version.publishedBy)?.name === undefined
-                        ? ""
-                        : ` by ${members.find((member) => member.id === version.publishedBy)?.name}`
-                    }`}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </Panel>
 
       {shown === null ? (
         <Panel title="No version to show">
@@ -116,9 +65,7 @@ export default async function ProcedurePage(props: {
       ) : detail.editable ? (
         <ProcedureEditor
           procedureId={detail.id}
-          editable
-          isFirstDraft={shown.version === 1}
-          hasDraft={draft !== null}
+          expectedVersionId={shown.versionId}
           parts={searchParts(db, "", 200)}
           initial={{
             title: detail.title,
@@ -171,16 +118,19 @@ export default async function ProcedurePage(props: {
         />
       ) : (
         <>
-          <ProcedureEditor
-            procedureId={detail.id}
-            editable={false}
-            isFirstDraft={false}
-            hasDraft={draft !== null}
-            parts={[]}
-            initial={EMPTY_EDITOR_VALUES}
-          />
-
-          <Panel title={`Version ${shown.version}`} subtitle="Read-only: a published version is frozen.">
+          <Panel
+            title={`Version ${shown.version}`}
+            subtitle={
+              shown.versionId === detail.currentVersionId
+                ? "Use Edit current procedure to make changes."
+                : "Earlier versions stay as recorded for their tasks and completions."
+            }
+          >
+            {detail.currentVersionId !== null ? (
+              <Link href={`/procedures/${detail.id}`} className={buttonClasses({ variant: "secondary", size: "sm" })}>
+                Edit current procedure
+              </Link>
+            ) : null}
             <div className="flex flex-col gap-4 text-sm">
               {shown.safetyNotes !== null ? (
                 <section>
@@ -300,20 +250,47 @@ export default async function ProcedurePage(props: {
           ) : null}
         </>
       )}
+      {history.length > 0 ? (
+        <details className="rounded-lg border border-line bg-surface">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
+            Version history ({history.length})
+          </summary>
+          <Panel flush subtitle="Tasks and completions keep the instructions they started with.">
+            <ul>
+              {history.map((version) => (
+                <li
+                  key={version.id}
+                  className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-4 py-2.5 last:border-b-0"
+                >
+                  <span className="flex flex-wrap items-baseline gap-2 text-sm">
+                    <Link
+                      href={`/procedures/${detail.id}?version=${version.id}`}
+                      className="vh-tnum text-ink hover:text-accent-text hover:underline"
+                    >
+                      v{version.version}
+                    </Link>
+                    <Badge tone={version.id === detail.currentVersionId ? "ok" : "unknown"} size="sm">
+                      {version.id === detail.currentVersionId ? "Current" : "Earlier"}
+                    </Badge>
+                    {version.changeNote !== null ? (
+                      <span className="text-xs text-ink-2">{version.changeNote}</span>
+                    ) : null}
+                  </span>
+                  <span className="vh-tnum text-xs text-ink-3">
+                    {version.publishedAtMs === null
+                      ? `created ${formatInstant(version.createdAtMs, tz)}`
+                      : `${formatInstant(version.publishedAtMs, tz)}${
+                          members.find((member) => member.id === version.publishedBy)?.name === undefined
+                            ? ""
+                            : ` by ${members.find((member) => member.id === version.publishedBy)?.name}`
+                        }`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </details>
+      ) : null}
     </PageScroll>
   );
 }
-
-const EMPTY_EDITOR_VALUES = {
-  title: "",
-  summary: "",
-  defaultEffortMinutes: "",
-  prerequisites: "",
-  safetyNotes: "",
-  steps: [],
-  looseChecklist: [],
-  tools: [],
-  materials: [],
-  references: [],
-  equipmentNotes: [],
-};

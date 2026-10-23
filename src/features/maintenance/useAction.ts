@@ -74,7 +74,8 @@ export const ERROR_MESSAGES: Record<string, string> = {
   recipient_not_active: "There is no active reminder to snooze.",
   insufficient_stock: "There is not enough of one or more parts in stock.",
   no_draft: "There is no draft to work with.",
-  no_steps: "Add at least one step before publishing.",
+  version_changed: "This procedure changed after you opened it. Reload to get the latest version.",
+  no_steps: "Add at least one step before saving.",
   plan_cancelled: "This plan has been cancelled.",
   internal: "The server could not confirm the change. Your edits are kept; try again.",
 };

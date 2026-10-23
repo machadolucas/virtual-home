@@ -112,6 +112,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
             beginEdit({
               placementId: placement.id,
               equipmentId: placement.equipmentId,
+              modelName: placement.modelName,
               modelId: placement.modelId,
               name: placement.name,
               category: placement.category,
@@ -137,7 +138,7 @@ export function EquipmentInspector({ placementId }: { placementId: PlacementId }
           className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-xs font-medium text-ink hover:bg-surface-3"
         >
           <Move3d aria-hidden="true" className="size-3.5" />
-          Adjust placement (E)
+          Edit in 3D (E)
         </button>
       </div>
 

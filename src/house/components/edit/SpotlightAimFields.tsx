@@ -3,7 +3,7 @@
 import { Crosshair, RotateCcw, X } from "lucide-react";
 import type { EditDraft } from "@/house/store/slices/edit";
 import { defaultSymbol, isPlacementSymbol } from "@/house/scene/symbols";
-import { isAimableSymbol, isDirectionalSymbol, detectionRange } from "@/house/model/equipmentOptics";
+import { isAimableSymbol, isDirectionalSymbol, detectionProfile, detectionRange } from "@/house/model/equipmentOptics";
 import { defaultLightAim } from "@/house/model/equipmentLight";
 import { useHouseStore } from "../../hooks/useHouseStore";
 
@@ -28,6 +28,7 @@ export function SpotlightAimFields({
   const updateDraft = useHouseStore((state) => state.updateDraft);
   if (!editing || !isAimableSymbol(draftSymbol(editing))) return null;
 
+  const profile = detectionProfile({ ...editing, symbol: draftSymbol(editing) });
   const aim = editing.lightAim ?? defaultLightAim(draftSymbol(editing), editing.rotationYDeg);
   const update = (field: "yawDeg" | "pitchDeg", raw: string) => {
     const value = Number(raw);
@@ -78,11 +79,11 @@ export function SpotlightAimFields({
       </div>
       {isDirectionalSymbol(draftSymbol(editing)) && <label className="flex flex-col gap-1">
         <span>Detection / viewing range (m)</span>
-        <input aria-label="Detection / viewing range (m)" type="number" min="0.1" max="30" step="0.1" value={detectionRange(editing.detectionRangeM)} onChange={(event) => {
+        <input aria-label="Detection / viewing range (m)" type="number" min="0.1" max="30" step="0.1" value={detectionRange(editing.detectionRangeM, profile.rangeM)} onChange={(event) => {
           const value = event.currentTarget.valueAsNumber;
           if (Number.isFinite(value) && value >= 0.1 && value <= 30) updateDraft({ detectionRangeM: value }, { coalesce: true });
         }} className="min-h-11 rounded-md border border-line bg-surface px-2 md:min-h-8" />
-        <span className="text-ink-3">Illustrative 60° cone; this does not change the device or measure its actual coverage.</span>
+        <span className="text-ink-3">{profile.label}: {profile.horizontalDeg}° horizontal × {profile.verticalDeg}° vertical{profile.inferred ? " (assumed from indoor/outdoor placement)" : ""}. Approximate guide; obstacles and sensitivity affect actual coverage.</span>
       </label>}
       <div className="flex flex-wrap gap-1.5">
         {canAimInView ? (

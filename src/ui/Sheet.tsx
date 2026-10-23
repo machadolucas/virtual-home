@@ -2,7 +2,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { X } from "lucide-react";
-import { useCallback, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useOverlayContainer } from "./OverlayContainer";
 import { cn } from "./cn";
@@ -24,6 +24,8 @@ export interface SheetProps {
   className?: string;
   /** Preserve the body subtree while the modal itself closes normally. */
   keepMounted?: boolean;
+  /** Record routes already own a PageScroll; ordinary sheets scroll their body. */
+  scrollBody?: boolean;
   returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
@@ -46,6 +48,7 @@ export function Sheet({
   side = "bottom",
   className,
   keepMounted = false,
+  scrollBody = true,
   returnFocusRef,
 }: SheetProps) {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -55,6 +58,16 @@ export function Sheet({
   const parkingRef = useRef<HTMLDivElement | null>(null);
   const bodyHostRef = useRef<HTMLDivElement | null>(null);
   const [bodyHost, setBodyHost] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!keepMounted || !bodyHost) return;
+    // Retained bodies are React portals outside Radix Overlay's onWheelCapture path. Its
+    // document-level RemoveScroll listener therefore misses the allowed-event queue entry and
+    // can cancel wheel input despite the body being a DOM descendant of Content. Stop bubbling
+    // before that listener; the body itself remains scrollable and contains overscroll.
+    const allowRetainedBodyWheel = (event: WheelEvent) => event.stopPropagation();
+    bodyHost.addEventListener("wheel", allowRetainedBodyWheel, { passive: true });
+    return () => bodyHost.removeEventListener("wheel", allowRetainedBodyWheel);
+  }, [bodyHost, keepMounted]);
   const park = useCallback((node: HTMLDivElement | null) => {
     parkingRef.current = node;
     if (node && !bodyHostRef.current) {
@@ -73,7 +86,7 @@ export function Sheet({
     (slot ?? parkingRef.current)?.appendChild(host);
   }, []);
   const body = <div style={{display:"contents"}} onPointerDownCapture={event=>bodyEvents.current.add(event.nativeEvent)} onFocusCapture={event=>bodyEvents.current.add(event.nativeEvent)}>
-    {children ? <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 text-sm leading-6 text-ink-2 sm:px-5">{children}</div> : null}
+    {children ? <div className={cn("min-h-0 flex-1 overscroll-contain px-4 py-4 text-sm leading-6 text-ink-2 sm:px-5", scrollBody ? "overflow-y-auto" : "overflow-hidden")}>{children}</div> : null}
     {footer ? <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface-2 px-4 py-3">{footer}</div> : null}
   </div>;
   return (

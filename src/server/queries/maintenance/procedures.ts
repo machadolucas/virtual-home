@@ -95,7 +95,7 @@ export interface ProcedureDetail {
   /** The version being shown: the draft when there is one, otherwise the published one. */
   shown: FrozenProcedure | null;
   shownMaterials: MaterialLine[];
-  /** `true` when `shown` is the editable draft. Published versions are read-only. */
+  /** `true` when `shown` is the current version or the active editing version. */
   editable: boolean;
   planCount: number;
 }
@@ -144,9 +144,10 @@ export function loadProcedureDetail(
     currentVersionId: row.currentVersionId,
     archivedAtMs: row.archivedAtMs,
     versions,
-    shown: loadFrozenProcedure(db, chosenId),
-    shownMaterials: chosenId === null ? [] : loadProcedureMaterials(db, chosenId),
-    editable: chosen?.status === "draft",
+    shown: loadFrozenProcedure(db, chosen?.id ?? null),
+    shownMaterials: chosen?.id === undefined ? [] : loadProcedureMaterials(db, chosen.id),
+    editable:
+      versionId === undefined && (chosen?.status === "draft" || chosenId === row.currentVersionId),
     planCount,
   };
 }

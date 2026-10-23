@@ -346,7 +346,7 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
 
     detectionGuide() {
       const guide = runtime.scene?.children.find((o) => o.userData.detectionGuide);
-      return { visible: Boolean(guide?.visible && guide.children.length), position: guide?.position.toArray() ?? [], direction: guide ? new THREE.Vector3(0, 1, 0).applyQuaternion(guide.quaternion).toArray() : [] };
+      return { visible: Boolean(guide?.visible && guide.children.length), position: guide?.position.toArray() ?? [], direction: guide ? new THREE.Vector3(0, 0, 1).applyQuaternion(guide.quaternion).toArray() : [] };
     },
 
     occlusionStats() { return { queries: runtime.occlusion.queries, batches: runtime.occlusion.batches }; },

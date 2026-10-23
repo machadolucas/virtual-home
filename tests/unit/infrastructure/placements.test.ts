@@ -61,6 +61,15 @@ const put = (placement: Record<string, unknown>) =>
 const list = () =>
   GET(jsonRequest(`/api/house-model/${h.modelId}/placements`, "GET"), ctx({ modelId: h.modelId }));
 
+it("returns equipment model metadata for detection profiles after saving and reloading", async () => {
+  writeTx(h.handle.db, (tx) => tx.update(asset).set({ modelName: "SML004" }).where(eq(asset.id, equipmentId)).run());
+  const saved = await put({ position: [1, 1, 1], symbol: "motion_sensor", modelName: "SML001" });
+  expect(saved.status).toBe(200);
+  expect((await bodyOf<{ placement: PersistedPlacement }>(saved)).placement).toMatchObject({ modelName: "SML004" });
+  const reloaded = await bodyOf<{ placements: PersistedPlacement[] }>(await list());
+  expect(reloaded.placements).toEqual(expect.arrayContaining([expect.objectContaining({ modelName: "SML004" })]));
+});
+
 describe("atomic tree creation",()=>{
   it("creates manual equipment with its chosen category and physical representation",async()=>{
     const id=randomUUID();

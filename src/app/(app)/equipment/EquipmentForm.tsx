@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
   ASSET_CATEGORIES,
@@ -16,6 +16,7 @@ import { Button, Checkbox, Field, IconButton, Input, Panel, Select, Textarea } f
 import { CATEGORY_LABEL, CONSUMABLE_ROLE_LABEL } from "@/features/assets/labels";
 import { readPrice, readRowQuantity } from "@/features/inventory/units";
 import { useAction } from "@/features/settings/actionClient";
+import { confirmDiscardEdits } from "@/features/forms/unsaved";
 import { createEquipment, updateEquipment } from "@/server/actions/assets/equipment";
 
 const NONE = "__none";
@@ -94,14 +95,19 @@ export function EquipmentForm({
   parents,
   parts,
   systems,
+  onDiscard,
+  onSaved,
 }: {
   initial: EquipmentFormInitial;
   locations: readonly Option[];
   parents: readonly Option[];
   parts: readonly Option[];
   systems: readonly Option[];
+  onDiscard?: () => void;
+  onSaved?: () => void;
 }) {
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
   const editing = initial.assetId !== undefined;
   const [form, setForm] = useState<EquipmentFormInitial>(initial);
 
@@ -111,9 +117,16 @@ export function EquipmentForm({
   });
   const update = useAction(updateEquipment, {
     successTitle: "Equipment saved",
-    onSuccess: () => router.refresh(),
+    onSuccess: () => { onSaved?.(); router.refresh(); },
   });
   const call = editing ? update : create;
+
+  const discard = (): void => {
+    if (onDiscard) {
+      if (confirmDiscardEdits(formRef.current)) onDiscard();
+    } else if (editing) router.replace(`/equipment/${initial.assetId}`, { scroll: false });
+    else router.back();
+  };
 
   const set = <K extends keyof EquipmentFormInitial>(
     key: K,
@@ -176,13 +189,25 @@ export function EquipmentForm({
   const fieldError = (name: string): string | undefined => call.fieldErrors[name]?.[0];
 
   return (
-    <form data-unsaved
+    <form ref={formRef} data-unsaved
       className="flex flex-col gap-5"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
       }}
     >
+      <div role="group" aria-label="Equipment form actions" className="sticky top-0 z-20 -mx-4 flex flex-wrap items-center gap-2 border-b border-line bg-surface/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+        <Button
+          type="submit"
+          loading={call.pending}
+          disabled={price.error !== null || consumablesIncomplete}
+        >
+          {editing ? "Save changes" : "Add the equipment"}
+        </Button>
+        <Button data-discard-editor={onDiscard ? undefined : true} type="button" variant="ghost" onClick={discard} disabled={call.pending}>
+          {editing ? "Discard changes" : "Cancel"}
+        </Button>
+      </div>
       <Panel title="What it is">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
@@ -591,8 +616,8 @@ export function EquipmentForm({
         >
           {editing ? "Save changes" : "Add the equipment"}
         </Button>
-        <Button data-discard-editor type="button" variant="ghost" onClick={() => router.back()} disabled={call.pending}>
-          Cancel
+        <Button data-discard-editor={onDiscard ? undefined : true} type="button" variant="ghost" onClick={discard} disabled={call.pending}>
+          {editing ? "Discard changes" : "Cancel"}
         </Button>
       </div>
     </form>

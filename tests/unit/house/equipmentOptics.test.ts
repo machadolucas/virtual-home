@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
   detectionRange,
+  detectionProfile,
+  detectionBoundary,
   isAimableSymbol,
   isDirectionalSymbol,
   isLedBar,
@@ -48,6 +50,36 @@ const link = (deviceClass: string | null) => ({
 });
 
 describe("equipment optics", () => {
+  it("uses the Hue hardware model before indoor/outdoor placement and preserves explicit reach", () => {
+    for (const modelName of ["SML001", "SML003", "9290012607", "Hue motion sensor"]) {
+      expect(detectionProfile({ symbol: "motion_sensor", modelName, roomId: null })).toMatchObject({ horizontalDeg: 100, verticalDeg: 100, rangeM: 5, inferred: false });
+    }
+    for (const modelName of ["SML002", "SML004", "929003067401", "Hue outdoor motion sensor"]) {
+      const profile = detectionProfile({ symbol: "motion_sensor", modelName, roomId: "indoor-room" });
+      expect(profile).toMatchObject({ horizontalDeg: 160, verticalDeg: 80, rangeM: 12, inferred: false });
+      expect(detectionRange(null, profile.rangeM)).toBe(12);
+      expect(detectionRange(3, profile.rangeM)).toBe(3);
+    }
+    expect(detectionProfile({ symbol: "motion_sensor", roomId: null })).toMatchObject({ horizontalDeg: 160, inferred: true });
+    expect(detectionProfile({ symbol: "motion_sensor", roomId: "room" })).toMatchObject({ horizontalDeg: 100, inferred: true });
+    expect(detectionProfile({ symbol: "security_camera", modelName: "SML004", roomId: null })).toMatchObject({ horizontalDeg: 60, verticalDeg: 60 });
+  });
+
+  it("bounds the wide outdoor guide by radial reach and keeps its horizontal and vertical angles distinct", () => {
+    const profile = detectionProfile({ symbol: "motion_sensor", modelName: "SML004", roomId: null });
+    const boundary = detectionBoundary(profile, 12);
+    for (const point of boundary) expect(Math.hypot(...point)).toBeCloseTo(12);
+    const right = boundary[0]!, top = boundary[16]!;
+    expect(2 * Math.atan2(right[0], right[2]) * 180 / Math.PI).toBeCloseTo(160);
+    expect(2 * Math.atan2(top[1], top[2]) * 180 / Math.PI).toBeCloseTo(80);
+    // Wide angle stays horizontal under yaw and pitch, including straight-down aim.
+    for (const aim of [{ yawDeg: 70, pitchDeg: -30 }, { yawDeg: 90, pitchDeg: -90 }]) {
+      const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(-aim.pitchDeg * Math.PI / 180, aim.yawDeg * Math.PI / 180, 0, "YXZ"));
+      expect(new THREE.Vector3(0, 0, 1).applyQuaternion(rotation).distanceTo(new THREE.Vector3(...directionFromAim(aim)))).toBeLessThan(1e-6);
+      expect(new THREE.Vector3(1, 0, 0).applyQuaternion(rotation).y).toBeCloseTo(0);
+    }
+  });
+
   it("classifies LED bars, directional equipment and aimable symbols", () => {
     expect(isLedBar("led_bar_vertical")).toBe(true);
     expect(isLedBar("led_bar_horizontal")).toBe(true);

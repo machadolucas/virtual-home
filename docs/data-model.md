@@ -132,7 +132,7 @@ floor ids remain listable and must be reassigned before they render again.
 | table | purpose |
 |---|---|
 | `procedure` | A named, slugged procedure with a pointer to its current published version. |
-| `procedure_version` | Immutable once published; editing forks a new draft. |
+| `procedure_version` | Immutable once published; each save publishes a new version without changing historical versions. |
 | `procedure_step` | Ordered steps. |
 | `procedure_checklist_item` | Step-level or version-level checklist entries, optionally capturing a value. |
 | `procedure_tool` | Tools needed. |
@@ -290,8 +290,8 @@ SQLite cannot express these, so they live in the service layer with tests:
 - **Asset lifecycle**: `status IN ('removed','retired')` ⇒ `removed_on` set;
   `replaced_by_asset_id` set ⇒ status is `removed`/`retired`; both sides of a replacement written in
   one transaction.
-- **Procedure immutability**: a `published` version and all its children are read-only; any edit
-  forks a new draft.
+- **Procedure immutability**: a `published` version and all its children are read-only; editing
+  saves a new version, while existing occurrences and completions keep their version reference.
 - **Discrete parts**: every `qty_milli` for a `tracking_mode = 'discrete'` part is a multiple of
   1000. (A `CHECK` on `unit` would be too strong.)
 - **Polymorphic links** (`attachment_link`, `project_link`, `model_reconciliation_item`,

@@ -26,7 +26,7 @@ test("equipment stacks on equipment and furniture, previews without changing dra
     await page.reload(); await page.waitForFunction(() => window.__vh?.status().phase === "ready");
     await focusLowerFloor(page);
     await inspectEquipment(page,"Porch light");
-    await page.getByRole("button",{name:"Adjust placement (E)",exact:true}).click();
+    await page.getByRole("button",{name:"Edit in 3D (E)",exact:true}).click();
     await waitForStableFrames(page,700);
     // Numeric edits and Save use the same collision policy as the pointer preview.
     await page.getByLabel("X (m)",{exact:true}).fill("2");
@@ -34,7 +34,7 @@ test("equipment stacks on equipment and furniture, previews without changing dra
     await page.getByLabel("Z (m)",{exact:true}).fill("2");
     await page.getByRole("button",{name:"Save placement",exact:true}).click();
     await expect(page.getByRole("alert").filter({hasText:"Overlaps furniture or equipment"})).toBeVisible();
-    await expect(page.getByRole("heading",{name:"Adjust placement",exact:true})).toBeVisible();
+    await expect(page.getByRole("heading",{name:"Edit in 3D",exact:true})).toBeVisible();
     await page.getByLabel("X (m)",{exact:true}).fill("1");
     const before = await page.getByLabel("Y (m)",{exact:true}).inputValue();
     const target=await screen(page,[2,1.86,2]);
@@ -44,13 +44,13 @@ test("equipment stacks on equipment and furniture, previews without changing dra
     await page.mouse.click(target.x,target.y);
     await expect.poll(async()=>Number(await page.getByLabel("Y (m)",{exact:true}).inputValue())).toBeCloseTo(1.86,2);
     await page.getByRole("button",{name:"Save placement",exact:true}).click();
-    await expect(page.getByRole("heading",{name:"Adjust placement",exact:true})).toBeHidden();
+    await expect(page.getByRole("heading",{name:"Edit in 3D",exact:true})).toBeHidden();
     const saved=(await (await page.request.get(endpoint)).json()).placements.find((p:{id:string})=>p.id===ids[1]);
     expect(saved.position[1]).toBeCloseTo(1.86,2); expect(saved.mount.kind).toBe("free");
     await page.reload(); await page.waitForFunction(()=>window.__vh?.status().phase==="ready");
     await focusLowerFloor(page);
     await inspectEquipment(page,"Porch light");
-    await page.getByRole("button",{name:"Adjust placement (E)",exact:true}).click();
+    await page.getByRole("button",{name:"Edit in 3D (E)",exact:true}).click();
     await waitForStableFrames(page,700);
     // A compact control attaches to the fridge's vertical front face. Hover shows the whole
     // candidate without changing numeric fields; clicking commits an outward-facing free mount.
@@ -79,13 +79,13 @@ test("equipment stacks on equipment and furniture, previews without changing dra
     const yaw=Number(await page.getByLabel("Rotation around Y (°)",{exact:true}).inputValue())*Math.PI/180;
     expect(Math.abs(Math.atan2(Math.sin(yaw-fridgeYaw*Math.PI/180),Math.cos(yaw-fridgeYaw*Math.PI/180)))).toBeLessThan(.08);
     await page.getByRole("button",{name:"Save placement",exact:true}).click();
-    await expect(page.getByRole("heading",{name:"Adjust placement",exact:true})).toBeHidden();
+    await expect(page.getByRole("heading",{name:"Edit in 3D",exact:true})).toBeHidden();
     await page.reload(); await page.waitForFunction(()=>window.__vh?.status().phase==="ready");
     const attachedReloaded=(await (await page.request.get(endpoint)).json()).placements.find((p:{id:string})=>p.id===ids[1]);
     expect(attachedReloaded).toMatchObject({symbol:"remote_control",mount:{kind:"free"},position:attached});
     await focusLowerFloor(page);
     await inspectEquipment(page,"Porch light");
-    await page.getByRole("button",{name:"Adjust placement (E)",exact:true}).click();
+    await page.getByRole("button",{name:"Edit in 3D (E)",exact:true}).click();
     await waitForStableFrames(page,700);
     const cabinet=await screen(page,[1,1.2,3]);
     await page.mouse.click(cabinet.x,cabinet.y);
@@ -127,7 +127,7 @@ test("other model objects accept precise attachment without changing the draft o
     await page.reload();
     await page.waitForFunction(() => window.__vh?.status().phase === "ready");
     await inspectEquipment(page,"Eave spot");
-    await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
+    await page.getByRole("button", { name: "Edit in 3D (E)", exact: true }).click();
     const coordinates = () => Promise.all(["X", "Y", "Z"].map((axis) => page.getByLabel(`${axis} (m)`, { exact: true }).inputValue()));
     const before = await coordinates();
     const target = await page.evaluate(() => {
@@ -152,7 +152,7 @@ test("other model objects accept precise attachment without changing the draft o
     await page.getByLabel("Rotation around Y (°)", { exact: true }).fill("45");
     expect(await coordinates()).toEqual(attached);
     await page.getByRole("button", { name: "Save placement", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Adjust placement", exact: true })).toBeHidden();
+    await expect(page.getByRole("heading", { name: "Edit in 3D", exact: true })).toBeHidden();
     const stored = await (await page.request.get(endpoint)).json();
     expect(stored.placements.find((item: { id: string }) => item.id === id)).toMatchObject({
       symbol: "sensor", mount: { kind: "free", surfaceId: target!.surfaceId }, position: attached.map(Number),

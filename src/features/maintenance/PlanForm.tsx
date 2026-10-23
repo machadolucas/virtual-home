@@ -269,7 +269,7 @@ export function PlanForm({
 
           <Field
             label="Instructions"
-            help="A published procedure is frozen onto each task as it is generated, so editing the procedure later never changes work already in progress."
+            help="Each task keeps the procedure version it started with, so later edits never change work already in progress."
           >
             {({ id, describedBy }) => (
               <Select

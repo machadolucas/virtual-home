@@ -54,6 +54,7 @@ import {
   createProcedure,
   discardProcedureDraft,
   publishProcedureDraft,
+  saveProcedure,
   saveProcedureDraft,
   startProcedureDraft,
 } from "@/server/actions/maintenance/procedures";
@@ -574,6 +575,84 @@ describe("procedure authoring", () => {
     const created = expectOk(await createProcedure({ title: "Empty" }));
     const failure = expectFail(await publishProcedureDraft({ procedureId: created.procedureId }));
     expect(failure.error).toBe("no_steps");
+    const saveFailure = expectFail(
+      await saveProcedure({
+        procedureId: created.procedureId,
+        expectedVersionId: created.versionId,
+        content: { ...content, steps: [] },
+      }),
+    );
+    expect(saveFailure.error).toBe("no_steps");
+    expect(
+      world.handle.db.select().from(procedure).where(eq(procedure.id, created.procedureId)).get()
+        ?.currentVersionId,
+    ).toBeNull();
+  });
+
+  it("saves edits to a published procedure as a new current version in one operation", async () => {
+    const created = expectOk(await createProcedure({ title: "Replace the ventilation filters" }));
+    const first = expectOk(
+      await saveProcedure({
+        procedureId: created.procedureId,
+        expectedVersionId: created.versionId,
+        content,
+      }),
+    );
+    const occurrenceId = makeOccurrence(world, {
+      dueDate: "2026-09-08",
+      procedureVersionId: first.versionId,
+    });
+
+    const editedContent = {
+      ...content,
+      title: "Replace the ventilation filters and clean the housing",
+      steps: content.steps.map((row, index) =>
+        index === 0 ? { ...row, title: "Turn the unit off and open the access panel" } : row,
+      ),
+    };
+    const second = expectOk(
+      await saveProcedure({
+        procedureId: created.procedureId,
+        expectedVersionId: first.versionId,
+        content: editedContent,
+      }),
+    );
+
+    expect(second.version).toBe(2);
+    expect(
+      world.handle.db.select().from(procedure).where(eq(procedure.id, created.procedureId)).get()
+        ?.currentVersionId,
+    ).toBe(second.versionId);
+    expect(
+      world.handle.db
+        .select()
+        .from(procedureVersion)
+        .where(eq(procedureVersion.id, first.versionId))
+        .get()?.status,
+    ).toBe("superseded");
+    expect(
+      world.handle.db
+        .select()
+        .from(procedureStep)
+        .where(eq(procedureStep.versionId, first.versionId))
+        .all()[0]?.title,
+    ).toBe("Open the access panel");
+    expect(
+      world.handle.db
+        .select()
+        .from(maintenanceOccurrence)
+        .where(eq(maintenanceOccurrence.id, occurrenceId))
+        .get()?.procedureVersionId,
+    ).toBe(first.versionId);
+    expect(
+      expectFail(
+        await saveProcedure({
+          procedureId: created.procedureId,
+          expectedVersionId: first.versionId,
+          content,
+        }),
+      ).error,
+    ).toBe("version_changed");
   });
 
   it("refuses to discard the very first draft, which is the whole procedure", async () => {

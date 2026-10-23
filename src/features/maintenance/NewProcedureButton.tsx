@@ -1,7 +1,7 @@
 "use client";
 /**
  * Creating a procedure: title, one line of summary, and nothing else — the rest is written in the
- * draft editor, which is where the work actually is.
+ * editor, which is where the work actually is.
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -32,7 +32,7 @@ export function NewProcedureButton() {
         onOpenChange={setOpen}
         size="sm"
         title="New procedure"
-        description="Creates an unpublished draft. Nothing uses it until you publish it."
+        description="Add the steps and details, then save the procedure."
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)}>
@@ -52,7 +52,7 @@ export function NewProcedureButton() {
                 })
               }
             >
-              Create the draft
+              Create procedure
             </Button>
           </>
         }

@@ -346,6 +346,7 @@ export function useSceneSync(): void {
                 id: draft.placementId ?? DRAFT_MARKER_ID,
                 modelId: draft.modelId,
                 equipmentId: draft.equipmentId,
+                modelName: draft.modelName,
                 name: draft.name,
                 position: draft.physical,
                 rotationYDeg: draft.rotationYDeg,

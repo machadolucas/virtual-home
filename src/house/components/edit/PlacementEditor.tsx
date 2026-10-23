@@ -410,6 +410,7 @@ export function PlacementEditor() {
       newEquipment: editing.newEquipment,
       modelId,
       equipmentId: editing.equipmentId,
+      modelName: editing.modelName,
       name: editing.name,
       position: [
         snapValue(editing.physical[0], 0),
@@ -500,7 +501,7 @@ export function PlacementEditor() {
     <div className="flex min-h-full flex-col gap-2">
       <header className="flex items-baseline justify-between">
         <h2 className="text-base font-semibold text-ink">
-          {editing.placementId ? "Adjust placement" : "Place equipment"}
+          {editing.placementId ? "Edit in 3D" : "Place equipment"}
         </h2>
         <UndoBar />
       </header>

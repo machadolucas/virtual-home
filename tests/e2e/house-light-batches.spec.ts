@@ -101,7 +101,7 @@ test("batched direct light matches single-pass colours and shadows", async ({ pa
   await page.getByRole("switch", { name: "Batched lighting", exact: true }).click();
   await closeViewSettings(page); // the popover floats over the inspector's actions
   await page.evaluate(() => window.__vh!.select({ kind: "equipment", id: "compare-0" }));
-  await page.getByRole("button", { name: "Adjust placement (E)", exact: true }).click();
+  await page.getByRole("button", { name: "Edit in 3D (E)", exact: true }).click();
   await waitForStableFrames(page, 900);
   const shadows = await page.evaluate(() => window.__vh!.shadowPassCount());
   const passes = (await page.evaluate(() => window.__vh!.lightingBatches()))!.rendered;

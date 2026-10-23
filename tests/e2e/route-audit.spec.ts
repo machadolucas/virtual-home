@@ -139,7 +139,7 @@ test("project links and booking changes work by named records, without copied ID
   await open(page, "/procedures");
   await page.getByRole("button", { name: "New procedure", exact: true }).first().click();
   await page.getByRole("dialog").last().getByLabel(/^Title/).fill(`Audit procedure ${suffix}`);
-  await page.getByRole("button", { name: "Create the draft", exact: true }).click();
+  await page.getByRole("button", { name: "Create procedure", exact: true }).click();
   await expect(page).toHaveURL(/\/procedures\/[0-9a-f-]+$/);
 });
 

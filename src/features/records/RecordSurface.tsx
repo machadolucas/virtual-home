@@ -64,8 +64,8 @@ export function RecordSurfaceProvider({ children }: { children: ReactNode }) {
 function RetainedRecord({entry,active,close}:{entry:Entry;active:boolean;close:()=>void}) {
   const returnFocusRef=useRef<HTMLElement|null>(entry.opener);
   useEffect(()=>{returnFocusRef.current=entry.opener;},[entry.opener]);
-  return <Sheet open={active} onOpenChange={open=>{if(!open)close();}} keepMounted returnFocusRef={returnFocusRef} title={entry.title} description="Close to return to your starting view. Unfinished edits are kept until you save or cancel." side="right" className="!inset-y-0 !right-0 !max-h-dvh !w-screen sm:!w-[min(76rem,calc(100vw-3rem))] !rounded-none" >
-    <div data-record-scope={entry.href} className="record-content min-h-0"><RecordActivityProvider active={active}>{entry.children}</RecordActivityProvider></div>
+  return <Sheet open={active} onOpenChange={open=>{if(!open)close();}} keepMounted scrollBody={false} returnFocusRef={returnFocusRef} title={entry.title} description="Close to return to your starting view. Unfinished edits are kept until you save or cancel." side="right" className="!inset-y-0 !right-0 !max-h-dvh !w-screen sm:!w-[min(76rem,calc(100vw-3rem))] !rounded-none" >
+    <div data-record-scope={entry.href} className="record-content h-full min-h-0"><RecordActivityProvider active={active}>{entry.children}</RecordActivityProvider></div>
   </Sheet>;
 }
 /** Shared adapter for a direct URL (hub behind it) and an intercepted contextual navigation. */

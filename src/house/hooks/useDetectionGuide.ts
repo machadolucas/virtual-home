@@ -3,8 +3,8 @@
 import { useEffect } from "react";
 import * as THREE from "three";
 import { useHouseRuntime } from "./useHouseStore";
-import { detectionRange, isDirectionalSymbol, showDetectionGuide } from "../model/equipmentOptics";
-import { lightDirection, lightSourcePosition } from "../model/equipmentLight";
+import { detectionBoundary, detectionProfile, detectionRange, isDirectionalSymbol, showDetectionGuide } from "../model/equipmentOptics";
+import { defaultLightAim, lightSourcePosition } from "../model/equipmentLight";
 import { defaultSymbol, isPlacementSymbol } from "../scene/symbols";
 import { clipGroupOf } from "../model/explodeGroups";
 import { isVisibleUp } from "../scene/applyVisibility";
@@ -37,20 +37,33 @@ export function useDetectionGuide() {
       const group = p?.surfaceId && runtime.manifest ? clipGroupOf(runtime.manifest, p.surfaceId) : p?.floorId;
       const nodes = group ? runtime.index?.floorNodes.get(group) : undefined;
       const eligible = p && !runtime.index?.hiddenGroups.has(group!) && s.layers.equipment && isDirectionalSymbol(symbol) && (draft || showDetectionGuide({ ...p, symbol: symbol ?? null })) && (!nodes?.length || nodes.some(isVisibleUp));
-      const next = eligible ? JSON.stringify([p.position, p.rotationYDeg, p.lightAim, p.detectionRangeM, symbol, runtime.offsets.get(group!) ?? 0]) : "";
+      const next = eligible ? JSON.stringify([p.position, p.rotationYDeg, p.lightAim, p.detectionRangeM, p.modelName, p.roomId, symbol, runtime.offsets.get(group!) ?? 0]) : "";
       if (next === signature) return;
       signature = next;
       clear();
       guide.visible = Boolean(eligible);
       if (eligible) {
-        const range = detectionRange(p.detectionRangeM);
-        const geometry = new THREE.ConeGeometry(range * Math.tan(Math.PI / 6), range, 24, 1, true);
-        geometry.rotateX(Math.PI);
-        geometry.translate(0, range / 2, 0);
+        const profile = detectionProfile({ ...p, symbol });
+        const range = detectionRange(p.detectionRangeM, profile.rangeM);
+        const boundary = detectionBoundary(profile, range);
+        const positions: number[] = [];
+        const lines: number[] = [];
+        boundary.forEach((point, i) => {
+          const nextPoint = boundary[(i + 1) % boundary.length]!;
+          positions.push(0, 0, 0, ...point, ...nextPoint);
+          lines.push(...point, ...nextPoint);
+          if (i % (boundary.length / 4) === 0) lines.push(0, 0, 0, ...point);
+        });
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+        const outline = new THREE.BufferGeometry();
+        outline.setAttribute("position", new THREE.Float32BufferAttribute(lines, 3));
         guide.add(new THREE.Mesh(geometry, material));
-        guide.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry), lineMaterial));
+        guide.add(new THREE.LineSegments(outline, lineMaterial));
         guide.position.fromArray(lightSourcePosition(p.position, symbol, p.rotationYDeg, runtime.offsets.get(group!) ?? 0, p.lightAim));
-        guide.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...lightDirection(symbol, p.lightAim, p.rotationYDeg)));
+        const aim = p.lightAim ?? defaultLightAim(symbol, p.rotationYDeg);
+        // Yaw then pitch preserves the wide horizontal axis without adding roll.
+        guide.quaternion.setFromEuler(new THREE.Euler(-aim.pitchDeg * Math.PI / 180, aim.yawDeg * Math.PI / 180, 0, "YXZ"));
       }
       runtime.invalidate();
     };

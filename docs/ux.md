@@ -88,6 +88,13 @@ popover with Visibility, Cut and separation, Lighting, Appearance and Advanced d
 are no nested view/rendering tabs. All existing rendering controls and preference scopes remain.
 Phone Browse/Add, Details and View sheets reuse the desktop contents around a persistent canvas.
 
+Equipment records enter **Edit details** locally inside their current panel. Save and Discard
+controls stay available at the top and bottom of the form. Save returns to details only after a
+successful write; Discard confirms unsaved work. Neither action navigates away from a House
+background or changes its camera/selection. Record panels give PageScroll the available height;
+retained portal bodies handle wheel input without the modal blocker cancelling it. Ordinary
+sheets retain their own scrollable bodies.
+
 Save/Discard/Keep editing guards use the active editor's actual save result before changing edits.
 A failed save retains the draft. Explicit Cancel discards; collapse does not. Physical placement,
 immutable model input, route confidence and floor-specific route points remain unchanged.
@@ -339,7 +346,7 @@ actions for every write, client components only where a decision needs a form.
 | `/today` | The daily list. Sections, an honest health banner, two quick actions per row. |
 | `/tasks/[id]` | One task. The primary phone screen. |
 | `/plans`, `/plans/new`, `/plans/[id]` | The recurring obligations and the form that defines them. |
-| `/procedures`, `/procedures/[id]` | Written instructions, versioned and frozen on publish. |
+| `/procedures`, `/procedures/[id]` | Written instructions, versioned on each save. |
 | `/history` | What was actually done — and what was not. |
 | `GET /api/exports/maintenance` | JSON (all datasets) or CSV (one dataset), with the §8.4 envelope. |
 
@@ -433,10 +440,10 @@ next one, and the page says that out loud.
 
 ### 10.5 `/procedures`
 
-One editable draft per procedure. Publishing freezes the version and supersedes the previous one
-without deleting it; editing a published version forks a new draft by copying it. `?version=<id>`
-shows an older version read-only, which is how you check what a task from two years ago said. A
-version with no steps cannot be published — a task with empty instructions is worse than none.
+The current procedure opens directly in its editor. Save creates a new immutable version and makes
+it current in one transaction; existing tasks and completions keep their original version. The
+version history links to earlier read-only versions, and `?version=<id>` shows one for reference.
+A procedure needs at least one step before it can be saved.
 
 ### 10.6 `/history`
 
@@ -809,9 +816,20 @@ Vertical and horizontal LED bars have a saved **LED bar length (m)** (0.05–20 
 Their cross-section stays fixed and total light output scales with length at the same HA brightness.
 Lighting uses a bounded, illustrative point source at the bar's centre, not a photometric strip model.
 Motion sensors and security cameras expose saved yaw/pitch and **Detection / viewing range (m)**
-(0.1–30 m, default 5 m). Selecting one shows an illustrative 60° cone. Regular sensors have no
-aiming controls or cone, even if an older placement stored aim settings. The cone does not
-configure HA detection coverage.
+(0.1–30 m). **Edit in 3D (E)** opens placement, type, mount, dimensions and aiming controls.
+Selecting a motion sensor shows the Hue indoor profile (100°, 5 m default) or outdoor profile
+(160° horizontal × 80° vertical, 12 m default). Equipment model metadata, including SML001/003
+and SML002/004, selects the profile before room placement; missing/unrecognized models use an
+explicitly labelled indoor/outdoor placement assumption. A saved range always wins. The indoor
+profile is drawn symmetrically around its specified 100° field; the outdoor profile is wider than
+it is tall. Guides are bounded by radial reach and remain illustrative: no wall clipping or PIR
+sensitivity simulation. Cameras retain their illustrative 60° profile and 5 m default. Regular
+sensors have no aiming controls or cone, even if an older placement stored aim settings. The guide
+does not configure HA detection coverage.
+
+Profile references: [Signify Hue catalogue](https://www.assets.signify.com/is/content/Signify/Assets/philips-lighting/romania/20221010-philips-hue-catalogue-2022-eng-1.pdf),
+[Signify outdoor sensor manual](https://media.flixcar.com/f360cdn/Signify-388294618-8719514342262-929003067401.pdf),
+and [Philips model IDs](https://www.philips-hue.com/en-sg/support/hue-motionaware).
 **Show equipment** in Layers (or below the phone viewer) hides markers, equipment labels, lights and
 selection cones together. Cones are excluded from PNG downloads and do not keep an idle viewer rendering.
 

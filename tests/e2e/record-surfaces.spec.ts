@@ -24,6 +24,54 @@ test("canonical record URLs render a closable modal over their hub, including un
   }
 });
 
+test("mouse wheel scrolls the page inside a maintenance record overlay", async ({ page }) => {
+  await page.context().setExtraHTTPHeaders({"x-forwarded-for":nextClientIp()});
+  await login(page,"lucas",{next:"/plans"});
+  await page.getByRole("link",{name:"New plan",exact:true}).click();
+  const record=page.getByRole("dialog",{name:"New maintenance plan",exact:true});
+  await expect(record).toBeVisible();
+  const scrollArea=record.locator(".record-content > div");
+  await expect.poll(()=>scrollArea.evaluate(element=>element.scrollHeight-element.clientHeight)).toBeGreaterThan(0);
+  await record.evaluate(element=>Promise.all(element.getAnimations().map(animation=>animation.finished)));
+  const box=await scrollArea.boundingBox();
+  expect(box).toBeTruthy();
+  await page.mouse.move(box!.x+box!.width/2,box!.y+box!.height/2);
+  await page.mouse.wheel(0,600);
+  await expect.poll(()=>scrollArea.evaluate(element=>element.scrollTop)).toBeGreaterThan(0);
+  await expect(page.locator("main")).toContainText("Maintenance plans");
+});
+
+test("equipment editing stays local to its record and has explicit save and discard actions", async ({ page }) => {
+  await page.context().setExtraHTTPHeaders({"x-forwarded-for":nextClientIp()});
+  await login(page,"lucas",{next:"/equipment/new"});
+  const create=page.getByRole("dialog",{name:"New equipment",exact:true});
+  const originalName=`Edit flow ${Date.now()}`;
+  await create.getByRole("textbox",{name:/^Name/}).first().fill(originalName);
+  await create.getByRole("button",{name:"Add the equipment",exact:true}).first().click();
+  await expect(page).toHaveURL(/\/equipment\/[0-9a-f-]+$/);
+  const record=page.getByRole("dialog",{name:"Equipment",exact:true});
+  const recordPath=new URL(page.url()).pathname;
+
+  await record.getByRole("button",{name:"Edit details",exact:true}).click();
+  const name=record.getByRole("textbox",{name:/^Name/});
+  await expect(name).toHaveValue(originalName);
+  await expect(page).toHaveURL(recordPath);
+  await expect(record.getByRole("button",{name:"Save changes",exact:true}).first()).toBeVisible();
+  await expect(record.getByRole("button",{name:"Discard changes",exact:true}).first()).toBeVisible();
+  await name.fill("Discarded equipment name");
+  page.once("dialog",dialog=>dialog.accept());
+  await record.getByRole("button",{name:"Discard changes",exact:true}).first().click();
+  await expect(name).toBeHidden();
+  await expect(record.getByRole("heading",{name:originalName,exact:true})).toBeVisible();
+  await expect(page).toHaveURL(recordPath);
+
+  await record.getByRole("button",{name:"Edit details",exact:true}).click();
+  await record.getByRole("textbox",{name:/^Name/}).fill("Saved equipment name");
+  await record.getByRole("button",{name:"Save changes",exact:true}).first().click();
+  await expect(record.getByRole("heading",{name:"Saved equipment name",exact:true})).toBeVisible();
+  await expect(page).toHaveURL(recordPath);
+});
+
 test("legacy completion URLs retain access through the canonical modal route",async({page})=>{
   await page.context().setExtraHTTPHeaders({"x-forwarded-for":nextClientIp()});
   await login(page,"lucas",{next:"/history"});
@@ -56,6 +104,20 @@ test("opening a house equipment record preserves its canvas, selection and camer
     await page.getByRole("link",{name:"Open full record",exact:true}).click();
     const record=page.getByRole("dialog",{name:"Equipment",exact:true});
     await expect(record).toBeVisible();
+    const recordUrl=page.url();
+    await record.getByRole("button",{name:"Edit details",exact:true}).click();
+    const equipmentName=record.getByRole("textbox",{name:/^Name/});
+    await expect(equipmentName).toBeVisible();
+    await expect(page).toHaveURL(recordUrl);
+    await equipmentName.fill("Unsaved context edit");
+    page.once("dialog",dialog=>dialog.accept());
+    await record.getByRole("button",{name:"Discard changes",exact:true}).first().click();
+    await expect(equipmentName).toBeHidden();
+    await record.getByRole("button",{name:"Edit details",exact:true}).click();
+    await record.getByRole("button",{name:"Save changes",exact:true}).first().click();
+    await expect(equipmentName).toBeHidden();
+    await expect(page).toHaveURL(recordUrl);
+    expect(await canvas!.evaluate(node=>node.isConnected && node===document.querySelector("canvas"))).toBe(true);
     await record.getByRole("button",{name:"Close",exact:true}).click();
     await expect(record).toBeHidden();await expect(page).toHaveURL(origin);
     expect(await canvas!.evaluate(node=>node.isConnected && node===document.querySelector("canvas"))).toBe(true);

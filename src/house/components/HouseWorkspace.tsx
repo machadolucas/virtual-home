@@ -270,7 +270,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
         style={{width:panelWidths.inspector,maxWidth:"min(38%, 28rem)",display:panels.collapsed.inspector?"none":undefined}}
         className="absolute right-4 top-16 z-20 flex max-h-[calc(100%-5rem)] flex-col overflow-hidden rounded-lg border border-line bg-surface/95 shadow-pop backdrop-blur"
       >
-        <PanelHeader title={furnitureOpen?"Furniture details":state.editing?"Adjust placement":state.routeDraft?"Edit route":"Selected item"} collapseLabel="Close inspector" icon={<X aria-hidden="true"/>} disabled={state.editorSaving||furnishingsBusy} onCollapse={()=>{
+        <PanelHeader title={furnitureOpen?"Furniture details":state.editing?"Edit in 3D":state.routeDraft?"Edit route":"Selected item"} collapseLabel="Close inspector" icon={<X aria-hidden="true"/>} disabled={state.editorSaving||furnishingsBusy} onCollapse={()=>{
           if(state.editing||state.routeDraft||furnitureEditor.draft)panels.setCollapsed("inspector",true);
           else {runtime.select(null);selectFurniture(null);}
           canvasRegionRef.current?.focus();
@@ -638,7 +638,7 @@ function useShortcutHandlers(
           s.announce(
             s.placeable.length > 0
               ? "Select a placed piece of equipment to adjust it, or use “Not placed yet” in the property panel to place one."
-              : "Select a piece of equipment first — E adjusts the selected placement.",
+              : "Select a piece of equipment first — E edits its placement, type, mount and direction.",
           );
           return;
         }
@@ -650,6 +650,7 @@ function useShortcutHandlers(
         requestEditSwitch(runtime, () => runtime.store.getState().beginEdit({
           placementId: placement.id,
           equipmentId: placement.equipmentId,
+          modelName: placement.modelName,
           modelId: placement.modelId,
           name: placement.name,
               category: placement.category,

@@ -1,25 +1,15 @@
 "use client";
 import { markActiveEditorDirty } from "@/features/forms/unsaved";
 /**
- * The procedure draft editor.
- *
- * Only the **draft** is editable. A published version is frozen: occurrences point at it, and
- * somebody halfway through a job must keep the steps they started with. Editing a published
- * procedure therefore forks a new draft rather than changing anything in place, and publishing
- * supersedes the old version without deleting it.
- *
- * The whole draft is submitted at once and its child rows are replaced. That is deliberately dumb:
- * a diffing editor would need stable ids for rows the user is still reordering, and getting that
- * wrong silently loses a step.
+ * The current procedure editor. Each save publishes a new immutable version in one transaction,
+ * while older versions stay frozen for historical tasks.
  */
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronUp, Plus, Save, Send, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Save, Trash2 } from "lucide-react";
 import {
   Badge,
   Button,
   Checkbox,
-  Dialog,
   Field,
   IconButton,
   Input,
@@ -28,12 +18,7 @@ import {
   Textarea,
 } from "@/ui";
 import type { PartUnit } from "@/db/schema/inventory";
-import {
-  discardProcedureDraft,
-  publishProcedureDraft,
-  saveProcedureDraft,
-  startProcedureDraft,
-} from "@/server/actions/maintenance/procedures";
+import { saveProcedure } from "@/server/actions/maintenance/procedures";
 import { messageFor, useAction } from "./useAction";
 import { parseQty } from "./materials";
 
@@ -95,13 +80,9 @@ export interface ProcedureEditorValues {
 
 export interface ProcedureEditorProps {
   procedureId: string;
-  /** `false` for a published version: the editor renders a "start a draft" prompt instead. */
-  editable: boolean;
+  expectedVersionId: string;
   initial: ProcedureEditorValues;
   parts: readonly { value: string; label: string; hint?: string; unit: PartUnit }[];
-  /** A draft that has never been published cannot be discarded (it is the whole procedure). */
-  isFirstDraft: boolean;
-  hasDraft: boolean;
 }
 
 const EMPTY_STEP: EditorStep = {
@@ -115,50 +96,16 @@ const EMPTY_STEP: EditorStep = {
 
 export function ProcedureEditor({
   procedureId,
-  editable,
+  expectedVersionId: initialVersionId,
   initial,
   parts,
-  isFirstDraft,
-  hasDraft,
 }: ProcedureEditorProps) {
-  const router = useRouter();
   const [values, setValues] = useState<ProcedureEditorValues>(initial);
-  const [publishOpen, setPublishOpen] = useState(false);
-  const [changeNote, setChangeNote] = useState("");
+  // The token belongs to these form values. Refreshing server props must not silently rebase
+  // an unsaved editor onto someone else's version; our own successful save advances it.
+  const [expectedVersionId, setExpectedVersionId] = useState(initialVersionId);
 
-  const save = useAction(saveProcedureDraft, { success: "Draft saved." });
-  const publish = useAction(publishProcedureDraft, { success: "Published." });
-  const start = useAction(startProcedureDraft, { success: "Draft started." });
-  const discard = useAction(discardProcedureDraft, { success: "Draft discarded." });
-
-  if (!editable) {
-    return (
-      <Panel
-        title="This version is published"
-        subtitle="Published versions are read-only, because tasks are generated against them. Editing starts a new draft; the published version stays exactly as it is."
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="primary"
-            loading={start.pending}
-            onClick={() =>
-              void start
-                .run({ procedureId, idempotencyKey: start.requestKey })
-                .then((result) => {
-                  // Drop any `?version=` from the URL: the draft is what should now be on screen.
-                  if (result !== null) router.push(`/procedures/${procedureId}`);
-                })
-            }
-          >
-            {hasDraft ? "Open the draft" : "Start a new draft"}
-          </Button>
-          {start.failure !== null ? (
-            <span className="text-sm text-overdue">{messageFor(start.failure)}</span>
-          ) : null}
-        </div>
-      </Panel>
-    );
-  }
+  const save = useAction(saveProcedure, { success: "Procedure saved." });
 
   function patch(next: Partial<ProcedureEditorValues>): void {
     markActiveEditorDirty();
@@ -226,7 +173,7 @@ export function ProcedureEditor({
   }
 
   const stepCount = values.steps.filter((step) => step.title.trim() !== "").length;
-  const failure = save.failure ?? publish.failure ?? discard.failure;
+  const failure = save.failure;
 
   return (
     <div data-unsaved className="flex flex-col gap-5">
@@ -306,7 +253,7 @@ export function ProcedureEditor({
       >
         {values.steps.length === 0 ? (
           <p className="text-sm text-ink-3">
-            No steps yet. A procedure needs at least one before it can be published — otherwise a
+            No steps yet. A procedure needs at least one before it can be saved — otherwise a
             task would show empty instructions.
           </p>
         ) : (
@@ -756,91 +703,24 @@ export function ProcedureEditor({
           variant="secondary"
           size="lg"
           loading={save.pending}
-          disabled={values.title.trim() === ""}
+          disabled={values.title.trim() === "" || stepCount === 0}
           icon={<Save aria-hidden="true" />}
-          onClick={() =>
-            void save.run({ procedureId, content: payload(), idempotencyKey: save.requestKey })
-          }
+          onClick={async () => {
+            const saved = await save.run({
+              procedureId,
+              expectedVersionId,
+              content: payload(),
+              idempotencyKey: save.requestKey,
+            });
+            if (saved) setExpectedVersionId(saved.versionId);
+          }}
         >
-          Save draft
-        </Button>
-        <Button
-          variant="primary"
-          size="lg"
-          disabled={stepCount === 0 || values.title.trim() === ""}
-          icon={<Send aria-hidden="true" />}
-          onClick={() => setPublishOpen(true)}
-        >
-          Publish
+          Save procedure
         </Button>
         <Badge tone="neutral" icon={null} size="sm">
           {stepCount} {stepCount === 1 ? "step" : "steps"}
         </Badge>
-        {isFirstDraft ? null : (
-          <Button
-            variant="ghost"
-            size="lg"
-            className="ms-auto"
-            loading={discard.pending}
-            onClick={() =>
-              void discard.run({ procedureId, idempotencyKey: discard.requestKey })
-            }
-          >
-            Discard draft
-          </Button>
-        )}
       </div>
-
-      <Dialog
-        open={publishOpen}
-        onOpenChange={setPublishOpen}
-        size="sm"
-        title="Publish this version"
-        description="Freezes it and puts it in force for new tasks. Tasks already generated keep the version they were created with, so nothing changes under anyone. Editing afterwards starts a fresh draft."
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setPublishOpen(false)}>
-              Not yet
-            </Button>
-            <Button
-              variant="primary"
-              loading={publish.pending || save.pending}
-              onClick={() =>
-                void save
-                  .run({ procedureId, content: payload(), idempotencyKey: save.requestKey })
-                  .then((saved) => {
-                    if (saved === null) return;
-                    return publish
-                      .run({
-                        procedureId,
-                        changeNote: changeNote.trim() === "" ? null : changeNote.trim(),
-                        idempotencyKey: publish.requestKey,
-                      })
-                      .then((result) => {
-                        if (result !== null) setPublishOpen(false);
-                      });
-                  })
-              }
-            >
-              Publish
-            </Button>
-          </>
-        }
-      >
-        <Field
-          label="What changed"
-          help="Kept with the version, so the history explains itself later."
-        >
-          {({ id }) => (
-            <Input
-              id={id}
-              value={changeNote}
-              placeholder="Added the pre-filter step after the 2026 service"
-              onChange={(event) => setChangeNote(event.target.value)}
-            />
-          )}
-        </Field>
-      </Dialog>
     </div>
   );
 }

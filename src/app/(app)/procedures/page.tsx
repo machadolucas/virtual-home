@@ -14,9 +14,8 @@ export const metadata: Metadata = { title: "Procedures" };
 /**
  * The written-down instructions.
  *
- * A procedure is versioned and, once published, frozen: tasks freeze the version they were
- * generated with, so rewriting a procedure never changes work already in progress or already
- * recorded.
+ * A procedure is versioned: each save creates a version, so work already in progress or recorded
+ * keeps the instructions it started with.
  */
 export default async function ProceduresPage() {
   const session = await requireSessionPage("/procedures");
@@ -41,7 +40,7 @@ export default async function ProceduresPage() {
             "Numbered steps with instructions, an expected duration and per-step warnings.",
             "Checks that record a value: a pressure reading, a note, or a photo.",
             "The tools and parts the job needs, and the manual page it comes from.",
-            "Versions: publishing freezes a version, and editing afterwards starts a new draft.",
+            "Saving creates a new version while older task and completion history stays intact.",
           ]}
           note="Tasks show the version that was in force when they were generated, never the newest one."
         />
@@ -61,26 +60,21 @@ export default async function ProceduresPage() {
                       </Link>
                       {procedure.currentVersion === null ? (
                         <Badge tone="unknown" size="sm">
-                          Never published
+                          Needs first save
                         </Badge>
                       ) : (
                         <Badge tone="ok" size="sm">
                           v{procedure.currentVersion} in force
                         </Badge>
                       )}
-                      {procedure.draftVersionId !== null ? (
-                        <Badge tone="due" size="sm">
-                          Draft v{procedure.draftVersion}
-                        </Badge>
-                      ) : null}
                     </div>
                     {procedure.summary !== null ? (
                       <p className="mt-0.5 text-xs text-ink-2">{procedure.summary}</p>
                     ) : null}
                     <p className="mt-1 text-xs text-ink-3">
                       {procedure.publishedAtMs === null
-                        ? "No published version yet — plans using it generate tasks with no instructions."
-                        : `Published ${formatInstant(procedure.publishedAtMs, tz)}`}
+                        ? "Add instructions and save to make this procedure available to plans."
+                        : `Saved ${formatInstant(procedure.publishedAtMs, tz)}`}
                       {formatMinutes(procedure.defaultEffortMinutes) === null
                         ? ""
                         : ` · usually ${formatMinutes(procedure.defaultEffortMinutes)}`}

@@ -1,12 +1,13 @@
 import "server-only";
 /**
- * Procedure authoring: one editable draft, publish to freeze, edit again to fork a new draft.
+ * Procedure authoring. The explicit draft operations remain available to integrations; the
+ * household editor uses `saveProcedure` to save and make each new immutable version current in
+ * one transaction.
  *
  * Immutability of a published version is a service-layer invariant (`src/db/schema/procedures.ts`),
  * and this is the service layer. Every write here refuses to touch a version whose status is not
- * `draft`; `startProcedureDraft` is the only way forward from a published version, and it copies
- * rather than mutates — which is what lets an occurrence generated last April still show the steps
- * that were in force last April.
+ * `draft`; saving from the household editor writes into a draft or creates a new version before
+ * publishing it. Historical occurrence references are never changed.
  */
 import { z } from "zod";
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
@@ -410,6 +411,112 @@ export const saveProcedureDraft = action(
     );
     revalidateMaintenance();
     return { versionId };
+  },
+);
+
+/** Save the current procedure as one immutable version and put it in force atomically. */
+export const saveProcedure = action(
+  z.object({
+    procedureId: id,
+    expectedVersionId: id,
+    content: draftContent,
+    idempotencyKey: idempotencyKey.optional(),
+  }),
+  (input, session) => {
+    const { handle, ctx } = maintenanceContext(session.user.id);
+    const result = domainCall("save_procedure", () =>
+      writeTx(handle.db, (tx) => {
+        const row = tx.select().from(procedure).where(eq(procedure.id, input.procedureId)).get();
+        if (!row) throw new NotFoundError("procedure", input.procedureId);
+        if (input.content.steps.length === 0) {
+          throw new ValidationError("no_steps", "add at least one step before saving");
+        }
+        const now = ctx.clock.now();
+        let version = draftOf(tx, input.procedureId);
+        if (
+          version === null
+            ? row.currentVersionId !== input.expectedVersionId
+            : version.id !== input.expectedVersionId
+        ) {
+          throw new ConflictError(
+            "version_changed",
+            "this procedure changed after it was opened; reload it before saving again",
+          );
+        }
+        if (version === null) {
+          const versionId = newId();
+          tx.insert(procedureVersion)
+            .values({
+              id: versionId,
+              procedureId: input.procedureId,
+              version: nextVersionNumber(tx, input.procedureId),
+              status: "draft",
+              createdAtMs: now,
+              updatedAtMs: now,
+              createdBy: ctx.actorUserId,
+              updatedBy: ctx.actorUserId,
+            })
+            .run();
+          version = tx.select().from(procedureVersion).where(eq(procedureVersion.id, versionId)).get()!;
+        }
+
+        tx.update(procedure)
+          .set({
+            title: input.content.title,
+            summary: input.content.summary ?? null,
+            defaultEffortMinutes: input.content.defaultEffortMinutes ?? null,
+            updatedAtMs: now,
+            updatedBy: ctx.actorUserId,
+          })
+          .where(eq(procedure.id, input.procedureId))
+          .run();
+        tx.update(procedureVersion)
+          .set({
+            prerequisites: input.content.prerequisites ?? null,
+            safetyNotes: input.content.safetyNotes ?? null,
+            updatedAtMs: now,
+            updatedBy: ctx.actorUserId,
+          })
+          .where(eq(procedureVersion.id, version.id))
+          .run();
+        writeDraftChildren(tx, version.id, input.content);
+
+        tx.update(procedureVersion)
+          .set({ status: "superseded", updatedAtMs: now, updatedBy: ctx.actorUserId })
+          .where(
+            and(
+              eq(procedureVersion.procedureId, input.procedureId),
+              eq(procedureVersion.status, "published"),
+              ne(procedureVersion.id, version.id),
+            ),
+          )
+          .run();
+        tx.update(procedureVersion)
+          .set({
+            status: "published",
+            publishedAtMs: now,
+            publishedBy: ctx.actorUserId,
+            changeNote: null,
+            updatedAtMs: now,
+            updatedBy: ctx.actorUserId,
+          })
+          .where(eq(procedureVersion.id, version.id))
+          .run();
+        tx.update(procedure)
+          .set({ currentVersionId: version.id, updatedAtMs: now, updatedBy: ctx.actorUserId })
+          .where(eq(procedure.id, input.procedureId))
+          .run();
+        writeAuditLog(tx, ctx, {
+          entityTable: "procedure_version",
+          entityId: version.id,
+          action: "published",
+          summary: `Saved "${input.content.title}" v${version.version}`,
+        });
+        return { versionId: version.id, version: version.version };
+      }),
+    );
+    revalidateMaintenance();
+    return result;
   },
 );
 

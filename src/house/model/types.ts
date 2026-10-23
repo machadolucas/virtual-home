@@ -173,6 +173,8 @@ export interface Placement {
   id: PlacementId;
   modelId: string;
   equipmentId: string;
+  /** Equipment model metadata used to select the optical guide; never inferred from its name. */
+  modelName?: string | null;
   name: string;
   position: Vec3;
   rotationYDeg: number;

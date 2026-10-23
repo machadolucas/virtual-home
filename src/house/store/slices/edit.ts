@@ -18,6 +18,8 @@ export interface EditDraft {
   newEquipment?: {name:string;notes:string|null;category:import("@/db/schema/assets").AssetCategory};
   placementId: PlacementId | null;
   equipmentId: string;
+  /** Equipment model metadata used to select the optical guide; never inferred from its name. */
+  modelName?: string | null;
   modelId: string;
   name: string;
   category?: string | null;
