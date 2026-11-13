@@ -12,6 +12,8 @@ const PORT = Number(process.env.VH_E2E_PORT ?? 3011);
 const baseURL = `http://localhost:${PORT}`;
 
 const browsers: ReadonlySet<string> = e2eBrowsers();
+const disableWebGL = process.env.VH_E2E_DISABLE_WEBGL === "1";
+const chromiumChannel = process.env.VH_E2E_CHANNEL === "chrome" ? "chrome" : undefined;
 type E2eProject = Project<PlaywrightTestOptions, PlaywrightWorkerOptions>;
 const ALL_PROJECTS: E2eProject[] = [
   { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1600, height: 1000 } } },
@@ -44,10 +46,22 @@ export default defineConfig({
     command: `pnpm exec tsx tests/e2e/start-server.ts`,
     url: `http://127.0.0.1:${PORT}/api/health`,
     timeout: 180_000,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     env: { VH_E2E_PORT: String(PORT) },
   },
   // `VH_E2E_BROWSERS=chromium` (or `webkit`) keeps only that engine's projects; the default is all
   // four. See tests/e2e/README.md → "Running on a shared 16 GB home server".
-  projects: ALL_PROJECTS.filter((project) => browsers.has(engineOf(project))),
+  projects: ALL_PROJECTS.filter((project) => browsers.has(engineOf(project))).map((project) => {
+    const engine = engineOf(project);
+    return {
+      ...project,
+      use: {
+        ...project.use,
+        ...(engine === "chromium" && chromiumChannel ? { channel: chromiumChannel } : {}),
+        ...(engine === "chromium" && disableWebGL
+          ? { launchOptions: { args: ["--disable-gpu", "--disable-webgl", "--disable-webgl2"] } }
+          : {}),
+      },
+    };
+  }),
 });

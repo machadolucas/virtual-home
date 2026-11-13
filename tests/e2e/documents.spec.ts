@@ -58,7 +58,7 @@ test("direct equipment editor opens over hub, closes with its draft and reopens"
   await page.getByText("1 unsaved draft",{exact:true}).click();
   await page.getByRole("link",{name:"New equipment",exact:true}).click();
   await expect(name).toHaveValue(/Guarded equipment/);
-  await record.getByRole("button",{name:"Add the equipment",exact:true}).click();
+  await record.getByRole("group",{name:"Equipment form actions"}).getByRole("button",{name:"Add the equipment",exact:true}).click();
   await expect(page).toHaveURL(/\/equipment\/(?!new)[^/]+$/);
   await expect(page.getByRole("dialog",{name:"Equipment",exact:true})).toBeVisible();
   const created=page.url();

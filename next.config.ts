@@ -34,6 +34,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   typedRoutes: true,
   experimental: {
+    cpus: 2,
     serverActions: {
       allowedOrigins: [external.host],
       bodySizeLimit: "30mb",

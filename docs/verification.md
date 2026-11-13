@@ -3,6 +3,25 @@
 Living record of what is checked automatically, what was measured, and what remains unverified.
 Update the tables when results change; never record a number that was not measured.
 
+## 2026-11-14 dependency upgrade (v0.1.1)
+
+- Isolated dependency refresh uses exact reviewed resolutions and strict peer validation. Runtime/tool
+  targets: Next `16.4.6`, React/React DOM `19.3.1`, Better Auth `1.7.22`, better-sqlite3 `13.1.1`,
+  Three `0.187.0`, React Three Fiber `9.8.2`, Drei `10.7.9`, TypeScript `6.0.3`, ESLint `9.39.5`,
+  Vitest `5.1.0`, pnpm `12.18.0`. R3F/Drei peer ranges accept these React and Three versions.
+- Newer Better Auth `1.7.23` and Playwright `1.65.1` were less than 24 hours old during review and
+  were intentionally not selected. ESLint 10 is outside the validated Next lint toolchain; TypeScript
+  7 is not supported by the installed typescript-eslint parser/plugin stack.
+- Typecheck (including Next type generation), lint, unit/integration tests (145 files;
+  1,773 passed, 23 skipped), production web + worker build, and native SQLite `3.54.1` passed.
+  The isolated Chromium suite passed 47 tests with one expected phone-only MCP skip, using one
+  worker and disabled GPU/WebGL. It covers authentication/passkeys, private model/attachment
+  authorization, equipment, maintenance booking/completion, documents, MCP and PWA behavior.
+- Before upgrading, the browser baseline had 46 passes, four skips and eight failures: two from
+  an ambiguous equipment-submit selector, and six layout audits requiring the disabled renderer.
+  The selector now targets the named form-actions group and passed both baseline cases. WebGL
+  rendering and the related layout audits remain explicitly deferred for manual verification.
+
 ## 2026-10-23 editing and panel regressions
 
 - `pnpm check`: typecheck and lint passed; 145 test files passed, 1,773 tests passed and 23 skipped.

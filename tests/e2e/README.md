@@ -40,9 +40,11 @@ grep-able reason instead of failing, and each has an opt-in to assert anyway:
 | Offline service-worker navigation | `pwa.spec.ts` › "offline, a household page falls back…" | on WebKit, `page.goto()` under `context.setOffline(true)` fails with "WebKit encountered an internal error" (Playwright's WebKit harness, not Safari); the navigation itself is the probe | `needs service-worker offline navigation` | `VH_E2E_WEBKIT_OFFLINE=1` asserts on WebKit too |
 | Real model package | `house-real.spec.ts` | `VH_REAL_MODEL_DIR` is unset | (described below) | set `VH_REAL_MODEL_DIR` |
 | Browser engines | `playwright.config.ts` projects; route-audit's WebKit phone audit | `VH_E2E_BROWSERS` does not list the engine | `browser engine excluded by VH_E2E_BROWSERS` | `VH_E2E_BROWSERS=all` (the default) |
+| Disabled Chromium WebGL | Chromium projects only, when `VH_E2E_DISABLE_WEBGL=1` | WebGL/WebGL2 contexts are disabled by Chromium launch flags | House rendering specs report `needs WebGL 2 in the test browser` | unset the variable |
 
-Headless Chromium and Playwright's WebKit both have WebGL 2 on the Mac mini, so no House spec is
-skipped there for rendering. Nothing needs a Home Assistant connection: the harness blanks
+Without the opt-out, headless Chromium and Playwright's WebKit may expose WebGL 2 on the Mac mini.
+For the validation run below Chromium is launched with GPU, WebGL and WebGL2 disabled; rendering
+specs then skip by their WebGL capability check. Nothing needs a Home Assistant connection: the harness blanks
 `HA_URL`/`HA_TOKEN`, seeds synthetic registry rows (one set per project, `E2E_HA_FIXTURE_KEYS` in
 `fixtures.ts`) and drives live state through `helpers/liveHa.ts`'s synthetic event stream.
 
@@ -74,12 +76,19 @@ it cannot stage marked individually.
 ### Running on a shared 16 GB home server
 
 Playwright's WebKit with WebGL is by far the heaviest part of the suite. On a 16 GB host that also
-runs other services, WebKit runs pushed swap from 0 to 8 GB within an hour and took the host down,
-so run **Chromium only** there, one worker (the config's default), serialised with any other heavy
-job:
+runs other services, WebKit runs pushed swap from 0 to 8 GB within an hour and took the host down.
+Run Chromium only, one worker (the config default), serialized with any other heavy job. For the
+headless no-WebGL validation pass, use the installed Chrome channel and disable WebGL explicitly:
 
 ```bash
-VH_E2E_BROWSERS=chromium pnpm test:e2e      # desktop + phone projects; no WebKit is launched
+HEAVY_MIN_DISK_GB=40 HEAVY_ABORT_DISK_GB=40 \
+  VH_E2E_BROWSERS=chromium VH_E2E_CHANNEL=chrome VH_E2E_DISABLE_WEBGL=1 \
+  ~/claude/scripts/heavy-job.sh pnpm exec playwright test \
+  tests/e2e/auth.spec.ts tests/e2e/documents.spec.ts tests/e2e/equipment-ha.spec.ts \
+  tests/e2e/mcp.spec.ts tests/e2e/member-review.spec.ts tests/e2e/passkey.spec.ts \
+  tests/e2e/procedures.spec.ts tests/e2e/provider-workflows.spec.ts tests/e2e/pwa.spec.ts \
+  tests/e2e/select-search.spec.ts tests/e2e/route-audit.spec.ts \
+  --grep-invert 'route/layout audit|phone sheets retain unfinished route text'
 ```
 
 `VH_E2E_BROWSERS` is a comma-separated list of `chromium` and/or `webkit` (default `all`: every
@@ -87,6 +96,14 @@ project). It drops the projects of engines not listed, and `route-audit.spec.ts`
 `webkit-phone` layout audit — which launches its own WebKit browser inside any project — skips with
 `browser engine excluded by VH_E2E_BROWSERS`. Run the WebKit projects on a machine with memory to
 spare (`VH_E2E_BROWSERS=webkit`, or the default).
+
+`VH_E2E_CHANNEL=chrome` selects the installed Chrome channel only for Chromium projects;
+`VH_E2E_DISABLE_WEBGL=1` passes Chromium flags to disable GPU/WebGL/WebGL2. The validation command
+above excludes route/layout audit cases and the phone-sheet route test because they navigate to
+`/house`; graphics-specific browser verification remains deferred. Keep `workers: 1`. The Playwright
+web server uses `reuseExistingServer: false` so the isolated harness cannot attach to an existing
+server. The project `typecheck` command runs `next typegen` before `tsc --noEmit`, which supports a
+fresh checkout without generated Next route types.
 
 Headless Chromium renders WebGL with SwiftShader (software), so shader-heavy specs are slower there
 than on WebKit's GPU path; `isSoftwareWebGL()` lets a spec size its budget from the renderer instead
