@@ -521,15 +521,53 @@ describe("routes (fixture)", () => {
     layer.dispose();
   });
 
-  it("adds one tube per span only where a diameter is known and tubes are on", () => {
+  it("batches floor solids, uses schematic sizes, and leaves unknown and planned paths dashed", () => {
     const built = buildScene(FIXTURE_DIR);
     const layer = new RouteLayer(built.index, built.clip);
-    layer.set([route({ diameterM: 0.125 })], { tubes: true });
+    layer.set([
+      route(),
+      route({ id: "planned", diameterM: 0.125, lifecycle: "planned" }),
+      route({ id: "unknown", diameterM: 0.125, certainty: "unknown" }),
+    ], { tubes: true });
+    expect(layer.bucketCount).toBe(2);
+    expect(layer.hasLineDistances()).toBe(true);
     const overlay = built.index.overlay.floorGroups.get("f-lower");
     expect(overlay).toBeDefined();
-    expect(overlay!.children.filter((o) => o.name.startsWith("vh-tube-")).length).toBe(2);
+    expect(overlay!.children.filter((o) => o.name.startsWith("vh-tube-")).length).toBe(1);
     layer.set([route({ diameterM: 0.125 })], { tubes: false });
     expect(overlay!.children.filter((o) => o.name.startsWith("vh-tube-")).length).toBe(0);
+    layer.dispose();
+  });
+
+  it("requests frames only for visible, eligible flow with motion enabled", () => {
+    const built = buildScene(FIXTURE_DIR);
+    const layer = new RouteLayer(built.index, built.clip);
+    const documented = { flowState: "active", flowDirection: "reverse", flowBasis: "inferred" } as const;
+    layer.set([route(documented)], { tubes: true });
+    const overlay = built.index.overlay.floorGroups.get("f-lower")!;
+    expect(layer.tick(1 / 60, true)).toBe(true);
+    expect(layer.tick(1 / 60, false)).toBe(false);
+    overlay.visible = false;
+    expect(layer.tick(1 / 60, true)).toBe(false);
+    overlay.visible = true;
+    built.clip.ensure("f-lower")[0].constant = 0;
+    expect(layer.tick(1 / 60, true)).toBe(false);
+    built.clip.ensure("f-lower")[0].constant = 1000;
+
+    for (const overrides of [
+      { flowState: "inactive" },
+      { flowDirection: "unknown", flowBasis: "unknown" },
+      { certainty: "unknown" },
+      { lifecycle: "planned" },
+      { lifecycle: "removed" },
+      { needsReconciliation: true },
+      { kind: "cable" },
+    ] satisfies Partial<Route>[]) {
+      layer.set([route({ ...documented, ...overrides })], { tubes: true });
+      expect(layer.tick(1 / 60, true)).toBe(false);
+    }
+    layer.set([route(documented)], { tubes: false });
+    expect(layer.tick(1 / 60, true)).toBe(false);
     layer.dispose();
   });
 
@@ -545,8 +583,11 @@ describe("routes (fixture)", () => {
         ],
       }),
     ], { tubes: true });
-    expect(built.index.overlay.floorGroups.get("f-lower")?.getObjectByName("vh-tube-r1-0")).toBeDefined();
-    expect(built.index.overlay.floorGroups.get("f-upper")?.getObjectByName("vh-tube-r1-1")).toBeDefined();
+    for (const floor of ["f-lower", "f-upper"]) {
+      const solid = built.index.overlay.floorGroups.get(floor)?.children.find((node) => node.name.startsWith("vh-tube-"));
+      expect(solid).toBeDefined();
+      expect((solid as THREE.Mesh).material).toHaveProperty("clippingPlanes", built.clip.ensure(floor));
+    }
     layer.dispose();
   });
 });

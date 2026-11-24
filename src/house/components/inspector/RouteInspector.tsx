@@ -51,7 +51,7 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
     const previous = route;
     // Optimistic, and honest about which of the two actually happened.
     if (hard) removeRoute(route.id);
-    else upsertRoute({ ...route, lifecycle: "removed" });
+    else upsertRoute({ ...route, lifecycle: "removed", flowState: "unknown" });
     try {
       await runtime.dataApi.deleteRoute(modelId, route.id, { hard });
     } catch (err) {
@@ -84,6 +84,14 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
         <Row label="Confidence" value={route.certainty} />
         <Row label="Lifecycle" value={route.lifecycle} />
+        <Row label="Service status" value={
+          route.flowState === "active" ? "In service" : route.flowState === "inactive" ? "Out of service" : "Unknown"
+        } />
+        <Row label="Flow direction" value={
+          !route.flowDirection || route.flowDirection === "unknown"
+            ? "Unknown"
+            : `${route.flowDirection === "forward" ? "First to last point" : "Last to first point"} (${route.flowBasis})`
+        } />
         <Row label="Length" value={`${polylineLength(route.points).toFixed(2)} m`} />
         <Row label="Points" value={String(route.points.length)} />
         {route.nominalSize ? <Row label="Nominal size" value={route.nominalSize} /> : null}

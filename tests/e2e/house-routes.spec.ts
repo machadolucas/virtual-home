@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openHouseSession, vh, waitForHook } from "./helpers/house";
+import { idleFrames, openHouse, openHouseSession, openViewSection, vh, waitForHook, waitForStableFrames } from "./helpers/house";
 import type { Route } from "@/house/model/types";
 
 const MODEL_ID = "fixture-house";
@@ -103,4 +103,58 @@ test("route editing previews, crosses floors, persists, and filters by infrastru
   } finally {
     await context.close();
   }
+});
+
+
+test("documented direction animates and can return to demand idle", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (/shader error|VALIDATE_STATUS|error compiling|linkProgram/i.test(message.text()))
+      errors.push(message.text());
+  });
+  const places = [
+    { floorId: "f-lower", roomId: "r-l-a" },
+    { floorId: "f-lower", roomId: "r-l-a" },
+  ];
+  const route: Route = {
+    id: "flow-e2e",
+    modelId: MODEL_ID,
+    name: "Example supply duct",
+    system: "ventilation",
+    medium: "supply_air",
+    kind: "duct",
+    points: [[1, 0.4, 1], [3, 0.4, 1], [3, 0.4, 2]],
+    segments: places,
+    certainty: "observed",
+    lifecycle: "installed",
+    flowDirection: "reverse",
+    flowBasis: "declared",
+    flowState: "active",
+    diameterM: 0.125,
+    endpoints: [],
+    photoIds: [],
+  };
+  await page.route(`**/api/house-model/${MODEL_ID}/routes`, (intercept) =>
+    intercept.fulfill({ json: { routes: [route], stale: [], partialFields: [] } }));
+  await openHouse(page, { serviceWorkers: "block" });
+  await expect.poll(() => vh(page).eval(({ hook }) => hook.routeSegments())).toBe(2);
+  await openViewSection(page, "Visibility");
+  const flow = page.getByRole("checkbox", { name: "Animate documented direction" });
+  await expect(flow).toBeChecked();
+  const moving = await idleFrames(page, 500);
+  expect(moving.invalidateAfter).toBeGreaterThan(moving.invalidateBefore);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(flow).toBeDisabled();
+  await waitForStableFrames(page);
+  const reduced = await idleFrames(page, 500);
+  expect(reduced.invalidateAfter).toBe(reduced.invalidateBefore);
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(flow).toBeChecked();
+  await flow.uncheck();
+  await waitForStableFrames(page);
+  const paused = await idleFrames(page, 500);
+  expect(paused.invalidateAfter).toBe(paused.invalidateBefore);
+  expect(errors).toEqual([]);
 });

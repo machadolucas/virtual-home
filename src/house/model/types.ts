@@ -8,6 +8,8 @@
  * user text). The aliases still document intent at every signature. Deviation recorded in
  * `docs/model-contract.md`.
  */
+import type { FlowBasis, FlowDirection, FlowState } from "@/domain/routeFlow";
+import type { InfraMedium } from "@/db/schema/infrastructure";
 import type { z } from "zod";
 import type {
   AssetKindSchema,
@@ -267,6 +269,12 @@ export interface Route {
   segments: RoutePointPlace[];
   certainty: RouteCertainty;
   lifecycle: RouteLifecycle;
+  medium?: InfraMedium;
+  /** Forward follows the stored point sequence. */
+  flowDirection?: FlowDirection;
+  flowBasis?: FlowBasis;
+  flowState?: FlowState;
+  needsReconciliation?: boolean;
   widthM?: number;
   diameterM?: number;
   depthM?: number;

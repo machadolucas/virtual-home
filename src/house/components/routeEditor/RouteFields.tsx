@@ -5,15 +5,11 @@ import { DocumentLink } from "@/features/documents/DocumentViewer";
  * Everything about a route that is *not* its geometry: what it carries, how well it is known,
  * whether it exists yet, how deep it sits and which renovation put it there.
  *
- * The one non-negotiable piece of copy is the certainty legend. Geometry is drawn identically at
- * every confidence level — the dash pattern and opacity are the only difference — so a plausible
- * picture of a concealed pipe is easy to mistake for a survey. The words are the safeguard, and
- * they are not decoration.
- *
  * Saving is optimistic: the store is updated first (the scene follows it, so the line moves
  * immediately) and reverted to the previous route on failure, because a change that looks saved
  * and is not is worse than one that visibly snaps back.
  */
+import { FLOW_STATES, type FlowBasis, type FlowDirection, type FlowState } from "@/domain/routeFlow";
 import { useEffect, useState } from "react";
 import type { InfraCertainty, InfraLifecycle, InfraMedium } from "@/db/schema/infrastructure";
 import { MEDIUM_LABELS, kindOfMedium, systemOfMedium } from "@/features/projects/infraMedium";
@@ -36,9 +32,23 @@ export const CERTAINTY_LEGEND =
 const CERTAINTY_HELP: Record<InfraCertainty, string> = {
   measured: "Opened up, measured, and the measurement written down.",
   observed: "Seen — through a hatch, in a photo, on a drawing that matched.",
-  inferred: "Worked out from where it has to go. Drawn dashed.",
-  unknown: "Nobody knows. Drawn dashed and faint, with a question mark.",
+  inferred: "Worked out from available evidence. Drawn subdued or dashed.",
+  unknown: "Path unknown. Drawn faint and dashed.",
 };
+
+const FLOW_STATUS_LABELS: Record<FlowState, string> = {
+  unknown: "Unknown",
+  active: "In service",
+  inactive: "Out of service (retained)",
+};
+
+const FLOW_OPTIONS = [
+  { value: "unknown:unknown", label: "Unknown" },
+  { value: "forward:declared", label: "First to last · declared" },
+  { value: "reverse:declared", label: "Last to first · declared" },
+  { value: "forward:inferred", label: "First to last · inferred" },
+  { value: "reverse:inferred", label: "Last to first · inferred" },
+];
 
 const LIFECYCLE_HELP: Record<InfraLifecycle, string> = {
   planned: "Not there yet. Drawn hue-neutral so a plan never reads as an installation.",
@@ -51,6 +61,9 @@ interface Draft {
   medium: InfraMedium;
   certainty: InfraCertainty;
   lifecycle: InfraLifecycle;
+  flowState: FlowState;
+  flowDirection: FlowDirection;
+  flowBasis: FlowBasis;
   nominalSize: string;
   diameterMm: string;
   installedAt: string;
@@ -70,6 +83,9 @@ function draftOf(route: Route & Partial<RouteDto>): Draft {
     medium: route.medium ?? "cold_water",
     certainty: route.certainty,
     lifecycle: route.lifecycle,
+    flowState: route.flowState ?? "unknown",
+    flowDirection: route.flowDirection ?? "unknown",
+    flowBasis: route.flowBasis ?? "unknown",
     nominalSize: route.nominalSize ?? "",
     diameterMm: route.diameterM === undefined ? "" : String(Math.round(route.diameterM * 1000)),
     installedAt: route.installedAt ?? "",
@@ -163,6 +179,9 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
       kind: kindOfMedium(next.medium),
       certainty: next.certainty,
       lifecycle: next.lifecycle,
+      flowState: next.lifecycle === "installed" ? next.flowState : "unknown",
+      flowDirection: next.flowDirection,
+      flowBasis: next.flowBasis,
       nominalSize: next.nominalSize.trim() === "" ? null : next.nominalSize.trim(),
       ...(diameterMm === undefined ? {} : { diameterM: diameterMm / 1000 }),
       ...(next.installedAt === "" ? {} : { installedAt: next.installedAt }),
@@ -345,6 +364,36 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
         <p className="text-[11px] text-ink-3">
           {runVisibilityReason(route, renovationDate)}
           {visible ? "" : " Not drawn under the current renovation date filter."}
+        </p>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-xs text-ink-2">Documented operation</legend>
+        {draft.lifecycle === "installed" ? (
+          <label className="flex flex-col gap-1 text-xs text-ink-2">
+            Service status
+            <Select
+              selectSize="sm"
+              value={draft.flowState}
+              onValueChange={(value) => void save({ flowState: value as FlowState })}
+              options={FLOW_STATES.map((value) => ({ value, label: FLOW_STATUS_LABELS[value] }))}
+            />
+          </label>
+        ) : null}
+        <label className="flex flex-col gap-1 text-xs text-ink-2">
+          Flow direction
+          <Select
+            selectSize="sm"
+            value={`${draft.flowDirection}:${draft.flowBasis}`}
+            onValueChange={(value) => {
+              const [flowDirection, flowBasis] = value.split(":") as [FlowDirection, FlowBasis];
+              void save({ flowDirection, flowBasis });
+            }}
+            options={FLOW_OPTIONS}
+          />
+        </label>
+        <p className="text-[11px] text-ink-3">
+          Direction uses the point order in the path editor. Service status describes the recorded installation.
         </p>
       </fieldset>
 

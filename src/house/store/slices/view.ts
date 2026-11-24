@@ -60,6 +60,7 @@ export interface ViewSlice {
   ceilingsVisible: boolean;
   edgesVisible: boolean;
   performanceMode: boolean;
+  showRouteFlow: boolean;
   /** Split detailed equipment lights across conservative shader-sized render passes. */
   detailedLightBatched: boolean;
   /** Requested detailed equipment-light budget, remembered on this device. */
@@ -89,6 +90,7 @@ export interface ViewSlice {
   setRoofVisible(v: boolean): void;
   setCeilingsVisible(v: boolean): void;
   setEdgesVisible(v: boolean): void;
+  setShowRouteFlow(enabled: boolean): void;
   setPerformanceMode(v: boolean): void;
   setDetailedLightBatched(enabled: boolean): void;
   setDetailedLightLimit(limit: number): void;
@@ -132,6 +134,7 @@ export const initialView = {
   ceilingsVisible: true,
   edgesVisible: true,
   performanceMode: false,
+  showRouteFlow: true,
   detailedLightBatched: true,
   detailedLightLimit: 64,
   detailedLightAll: false,
@@ -223,6 +226,7 @@ export const createViewSlice: StateCreator<HouseStore, Mutators, [], ViewSlice> 
       };
     }),
   setEdgesVisible: (edgesVisible) => set({ edgesVisible }),
+  setShowRouteFlow: (showRouteFlow) => set({ showRouteFlow }),
   setPerformanceMode: (performanceMode) => set({ performanceMode }),
   setDetailedLightBatched: (detailedLightBatched) =>
     set((s) =>

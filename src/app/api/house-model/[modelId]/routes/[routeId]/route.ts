@@ -60,7 +60,7 @@ export const DELETE = authed<Ctx>(async (session, req, ctx) => {
   writeTx(db, (tx) => {
     tx
       .update(infraRoute)
-      .set({ lifecycle: "removed", removedOn, updatedAtMs: nowMs(), updatedBy: actor })
+      .set({ lifecycle: "removed", flowState: "unknown", removedOn, updatedAtMs: nowMs(), updatedBy: actor })
       .where(eq(infraRoute.id, routeId))
       .run();
   });

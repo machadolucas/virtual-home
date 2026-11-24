@@ -16,7 +16,7 @@
 import { pickFurnishingBody, selectFurnishing } from "../scene/furnishingSelection";
 import { pickEquipmentBody } from "../scene/objectPlacement";
 import { useEffect, useRef } from "react";
-import { useThree } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { groupsOf } from "@/house/model/explodeGroups";
 import { OVERVIEW_PRESET } from "@/house/model/visibilityPlan";
 import { ClipGroups } from "@/house/scene/clipGroups";
@@ -31,7 +31,7 @@ import { createSceneIndex, indexAsset, makeNonPickable } from "@/house/scene/Sce
 import type { Selection } from "@/house/model/types";
 import { baseSelect } from "@/house/runtime";
 import { useHouseRuntime, useHouseStore } from "../hooks/useHouseStore";
-import { useIsPhone, useIsTouch } from "../hooks/useReducedMotion";
+import { useIsPhone, useIsTouch, useReducedMotion } from "../hooks/useReducedMotion";
 import { usePaletteSync } from "../hooks/usePaletteSync";
 import { useDetectionGuide } from "../hooks/useDetectionGuide";
 import { useEquipmentLights } from "../hooks/useEquipmentLights";
@@ -374,6 +374,19 @@ export function SceneRoot() {
 
   useSceneSync();
   useEquipmentLights();
+  const reducedMotion = useReducedMotion();
+  const showRouteFlow = useHouseStore((s) => s.showRouteFlow);
+  useEffect(() => {
+    const wake = () => runtime.invalidate();
+    document.addEventListener("visibilitychange", wake);
+    wake();
+    return () => document.removeEventListener("visibilitychange", wake);
+  }, [runtime, reducedMotion, showRouteFlow]);
+  useFrame((_, delta) => {
+    const allowMotion = showRouteFlow && !reducedMotion && !document.hidden &&
+      runtime.store.getState().renovationDate === null;
+    if (runtime.routes?.tick(delta, allowMotion)) runtime.invalidate();
+  });
   useDetectionGuide();
   // The scene's own chrome colours (selection, markers, routes) follow the theme.
   usePaletteSync();

@@ -316,10 +316,17 @@ lose information:
 | `widthM` / `diameterM` | `infra_route.nominal_size` | Canonically spelled `Ø125 mm` / `W600 mm`, so a size the workspace set round-trips exactly; text a human typed ("DN20", "Cat6a") is stored verbatim and yields no numeric size (`nominalSize.ts`) |
 | `pointPlaces[i]` (per vertex), `segments[i]` (per span) | `infra_route_point.floor_id` / `room_id` (per point) | Each vertex retains its own floor/room, including the final endpoint of a riser. Span ownership follows its starting vertex. Only legacy in-memory drafts without `pointPlaces` inherit places from their spans |
 | `endpoints[]` | `from_endpoint_id` / `to_endpoint_id` | An endpoint naming a piece of equipment is answered as `{kind:'equipment', placementId}` via that equipment's body placement; everything else is `{kind:'free'}`. The workspace's surface+uv variant has no column |
+| `flowDirection`, `flowBasis`, `flowState` | `infra_route.flow_direction`, `flow_basis`, `flow_state` | Defaults to unknown. Forward follows the stored point order. Declared and inferred identify the basis for a direction. Service state describes documented operation independently of physical lifecycle. An abandoned pipe still in place is installed and inactive. |
 | `renovationId` | `infra_route.project_id` | Same thing under two names; both are accepted on write |
 
 `partialFields` is `["kind", "endpoints", "segments.roomId"]`: `kind` is derived rather than stored,
 and the two endpoint descriptors above are coarser than what the workspace can express.
+
+The House view renders installed pipes and ducts with medium colours and a schematic cross-section
+where dimensions are incomplete. Unknown paths, plans and removed paths use static dashes. Retained
+out-of-service pipes are muted. On an in-service run with a declared or inferred direction, a pulse
+illustrates that direction at a fixed schematic speed. Historical date views, performance mode,
+reduced motion and the House visibility control can pause it.
 
 A route whose floor, room or offset surface the **current** package no longer knows is returned with
 those ids nulled, listed in `stale`, and flagged `needsReconciliation` — reported, never guessed at

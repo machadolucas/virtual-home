@@ -8,6 +8,7 @@
  * `is_estimated` (default 1) plus `certainty` and `lifecycle` say how much a route can be trusted
  * and whether it actually exists yet.
  */
+import type { FlowBasis, FlowDirection, FlowState } from "@/domain/routeFlow";
 import { sql } from "drizzle-orm";
 import { check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
@@ -62,6 +63,9 @@ export const infraRoute = sqliteTable(
     isEstimated: integer("is_estimated", { mode: "boolean" }).notNull().default(true),
     certainty: text("certainty").$type<InfraCertainty>().notNull().default("inferred"),
     lifecycle: text("lifecycle").$type<InfraLifecycle>().notNull().default("installed"),
+    flowDirection: text("flow_direction").$type<FlowDirection>().notNull().default("unknown"),
+    flowBasis: text("flow_basis").$type<FlowBasis>().notNull().default("unknown"),
+    flowState: text("flow_state").$type<FlowState>().notNull().default("unknown"),
     /** LocalDates `YYYY-MM-DD`. A planned run has neither; a removed one has both. */
     installedOn: text("installed_on"),
     removedOn: text("removed_on"),

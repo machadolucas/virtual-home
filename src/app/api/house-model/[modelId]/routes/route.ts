@@ -161,6 +161,9 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
           id: infraRoute.id,
           medium: infraRoute.medium,
           nominalSize: infraRoute.nominalSize,
+          flowDirection: infraRoute.flowDirection,
+          flowBasis: infraRoute.flowBasis,
+          flowState: infraRoute.flowState,
           modelRevisionId: infraRoute.modelRevisionId,
         })
         .from(infraRoute)
@@ -185,6 +188,14 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     throw badRequest("removed_before_installed", { installedOn, removedOn });
   if (r.lifecycle === "planned" && removedOn !== null)
     throw badRequest("planned_cannot_be_removed", { removedOn });
+
+  const flowDirection = r.flowDirection ?? existing?.flowDirection ?? "unknown";
+  const flowBasis = r.flowBasis ?? existing?.flowBasis ?? "unknown";
+  const flowState = r.flowState ?? (r.lifecycle === "installed" ? existing?.flowState : null) ?? "unknown";
+  if ((flowDirection === "unknown") !== (flowBasis === "unknown"))
+    throw badRequest("flow_direction_basis_mismatch", { flowDirection, flowBasis });
+  if (r.lifecycle !== "installed" && flowState !== "unknown")
+    throw badRequest("flow_state_requires_installation", { flowState });
 
   const nominalSize =
     formatNominalSize({
@@ -212,6 +223,9 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     isEstimated: r.isEstimated ?? r.certainty !== "measured",
     certainty: r.certainty,
     lifecycle: r.lifecycle,
+    flowDirection,
+    flowBasis,
+    flowState,
     installedOn,
     removedOn,
     depthM: r.depthM == null ? null : mm(r.depthM),

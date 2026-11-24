@@ -239,8 +239,11 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
     routeSegments() {
       let segments = 0;
       runtime.index?.overlay.root.traverse((object) => {
-        if (!(object instanceof THREE.LineSegments) || !object.name.startsWith("vh-routes-") || !isVisibleUp(object)) return;
-        segments += (object.geometry.getAttribute("position")?.count ?? 0) / 2;
+        if (!isVisibleUp(object)) return;
+        if (object instanceof THREE.LineSegments && object.name.startsWith("vh-routes-"))
+          segments += (object.geometry.getAttribute("position")?.count ?? 0) / 2;
+        if (object instanceof THREE.Mesh && object.name.startsWith("vh-tube-"))
+          segments += object.userData.vhRouteSpanCount ?? 0;
       });
       return segments;
     },

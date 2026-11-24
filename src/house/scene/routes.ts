@@ -1,14 +1,4 @@
-/**
- * Infrastructure routes: batched `LineSegments` per style bucket per explode group, plus an
- * optional `TubeGeometry` where a duct's real diameter is known.
- *
- * Two things this module must not get wrong:
- *  - `LineDashedMaterial` silently draws solid lines unless `geometry.computeLineDistances()` runs
- *    after the positions are set. `inferred` and `unknown` confidence are *drawn* as dashes, so a
- *    missed call would present a guess as a measurement.
- *  - WebGL ignores `LineBasicMaterial.linewidth`. Anything that must read at its true width is a
- *    tube, which is also depth-correct and needs no resolution uniform on resize.
- */
+/** Infrastructure lines and 3D runs share the same semantic floor and clipping groups. */
 import * as THREE from "three";
 import { clipGroupOf } from "@/house/model/explodeGroups";
 import type {
@@ -19,6 +9,7 @@ import type {
   RouteSystem,
   Vec3,
 } from "@/house/model/types";
+import { hasSolidRoute, routeMediumColor, RouteSolids } from "./routeSolids";
 import type { ClipGroups } from "./clipGroups";
 import { getViewerPalette } from "./palette";
 import { overlayGroup, type SceneIndex } from "./SceneIndex";
@@ -52,24 +43,29 @@ export interface RouteStyle {
   system: RouteSystem;
   lifecycle: RouteLifecycle;
   certainty: RouteCertainty;
+  medium?: Route["medium"];
+  flowState?: Route["flowState"];
 }
 
-const styleKey = (s: RouteStyle): string => `${s.system}|${s.lifecycle}|${s.certainty}`;
+const styleKey = (s: RouteStyle): string => `${s.system}|${s.lifecycle}|${s.certainty}|${s.medium ?? ""}|${s.flowState ?? ""}`;
 const bucketKey = (group: ExplodeGroup, s: RouteStyle): string => `${group}|${styleKey(s)}`;
 
 export function opacityFor(style: RouteStyle): number {
   if (style.lifecycle === "removed") return 0.3;
   if (style.lifecycle === "planned") return 0.6;
+  if (style.flowState === "inactive") return 0.52;
   if (style.certainty === "unknown") return 0.45;
   if (style.certainty === "observed") return 0.85;
   return 1;
 }
 
 export const isDashed = (style: RouteStyle): boolean =>
-  style.certainty === "inferred" || style.certainty === "unknown";
+  style.lifecycle !== "installed" || style.certainty === "inferred" || style.certainty === "unknown";
 
 export function colorFor(style: RouteStyle): number {
-  return style.lifecycle === "planned" ? plannedColor() : SYSTEM_COLORS[style.system];
+  if (style.lifecycle !== "installed") return plannedColor();
+  const hex = routeMediumColor(style, SYSTEM_COLORS[style.system]);
+  return style.flowState === "inactive" ? new THREE.Color(hex).lerp(new THREE.Color(0x797777), 0.8).getHex() : hex;
 }
 
 interface Bucket {
@@ -81,13 +77,14 @@ interface Bucket {
 
 export class RouteLayer {
   private readonly buckets = new Map<string, Bucket>();
-  private readonly tubes: THREE.Mesh[] = [];
-  private readonly tubeMaterials = new Map<string, THREE.MeshStandardMaterial>();
+  private readonly solids: RouteSolids;
 
   constructor(
     private readonly index: SceneIndex,
     private readonly clip: ClipGroups,
-  ) {}
+  ) {
+    this.solids = new RouteSolids(index, clip);
+  }
 
   /**
    * Rebuild everything from the route list. Called when route data or the renovation-date filter
@@ -97,21 +94,27 @@ export class RouteLayer {
     this.clearGeometry();
 
     for (const route of routes) {
-      const style: RouteStyle = {
-        system: route.system,
-        lifecycle: route.lifecycle,
-        certainty: route.certainty,
-      };
+      const solid = opts.tubes && hasSolidRoute(route);
+      let distance = 0;
+      let previousGroup: ExplodeGroup | null = null;
       for (let i = 1; i < route.points.length; i++) {
         const a = route.points[i - 1] as Vec3;
         const b = route.points[i] as Vec3;
         const group = this.groupOfSegment(route, i - 1);
-        const bucket = this.bucketFor(group, style);
-        bucket.positions.push(a[0], a[1], a[2], b[0], b[1], b[2]);
-        if (opts.tubes && route.diameterM && route.lifecycle !== "removed")
-          this.addTubeSegment(route, style, i - 1, a, b);
+        const length = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+        if (length < 1e-5) continue;
+        if (solid) {
+          const color = routeMediumColor(route, SYSTEM_COLORS[route.system]);
+          this.solids.add(route, group, color, a, b, distance, length, previousGroup === group);
+        } else {
+          const bucket = this.bucketFor(group, route);
+          bucket.positions.push(...a, ...b);
+        }
+        distance += length;
+        previousGroup = group;
       }
     }
+    this.solids.flush();
 
     for (const bucket of this.buckets.values()) {
       bucket.geometry.setAttribute(
@@ -146,7 +149,7 @@ export class RouteLayer {
       depthTest: true,
     };
     const material = isDashed(style)
-      ? new THREE.LineDashedMaterial({ ...common, dashSize: 0.02, gapSize: 0.04 })
+      ? new THREE.LineDashedMaterial({ ...common, dashSize: 0.08, gapSize: 0.06 })
       : new THREE.LineBasicMaterial(common);
     const line = new THREE.LineSegments(geometry, material);
     line.name = `vh-routes-${key}`;
@@ -160,41 +163,9 @@ export class RouteLayer {
     return bucket;
   }
 
-  private addTubeSegment(route: Route, style: RouteStyle, segmentIndex: number, a: Vec3, b: Vec3): void {
-    const start = new THREE.Vector3(a[0], a[1], a[2]);
-    const end = new THREE.Vector3(b[0], b[1], b[2]);
-    if (start.distanceToSquared(end) < 1e-10) return;
-    // A route may cross explode groups. One tube per span keeps each span attached to its semantic
-    // floor, matching the already-correct line buckets instead of floating the whole run with its
-    // first floor.
-    const curve = new THREE.LineCurve3(start, end);
-    const radius = Math.max(0.01, (route.diameterM ?? 0.1) / 2);
-    const geometry = new THREE.TubeGeometry(
-      curve,
-      4,
-      radius,
-      6,
-      false,
-    );
-    const hex = colorFor(style);
-    const materialKey = styleKey(style);
-    let material = this.tubeMaterials.get(materialKey);
-    if (!material) {
-      material = new THREE.MeshStandardMaterial({
-        color: hex,
-        roughness: 0.6,
-        metalness: 0,
-        transparent: true,
-        opacity: opacityFor(style),
-      });
-      this.tubeMaterials.set(materialKey, material);
-    }
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = `vh-tube-${route.id}-${segmentIndex}`;
-    const group = this.groupOfSegment(route, segmentIndex);
-    this.clip.attach(mesh, group);
-    overlayGroup(this.index, group).add(mesh);
-    this.tubes.push(mesh);
+  /** True while the demand-rendered scene has a visible directional cue. */
+  tick(delta: number, allowMotion: boolean): boolean {
+    return this.solids.tick(delta, allowMotion);
   }
 
   /** Buckets, for the draw-call budget assertions. */
@@ -221,11 +192,7 @@ export class RouteLayer {
       bucket.geometry.deleteAttribute("lineDistance");
       bucket.line.visible = false;
     }
-    for (const tube of this.tubes) {
-      tube.removeFromParent();
-      tube.geometry.dispose();
-    }
-    this.tubes.length = 0;
+    this.solids.clear();
   }
 
   dispose(): void {
@@ -236,7 +203,5 @@ export class RouteLayer {
       bucket.material.dispose();
     }
     this.buckets.clear();
-    for (const m of this.tubeMaterials.values()) m.dispose();
-    this.tubeMaterials.clear();
   }
 }

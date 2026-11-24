@@ -113,6 +113,35 @@ describe("PUT routes", () => {
     expect(points[1]?.roomId).toBe("r-l-b");
   });
 
+  it("round-trips flow metadata and preserves it across a legacy edit", async () => {
+    const flow = { flowState: "active", flowDirection: "reverse", flowBasis: "inferred" };
+    const res = await put(routeBody(flow));
+    expect(res.status).toBe(200);
+    const { route } = await bodyOf<{ route: RouteDto }>(res);
+    expect(route).toMatchObject(flow);
+
+    const update = await put(routeBody({ id: route.id, name: "Revised name" }));
+    expect(update.status).toBe(200);
+    const read = await bodyOf<{ routes: RouteDto[] }>(await list());
+    expect(read.routes[0]).toMatchObject({ name: "Revised name", ...flow });
+
+    const planned = await put(routeBody({ id: route.id, lifecycle: "planned", installedOn: null }));
+    expect(planned.status).toBe(200);
+    expect((await bodyOf<{ route: RouteDto }>(planned)).route.flowState).toBe("unknown");
+  });
+
+  it("accepts retained out-of-service runs and rejects contradictory flow fields", async () => {
+    const rejected = await put(routeBody({ flowDirection: "forward" }));
+    expect(rejected.status).toBe(400);
+    const rejectedPlan = await put(routeBody({ lifecycle: "planned", installedOn: null, flowState: "active" }));
+    expect(rejectedPlan.status).toBe(400);
+    const retained = await put(routeBody({ flowState: "inactive", installedOn: null }));
+    expect(retained.status).toBe(200);
+    const { route } = await bodyOf<{ route: RouteDto }>(retained);
+    expect(route).toMatchObject({ lifecycle: "installed", flowState: "inactive", flowDirection: "unknown" });
+    expect(route.removedAt).toBeUndefined();
+  });
+
   it("rounds coordinates to millimetres, because that is what the model is honest to", async () => {
     const res = await put(
       routeBody({

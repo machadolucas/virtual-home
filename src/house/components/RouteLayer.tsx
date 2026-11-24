@@ -12,6 +12,8 @@ import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { colorFor, isDashed, SYSTEM_COLORS } from "@/house/scene/routes";
 import type { Route, RouteSystem } from "@/house/model/types";
+import { hasDocumentedFlow } from "@/house/scene/routeSolids";
+import { useReducedMotion } from "../hooks/useReducedMotion";
 import { routePointPlace } from "@/house/model/routePlaces";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { useViewerPalette } from "../hooks/useViewerPalette";
@@ -27,11 +29,15 @@ const SYSTEM_LABELS: Record<RouteSystem, string> = {
 };
 
 export function RouteLegend() {
-  const { routes, visibleSystems, toggleSystem } = useHouseStore(
+  const { routes, visibleSystems, toggleSystem, showRouteFlow, setShowRouteFlow, performanceMode, renovationDate } = useHouseStore(
     useShallow((s) => ({
       routes: s.routes,
       visibleSystems: s.visibleSystems,
       toggleSystem: s.toggleSystem,
+      showRouteFlow: s.showRouteFlow,
+      setShowRouteFlow: s.setShowRouteFlow,
+      performanceMode: s.performanceMode,
+      renovationDate: s.renovationDate,
     })),
   );
   const present = useMemo(() => {
@@ -40,6 +46,9 @@ export function RouteLegend() {
     return [...set];
   }, [routes]);
 
+  const reducedMotion = useReducedMotion();
+  const flowAvailable = useMemo(() => routes.some(hasDocumentedFlow), [routes]);
+  const flowPaused = reducedMotion || performanceMode || renovationDate !== null;
   if (present.length === 0) return null;
 
   return (
@@ -65,9 +74,28 @@ export function RouteLegend() {
         ))}
       </ul>
       <p className="max-w-prose text-ink-3">
-        Line position is drawn; confidence is shown by style — solid for measured, dashed for
-        inferred. A solid line is not proof of a verified concealed installation.
+        Colours distinguish utility media. Muted solids indicate retained, out-of-service runs.
+        Grey dashes mark planned or removed runs. Unknown paths are dashed, and inferred solids
+        are subdued. Cross-sections are schematic where dimensions are incomplete.
       </p>
+      {flowAvailable ? (
+        <>
+          <label className="flex min-h-8 items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={showRouteFlow && !flowPaused}
+              disabled={flowPaused}
+              onChange={(event) => setShowRouteFlow(event.target.checked)}
+            />
+            Animate documented direction
+          </label>
+          <p className="max-w-prose text-ink-3">
+            Pulses illustrate documented direction on in-service runs. This is a schematic.
+            {flowPaused ? " Animation is paused in this view or by reduced motion." : ""}
+          </p>
+        </>
+      ) : null}
     </section>
   );
 }
