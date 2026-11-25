@@ -423,12 +423,14 @@ export function useSceneSync(): void {
       // regardless — a control showing the opposite of the screen. It is honoured now.
       const visible = s.routes.filter((route) => isRouteVisible(route, s));
       routes.set(visible, { tubes: !s.performanceMode });
+      if (s.explode.enabled) applyExplode(index, s.explode);
       runtime.invalidate();
     };
     apply(store.getState());
     return store.subscribe(
       (s: HouseStore) => ({
         routes: s.routes,
+        loaded: s.loadedAssetIds,
         routeLayer: s.layers.routes,
         visibleSystems: s.visibleSystems,
         visibleRouteKinds: s.visibleRouteKinds,

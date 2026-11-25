@@ -99,6 +99,7 @@ export class RouteLayer {
     for (const route of routes) {
       const solid = opts.tubes && hasSolidRoute(route);
       const routeLength = solid ? polylineLength(route.points) : 0;
+      const color = solid ? routeMediumColor(route, SYSTEM_COLORS[route.system]) : 0;
       let distance = 0;
       let previousGroup: ExplodeGroup | null = null;
       for (let i = 1; i < route.points.length; i++) {
@@ -108,7 +109,6 @@ export class RouteLayer {
         const length = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
         if (length < 1e-5) continue;
         if (solid) {
-          const color = routeMediumColor(route, SYSTEM_COLORS[route.system]);
           this.solids.add(route, group, color, a, b, distance, length, routeLength, previousGroup === group);
         } else {
           const bucket = this.bucketFor(group, route);
@@ -117,6 +117,7 @@ export class RouteLayer {
         distance += length;
         previousGroup = group;
       }
+      if (solid && route.kind === "duct") this.solids.addOutlets(route, color, routes);
     }
     this.solids.flush();
 

@@ -5,6 +5,7 @@ import type { InfraMedium } from "@/db/schema/infrastructure";
 import type { ExplodeGroup, Route, Vec3 } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
 import { overlayGroup, type SceneIndex } from "./SceneIndex";
+import { ductOutletGeometry, matchDuctOutlet } from "./ductOutlets";
 
 const MEDIUM_COLORS: Record<InfraMedium, number> = {
   cold_water: 0x4089cf,
@@ -129,6 +130,29 @@ export class RouteSolids {
     geometry.translate(...start.add(end).multiplyScalar(0.5).toArray());
     bucket.spans.push(geometry);
     bucket.spanCount++;
+  }
+
+  addOutlets(route: Route, hex: number, routes: readonly Route[]): void {
+    for (const end of [0, route.points.length - 1]) {
+      const outlet = matchDuctOutlet(this.index, route, end, routes);
+      if (!outlet) continue;
+      const geometry = ductOutletGeometry(route, outlet, hex);
+      const material = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.84,
+        emissive: 0x332f27,
+        emissiveIntensity: 0.20,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.name = `vh-duct-outlet-${route.id}-${end}`;
+      mesh.userData.vhDuctOutlet = { floorId: outlet.floorId, surfaceId: outlet.surfaceId };
+      mesh.raycast = () => {};
+      const planes = outlet.surfaceId ? this.clip.planesFor(outlet.surfaceId) : [];
+      if (planes.length > 0) material.clippingPlanes = [...planes];
+      else this.clip.attach(mesh, outlet.floorId);
+      overlayGroup(this.index, outlet.floorId).add(mesh);
+      this.meshes.push(mesh);
+    }
   }
 
   private setProgress(geometry: THREE.BufferGeometry, distanceAtY: (y: number) => number): void {
