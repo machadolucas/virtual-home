@@ -1,5 +1,6 @@
 /** Infrastructure lines and 3D runs share the same semantic floor and clipping groups. */
 import * as THREE from "three";
+import { classifyAirStream } from "@/domain/airStream";
 import { polylineLength } from "@/house/model/geometry2d";
 import { clipGroupOf } from "@/house/model/explodeGroups";
 import type {
@@ -45,10 +46,11 @@ export interface RouteStyle {
   lifecycle: RouteLifecycle;
   certainty: RouteCertainty;
   medium?: Route["medium"];
+  airStream?: Route["airStream"];
   flowState?: Route["flowState"];
 }
 
-const styleKey = (s: RouteStyle): string => `${s.system}|${s.lifecycle}|${s.certainty}|${s.medium ?? ""}|${s.flowState ?? ""}`;
+const styleKey = (s: RouteStyle): string => `${s.system}|${s.lifecycle}|${s.certainty}|${s.medium ?? ""}|${s.flowState ?? ""}|${s.airStream ?? ""}`;
 const bucketKey = (group: ExplodeGroup, s: RouteStyle): string => `${group}|${styleKey(s)}`;
 
 export function opacityFor(style: RouteStyle): number {
@@ -155,6 +157,8 @@ export class RouteLayer {
       : new THREE.LineBasicMaterial(common);
     const line = new THREE.LineSegments(geometry, material);
     line.name = `vh-routes-${key}`;
+    const airStream = classifyAirStream(style.medium, style.airStream);
+    if (airStream) line.userData.vhAirStream = airStream;
     line.frustumCulled = false;
     line.renderOrder = 5;
     this.clip.attach(line, group);

@@ -1773,7 +1773,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`created_at_ms\` integer NOT NULL,
 	\`created_by\` text,
 	\`updated_at_ms\` integer NOT NULL,
-	\`updated_by\` text, \`installed_on\` text, \`removed_on\` text, \`depth_m\` real, \`offset_surface_id\` text, \`offset_m\` real, \`project_id\` text REFERENCES project(id), \`flow_direction\` text DEFAULT 'unknown' NOT NULL, \`flow_basis\` text DEFAULT 'unknown' NOT NULL, \`flow_state\` text DEFAULT 'unknown' NOT NULL,
+	\`updated_by\` text, \`installed_on\` text, \`removed_on\` text, \`depth_m\` real, \`offset_surface_id\` text, \`offset_m\` real, \`project_id\` text REFERENCES project(id), \`flow_direction\` text DEFAULT 'unknown' NOT NULL, \`flow_basis\` text DEFAULT 'unknown' NOT NULL, \`flow_state\` text DEFAULT 'unknown' NOT NULL, \`air_stream\` text,
 	FOREIGN KEY (\`system_id\`) REFERENCES \`system\`(\`id\`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (\`from_endpoint_id\`) REFERENCES \`infra_endpoint\`(\`id\`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (\`to_endpoint_id\`) REFERENCES \`infra_endpoint\`(\`id\`) ON UPDATE no action ON DELETE set null,

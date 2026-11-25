@@ -9,6 +9,7 @@ import { DocumentLink } from "@/features/documents/DocumentViewer";
  * immediately) and reverted to the previous route on failure, because a change that looks saved
  * and is not is worse than one that visibly snaps back.
  */
+import { airStreamFitsMedium } from "@/domain/airStream";
 import { FLOW_STATES, type FlowBasis, type FlowDirection, type FlowState } from "@/domain/routeFlow";
 import { useEffect, useState } from "react";
 import type { InfraCertainty, InfraLifecycle, InfraMedium } from "@/db/schema/infrastructure";
@@ -175,6 +176,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
       ...route,
       name: next.name.trim() === "" ? route.name : next.name.trim(),
       medium: next.medium,
+      airStream: route.airStream && airStreamFitsMedium(route.airStream, next.medium) ? route.airStream : undefined,
       system: systemOfMedium(next.medium),
       kind: kindOfMedium(next.medium),
       certainty: next.certainty,

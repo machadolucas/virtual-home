@@ -3,6 +3,7 @@ import { requestEditSwitch } from "../edit/confirmSwitch";
 import { useState } from "react";
 import { Archive, PencilLine, SquarePen, Trash2, X } from "lucide-react";
 import { polylineLength } from "@/house/model/geometry2d";
+import { AIR_STREAM_STYLE, classifyAirStream } from "@/domain/airStream";
 import { MEDIUM_LABELS } from "@/features/projects/infraMedium";
 import { isRouteVisible } from "@/house/model/routeVisibility";
 import { NotPersistedError } from "@/house/store/dataApi";
@@ -76,6 +77,7 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
   };
 
   const drawn = isRouteVisible(route, view);
+  const airStream = classifyAirStream(route.medium, route.airStream);
 
   return (
     <div className="flex flex-col gap-4">
@@ -90,6 +92,7 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
         <Row label="Confidence" value={route.certainty} />
         <Row label="Lifecycle" value={route.lifecycle} />
+        {airStream ? <Row label="Air stream" value={AIR_STREAM_STYLE[airStream].label} /> : null}
         <Row label="Service status" value={
           route.flowState === "active" ? "In service" : route.flowState === "inactive" ? "Out of service" : "Unknown"
         } />

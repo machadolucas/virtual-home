@@ -5,6 +5,7 @@
  * production bundle. It only reads state and dispatches actions the UI already exposes: it is not
  * a back door around authentication or around the store's own invariants.
  */
+import type { AirStream } from "@/domain/airStream";
 import { isVisibleUp } from "../scene/applyVisibility";
 import * as THREE from "three";
 import CameraControlsImpl from "camera-controls";
@@ -52,6 +53,7 @@ export interface VhHook {
   } | null;
   routeGuides(): { pathSegments: number; hoverSegments: number };
   routeSegments(): number;
+  airRouteMaterials(): Array<{ name: string; airStream: AirStream; colorHex: string; pulseHex: string | null }>;
   /** Whether the camera controls currently accept the left button, or `null` if not mounted. */
   controlsEnabled(): boolean | null;
   controlBindings(): { left: number; right: number; wheel: number } | null;
@@ -246,6 +248,24 @@ export function installTestHook(runtime: HouseRuntime, camera: THREE.Camera): ((
           segments += object.userData.vhRouteSpanCount ?? 0;
       });
       return segments;
+    },
+
+    airRouteMaterials() {
+      const materials: ReturnType<VhHook["airRouteMaterials"]> = [];
+      runtime.index?.overlay.root.traverse((object) => {
+        if (!(object instanceof THREE.Mesh || object instanceof THREE.LineSegments) || !isVisibleUp(object)) return;
+        const stream = object.userData.vhAirStream as AirStream | undefined;
+        const material = object.material;
+        if (!stream || !(material instanceof THREE.MeshStandardMaterial || material instanceof THREE.LineBasicMaterial)) return;
+        const pulse = object.userData.vhRoutePulseColor as number | undefined;
+        materials.push({
+          name: object.name,
+          airStream: stream,
+          colorHex: `#${material.color.getHexString()}`,
+          pulseHex: pulse === undefined ? null : `#${pulse.toString(16).padStart(6, "0")}`,
+        });
+      });
+      return materials;
     },
 
     /**

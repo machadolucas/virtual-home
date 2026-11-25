@@ -1,0 +1,1 @@
+ALTER TABLE `infra_route` ADD `air_stream` text;

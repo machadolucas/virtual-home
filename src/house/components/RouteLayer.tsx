@@ -9,6 +9,7 @@
  * verified concealed installation.
  */
 import { useEffect, useMemo } from "react";
+import { AIR_STREAMS, AIR_STREAM_STYLE, classifyAirStream } from "@/domain/airStream";
 import * as THREE from "three";
 import { colorFor, isDashed, SYSTEM_COLORS } from "@/house/scene/routes";
 import type { Route, RouteSystem } from "@/house/model/types";
@@ -51,7 +52,11 @@ export function RouteLegend() {
   ), [routes, activeRoutesOnly, renovationDate]);
 
   const reducedMotion = useReducedMotion();
-  const flowAvailable = routes.some((r) => hasDocumentedFlow(r) && isRouteVisible(r, view));
+  const visibleRoutes = routes.filter((r) => isRouteVisible(r, view));
+  const presentAirStreams = new Set(visibleRoutes.filter(
+    (r) => r.kind === "duct" && r.lifecycle === "installed",
+  ).map((r) => classifyAirStream(r.medium, r.airStream)));
+  const flowAvailable = visibleRoutes.some(hasDocumentedFlow);
   const flowPaused = reducedMotion || performanceMode || renovationDate !== null;
   if (present.size === 0) {
     return activeRoutesOnly && routes.length > 0 ? (
@@ -78,6 +83,20 @@ export function RouteLegend() {
               />
               {SYSTEM_LABELS[system]}
             </label>
+            {system === "ventilation" && AIR_STREAMS.some((stream) => presentAirStreams.has(stream)) ? (
+              <ul aria-label="Air streams" className="ml-6 space-y-1 pb-1">
+                {AIR_STREAMS.filter((stream) => presentAirStreams.has(stream)).map((stream) => {
+                  const { label, body } = AIR_STREAM_STYLE[stream];
+                  return (
+                    <li key={stream} data-air-stream={stream} title={label} className="flex items-center gap-2">
+                      <span aria-hidden="true" className="h-2.5 w-4 shrink-0 rounded-sm border border-line"
+                        style={{ backgroundColor: `#${body.toString(16).padStart(6, "0")}` }} />
+                      {label}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
           </li>
         ))}
       </ul>

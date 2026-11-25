@@ -521,6 +521,7 @@ export function routeWrite(route: RouteSave): Record<string, unknown> {
     name: route.name,
     system: route.system,
     medium: route.medium ?? mediumForSystem(route.system, null),
+    airStream: route.airStream,
     systemId: route.systemId ?? null,
     nominalSize: route.nominalSize ?? null,
     diameterM: route.diameterM ?? null,

@@ -134,11 +134,33 @@ test("documented direction animates and can return to demand idle", async ({ pag
     endpoints: [],
     photoIds: [],
   };
+  const routes: Route[] = [
+    route,
+    { ...route, id: "flow-intake", airStream: "outdoor_intake", points: [[1, 0.4, 1.4], [3, 0.4, 1.4]] },
+    { ...route, id: "flow-extract", medium: "extract_air", points: [[1, 0.4, 1.8], [3, 0.4, 1.8]] },
+    { ...route, id: "flow-exhaust", medium: "extract_air", airStream: "outdoor_discharge",
+      points: [[1, 0.4, 2.2], [3, 0.4, 2.2]] },
+  ];
   await page.route(`**/api/house-model/${MODEL_ID}/routes`, (intercept) =>
-    intercept.fulfill({ json: { routes: [route], stale: [], partialFields: [] } }));
+    intercept.fulfill({ json: { routes, stale: [], partialFields: [] } }));
   await openHouse(page, { serviceWorkers: "block" });
-  await expect.poll(() => vh(page).eval(({ hook }) => hook.routeSegments())).toBe(2);
+  await expect.poll(() => vh(page).eval(({ hook }) => hook.routeSegments())).toBe(5);
   await openViewSection(page, "Visibility");
+  const legend = page.getByRole("list", { name: "Air streams" });
+  await expect(legend.getByRole("listitem")).toHaveText(["Outdoor air intake", "Room supply", "Room extract", "Outdoor exhaust"]);
+  const materials = await vh(page).eval(({ hook }) => hook.airRouteMaterials());
+  expect(materials).toHaveLength(4);
+  expect(materials).toEqual(expect.arrayContaining([
+    expect.objectContaining({ airStream: "outdoor_intake", colorHex: "#00b9bb", pulseHex: "#a2faf2" }),
+    expect.objectContaining({ airStream: "room_supply", colorHex: "#63a63c", pulseHex: "#cafa83" }),
+    expect.objectContaining({ airStream: "room_extract", colorHex: "#c8861b", pulseHex: "#ffe08a" }),
+    expect.objectContaining({ airStream: "outdoor_discharge", colorHex: "#8759c7", pulseHex: "#dcc4ff" }),
+  ]));
+  const ducts = page.getByRole("switch", { name: "Ducts", exact: true });
+  await ducts.click();
+  await expect(legend).toHaveCount(0);
+  await ducts.click();
+  await expect(legend).toBeVisible();
   const flow = page.getByRole("checkbox", { name: "Animate documented direction" });
   await expect(flow).toBeChecked();
   const moving = await idleFrames(page, 500);

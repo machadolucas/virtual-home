@@ -14,6 +14,7 @@
  * this module is loaded in the browser and importing the schema would pull drizzle into the client
  * bundle. The duplication is checked at compile time below, so drift is a type error.
  */
+import { EXTERIOR_AIR_STREAMS, type ExteriorAirStream } from "@/domain/airStream";
 import { FLOW_BASES, FLOW_DIRECTIONS, FLOW_STATES, type FlowBasis, type FlowDirection, type FlowState } from "@/domain/routeFlow";
 import { z } from "zod";
 import type { AssetCategory } from "@/db/schema/assets";
@@ -199,6 +200,7 @@ export const RouteWriteSchema = z.object({
    */
   system: z.enum(ROUTE_SYSTEMS).optional(),
   medium: z.enum(MEDIA).optional(),
+  airStream: z.enum(EXTERIOR_AIR_STREAMS).nullish(),
   /** FK to a functional `system` row, which is a different thing from the category above. */
   systemId: RowIdSchema.nullish(),
   nominalSize: z.string().trim().max(60).nullish(),
@@ -240,6 +242,7 @@ export type RoutePointWrite = z.infer<typeof RoutePointWriteSchema>;
  */
 export interface RouteDto extends Route {
   medium: InfraMedium;
+  airStream: ExteriorAirStream | null;
   flowDirection: FlowDirection;
   flowBasis: FlowBasis;
   flowState: FlowState;

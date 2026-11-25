@@ -130,6 +130,38 @@ describe("PUT routes", () => {
     expect((await bodyOf<{ route: RouteDto }>(planned)).route.flowState).toBe("unknown");
   });
 
+  it("round-trips exterior air stream metadata, retains it on ordinary edits, and clears it on medium change", async () => {
+    const intake = { system: "ventilation", medium: "supply_air", airStream: "outdoor_intake" };
+    const created = await put(routeBody(intake));
+    expect(created.status).toBe(200);
+    const { route } = await bodyOf<{ route: RouteDto }>(created);
+    expect(route).toMatchObject(intake);
+    expect(routeWrite(route)).toMatchObject(intake);
+
+    const saved = await put(routeBody({ id: route.id, system: "ventilation", name: "Renamed duct" }));
+    expect(saved.status).toBe(200);
+    const read = await bodyOf<{ routes: RouteDto[] }>(await list());
+    expect(read.routes[0]).toMatchObject({ ...intake, name: "Renamed duct" });
+
+    const invalid = await put(routeBody({ id: route.id, ...intake, medium: "extract_air" }));
+    expect(invalid.status).toBe(400);
+    expect(await bodyOf(invalid)).toMatchObject({ error: "air_stream_medium_mismatch" });
+
+    const changed = await put(routeBody({ id: route.id, system: "ventilation", medium: "extract_air" }));
+    expect(changed.status).toBe(200);
+    expect((await bodyOf<{ route: RouteDto }>(changed)).route).toMatchObject({
+      medium: "extract_air",
+      airStream: null,
+    });
+
+    const exhaust = await put(routeBody({ id: route.id, system: "ventilation", medium: "extract_air", airStream: "outdoor_discharge" }));
+    expect(exhaust.status).toBe(200);
+    expect((await bodyOf<{ route: RouteDto }>(exhaust)).route.airStream).toBe("outdoor_discharge");
+    const cleared = await put(routeBody({ id: route.id, system: "ventilation", airStream: null }));
+    expect(cleared.status).toBe(200);
+    expect((await bodyOf<{ route: RouteDto }>(cleared)).route.airStream).toBeNull();
+  });
+
   it("accepts retained out-of-service runs and rejects contradictory flow fields", async () => {
     const rejected = await put(routeBody({ flowDirection: "forward" }));
     expect(rejected.status).toBe(400);

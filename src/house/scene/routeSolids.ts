@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { AIR_STREAM_STYLE, classifyAirStream, type AirStream } from "@/domain/airStream";
 import type { InfraMedium } from "@/db/schema/infrastructure";
 import type { ExplodeGroup, Route, Vec3 } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
@@ -9,8 +10,8 @@ const MEDIUM_COLORS: Record<InfraMedium, number> = {
   cold_water: 0x4089cf,
   hot_water: 0xcb5750,
   heating_water: 0xc16e38,
-  supply_air: 0x4e9b8c,
-  extract_air: 0x6a7fac,
+  supply_air: AIR_STREAM_STYLE.room_supply.body,
+  extract_air: AIR_STREAM_STYLE.room_extract.body,
   waste: 0x776956,
   drain: 0x767f67,
   gas: 0xa29740,
@@ -20,8 +21,9 @@ const MEDIUM_COLORS: Record<InfraMedium, number> = {
   coax: 0x714da1,
 };
 
-export function routeMediumColor(route: Pick<Route, "medium">, fallback: number): number {
-  return route.medium ? MEDIUM_COLORS[route.medium] : fallback;
+export function routeMediumColor(route: Pick<Route, "medium" | "airStream">, fallback: number): number {
+  const stream = classifyAirStream(route.medium, route.airStream);
+  return stream ? AIR_STREAM_STYLE[stream].body : route.medium ? MEDIUM_COLORS[route.medium] : fallback;
 }
 
 export function hasSolidRoute(route: Route): boolean {
@@ -60,6 +62,7 @@ type SolidBucket = {
   group: ExplodeGroup;
   color: THREE.Color;
   motion: MotionKind | null;
+  airStream?: AirStream;
   spans: THREE.BufferGeometry[];
   spanCount: number;
 };
@@ -85,14 +88,15 @@ export class RouteSolids {
     distance: number, length: number, routeLength: number, join: boolean,
   ): void {
     const motion = hasDocumentedFlow(route) ? (route.kind === "duct" ? "air" : "pipe") : null;
-    const key = `${group}|${hex}|${route.flowState}|${route.certainty}|${motion ?? "static"}`;
+    const airStream = classifyAirStream(route.medium, route.airStream);
+    const key = `${group}|${hex}|${route.flowState}|${route.certainty}|${motion ?? "static"}|${airStream ?? ""}`;
     let bucket = this.pending.get(key);
     if (!bucket) {
       const color = new THREE.Color(hex);
       if (route.flowState === "inactive") color.lerp(new THREE.Color(0x797777), 0.8);
       else if (route.flowState !== "active") color.lerp(new THREE.Color(0x808080), 0.3);
       if (route.certainty === "inferred") color.lerp(new THREE.Color(0x9b9b9b), 0.21);
-      bucket = { group, color, motion, spans: [], spanCount: 0 };
+      bucket = { group, color, motion, airStream, spans: [], spanCount: 0 };
       this.pending.set(key, bucket);
     }
 
@@ -141,12 +145,15 @@ export class RouteSolids {
       if (!geometry) continue;
       geometry.computeBoundingBox();
       const material = new THREE.MeshStandardMaterial({ color: bucket.color, roughness: 0.72 });
+      const pulse = bucket.motion && bucket.airStream ? AIR_STREAM_STYLE[bucket.airStream].pulse : undefined;
       if (bucket.motion) {
         const { cyclesPerSecond, shader: glow } = FLOW_MOTION[bucket.motion];
-        material.customProgramCacheKey = () => `vh-route-flow-v2-${bucket.motion}`;
+        material.customProgramCacheKey = () =>
+          `vh-route-flow-v3-${pulse === undefined ? "default" : "palette"}-${bucket.motion}`;
         material.onBeforeCompile = (shader) => {
           shader.uniforms.vhRouteTime = this.time;
           shader.uniforms.vhRouteMotion = this.showMotion;
+          if (pulse !== undefined) shader.uniforms.vhRoutePulseColor = { value: new THREE.Color(pulse) };
           shader.vertexShader = `attribute float vhRouteDistance;
 varying float vhDistance;
 ${shader.vertexShader}`.replace(
@@ -155,19 +162,22 @@ ${shader.vertexShader}`.replace(
           );
           shader.fragmentShader = `uniform float vhRouteTime;
 uniform float vhRouteMotion;
+${pulse !== undefined ? "uniform vec3 vhRoutePulseColor;" : ""}
 varying float vhDistance;
 ${shader.fragmentShader}`.replace(
             "#include <emissivemap_fragment>",
             `#include <emissivemap_fragment>
 float phase = fract(vhDistance - vhRouteTime * ${cyclesPerSecond.toFixed(2)});
 ${glow}
-totalEmissiveRadiance += mix(diffuseColor.rgb, vec3(1.0), 0.5) * glow * vhRouteMotion;`,
+totalEmissiveRadiance += ${pulse !== undefined ? "vhRoutePulseColor" : "mix(diffuseColor.rgb, vec3(1.0), 0.5)"} * glow * vhRouteMotion;`,
           );
         };
       }
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = `vh-tube-${key}`;
       mesh.userData.vhRouteSpanCount = bucket.spanCount;
+      if (bucket.airStream) mesh.userData.vhAirStream = bucket.airStream;
+      if (pulse !== undefined) mesh.userData.vhRoutePulseColor = pulse;
       // The house uses semantic pickables and the route editor's existing point/path targets.
       mesh.raycast = () => {};
       this.clip.attach(mesh, bucket.group);

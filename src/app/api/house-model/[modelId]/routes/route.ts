@@ -33,6 +33,7 @@ import {
   project,
   system as systemTable,
 } from "@/db/schema";
+import { airStreamFitsMedium } from "@/domain/airStream";
 import { mediumForSystem, systemOfMedium } from "@/features/projects/infraMedium";
 import { formatNominalSize } from "@/features/projects/nominalSize";
 import { ROUTE_PARTIAL_FIELDS, RoutePutSchema } from "@/features/projects/wire";
@@ -160,6 +161,7 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
         .select({
           id: infraRoute.id,
           medium: infraRoute.medium,
+          airStream: infraRoute.airStream,
           nominalSize: infraRoute.nominalSize,
           flowDirection: infraRoute.flowDirection,
           flowBasis: infraRoute.flowBasis,
@@ -178,6 +180,13 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
   const medium = r.medium ?? mediumForSystem(r.system ?? "other", existing?.medium ?? null);
   if (r.system && systemOfMedium(medium) !== r.system)
     throw badRequest("medium_system_mismatch", { medium, system: r.system });
+
+  if (r.airStream && !airStreamFitsMedium(r.airStream, medium))
+    throw badRequest("air_stream_medium_mismatch", { medium, airStream: r.airStream });
+  // Omission keeps the exterior designation when the medium still supports it.
+  const previousAirStream = existing?.airStream;
+  const airStream = r.airStream !== undefined ? r.airStream
+    : previousAirStream && airStreamFitsMedium(previousAirStream, medium) ? previousAirStream : null;
 
   const today = householdToday(db);
   // A removed run with no removal date cannot answer "was it there then?"; stamp today rather than
@@ -216,6 +225,7 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     name: r.name,
     systemId: r.systemId ?? null,
     medium,
+    airStream,
     nominalSize,
     fromEndpointId: r.fromEndpointId ?? null,
     toEndpointId: r.toEndpointId ?? null,

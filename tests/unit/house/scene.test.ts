@@ -571,6 +571,40 @@ describe("routes (fixture)", () => {
     layer.dispose();
   });
 
+  it("keeps bodies and motion highlights distinct across the four air streams", () => {
+    const built = buildScene(FIXTURE_DIR);
+    const layer = new RouteLayer(built.index, built.clip);
+    const streams = [
+      { medium: "supply_air", airStream: "outdoor_intake", stream: "outdoor_intake", body: 0x00b9bb, pulse: 0xa2faf2 },
+      { medium: "supply_air", airStream: null, stream: "room_supply", body: 0x63a63c, pulse: 0xcafa83 },
+      { medium: "extract_air", airStream: null, stream: "room_extract", body: 0xc8861b, pulse: 0xffe08a },
+      { medium: "extract_air", airStream: "outdoor_discharge", stream: "outdoor_discharge", body: 0x8759c7, pulse: 0xdcc4ff },
+    ] as const;
+    const routes = streams.map(({ medium, airStream, stream }) => route({
+      id: stream, medium, airStream, name: "Same display name",
+      flowState: "active", flowDirection: "forward", flowBasis: "inferred",
+    }));
+    layer.set(routes, { tubes: true });
+    const overlay = built.index.overlay.floorGroups.get("f-lower")!;
+    const tubes = overlay.children.filter((node) => node.name.startsWith("vh-tube-")) as
+      THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>[];
+    expect(tubes).toHaveLength(4);
+    for (const { stream, body, pulse } of streams) {
+      const tube = tubes.find((t) => t.userData.vhAirStream === stream);
+      expect(tube?.material.color.getHex()).toBe(body);
+      expect(tube?.userData.vhRoutePulseColor).toBe(pulse);
+    }
+    expect(layer.tick(1 / 60, false)).toBe(false);
+    layer.set(routes);
+    const lines = overlay.children.filter((node) => node.name.startsWith("vh-routes-")) as
+      THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>[];
+    expect(lines).toHaveLength(4);
+    for (const { stream, body } of streams) {
+      expect(lines.find((line) => line.userData.vhAirStream === stream)?.material.color.getHex()).toBe(body);
+    }
+    layer.dispose();
+  });
+
   it("keeps a short reversed air cue continuous across a floor boundary", () => {
     const built = buildScene(FIXTURE_DIR);
     const layer = new RouteLayer(built.index, built.clip);

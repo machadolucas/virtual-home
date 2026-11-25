@@ -200,6 +200,7 @@ export function listRoutes(db: Db, modelId: string, index: ManifestIndex): Route
       ...(row.notes !== null ? { note: row.notes } : {}),
 
       medium: row.medium,
+      airStream: row.airStream,
       nominalSize: row.nominalSize,
       systemId: row.systemId,
       isEstimated: row.isEstimated,
