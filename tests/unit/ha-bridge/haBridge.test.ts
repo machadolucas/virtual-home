@@ -10,6 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DbHandle } from "@/db/client";
 import { readCursorSeq, readOutboxAfter } from "@/server/events/outbox";
 import { readIntegrationStatus } from "@/server/ha/status";
+import { readSnapshot } from "@/server/ha/stateCache";
+import { configureVentilationFeedback } from "@/server/ha/ventilationFeedback";
+import { VENTILATION_POLL_MS } from "@/domain/ventilationFeedback";
+import type { HaState } from "@/worker/ha/protocol";
 import { startHaBridge, type HaBridge } from "@/worker/haBridge";
 import { HaSocket, type HaSnapshot, type HaSocketOptions, type HaStatus } from "@/worker/ha/socket";
 import { FakeHa, ManualClock, flush, waitFor } from "../../helpers/fakeHa";
@@ -71,6 +75,7 @@ function nextState(socket: HaSocket, target: HaStatus["state"]): Promise<HaStatu
 
 function start(options?: {
   onBatterySignal?: (registryId: string, raw: string, at: number) => void;
+  fetchVentilationState?: (entityId: string) => Promise<HaState | null>;
 }): { socket: HaSocket; bridge: HaBridge } {
   const socket = makeSocket();
   const bridge = startHaBridge({
@@ -82,6 +87,7 @@ function start(options?: {
     // clock.advance in the other tests.
     relistIntervalMs: 0,
     onBatterySignal: options?.onBatterySignal,
+    fetchVentilationState: options?.fetchVentilationState,
     token: server.token,
   });
   bridges.push(bridge);
@@ -458,4 +464,61 @@ describe("ha bridge", { retry: 2 }, () => {
     expect(status?.state).toBe("auth_failed");
     expect(status?.lastError ?? "").not.toContain(server.token);
   });
+});
+
+it("polls only the configured fan sensors and publishes a fresh unchanged report or a missing reading", async () => {
+  const deviceId = server.registry.devices[0]!.id;
+  const bindings = [
+    { entityId: "sensor.fixture_supply_output", registryId: "fixture-supply-registry", state: "40" },
+    { entityId: "sensor.fixture_extract_output", registryId: "fixture-extract-registry", state: "66" },
+  ];
+  for (const { entityId, registryId, state } of bindings) {
+    server.registry.entities.push({
+      entity_id: entityId, id: registryId, unique_id: registryId, platform: "fixture", device_id: deviceId,
+    });
+    const originalUpdate = new Date(clock.now() - 600_000).toISOString();
+    server.registry.states.set(entityId, {
+      entity_id: entityId, state, attributes: { unit_of_measurement: "%" },
+      last_updated: originalUpdate, last_reported: originalUpdate,
+    });
+  }
+  const fetchVentilationState = vi.fn(async (entityId: string) => {
+    const state = server.registry.states.get(entityId);
+    return state ? { ...state, last_reported: new Date(clock.now()).toISOString() } : null;
+  });
+  const { socket } = start({ fetchVentilationState });
+  socket.start();
+  await subscribed(socket);
+  expect(readSnapshot(handle.db, bindings.map(({ entityId }) => entityId))).toEqual([]);
+  expect(() => configureVentilationFeedback(handle, {
+    supply: bindings[0]!.registryId, extract: bindings[0]!.registryId, staleAfterSeconds: 180,
+  })).toThrow();
+  configureVentilationFeedback(handle, {
+    supply: bindings[0]!.registryId, extract: bindings[1]!.registryId, staleAfterSeconds: 180,
+  });
+
+  const cursor = readCursorSeq(handle.db);
+  clock.advance(VENTILATION_POLL_MS);
+  await flush();
+  expect(fetchVentilationState.mock.calls).toEqual(bindings.map(({ entityId }) => [entityId]));
+  for (const binding of bindings) {
+    expect(readSnapshot(handle.db, [binding.entityId])[0]).toMatchObject({
+      state: binding.state, registryId: binding.registryId,
+      lastReportedMs: clock.now(), observedAtMs: clock.now(),
+    });
+    expect(readOutboxAfter(handle.db, cursor)).toContainEqual(expect.objectContaining({
+      topic: "ha.state", key: binding.entityId, payload: expect.objectContaining({
+        state: binding.state, registryId: binding.registryId, lastReported: clock.now(), observedAt: clock.now(),
+      }),
+    }));
+  }
+
+  server.registry.states.delete(bindings[0]!.entityId);
+  const cursorAfterRead = readCursorSeq(handle.db);
+  clock.advance(VENTILATION_POLL_MS);
+  await flush();
+  expect(readSnapshot(handle.db, [bindings[0]!.entityId])).toEqual([]);
+  expect(readOutboxAfter(handle.db, cursorAfterRead)).toContainEqual(expect.objectContaining({
+    topic: "ha.state", key: bindings[0]!.entityId, payload: expect.objectContaining({ state: "unavailable" }),
+  }));
 });

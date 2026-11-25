@@ -18,6 +18,7 @@ import { authed } from "@/server/api/handler";
 import { getHub, type HubBatchItem } from "@/server/events/hub";
 import { EVENT_TOPICS, readCursorSeq } from "@/server/events/outbox";
 import { readSnapshot, renderableEntityIds } from "@/server/ha/stateCache";
+import { readIntegrationStatus } from "@/server/ha/status";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ function parseLastEventId(req: Request): number {
 function helloSnapshot(seq: number): HubBatchItem[] {
   const db = getDb().db;
   const rows = readSnapshot(db, renderableEntityIds(db));
-  return rows.map((row) => ({
+  const items: HubBatchItem[] = rows.map((row) => ({
     seq,
     topic: EVENT_TOPICS.haState,
     key: row.entityId,
@@ -49,8 +50,20 @@ function helloSnapshot(seq: number): HubBatchItem[] {
       state: row.state,
       attributes: row.attributes,
       lastUpdated: row.lastUpdatedMs,
+      lastReported: row.lastReportedMs,
+      observedAt: row.observedAtMs,
+      registryId: row.registryId,
     },
   }));
+  const status = readIntegrationStatus(db);
+  items.push({
+    seq,
+    topic: EVENT_TOPICS.integrationStatus,
+    key: "ha",
+    at: status?.updatedAtMs ?? Date.now(),
+    payload: { state: status?.state ?? "disconnected" },
+  });
+  return items;
 }
 
 export const GET = authed(async (session, req) => {

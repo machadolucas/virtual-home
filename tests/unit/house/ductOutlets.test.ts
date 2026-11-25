@@ -96,3 +96,43 @@ it("requires a short down-facing outlet with a same-floor, same-medium horizonta
   expect((marker.material as THREE.Material).clippingPlanes).toBe(clip.ensure(room.floorId));
   layer.dispose();
 });
+
+it("advances the two air circuits independently without restarting phase or changing pipe motion", () => {
+  const { index, clip } = buildScene(FIXTURE_DIR);
+  const layer = new RouteLayer(index, clip);
+  const supply = duct("supply", [[2, 1.8, 2], [2.3, 1.8, 2]]);
+  const intake = { ...supply, id: "intake", airStream: "outdoor_intake" } satisfies Route;
+  const extract = { ...supply, id: "extract", medium: "extract_air" } satisfies Route;
+  const exhaust = { ...extract, id: "exhaust", airStream: "outdoor_discharge" } satisfies Route;
+  const pipe = { ...supply, id: "pipe", system: "water", kind: "pipe", medium: "cold_water" } satisfies Route;
+  layer.set([supply, intake, extract, exhaust, pipe], { tubes: true });
+
+  const meshes = index.overlay.floorGroups.get(room.floorId)!.children.filter((child) =>
+    child.name.startsWith("vh-tube-")) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>[];
+  const uniforms = (stream?: string) => {
+    const mesh = meshes.find((mesh) => mesh.userData.vhAirStream === stream)!;
+    const shader = { uniforms: {}, vertexShader: "", fragmentShader: "" } as Parameters<typeof mesh.material.onBeforeCompile>[0];
+    mesh.material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    return shader.uniforms;
+  };
+  const [inletUniforms, supplyUniforms, extractUniforms, exhaustUniforms, pipeUniforms] = [
+    "outdoor_intake", "room_supply", "room_extract", "outdoor_discharge", undefined,
+  ].map(uniforms);
+  expect(inletUniforms?.vhRoutePhase).toBe(supplyUniforms?.vhRoutePhase);
+  expect(exhaustUniforms?.vhRoutePhase).toBe(extractUniforms?.vhRoutePhase);
+
+  expect(layer.tick(0.025, true, { supply: 0.4, extract: 0.8 })).toBe(true);
+  expect(supplyUniforms?.vhRoutePhase?.value).toBeCloseTo(0.01);
+  expect(extractUniforms?.vhRoutePhase?.value).toBeCloseTo(0.02);
+  expect(pipeUniforms?.vhRoutePhase?.value).toBeCloseTo(0.0125);
+  layer.tick(0.025, true, { supply: 1, extract: 0 });
+  expect(supplyUniforms?.vhRoutePhase?.value).toBeCloseTo(0.035);
+  expect(extractUniforms?.vhRoutePhase?.value).toBeCloseTo(0.02);
+  expect(extractUniforms?.vhRouteMotion?.value).toBe(0);
+  expect(pipeUniforms?.vhRoutePhase?.value).toBeCloseTo(0.025);
+  expect(layer.tick(0.05, false, { supply: 1, extract: 1 })).toBe(false);
+  expect(supplyUniforms?.vhRouteMotion?.value).toBe(0);
+  expect(pipeUniforms?.vhRoutePhase?.value).toBeCloseTo(0.025);
+  expect(meshes[0]?.parent?.children).toContain(meshes[0]);
+  layer.dispose();
+});

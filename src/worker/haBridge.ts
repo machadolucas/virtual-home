@@ -8,10 +8,8 @@
  *   socket 'state_changed' -> 250 ms coalescing buffer -> state cache -> ha.state outbox events
  *   every hour             -> full re-list, as a safety net for a missed signal
  *
- * **No domain imports.** The low-battery engine lives in `src/domain` and is owned by other code;
- * this module hands it readings through the injected `onBatterySignal` callback instead of
- * importing it. That keeps the bridge compilable and testable on its own, and keeps the dependency
- * arrow pointing one way.
+ * The low-battery engine receives readings through the injected `onBatterySignal` callback. The
+ * two configured ventilation sensors also get focused reads to refresh HA report timestamps.
  *
  * The 250 ms buffer is stage 1 of the two-stage coalescing in
  * `docs/design-notes/auth-security-operations.md` §7.3, and it is the important stage: HA sends
@@ -19,6 +17,7 @@
  * HA's event rate instead of at the household's.
  */
 import { writeTx, type DbHandle } from "@/db/client";
+import { VENTILATION_FANS, VENTILATION_POLL_MS } from "@/domain/ventilationFeedback";
 import { EVENT_TOPICS, publish, type OutboxItem } from "@/server/events/outbox";
 import {
   applyRegistryList,
@@ -31,9 +30,11 @@ import {
   applyStateChangedTx,
   interestingEntityIdsForStates,
   readCanonicalBatteryStates,
+  readSnapshot,
   type HaStateRecord,
 } from "@/server/ha/stateCache";
 import { writeIntegrationStatus } from "@/server/ha/status";
+import { readVentilationFeedback, ventilationEntities } from "@/server/ha/ventilationFeedback";
 import { log } from "@/server/log";
 import type { IntegrationState } from "@/db/schema/ha";
 import type {
@@ -42,7 +43,7 @@ import type {
   HaSocket,
   HaStatus,
 } from "@/worker/ha/socket";
-import type { HaStateChangedData } from "@/worker/ha/protocol";
+import type { HaState, HaStateChangedData } from "@/worker/ha/protocol";
 
 /** The slice of the timer API the bridge uses. `ManualClock` in tests satisfies it as-is. */
 export interface HaBridgeClock {
@@ -72,6 +73,8 @@ export interface HaBridgeOptions {
   relistIntervalMs?: number;
   /** Redacted out of `integration_status.last_error`. */
   token?: string | null;
+  /** Worker-only HTTP read of a bound sensor. No reading is reported for a failed request. */
+  fetchVentilationState?: (entityId: string) => Promise<HaState | null>;
 }
 
 export interface HaBridge {
@@ -115,6 +118,9 @@ function stateItem(record: HaStateRecord, atMs: number): OutboxItem {
       state: record.state,
       attributes: record.attributes,
       lastUpdated: record.lastUpdatedMs,
+      lastReported: record.lastReportedMs,
+      observedAt: record.observedAtMs,
+      registryId: record.registryId,
     },
     atMs,
   };
@@ -132,6 +138,7 @@ export function startHaBridge(options: HaBridgeOptions): HaBridge {
   const buffer = new Map<string, HaStateChangedData>();
   let flushTimer: unknown = null;
   let relistTimer: unknown = null;
+  let ventilationTimer: unknown = null;
   let stopped = false;
   /** Reconnects since start: every re-entry into `connecting` after the first. */
   let reconnectCount = 0;
@@ -305,6 +312,62 @@ export function startHaBridge(options: HaBridgeOptions): HaBridge {
   socket.on("registry", onRegistry);
   socket.on("state_changed", onStateChanged);
 
+  function scheduleVentilationPoll(): void {
+    if (stopped || !options.fetchVentilationState) return;
+    ventilationTimer = clock.setTimeout(() => {
+      ventilationTimer = null;
+      void refreshVentilation().finally(scheduleVentilationPoll);
+    }, VENTILATION_POLL_MS);
+  }
+
+  async function refreshVentilation(): Promise<void> {
+    const fetchState = options.fetchVentilationState;
+    if (!fetchState || socket.state !== "subscribed") return;
+    try {
+      const config = readVentilationFeedback(handle.db);
+      const ids = VENTILATION_FANS.map((fan) => config[fan]).filter((id) => id !== null);
+      if (ids.length === 0) return;
+      const entities = ventilationEntities(handle.db, config);
+      const startedAt = clock.now();
+      const results = await Promise.allSettled(ids.map(async (registryId) => {
+        const binding = entities.find((entity) => entity.registryId === registryId);
+        const state = binding ? await fetchState(binding.entityId) : null;
+        return { registryId, entityId: binding?.entityId ?? null, state };
+      }));
+      if (stopped || socket.state !== "subscribed") return;
+      const at = clock.now();
+      writeTx(handle.db, (tx) => {
+        const currentConfig = readVentilationFeedback(tx);
+        const currentBindings = ventilationEntities(tx, currentConfig);
+        const items: OutboxItem[] = [];
+        for (const result of results) {
+          if (result.status !== "fulfilled") continue;
+          const { registryId, entityId, state } = result.value;
+          if (!VENTILATION_FANS.some((fan) => currentConfig[fan] === registryId)) continue;
+          const current = currentBindings.find((entity) => entity.registryId === registryId);
+          if ((current?.entityId ?? null) !== entityId) continue;
+          if (entityId && (readSnapshot(tx, [entityId])[0]?.observedAtMs ?? 0) > startedAt) continue;
+          if (state) {
+            items.push(...applyStatesTx(tx, [state], at, { onlyInteresting: false })
+              .map((record) => stateItem(record, at)));
+          } else {
+            if (entityId) applyStateChangedTx(tx, { entity_id: entityId, new_state: null }, at);
+            // Publish a missing reading without inventing a measurement in the cache.
+            items.push({
+              topic: EVENT_TOPICS.haState,
+              entityKey: entityId ?? registryId,
+              atMs: at,
+              payload: { state: "unavailable", registryId, observedAt: at },
+            });
+          }
+        }
+        publish(tx, items);
+      });
+    } catch (err) {
+      log.warn({ err }, "ha bridge: configured ventilation feedback refresh failed");
+    }
+  }
+
   /* ------------------------------------------------------- re-list safety net */
 
   function scheduleRelist(): void {
@@ -328,6 +391,7 @@ export function startHaBridge(options: HaBridgeOptions): HaBridge {
   }
 
   scheduleRelist();
+  scheduleVentilationPoll();
 
   return {
     stop() {
@@ -344,6 +408,10 @@ export function startHaBridge(options: HaBridgeOptions): HaBridge {
       if (relistTimer !== null) {
         clock.clearTimeout(relistTimer);
         relistTimer = null;
+      }
+      if (ventilationTimer !== null) {
+        clock.clearTimeout(ventilationTimer);
+        ventilationTimer = null;
       }
       buffer.clear();
     },

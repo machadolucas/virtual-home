@@ -37,6 +37,9 @@ interface BatchItem {
     state?: unknown;
     attributes?: Record<string, unknown>;
     lastUpdated?: unknown;
+    lastReported?: unknown;
+    observedAt?: unknown;
+    registryId?: unknown;
   };
 }
 
@@ -49,6 +52,8 @@ export interface HaSseOptions {
   url?: string;
   /** Only these entity ids are of interest; everything else in a frame is ignored. */
   entityIds?: readonly string[];
+  /** Feedback follows registry identity even while an open workspace sees an HA entity rename. */
+  ventilationRegistryIds?: readonly string[];
   onUnavailable?: (reason: "not_found" | "unauthorized" | "unsupported") => void;
   /**
    * The server asked for a full re-sync (`event: resync`). The stream reconnects itself, which
@@ -69,9 +74,13 @@ export interface HaSseHandle {
   readonly resyncs: number;
 }
 
+export const ventilationStateKey = (registryId: string): string => `ventilation:${registryId}`;
+
 export function connectHaSse(opts: HaSseOptions = {}): HaSseHandle {
   const url = opts.url ?? EVENTS_URL;
   const wanted = opts.entityIds ? new Set(opts.entityIds) : null;
+  const ventilation = new Set(opts.ventilationRegistryIds);
+  const ventilationKeys = [...ventilation].map(ventilationStateKey);
   let source: EventSource | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let failures = 0;
@@ -94,7 +103,7 @@ export function connectHaSse(opts: HaSseOptions = {}): HaSseHandle {
     };
   }
 
-  const parse = (raw: string): void => {
+  const parse = (raw: string, hello = false): void => {
     let frame: BatchFrame;
     try {
       frame = JSON.parse(raw) as BatchFrame;
@@ -102,12 +111,19 @@ export function connectHaSse(opts: HaSseOptions = {}): HaSseHandle {
       return;
     }
     const events: EntityState[] = [];
+    let haConnected = hello ? false : haStore.getState().haConnected;
     for (const item of frame.items ?? []) {
-      if (item.topic !== "ha.state" || typeof item.key !== "string") continue;
-      if (wanted && !wanted.has(item.key)) continue;
       const payload = item.payload ?? {};
+      if (item.topic === "integration.status" && item.key === "ha") {
+        haConnected = payload.state === "subscribed";
+      }
+      if (item.topic !== "ha.state" || typeof item.key !== "string") continue;
+      const includeEntity = !wanted || wanted.has(item.key);
+      const registryId = typeof payload.registryId === "string" ? payload.registryId : null;
+      const includeFeedback = registryId !== null && ventilation.has(registryId);
+      if (!includeEntity && !includeFeedback) continue;
       const attributes = payload.attributes ?? {};
-      events.push({
+      const state: EntityState = {
         entityId: item.key,
         state: typeof payload.state === "string" ? payload.state : String(payload.state ?? "unknown"),
         lastUpdated: toMs(payload.lastUpdated),
@@ -127,10 +143,26 @@ export function connectHaSse(opts: HaSseOptions = {}): HaSseHandle {
         hsColor: numberTupleOrNull(attributes.hs_color, 2),
         colorTempKelvin: numberOrNull(attributes.color_temp_kelvin),
         colorTempMireds: numberOrNull(attributes.color_temp_mireds ?? attributes.color_temp),
-      });
+      };
+      if (includeEntity) events.push(state);
+      if (includeFeedback && registryId !== null) {
+        events.push({
+          entityId: ventilationStateKey(registryId),
+          state: attributes.restored === true ? "unavailable" : state.state,
+          unit: state.unit ?? null,
+          lastUpdated: state.lastUpdated,
+          lastReported: numberOrNull(payload.lastReported),
+          observedAt: numberOrNull(payload.observedAt),
+        });
+      }
+    }
+    if (hello) {
+      const seen = new Set(events.map((event) => event.entityId));
+      haStore.getState().removeEntities(ventilationKeys.filter((key) => !seen.has(key)));
     }
     if (typeof frame.seq === "number") haStore.getState().setSeq(frame.seq);
     if (events.length) haStore.getState().applyBatch(events);
+    haStore.getState().setHaConnected(haConnected);
   };
 
   const scheduleReconnect = (): void => {
@@ -195,6 +227,7 @@ export function connectHaSse(opts: HaSseOptions = {}): HaSseHandle {
 
   const open = (): void => {
     if (closed) return;
+    haStore.getState().setHaConnected(false);
     haStore.getState().setConnection(failures === 0 ? "connecting" : "retrying");
     source = new EventSource(url, { withCredentials: true });
 
@@ -209,7 +242,7 @@ export function connectHaSse(opts: HaSseOptions = {}): HaSseHandle {
 
     // Some servers emit the snapshot as `hello` before the first batch.
     source.addEventListener("hello", (event) => {
-      parse((event as MessageEvent<string>).data);
+      parse((event as MessageEvent<string>).data, true);
     });
 
     /**

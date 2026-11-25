@@ -875,7 +875,7 @@ function cachedStates(tx: Db): Map<string, NormalizedState> {
       attributes,
       lastChangedMs: row.lastChangedMs,
       lastUpdatedMs: row.lastUpdatedMs,
-      lastReportedMs: null,
+      lastReportedMs: row.lastReportedMs,
     });
   }
   return map;

@@ -53,6 +53,9 @@ const USAGE = `Usage: pnpm vh-admin <command> [args]
   prune-sessions                    delete expired session and verification (challenge/token) rows
   list-passkeys <username>          one user's passkeys (name, provider, type, created, last used)
   remove-passkeys <username>        delete every passkey of one user (sessions are kept)
+  ventilation-feedback              show configured supply and extract sensors and feedback
+  ventilation-feedback set <supply-registry-id|none> <extract-registry-id|none> [stale-seconds]
+                                    configure independent ventilation feedback sensors
   ha-token-check                    GET \${HA_URL}/api/ with the configured token (status only)
   model-import <dir>                validate and install a house-model package
   doctor                            environment, permissions, integrity, migrations, HA, launchd, disk
@@ -111,6 +114,51 @@ async function provisioning() {
 // ---------------------------------------------------------------------------
 // commands
 // ---------------------------------------------------------------------------
+
+async function cmdVentilationFeedback(env: Env, args: string[]): Promise<void> {
+  if (args.length && (args[0] !== "set" || args.length < 3 || args.length > 4)) {
+    throw new Error("Use ventilation-feedback set <supply-registry-id|none> <extract-registry-id|none> [stale-seconds].");
+  }
+  const handle = openConfiguredDb(env);
+  try {
+    const { configureVentilationFeedback, readVentilationFeedback, ventilationEntities } =
+      await import("@/server/ha/ventilationFeedback");
+    const { readSnapshot } = await import("@/server/ha/stateCache");
+    const { readIntegrationStatus } = await import("@/server/ha/status");
+    const { classifyVentilationFeedback, VENTILATION_FANS } = await import("@/domain/ventilationFeedback");
+
+    const saved = readVentilationFeedback(handle.db);
+    const config = args.length ? configureVentilationFeedback(handle, {
+      supply: args[1] === "none" ? null : args[1],
+      extract: args[2] === "none" ? null : args[2],
+      staleAfterSeconds: args[3] === undefined ? saved.staleAfterSeconds : Number(args[3]),
+    }) : saved;
+    const entities = ventilationEntities(handle.db, config);
+    const states = readSnapshot(handle.db, entities.map(({ entityId }) => entityId));
+    const connected = readIntegrationStatus(handle.db)?.state === "subscribed";
+    const now = Date.now();
+    const summary = VENTILATION_FANS.map((fan) => {
+      const entity = entities.find(({ registryId }) => registryId === config[fan]);
+      const state = states.find(({ registryId }) => registryId === config[fan]);
+      const unit = state?.attributes.unit_of_measurement;
+      const reading = state ? {
+        state: state.attributes.restored === true ? "unavailable" : state.state,
+        unit: typeof unit === "string" ? unit : null,
+        lastUpdated: state.lastUpdatedMs,
+        lastReported: state.lastReportedMs,
+        observedAt: state.observedAtMs,
+      } : undefined;
+      return [fan, {
+        registryId: config[fan], entityId: entity?.entityId ?? null,
+        ...classifyVentilationFeedback(config, fan, reading, connected, now),
+        lastReportedAt: state?.lastReportedMs ? new Date(state.lastReportedMs).toISOString() : null,
+      }];
+    });
+    console.log(JSON.stringify({ staleAfterSeconds: config.staleAfterSeconds, ...Object.fromEntries(summary) }, null, 2));
+  } finally {
+    handle.close();
+  }
+}
 
 async function cmdInitUsers(env: Env, options: Options): Promise<void> {
   const handle = openConfiguredDb(env);
@@ -652,6 +700,9 @@ async function main(): Promise<void> {
     case "remove-passkeys":
       need(args, 1, "remove-passkeys <username>");
       await cmdRemovePasskeys(env, args[0]!);
+      return;
+    case "ventilation-feedback":
+      await cmdVentilationFeedback(env, args);
       return;
     case "ha-token-check":
       await cmdHaTokenCheck(env);

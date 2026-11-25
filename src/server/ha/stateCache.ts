@@ -21,6 +21,7 @@ import { haDevice, haEntity, haEntityState } from "@/db/schema/ha";
 import { conditionRule } from "@/db/schema/ha";
 import { normalizeState, type NormalizedState } from "@/worker/ha/registry";
 import type { HaState, HaStateChangedData } from "@/worker/ha/protocol";
+import { ventilationEntities } from "./ventilationFeedback";
 
 /**
  * The only attributes we persist. `battery_level` / `battery` / `battery_type` are here because
@@ -30,6 +31,7 @@ import type { HaState, HaStateChangedData } from "@/worker/ha/protocol";
 export const KEPT_ATTRIBUTES: readonly string[] = [
   "friendly_name",
   "unit_of_measurement",
+  "restored",
   "device_class",
   "battery_level",
   "battery",
@@ -62,6 +64,7 @@ export interface HaStateRecord {
   attributes: Record<string, unknown>;
   lastChangedMs: number;
   lastUpdatedMs: number;
+  lastReportedMs: number | null;
   observedAtMs: number;
 }
 
@@ -234,6 +237,7 @@ export function interestingEntityIds(tx: Db): Set<string> {
     ...canonicalBatteryEntityIds(tx),
     ...conditionRuleEntityIds(tx),
     ...environmentalEntityIds(tx),
+    ...ventilationEntities(tx).map(({ entityId }) => entityId),
   ]);
 }
 
@@ -268,6 +272,7 @@ export function renderableEntityIds(tx: Db): Set<string> {
     ...linkedEntityIds(tx),
     ...canonicalBatteryEntityIds(tx),
     ...environmentalEntityIds(tx),
+    ...ventilationEntities(tx).map(({ entityId }) => entityId),
   ]);
 }
 
@@ -305,11 +310,12 @@ function toRecord(
     // HA omits the timestamps on synthetic states; "when we saw it" is the honest fallback.
     lastChangedMs: normalized.lastChangedMs ?? nowMs,
     lastUpdatedMs: normalized.lastUpdatedMs ?? normalized.lastChangedMs ?? nowMs,
+    lastReportedMs: normalized.lastReportedMs,
     observedAtMs: nowMs,
   };
 }
 
-function upsert(tx: Db, record: HaStateRecord): void {
+function upsert(tx: Db, record: HaStateRecord): boolean {
   const values = {
     entityId: record.entityId,
     registryId: record.registryId,
@@ -318,12 +324,18 @@ function upsert(tx: Db, record: HaStateRecord): void {
       Object.keys(record.attributes).length === 0 ? null : JSON.stringify(record.attributes),
     lastChangedMs: record.lastChangedMs,
     lastUpdatedMs: record.lastUpdatedMs,
+    lastReportedMs: record.lastReportedMs,
     observedAtMs: record.observedAtMs,
   };
-  tx.insert(haEntityState)
+  const result = tx.insert(haEntityState)
     .values(values)
-    .onConflictDoUpdate({ target: haEntityState.entityId, set: values })
+    .onConflictDoUpdate({
+      target: haEntityState.entityId,
+      set: values,
+      setWhere: sql`${haEntityState.registryId} IS NOT ${record.registryId} OR coalesce(${haEntityState.lastReportedMs}, ${haEntityState.lastUpdatedMs}) <= ${record.lastReportedMs ?? record.lastUpdatedMs}`,
+    })
     .run();
+  return result.changes > 0;
 }
 
 /** `applyStates` inside the caller's transaction. Returns the rows actually written. */
@@ -342,8 +354,7 @@ export function applyStatesTx(
   for (const state of normalized) {
     if (wanted && !wanted.has(state.entityId)) continue;
     const record = toRecord(state, registryIds.get(state.entityId) ?? null, nowMs);
-    upsert(tx, record);
-    written.push(record);
+    if (upsert(tx, record)) written.push(record);
   }
   return written;
 }
@@ -390,8 +401,7 @@ export function applyStateChangedTx(
       .get()?.registryId ?? null;
 
   const record = toRecord(normalized, registryId, nowMs);
-  upsert(tx, record);
-  return { entityId, interesting: true, record, removed: false };
+  return { entityId, interesting: true, record: upsert(tx, record) ? record : null, removed: false };
 }
 
 /**
@@ -429,6 +439,7 @@ export function readSnapshot(tx: Db, entityIds?: Iterable<string>): HaStateRecor
     attributes: parseAttributes(row.attributesJson),
     lastChangedMs: row.lastChangedMs,
     lastUpdatedMs: row.lastUpdatedMs,
+    lastReportedMs: row.lastReportedMs,
     observedAtMs: row.observedAtMs,
   }));
 }

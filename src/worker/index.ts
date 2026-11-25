@@ -44,6 +44,7 @@ import { createNotifySender, startNotificationActionListener } from "@/worker/ac
 import { createBatterySignalHandler } from "@/worker/conditions";
 import { createHaSocketFromEnv, type HaSocket } from "@/worker/ha/socket";
 import { startHaControlJob } from "@/worker/haControls";
+import { fetchCurrentState } from "@/worker/ha/rest";
 import { startHaBridge, type HaBridge } from "@/worker/haBridge";
 import { startHeartbeatJob } from "@/worker/jobs/heartbeat";
 import { startHousekeepingJob } from "@/worker/jobs/housekeeping";
@@ -182,13 +183,16 @@ export function startWorker(options: StartWorkerOptions): WorkerRuntime {
     haSocket.on("state", (status) => {
       if (status.state === "subscribed") haLastConnectedMs = status.at;
     });
-    // Battery readings reach the domain through this callback rather than an import, so the
-    // bridge stays free of `src/domain` (see the note at the top of `haBridge.ts`).
+    const haHttpUrl = env.HA_URL ?? env.haWsUrl?.replace(/^ws/, "http");
+    const haToken = env.HA_TOKEN;
     bridge = startHaBridge({
       handle,
       socket: haSocket,
       onBatterySignal: createBatterySignalHandler({ handle, clock, tz }),
-      token: env.HA_TOKEN ?? null,
+      token: haToken ?? null,
+      ...(haHttpUrl && haToken ? {
+        fetchVentilationState: (entityId: string) => fetchCurrentState({ haUrl: haHttpUrl, token: haToken, entityId }),
+      } : {}),
     });
     unsubscribeActions = startNotificationActionListener({
       handle,

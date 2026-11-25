@@ -13,6 +13,8 @@
  * there is exactly one picking implementation (ours, clip-aware), and React never reconciles the
  * shell. R3F still owns the render loop, camera, controls, lights and the marker/route layers.
  */
+import { useVentilationFeedback } from "./VentilationFeedbackContext";
+import type { VentilationFeedback } from "@/domain/ventilationFeedback";
 import { pickFurnishingBody, selectFurnishing } from "../scene/furnishingSelection";
 import { pickEquipmentBody } from "../scene/objectPlacement";
 import { useEffect, useRef } from "react";
@@ -37,6 +39,11 @@ import { useDetectionGuide } from "../hooks/useDetectionGuide";
 import { useEquipmentLights } from "../hooks/useEquipmentLights";
 import { useSceneSync } from "../hooks/useSceneSync";
 import { installTestHook } from "../test/testHook";
+
+function airMotionRate(feedback: VentilationFeedback): number {
+  if (feedback.status === "illustrative") return 1;
+  return feedback.status === "live" ? feedback.percentage / 100 : 0;
+}
 
 export function SceneRoot() {
   const runtime = useHouseRuntime();
@@ -376,16 +383,20 @@ export function SceneRoot() {
   useEquipmentLights();
   const reducedMotion = useReducedMotion();
   const showRouteFlow = useHouseStore((s) => s.showRouteFlow);
+  const { supply, extract } = useVentilationFeedback();
+  const supplyRate = airMotionRate(supply);
+  const extractRate = airMotionRate(extract);
   useEffect(() => {
     const wake = () => runtime.invalidate();
     document.addEventListener("visibilitychange", wake);
     wake();
     return () => document.removeEventListener("visibilitychange", wake);
-  }, [runtime, reducedMotion, showRouteFlow]);
+  }, [runtime, reducedMotion, showRouteFlow, supplyRate, extractRate]);
   useFrame((_, delta) => {
+    const { renovationDate, performanceMode } = runtime.store.getState();
     const allowMotion = showRouteFlow && !reducedMotion && !document.hidden &&
-      runtime.store.getState().renovationDate === null;
-    if (runtime.routes?.tick(delta, allowMotion)) runtime.invalidate();
+      !performanceMode && renovationDate === null;
+    if (runtime.routes?.tick(delta, allowMotion, { supply: supplyRate, extract: extractRate })) runtime.invalidate();
   });
   useDetectionGuide();
   // The scene's own chrome colours (selection, markers, routes) follow the theme.

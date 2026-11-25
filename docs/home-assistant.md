@@ -396,3 +396,26 @@ after 30 seconds. A command that reached `sending` is never retried after a time
 because HA may already have applied it; its terminal error is `result_unknown`. `sent` means HA
 accepted the service call. The following state event is the only observation of the resulting
 device state.
+
+## Ventilation fan feedback in the house view
+
+The route legend can show separate live percentage readings for the supply and extract fans.
+Bind two enabled `sensor` entities on the ventilation unit's HA device by their entity registry IDs.
+Use sensors reporting each fan's output in percent. Leave a channel unbound with `none` to show
+illustrative motion for that channel.
+
+```sh
+pnpm vh-admin ventilation-feedback set <supply-registry-id> <extract-registry-id>
+pnpm vh-admin ventilation-feedback
+```
+
+The optional final argument to `set` sets the allowed time since the last HA report in seconds
+(default 180). Open or reload House after changing the configuration. The worker picks up changes
+without a restart. The setting lives in the household database.
+
+The worker streams changes through the shared HA cache and SSE stream. It also reads the two
+bound states from HA about every 20 seconds to refresh `last_reported` even when the percentage
+holds steady. Feedback pauses for a lost connection, a stale or unavailable reading, or a measured
+0%. The legend distinguishes these cases. Supply controls the outdoor intake and room supply
+bands. Extract controls room extract and outdoor exhaust. Percentages scale the animation rate
+and represent fan output. Reduced motion pauses the animation while leaving feedback readable.

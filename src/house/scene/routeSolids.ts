@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { AIR_STREAM_STYLE, classifyAirStream, type AirStream } from "@/domain/airStream";
+import { fanForAirStream, type VentilationFan } from "@/domain/ventilationFeedback";
 import type { InfraMedium } from "@/db/schema/infrastructure";
 import type { ExplodeGroup, Route, Vec3 } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
@@ -58,6 +59,12 @@ float glow = packet * 0.48;`,
 } as const;
 
 type MotionKind = keyof typeof FLOW_MOTION;
+type MotionChannel = VentilationFan | "illustrativeAir" | "pipe";
+type MotionUniforms = { phase: { value: number }; enabled: { value: number } };
+type SolidMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+
+const MOTION_CHANNELS = ["supply", "extract", "illustrativeAir", "pipe"] as const;
+const motionUniforms = (): MotionUniforms => ({ phase: { value: 0 }, enabled: { value: 0 } });
 
 type SolidBucket = {
   group: ExplodeGroup;
@@ -93,10 +100,13 @@ function silencerParts(length: number): THREE.BufferGeometry[] {
 
 export class RouteSolids {
   private readonly pending = new Map<string, SolidBucket>();
-  private readonly meshes: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>[] = [];
-  private readonly moving: typeof this.meshes = [];
-  private readonly time = { value: 0 };
-  private readonly showMotion = { value: 0 };
+  private readonly meshes: SolidMesh[] = [];
+  private readonly moving: Record<MotionChannel, SolidMesh[]> = {
+    supply: [], extract: [], illustrativeAir: [], pipe: [],
+  };
+  private readonly motion: Record<MotionChannel, MotionUniforms> = {
+    supply: motionUniforms(), extract: motionUniforms(), illustrativeAir: motionUniforms(), pipe: motionUniforms(),
+  };
   private readonly bounds = new THREE.Box3();
   private readonly corner = new THREE.Vector3();
 
@@ -197,13 +207,17 @@ export class RouteSolids {
         ? { vertexColors: true, roughness: 0.50, metalness: 0.25 }
         : { color: bucket.color, roughness: 0.72 });
       const pulse = bucket.motion && bucket.airStream ? AIR_STREAM_STYLE[bucket.airStream].pulse : undefined;
-      if (bucket.motion) {
-        const { cyclesPerSecond, shader: glow } = FLOW_MOTION[bucket.motion];
+      const channel = bucket.motion === "air"
+        ? bucket.airStream ? fanForAirStream(bucket.airStream) : "illustrativeAir"
+        : bucket.motion;
+      if (channel && bucket.motion) {
+        const { shader: glow } = FLOW_MOTION[bucket.motion];
+        const { phase, enabled } = this.motion[channel];
         material.customProgramCacheKey = () =>
-          `vh-route-flow-v3-${pulse === undefined ? "default" : "palette"}-${bucket.motion}`;
+          `vh-route-flow-v4-${pulse === undefined ? "default" : "palette"}-${bucket.motion}`;
         material.onBeforeCompile = (shader) => {
-          shader.uniforms.vhRouteTime = this.time;
-          shader.uniforms.vhRouteMotion = this.showMotion;
+          shader.uniforms.vhRoutePhase = phase;
+          shader.uniforms.vhRouteMotion = enabled;
           if (pulse !== undefined) shader.uniforms.vhRoutePulseColor = { value: new THREE.Color(pulse) };
           shader.vertexShader = `attribute float vhRouteDistance;
 varying float vhDistance;
@@ -211,14 +225,14 @@ ${shader.vertexShader}`.replace(
             "#include <begin_vertex>",
             "#include <begin_vertex>\nvhDistance = vhRouteDistance;",
           );
-          shader.fragmentShader = `uniform float vhRouteTime;
+          shader.fragmentShader = `uniform float vhRoutePhase;
 uniform float vhRouteMotion;
 ${pulse !== undefined ? "uniform vec3 vhRoutePulseColor;" : ""}
 varying float vhDistance;
 ${shader.fragmentShader}`.replace(
             "#include <emissivemap_fragment>",
             `#include <emissivemap_fragment>
-float phase = fract(vhDistance - vhRouteTime * ${cyclesPerSecond.toFixed(2)});
+float phase = fract(vhDistance - vhRoutePhase);
 ${glow}
 totalEmissiveRadiance += ${pulse !== undefined ? "vhRoutePulseColor" : "mix(diffuseColor.rgb, vec3(1.0), 0.5)"} * glow * vhRouteMotion;`,
           );
@@ -235,18 +249,32 @@ totalEmissiveRadiance += ${pulse !== undefined ? "vhRoutePulseColor" : "mix(diff
       this.clip.attach(mesh, bucket.group);
       overlayGroup(this.index, bucket.group).add(mesh);
       this.meshes.push(mesh);
-      if (bucket.motion) this.moving.push(mesh);
+      if (channel) this.moving[channel].push(mesh);
     }
     this.pending.clear();
   }
 
-  tick(delta: number, allowMotion: boolean): boolean {
-    this.showMotion.value = 0;
-    if (!allowMotion || !this.moving.some((mesh) => this.isVisible(mesh))) return false;
-    this.showMotion.value = 1;
-    // Keep continuity after a suspension without jumping through a long background delta.
-    this.time.value = (this.time.value + Math.min(delta, 0.05)) % 120;
-    return true;
+  tick(
+    delta: number,
+    allowMotion: boolean,
+    fanRates: Readonly<Record<VentilationFan, number>> = { supply: 1, extract: 1 },
+  ): boolean {
+    let active = false;
+    const elapsed = Math.min(delta, 0.05);
+    for (const channel of MOTION_CHANNELS) {
+      const uniforms = this.motion[channel];
+      const rate = channel === "pipe" ? FLOW_MOTION.pipe.cyclesPerSecond
+        : channel === "illustrativeAir" ? FLOW_MOTION.air.cyclesPerSecond
+        : FLOW_MOTION.air.cyclesPerSecond * fanRates[channel];
+      const visible = allowMotion && rate > 0 && this.moving[channel].some((mesh) => this.isVisible(mesh));
+      uniforms.enabled.value = visible ? 1 : 0;
+      if (visible) {
+        // Integrate speed without restarting the current phase when fan feedback changes.
+        uniforms.phase.value = (uniforms.phase.value + rate * elapsed) % 1;
+        active = true;
+      }
+    }
+    return active;
   }
 
   private isVisible(mesh: (typeof this.meshes)[number]): boolean {
@@ -274,6 +302,6 @@ totalEmissiveRadiance += ${pulse !== undefined ? "vhRoutePulseColor" : "mix(diff
       mesh.material.dispose();
     }
     this.meshes.length = 0;
-    this.moving.length = 0;
+    for (const channel of MOTION_CHANNELS) this.moving[channel].length = 0;
   }
 }

@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MAX_EXPLODE_GAP } from "@/house/model/explodeGroups";
 import { cutRange } from "@/house/model/framingBoxes";
+import { EMPTY_VENTILATION_FEEDBACK, type VentilationFeedbackConfig } from "@/domain/ventilationFeedback";
 import { DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from "@/house/model/background";
 import type { DaylightHaEntity } from "@/house/model/daylight";
 import type { Selection } from "@/house/model/types";
@@ -70,6 +71,7 @@ import {
 import { FurnishingsProvider, useFurnishings } from "./furnishings/FurnishingsProvider";
 import { FurnitureEditorProvider, useFurnitureEditor } from "./furnishings/FurnitureEditorContext";
 import { DaylightHaProvider } from "./DaylightHaContext";
+import { VentilationFeedbackProvider } from "./VentilationFeedbackContext";
 
 export interface HouseWorkspaceProps {
   /** From the server: the installed package's model id, or `null` when nothing is installed. */
@@ -82,6 +84,7 @@ export interface HouseWorkspaceProps {
   background?: HouseBackground;
   /** Rename-safe HA identities that already have a worker-maintained live state cache. */
   daylightHaEntities?: readonly DaylightHaEntity[];
+  ventilationFeedback?: VentilationFeedbackConfig;
 }
 
 /** Colour edits are batched: one PATCH after the picker settles, not one per pointer move. */
@@ -91,6 +94,7 @@ export function HouseWorkspace({
   modelId,
   background = DEFAULT_HOUSE_BACKGROUND,
   daylightHaEntities = [],
+  ventilationFeedback = EMPTY_VENTILATION_FEEDBACK,
 }: HouseWorkspaceProps) {
   const runtime = useMemo<HouseRuntime>(() => {
     const store = createHouseStore({ background });
@@ -126,15 +130,23 @@ export function HouseWorkspace({
   return (
     <HouseRuntimeContext.Provider value={runtime}>
       <DaylightHaProvider entities={daylightHaEntities}>
-        <FurnishingsProvider>
-          <FurnitureEditorProvider><FullscreenSurface><WorkspaceBody runtime={runtime} /><EditSwitchDialog runtime={runtime} /></FullscreenSurface></FurnitureEditorProvider>
-        </FurnishingsProvider>
+        <VentilationFeedbackProvider config={ventilationFeedback}>
+          <FurnishingsProvider>
+            <FurnitureEditorProvider><FullscreenSurface><WorkspaceBody runtime={runtime} ventilationFeedback={ventilationFeedback} /><EditSwitchDialog runtime={runtime} /></FullscreenSurface></FurnitureEditorProvider>
+          </FurnishingsProvider>
+        </VentilationFeedbackProvider>
       </DaylightHaProvider>
     </HouseRuntimeContext.Provider>
   );
 }
 
-function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
+function WorkspaceBody({
+  runtime,
+  ventilationFeedback,
+}: {
+  runtime: HouseRuntime;
+  ventilationFeedback: VentilationFeedbackConfig;
+}) {
   const rootRef = useRef<HTMLDivElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
   const canvasRegionRef = useRef<HTMLDivElement>(null);
@@ -154,7 +166,7 @@ function WorkspaceBody({ runtime }: { runtime: HouseRuntime }) {
   const { reload } = useModelPackage(runtime);
   useDataHydration(runtime);
   useColorPersistence(runtime);
-  useHaStream(runtime);
+  useHaStream(runtime, ventilationFeedback);
   useUrlSync(runtime);
   useSelectionAnnouncement(runtime);
 
@@ -423,7 +435,7 @@ function useColorPersistence(runtime: HouseRuntime): void {
  * the whole registry. The stream endpoint may not exist yet; that degrades to "HA layer
  * unavailable" and never breaks the workspace.
  */
-function useHaStream(runtime: HouseRuntime): void {
+function useHaStream(runtime: HouseRuntime, { supply, extract }: VentilationFeedbackConfig): void {
   const daylightEntityKey = useHouseStore((s) =>
     [s.illumination.outdoorLuxEntityId, s.illumination.weatherEntityId]
       .filter((id): id is string => typeof id === "string" && id.length > 0)
@@ -440,10 +452,11 @@ function useHaStream(runtime: HouseRuntime): void {
 
   useEffect(() => {
     const entityIds = [...new Set([entityKey, daylightEntityKey].filter(Boolean).join(",").split(",").filter(Boolean))];
-    if (entityIds.length === 0) return;
-    const handle = connectHaSse({ entityIds });
+    const ventilationRegistryIds = [supply, extract].filter((id) => id !== null);
+    if (entityIds.length === 0 && ventilationRegistryIds.length === 0) return;
+    const handle = connectHaSse({ entityIds, ventilationRegistryIds });
     return () => handle.close();
-  }, [daylightEntityKey, entityKey, runtime]);
+  }, [daylightEntityKey, entityKey, runtime, supply, extract]);
 }
 
 /**

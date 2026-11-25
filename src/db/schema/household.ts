@@ -61,6 +61,8 @@ export const householdSetting = sqliteTable(
      * The shape is enforced by zod on write instead.
      */
     houseBackgroundJson: text("house_background_json"),
+    /** Independent measured supply and extract sources for the house airflow animation. */
+    ventilationFeedbackJson: text("ventilation_feedback_json"),
     createdAtMs: integer("created_at_ms").notNull(),
     updatedAtMs: integer("updated_at_ms").notNull(),
     updatedBy: actor("updated_by"),

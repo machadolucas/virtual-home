@@ -11,6 +11,7 @@ import type {
   RouteSystem,
   Vec3,
 } from "@/house/model/types";
+import type { VentilationFan } from "@/domain/ventilationFeedback";
 import { hasSolidRoute, routeMediumColor, RouteSolids } from "./routeSolids";
 import type { ClipGroups } from "./clipGroups";
 import { getViewerPalette } from "./palette";
@@ -171,8 +172,8 @@ export class RouteLayer {
   }
 
   /** True while the demand-rendered scene has a visible directional cue. */
-  tick(delta: number, allowMotion: boolean): boolean {
-    return this.solids.tick(delta, allowMotion);
+  tick(delta: number, allowMotion: boolean, fanRates?: Readonly<Record<VentilationFan, number>>): boolean {
+    return this.solids.tick(delta, allowMotion, fanRates);
   }
 
   /** Buckets, for the draw-call budget assertions. */

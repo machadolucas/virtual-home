@@ -3,6 +3,7 @@
  * set is what `src/db/client.ts` promises, and the resulting schema is snapshotted so an
  * accidental schema change shows up in a diff instead of in production.
  */
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
@@ -132,8 +133,8 @@ describe("migrations", () => {
     const previousMigrationsFolder = process.env.VH_MIGRATIONS_DIR;
     const legacy = openDatabase(":memory:");
     try {
-      process.env.VH_MIGRATIONS_DIR = legacyFolder;
-      runMigrations(legacy);
+      // Build the historical schema without seeding it through the current schema definitions.
+      migrate(legacy.db, { migrationsFolder: legacyFolder });
       legacy.sqlite
         .prepare(
           `INSERT INTO furnishing (

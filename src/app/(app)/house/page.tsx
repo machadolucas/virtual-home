@@ -4,6 +4,7 @@ import { requireSessionPage } from "@/server/auth/session";
 import { pageContext, readHouseBackground } from "@/server/queries/settings/household";
 import { getCurrentPackage } from "@/server/house-model/package";
 import { readDaylightHaEntities } from "@/server/queries/ha/daylight";
+import { readVentilationFeedback } from "@/server/ha/ventilationFeedback";
 import { Workspace } from "@/ui/shell";
 
 export const metadata: Metadata = { title: "House" };
@@ -29,10 +30,16 @@ export default async function HousePage() {
   const { db } = pageContext();
   const background = readHouseBackground(db);
   const daylightHaEntities = readDaylightHaEntities(db);
+  const ventilationFeedback = readVentilationFeedback(db);
 
   return (
     <Workspace>
-      <HouseWorkspace modelId={pkg?.modelId ?? null} background={background} daylightHaEntities={daylightHaEntities} />
+      <HouseWorkspace
+        modelId={pkg?.modelId ?? null}
+        background={background}
+        daylightHaEntities={daylightHaEntities}
+        ventilationFeedback={ventilationFeedback}
+      />
     </Workspace>
   );
 }

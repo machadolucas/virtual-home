@@ -9,6 +9,8 @@
  * verified concealed installation.
  */
 import { useEffect, useMemo } from "react";
+import { fanForAirStream, VENTILATION_FANS, type VentilationFeedback } from "@/domain/ventilationFeedback";
+import { useVentilationFeedback } from "./VentilationFeedbackContext";
 import { AIR_STREAMS, AIR_STREAM_STYLE, classifyAirStream } from "@/domain/airStream";
 import * as THREE from "three";
 import { colorFor, isDashed, SYSTEM_COLORS } from "@/house/scene/routes";
@@ -52,10 +54,12 @@ export function RouteLegend() {
   ), [routes, activeRoutesOnly, renovationDate]);
 
   const reducedMotion = useReducedMotion();
+  const fanFeedback = useVentilationFeedback();
   const visibleRoutes = routes.filter((r) => isRouteVisible(r, view));
   const presentAirStreams = new Set(visibleRoutes.filter(
     (r) => r.kind === "duct" && r.lifecycle === "installed",
   ).map((r) => classifyAirStream(r.medium, r.airStream)));
+  const fanChannels = new Set([...presentAirStreams].flatMap((stream) => stream ? [fanForAirStream(stream)] : []));
   const flowAvailable = visibleRoutes.some(hasDocumentedFlow);
   const flowPaused = reducedMotion || performanceMode || renovationDate !== null;
   if (present.size === 0) {
@@ -84,18 +88,28 @@ export function RouteLegend() {
               {SYSTEM_LABELS[system]}
             </label>
             {system === "ventilation" && AIR_STREAMS.some((stream) => presentAirStreams.has(stream)) ? (
-              <ul aria-label="Air streams" className="ml-6 space-y-1 pb-1">
-                {AIR_STREAMS.filter((stream) => presentAirStreams.has(stream)).map((stream) => {
-                  const { label, body } = AIR_STREAM_STYLE[stream];
-                  return (
-                    <li key={stream} data-air-stream={stream} title={label} className="flex items-center gap-2">
-                      <span aria-hidden="true" className="h-2.5 w-4 shrink-0 rounded-sm border border-line"
-                        style={{ backgroundColor: `#${body.toString(16).padStart(6, "0")}` }} />
-                      {label}
-                    </li>
-                  );
-                })}
-              </ul>
+              <>
+                <ul aria-label="Air streams" className="ml-6 space-y-1 pb-1">
+                  {AIR_STREAMS.filter((stream) => presentAirStreams.has(stream)).map((stream) => {
+                    const { label, body } = AIR_STREAM_STYLE[stream];
+                    return (
+                      <li key={stream} data-air-stream={stream} title={label} className="flex items-center gap-2">
+                        <span aria-hidden="true" className="h-2.5 w-4 shrink-0 rounded-sm border border-line"
+                          style={{ backgroundColor: `#${body.toString(16).padStart(6, "0")}` }} />
+                        {label}
+                      </li>
+                    );
+                  })}
+                </ul>
+                <dl className="ml-6 space-y-1 pb-1">
+                  {VENTILATION_FANS.filter((fan) => fanChannels.has(fan)).map((fan) => (
+                    <div key={fan} className="flex flex-wrap gap-x-2">
+                      <dt>{fan === "supply" ? "Supply fan" : "Extract fan"}</dt>
+                      <dd className="text-ink-3">{fanFeedbackLabel(fanFeedback[fan])}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
             ) : null}
           </li>
         ))}
@@ -118,13 +132,26 @@ export function RouteLegend() {
             Animate documented direction
           </label>
           <p className="max-w-prose text-ink-3">
-            Broad bands show air direction. Short pulses show pipe flow direction. The motion is illustrative.
+            Broad bands show air direction. Their speed follows live fan feedback when configured. Short pipe pulses illustrate flow direction.
             {flowPaused ? " Animation is paused in this view or by reduced motion." : ""}
           </p>
         </>
       ) : null}
     </section>
   );
+}
+
+function fanFeedbackLabel(feedback: VentilationFeedback): string {
+  switch (feedback.status) {
+    case "live": return `Live · ${feedback.percentage.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+    case "stopped": return "Stopped · 0%";
+    case "illustrative": return "Illustrative";
+    case "disconnected": return "Feedback disconnected";
+    case "unavailable": return "Feedback unavailable";
+    case "unknown": return "Feedback unknown";
+    case "stale": return "Feedback stale";
+    case "invalid": return "Invalid feedback";
+  }
 }
 
 /** Draggable handles for the route being edited. One small mesh per point, under the floor group. */

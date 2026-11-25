@@ -178,7 +178,9 @@ export const haEntityState = sqliteTable(
     attributesJson: text("attributes_json"),
     lastChangedMs: integer("last_changed_ms").notNull(),
     lastUpdatedMs: integer("last_updated_ms").notNull(),
-    /** When *we* saw it — `observed_at_ms - last_updated_ms` is the staleness measure. */
+    /** HA can report the same value again without changing last_updated. */
+    lastReportedMs: integer("last_reported_ms"),
+    /** When *we* saw it. */
     observedAtMs: integer("observed_at_ms").notNull(),
   },
   (t) => [

@@ -1595,7 +1595,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`attributes_json\` text,
 	\`last_changed_ms\` integer NOT NULL,
 	\`last_updated_ms\` integer NOT NULL,
-	\`observed_at_ms\` integer NOT NULL,
+	\`observed_at_ms\` integer NOT NULL, \`last_reported_ms\` integer,
 	FOREIGN KEY (\`registry_id\`) REFERENCES \`ha_entity\`(\`registry_id\`) ON UPDATE no action ON DELETE set null
 )",
     "type": "table",
@@ -1697,7 +1697,7 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`inventory_push_enabled\` integer DEFAULT false NOT NULL,
 	\`created_at_ms\` integer NOT NULL,
 	\`updated_at_ms\` integer NOT NULL,
-	\`updated_by\` text, \`house_background_json\` text,
+	\`updated_by\` text, \`house_background_json\` text, \`ventilation_feedback_json\` text,
 	FOREIGN KEY (\`current_model_revision_id\`) REFERENCES \`model_revision\`(\`id\`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (\`updated_by\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "ck_household_setting_singleton" CHECK("household_setting"."id" = 'household'),

@@ -13,6 +13,8 @@ export interface EntityState {
   /** `'on' | 'off' | '23.4' | 'unavailable' | 'unknown'` — never coerced to a number here. */
   state: string;
   lastUpdated: number;
+  lastReported?: number | null;
+  observedAt?: number | null;
   battery?: number | null;
   batteryType?: string | null;
   unit?: string | null;
@@ -36,11 +38,14 @@ export type ConnectionState = "idle" | "connecting" | "open" | "retrying" | "clo
 
 export interface HaStore {
   connection: ConnectionState;
+  haConnected: boolean;
   lastEventAt: number | null;
   lastSeq: number | null;
   entities: Record<string, EntityState>;
   applyBatch(events: readonly EntityState[]): void;
   setConnection(c: ConnectionState): void;
+  setHaConnected(connected: boolean): void;
+  removeEntities(ids: readonly string[]): void;
   setSeq(seq: number): void;
   reset(): void;
 }
@@ -48,6 +53,7 @@ export interface HaStore {
 export const haStore = createStore<HaStore>()(
   subscribeWithSelector((set) => ({
     connection: "idle",
+    haConnected: false,
     lastEventAt: null,
     lastSeq: null,
     entities: {},
@@ -68,8 +74,15 @@ export const haStore = createStore<HaStore>()(
       }),
 
     setConnection: (connection) => set((s) => (s.connection === connection ? {} : { connection })),
+    setHaConnected: (haConnected) => set((s) => s.haConnected === haConnected ? {} : { haConnected }),
+    removeEntities: (ids) => set((s) => {
+      if (!ids.some((id) => s.entities[id])) return {};
+      const entities = { ...s.entities };
+      for (const id of ids) delete entities[id];
+      return { entities };
+    }),
     setSeq: (lastSeq) => set({ lastSeq }),
-    reset: () => set({ entities: {}, lastEventAt: null, lastSeq: null, connection: "idle" }),
+    reset: () => set({ entities: {}, lastEventAt: null, lastSeq: null, connection: "idle", haConnected: false }),
   })),
 );
 
@@ -82,6 +95,8 @@ function sameEntityState(a: EntityState, b: EntityState): boolean {
   return (
     a.state === b.state &&
     a.lastUpdated === b.lastUpdated &&
+    a.lastReported === b.lastReported &&
+    a.observedAt === b.observedAt &&
     a.battery === b.battery &&
     a.batteryType === b.batteryType &&
     a.unit === b.unit &&

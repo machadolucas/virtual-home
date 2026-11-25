@@ -1,5 +1,5 @@
 /**
- * The only two HA REST calls virtual-home makes.
+ * Shared Home Assistant HTTP requests.
  *
  * `fetchHistory` — on-demand history for one entity. The WebSocket carries the present; the
  * recorder's past is only ever read when a user opens a chart, so it stays request-scoped and no
@@ -15,6 +15,7 @@
  * The token never appears in a thrown error, a log line, or a URL — only in the Authorization header.
  */
 import { z } from "zod";
+import { HaStateSchema, type HaState } from "./protocol";
 import { redactSecrets } from "./redact";
 
 export type FetchLike = (
@@ -150,6 +151,21 @@ export interface CheckTokenInput {
   fetchImpl?: FetchLike;
   timeoutMs?: number;
   signal?: AbortSignal;
+}
+
+/** Read one explicitly bound sensor, including last_reported when HA provides it. */
+export async function fetchCurrentState(input: CheckTokenInput & { entityId: string }): Promise<HaState | null> {
+  const { entityId, haUrl, token, fetchImpl = fetch, signal, timeoutMs = 5_000 } = input;
+  if (!ENTITY_ID.test(entityId)) throw new HaRestError("invalid entity_id", null, "payload");
+  const response = await request(fetchImpl, new URL(`/api/states/${entityId}`, haUrl),
+    token, timeoutMs, signal, "state");
+  if (response.status === 404) return null;
+  if (!response.ok) throw new HaRestError("home assistant state request failed", response.status, "http");
+  const parsed = HaStateSchema.safeParse(await response.json().catch(() => null));
+  if (!parsed.success || parsed.data.entity_id !== entityId) {
+    throw new HaRestError("home assistant state response did not match the requested entity", response.status, "payload");
+  }
+  return parsed.data;
 }
 
 export interface CheckTokenResult {
