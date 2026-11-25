@@ -38,7 +38,7 @@ import { inventoryOf } from "@/house/scene/SceneIndex";
 import { classifyState, haStore, markerStateKey } from "@/house/store/haStore";
 import type { HouseStore } from "@/house/store/createHouseStore";
 import { useHouseRuntime } from "./useHouseStore";
-import { isRunVisibleOn } from "@/features/projects/renovationDate";
+import { isRouteVisible } from "@/house/model/routeVisibility";
 
 /** The id the in-progress draft borrows while it has no row of its own. */
 export const DRAFT_MARKER_ID = "__vh_draft__";
@@ -401,14 +401,7 @@ export function useSceneSync(): void {
       // shared with the inspector so the two can never disagree.
       // The "Infrastructure routes" checkbox defaulted to *off* while the lines were drawn
       // regardless — a control showing the opposite of the screen. It is honoured now.
-      const visible = s.layers.routes
-        ? s.routes.filter((r) =>
-            r.id !== s.routeDraft?.id &&
-            s.visibleSystems[r.system] &&
-            s.visibleRouteKinds[r.kind] &&
-            isRunVisibleOn(r, s.renovationDate),
-          )
-        : [];
+      const visible = s.routes.filter((route) => isRouteVisible(route, s));
       routes.set(visible, { tubes: !s.performanceMode });
       runtime.invalidate();
     };
@@ -419,6 +412,7 @@ export function useSceneSync(): void {
         routeLayer: s.layers.routes,
         visibleSystems: s.visibleSystems,
         visibleRouteKinds: s.visibleRouteKinds,
+        activeRoutesOnly: s.activeRoutesOnly,
         renovationDate: s.renovationDate,
         performanceMode: s.performanceMode,
         routeDraftId: s.routeDraft?.id ?? null,

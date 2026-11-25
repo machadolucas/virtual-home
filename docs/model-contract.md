@@ -328,6 +328,12 @@ out-of-service pipes are muted. On an in-service run with a declared or inferred
 illustrates that direction at a fixed schematic speed. Historical date views, performance mode,
 reduced motion and the House visibility control can pause it.
 
+“Active pipes and ducts only” shows installed pipes and ducts whose recorded service state is
+active. It composes with the independent Pipes and Ducts switches, system visibility and
+the renovation-date view. Flow direction and path certainty remain separate from service
+status. The visibility setting affects the scene while preserving the records in search and
+the inspector.
+
 A route whose floor, room or offset surface the **current** package no longer knows is returned with
 those ids nulled, listed in `stale`, and flagged `needsReconciliation` — reported, never guessed at
 or dropped, exactly as `GET /colors` already does for a surface id.

@@ -97,9 +97,9 @@ test("route editing previews, crosses floors, persists, and filters by infrastru
 
     await page.getByRole("button", { name: "View",exact:true }).click();
     await expect.poll(() => vh(page).eval(({ hook }) => hook.routeSegments())).toBeGreaterThan(0);
-    await page.getByRole("switch", { name: "Pipes" }).click();
+    await page.getByRole("switch", { name: "Pipes", exact: true }).click();
     await expect.poll(() => vh(page).eval(({ hook }) => hook.routeSegments())).toBe(0);
-    await expect(page.getByRole("switch", { name: "Ducts" })).toBeChecked();
+    await expect(page.getByRole("switch", { name: "Ducts", exact: true })).toBeChecked();
   } finally {
     await context.close();
   }
@@ -157,4 +157,73 @@ test("documented direction animates and can return to demand idle", async ({ pag
   const paused = await idleFrames(page, 500);
   expect(paused.invalidateAfter).toBe(paused.invalidateBefore);
   expect(errors).toEqual([]);
+});
+
+
+test("active pipe and duct scope composes with independent kind and system switches", async ({ page }) => {
+  const base: Route = {
+    id: "active-pipe",
+    modelId: MODEL_ID,
+    name: "In-service water pipe",
+    system: "water",
+    kind: "pipe",
+    medium: "cold_water",
+    points: [[1, 0.4, 1], [2, 0.4, 1]],
+    segments: [{ floorId: "f-lower", roomId: "r-l-a" }],
+    certainty: "inferred",
+    lifecycle: "installed",
+    flowState: "active",
+    flowDirection: "unknown",
+    flowBasis: "unknown",
+    endpoints: [],
+    photoIds: [],
+  };
+  const routes: Route[] = [
+    base,
+    { ...base, id: "active-duct", name: "In-service test duct", kind: "duct", system: "ventilation", medium: "supply_air" },
+    { ...base, id: "retained", name: "Retained test water pipe", flowState: "inactive" },
+    { ...base, id: "legacy", name: "Legacy test pipe", flowState: undefined },
+    { ...base, id: "unknown", name: "Test pipe with unknown service", flowState: "unknown" },
+    { ...base, id: "historical", name: "Historical test heating route", system: "heating", medium: "heating_water", lifecycle: "planned" },
+    { ...base, id: "removed", name: "Removed test pipe", lifecycle: "removed" },
+    { ...base, id: "cable", name: "In-service test cable", kind: "cable", system: "electrical", medium: "electricity" },
+  ];
+  await page.route(`**/api/house-model/${MODEL_ID}/routes`, (intercept) =>
+    intercept.fulfill({ json: { routes, stale: [], partialFields: [] } }));
+  await openHouse(page, { serviceWorkers: "block" });
+  await openViewSection(page, "Visibility");
+  const count = () => vh(page).eval(({ hook }) => hook.routeSegments());
+  const active = page.getByRole("switch", { name: "Active pipes and ducts only", exact: true });
+  const pipes = page.getByRole("switch", { name: "Pipes", exact: true });
+  const ducts = page.getByRole("switch", { name: "Ducts", exact: true });
+  const water = page.getByRole("checkbox", { name: "Water", exact: true });
+  const heating = page.getByRole("checkbox", { name: "Heating", exact: true });
+
+  await expect.poll(count).toBe(7);
+  await expect(heating).toBeVisible();
+  await active.click();
+  await expect.poll(count).toBe(2);
+  await expect(heating).toHaveCount(0);
+  await pipes.click();
+  await expect.poll(count).toBe(1);
+  await ducts.click();
+  await expect.poll(count).toBe(0);
+  await pipes.click();
+  await expect.poll(count).toBe(1);
+  await water.uncheck();
+  await expect.poll(count).toBe(0);
+  await water.check();
+  await expect.poll(count).toBe(1);
+
+  await active.click();
+  await expect(ducts).not.toBeChecked();
+  await expect(heating).toBeVisible();
+  await expect.poll(count).toBe(6);
+
+  await active.click();
+  await page.getByRole("button", { name: "View", exact: true }).click();
+  await page.getByRole("searchbox", { name: "Search the property" }).fill("Retained test water pipe");
+  await page.getByRole("list", { name: "House items" })
+    .getByRole("button", { name: /^Retained test water pipe/ }).click();
+  await expect(page.getByText("hidden by view settings", { exact: true })).toBeVisible();
 });

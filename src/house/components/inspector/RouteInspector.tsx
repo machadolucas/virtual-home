@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Archive, PencilLine, SquarePen, Trash2, X } from "lucide-react";
 import { polylineLength } from "@/house/model/geometry2d";
 import { MEDIUM_LABELS } from "@/features/projects/infraMedium";
-import { isRunVisibleOn } from "@/features/projects/renovationDate";
+import { isRouteVisible } from "@/house/model/routeVisibility";
 import { NotPersistedError } from "@/house/store/dataApi";
 import type { RouteDto } from "@/features/projects/wire";
 import type { Route, RouteId } from "@/house/model/types";
@@ -25,14 +25,20 @@ import { Row } from "./RoomInspector";
  */
 export function RouteInspector({ routeId }: { routeId: RouteId }) {
   const runtime = useHouseRuntime();
-  const { routes, index, modelId, renovationDate } = useHouseStore(
+  const view = useHouseStore(
     useShallow((s) => ({
       routes: s.routes,
       index: s.index,
       modelId: s.modelId,
       renovationDate: s.renovationDate,
+      layers: s.layers,
+      routeDraft: s.routeDraft,
+      activeRoutesOnly: s.activeRoutesOnly,
+      visibleSystems: s.visibleSystems,
+      visibleRouteKinds: s.visibleRouteKinds,
     })),
   );
+  const { routes, index, modelId } = view;
   const beginRouteDraft = useHouseStore((s) => s.beginRouteDraft);
   const removeRoute = useHouseStore((s) => s.removeRoute);
   const upsertRoute = useHouseStore((s) => s.upsertRoute);
@@ -69,7 +75,7 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
     }
   };
 
-  const drawn = isRunVisibleOn(route, renovationDate);
+  const drawn = isRouteVisible(route, view);
 
   return (
     <div className="flex flex-col gap-4">
@@ -110,7 +116,7 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
         {route.installedAt ? <Row label="Installed" value={route.installedAt} /> : null}
         {route.removedAt ? <Row label="Removed" value={route.removedAt} /> : null}
         <Row label="Photos" value={String(route.photoIds.length)} />
-        <Row label="Drawn now" value={drawn ? "yes" : "no — filtered by date"} />
+        <Row label="Drawn now" value={drawn ? "yes" : "hidden by view settings"} />
       </dl>
 
       {route.note ? <p className="text-xs text-ink-2">{route.note}</p> : null}

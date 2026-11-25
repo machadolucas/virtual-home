@@ -20,7 +20,7 @@ import type { Placement } from "@/house/model/types";
 import { highlightTargets } from "@/house/scene/highlight";
 import { refreshViewerPalette, subscribeToPalette } from "@/house/scene/palette";
 import { haStore, markerStateKey } from "@/house/store/haStore";
-import { isRunVisibleOn } from "@/features/projects/renovationDate";
+import { isRouteVisible } from "@/house/model/routeVisibility";
 import type { HouseRuntime } from "@/house/runtime";
 import { useHouseRuntime } from "./useHouseStore";
 
@@ -75,15 +75,7 @@ function reapply(runtime: HouseRuntime): void {
   }
 
   if (index && runtime.routes) {
-    const visible = s.layers.routes
-      ? s.routes.filter(
-          (r) =>
-            r.id !== s.routeDraft?.id &&
-            s.visibleSystems[r.system] &&
-            s.visibleRouteKinds[r.kind] &&
-            isRunVisibleOn(r, s.renovationDate),
-        )
-      : [];
+    const visible = s.routes.filter((route) => isRouteVisible(route, s));
     runtime.routes.set(visible, { tubes: !s.performanceMode });
   }
 }

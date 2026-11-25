@@ -174,8 +174,13 @@ const ALWAYS_VISIBLE_ROUTE_KINDS = new Set(["pipe", "duct", "cable", "other"]);
 
 /** Shared by the desktop Layers tab and the simplified phone controls. */
 export function InfrastructureKindToggles({ phone = false }: { phone?: boolean }) {
-  const { routes, visibleRouteKinds } = useHouseStore(
-    useShallow((s) => ({ routes: s.routes, visibleRouteKinds: s.visibleRouteKinds })),
+  const { routes, visibleRouteKinds, activeRoutesOnly, setActiveRoutesOnly } = useHouseStore(
+    useShallow((s) => ({
+      routes: s.routes,
+      visibleRouteKinds: s.visibleRouteKinds,
+      activeRoutesOnly: s.activeRoutesOnly,
+      setActiveRoutesOnly: s.setActiveRoutesOnly,
+    })),
   );
   const toggleRouteKind = useHouseStore((s) => s.toggleRouteKind);
   const kinds = ROUTE_KIND_ORDER.filter(
@@ -183,6 +188,14 @@ export function InfrastructureKindToggles({ phone = false }: { phone?: boolean }
   );
   return (
     <div className={phone ? "flex flex-col" : "grid grid-cols-1 gap-x-4 lg:grid-cols-2"}>
+      <Switch
+        checked={activeRoutesOnly}
+        onCheckedChange={setActiveRoutesOnly}
+        controlPosition="start"
+        label="Active pipes and ducts only"
+        compact={!phone}
+        className={phone ? "min-h-11 px-3 text-sm" : "text-xs lg:col-span-2"}
+      />
       {kinds.map((kind) => (
         <Switch
           key={kind}

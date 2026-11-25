@@ -30,6 +30,7 @@ export interface RouteSlice {
   selectedPointIndex: number | null;
   visibleSystems: Record<RouteSystem, boolean>;
   visibleRouteKinds: Record<RouteKind, boolean>;
+  activeRoutesOnly: boolean;
   dataError: string | null;
 
   setPlacements(placements: Placement[]): void;
@@ -71,6 +72,7 @@ export interface RouteSlice {
   selectPoint(index: number | null): void;
   toggleSystem(system: RouteSystem): void;
   toggleRouteKind(kind: RouteKind): void;
+  setActiveRoutesOnly(activeRoutesOnly: boolean): void;
   setDataError(message: string | null): void;
 }
 
@@ -122,6 +124,7 @@ export const createRouteSlice: StateCreator<HouseStore, Mutators, [], RouteSlice
     RouteKind,
     boolean
   >,
+  activeRoutesOnly: false,
   dataError: null,
 
   setPlacements: (placements) => set({ placements }),
@@ -295,6 +298,8 @@ export const createRouteSlice: StateCreator<HouseStore, Mutators, [], RouteSlice
     set((s) => ({
       visibleRouteKinds: { ...s.visibleRouteKinds, [kind]: !s.visibleRouteKinds[kind] },
     })),
+
+  setActiveRoutesOnly: (activeRoutesOnly) => set({ activeRoutesOnly }),
 
   setDataError: (dataError) => set({ dataError }),
 });

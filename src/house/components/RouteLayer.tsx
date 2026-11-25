@@ -14,6 +14,7 @@ import { colorFor, isDashed, SYSTEM_COLORS } from "@/house/scene/routes";
 import type { Route, RouteSystem } from "@/house/model/types";
 import { hasDocumentedFlow } from "@/house/scene/routeSolids";
 import { useReducedMotion } from "../hooks/useReducedMotion";
+import { isRouteVisible, routeInViewScope } from "@/house/model/routeVisibility";
 import { routePointPlace } from "@/house/model/routePlaces";
 import { useHouseRuntime, useHouseStore, useShallow } from "../hooks/useHouseStore";
 import { useViewerPalette } from "../hooks/useViewerPalette";
@@ -29,9 +30,13 @@ const SYSTEM_LABELS: Record<RouteSystem, string> = {
 };
 
 export function RouteLegend() {
-  const { routes, visibleSystems, toggleSystem, showRouteFlow, setShowRouteFlow, performanceMode, renovationDate } = useHouseStore(
+  const view = useHouseStore(
     useShallow((s) => ({
       routes: s.routes,
+      layers: s.layers,
+      routeDraft: s.routeDraft,
+      activeRoutesOnly: s.activeRoutesOnly,
+      visibleRouteKinds: s.visibleRouteKinds,
       visibleSystems: s.visibleSystems,
       toggleSystem: s.toggleSystem,
       showRouteFlow: s.showRouteFlow,
@@ -40,21 +45,24 @@ export function RouteLegend() {
       renovationDate: s.renovationDate,
     })),
   );
-  const present = useMemo(() => {
-    const set = new Set<RouteSystem>();
-    for (const r of routes) set.add(r.system);
-    return [...set];
-  }, [routes]);
+  const { routes, activeRoutesOnly, visibleSystems, toggleSystem, showRouteFlow, setShowRouteFlow, performanceMode, renovationDate } = view;
+  const present = useMemo(() => new Set(
+    routes.filter((r) => routeInViewScope(r, { activeRoutesOnly, renovationDate })).map((r) => r.system),
+  ), [routes, activeRoutesOnly, renovationDate]);
 
   const reducedMotion = useReducedMotion();
-  const flowAvailable = useMemo(() => routes.some(hasDocumentedFlow), [routes]);
+  const flowAvailable = routes.some((r) => hasDocumentedFlow(r) && isRouteVisible(r, view));
   const flowPaused = reducedMotion || performanceMode || renovationDate !== null;
-  if (present.length === 0) return null;
+  if (present.size === 0) {
+    return activeRoutesOnly && routes.length > 0 ? (
+      <p role="status" className="text-xs text-ink-3">No active pipes or ducts in this view.</p>
+    ) : null;
+  }
 
   return (
     <section aria-label="Route legend" className="space-y-2 text-xs text-ink-2">
       <ul className="space-y-1">
-        {present.map((system) => (
+        {[...present].map((system) => (
           <li key={system}>
             <label className="flex min-h-8 items-center gap-2">
               <input
@@ -74,9 +82,9 @@ export function RouteLegend() {
         ))}
       </ul>
       <p className="max-w-prose text-ink-3">
-        Colours distinguish utility media. Muted solids indicate retained, out-of-service runs.
-        Grey dashes mark planned or removed runs. Unknown paths are dashed, and inferred solids
-        are subdued. Cross-sections are schematic where dimensions are incomplete.
+        Colours distinguish utility media. Unknown paths are dashed, and inferred solids are
+        subdued. Cross-sections are schematic where dimensions are incomplete.
+        {activeRoutesOnly ? "" : " Muted solids indicate retained, out-of-service runs. Grey dashes mark planned or removed runs."}
       </p>
       {flowAvailable ? (
         <>
