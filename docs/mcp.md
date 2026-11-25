@@ -174,3 +174,13 @@ Run it with loopback-listener permission in sandboxed environments.
 Use the exact configured base URL rather than a raw IP alias. `revision_conflict` means refresh the
 record before preparing the next patch. A `pending` document needs the worker extraction pass.
 Bridge startup errors go to stderr; stdout is reserved for MCP JSON-RPC.
+
+### Model fix registry
+
+Read-scoped connections can call `list_model_fixes` with `status: "pending"`, then
+`get_model_fix` with the fix ID. Retrieve an individual screenshot preview with
+`get_model_fix_image` using the fix and screenshot IDs. Capture metadata identifies the
+model revision, viewpoint, selected object and rendering mode. In-app mixed reality images
+show the virtual overlay. A separately attached Quest screenshot can include the room.
+The registry supplies evidence for corrections through the existing private model or
+infrastructure editing workflow.

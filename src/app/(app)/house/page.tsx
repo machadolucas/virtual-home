@@ -23,7 +23,7 @@ export const metadata: Metadata = { title: "House" };
  * visible flash on every navigation to this page.
  */
 export default async function HousePage() {
-  await requireSessionPage("/house");
+  const session = await requireSessionPage("/house");
 
   // A missing or unreadable package is a setup state the client renders, not an error page.
   const pkg = await getCurrentPackage().catch(() => null);
@@ -35,6 +35,7 @@ export default async function HousePage() {
   return (
     <Workspace>
       <HouseWorkspace
+        userId={session.user.id}
         modelId={pkg?.modelId ?? null}
         background={background}
         daylightHaEntities={daylightHaEntities}

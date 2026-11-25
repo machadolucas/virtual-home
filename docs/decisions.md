@@ -238,3 +238,15 @@ wrappers' pidfiles, written just before `exec node`, distinguish "node started" 
 The procedure screen edits current content directly; Save writes a new version and makes it current
 atomically. Existing task and completion references stay on their original version. The household
 UI has one Save action and no draft/publish step; older versions remain available read-only.
+
+## D-038 Immersive views share site metres and account permissions
+
+The VR camera and controller rig use a local-floor WebXR space and the mounted House scene.
+Room travel and snap turns move the rig. MR calibration maps model coordinates to tracking
+space with one translation and gravity-aligned yaw. A third physical feature checks the fit
+before any infrastructure appears. Anchor handles are local to the browser, account, floor
+and model fingerprint. Fresh tracking and a checked pose govern overlay visibility.
+
+The private fix registry keeps one captured revision and physical camera pose per viewer image.
+A Quest system screenshot can be attached separately as photographic evidence. Read-scoped
+MCP exposes the fix and a bounded image preview through the authenticated installation.

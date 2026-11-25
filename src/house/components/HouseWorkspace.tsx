@@ -74,6 +74,7 @@ import { DaylightHaProvider } from "./DaylightHaContext";
 import { VentilationFeedbackProvider } from "./VentilationFeedbackContext";
 
 export interface HouseWorkspaceProps {
+  userId?: string;
   /** From the server: the installed package's model id, or `null` when nothing is installed. */
   modelId: string | null;
   /**
@@ -91,6 +92,7 @@ export interface HouseWorkspaceProps {
 const COLOR_SAVE_DEBOUNCE_MS = 600;
 
 export function HouseWorkspace({
+  userId,
   modelId,
   background = DEFAULT_HOUSE_BACKGROUND,
   daylightHaEntities = [],
@@ -103,13 +105,14 @@ export function HouseWorkspace({
       store.getState().setSaveState("local", reason),
     );
     return createRuntime({
+      userId,
       store,
       dataApi,
       base: modelId ? `/api/house-model/${encodeURIComponent(modelId)}` : "",
     });
     // `background` seeds the store once; later changes come from the control, not from a remount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelId]);
+  }, [modelId, userId]);
 
   if (!modelId)
     return (
@@ -196,7 +199,8 @@ function WorkspaceBody({
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
   const showHelp = useCallback(() => setHelpOpen((v) => !v), []);
   const handlers = useShortcutHandlers(runtime, focusSearch, showHelp);
-  useKeyboardShortcuts(rootRef, handlers, !state.fatal, phone);
+  const immersive = useHouseStore((s) => s.immersiveMode);
+  useKeyboardShortcuts(rootRef, handlers, !state.fatal && !immersive, phone);
   useRegionCycling(rootRef, [treeRef, canvasRegionRef, inspectorRef]);
   useToolCamera(runtime);
   const panels = usePanelLayout();
@@ -802,6 +806,7 @@ function useToolCamera(runtime: HouseRuntime): void {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (runtime.store.getState().immersiveMode) return;
       if (event.key === "Shift" && !isTypingTarget(event.target)) { runtime.store.getState().setPanOverride(!event.altKey); return; }
       if (event.key === "Alt" && event.shiftKey) { runtime.store.getState().setPanOverride(false); return; }
       if (event.code !== "Space" || event.repeat || event.defaultPrevented) return;

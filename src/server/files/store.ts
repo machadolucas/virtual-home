@@ -365,7 +365,8 @@ export async function storeUpload(input: StoreUploadInput): Promise<StoredAttach
 /** Remove the row and every file that belongs to it. Missing files are not an error. */
 export async function deleteAttachment(id: string): Promise<boolean> {
   const db = getDb().db;
-  const row = db.select().from(attachment).where(eq(attachment.id, id)).get();
+  // Delete metadata first so restrictive references protect the underlying bytes as well.
+  const row = writeTx(db, (tx) => tx.delete(attachment).where(eq(attachment.id, id)).returning().get());
   if (!row) return false;
 
   const env = loadEnv();
@@ -381,6 +382,5 @@ export async function deleteAttachment(id: string): Promise<boolean> {
     const abs = path.resolve(env.attachDir, ...rel.split("/"));
     if (!path.relative(env.attachDir, abs).startsWith("..")) await fs.rm(abs, { force: true });
   }
-  writeTx(db, (tx) => tx.delete(attachment).where(eq(attachment.id, id)).run());
   return true;
 }

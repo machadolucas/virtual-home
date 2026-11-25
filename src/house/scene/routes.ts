@@ -94,13 +94,14 @@ export class RouteLayer {
    * Rebuild everything from the route list. Called when route data or the renovation-date filter
    * changes — never per frame.
    */
-  set(routes: readonly Route[], opts: { tubes?: boolean } = {}): void {
+  set(routes: readonly Route[], opts: { tubes?: boolean; approximatePaths?: (route: Route) => boolean } = {}): void {
     this.clearGeometry();
 
     for (const route of routes) {
-      const solid = opts.tubes && hasSolidRoute(route);
-      const routeLength = solid ? polylineLength(route.points) : 0;
-      const color = solid ? routeMediumColor(route, SYSTEM_COLORS[route.system]) : 0;
+      const approximate = opts.approximatePaths?.(route) === true;
+      const solid = opts.tubes && hasSolidRoute(route) && !approximate;
+      const routeLength = solid || approximate ? polylineLength(route.points) : 0;
+      const color = solid || approximate ? routeMediumColor(route, SYSTEM_COLORS[route.system]) : 0;
       let distance = 0;
       let previousGroup: ExplodeGroup | null = null;
       for (let i = 1; i < route.points.length; i++) {
@@ -109,8 +110,10 @@ export class RouteLayer {
         const group = this.groupOfSegment(route, i - 1);
         const length = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
         if (length < 1e-5) continue;
-        if (solid) {
-          this.solids.add(route, group, color, a, b, distance, length, routeLength, previousGroup === group);
+        if (approximate) {
+          this.solids.addApproximate(route, group, color, a, b, distance, length, routeLength);
+        } else if (solid) {
+          this.solids.add(route, group, color, a, b, distance, length, routeLength, { join: previousGroup === group });
         } else {
           const bucket = this.bucketFor(group, route);
           bucket.positions.push(...a, ...b);

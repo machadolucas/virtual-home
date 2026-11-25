@@ -135,7 +135,7 @@ export class BatchedLighting {
     this.quadScene.add(this.quad);
     renderer.render = (scene, camera) => {
       const config = settings();
-      if (this.running || scene !== this.scene || !config.enabled || !config.lights.length ||
+      if (renderer.xr?.isPresenting || this.running || scene !== this.scene || !config.enabled || !config.lights.length ||
           !renderer.extensions.has("EXT_color_buffer_float")) {
         if (!config.enabled || !config.lights.length) this.suspend();
         this.originalBound(scene, camera); return;

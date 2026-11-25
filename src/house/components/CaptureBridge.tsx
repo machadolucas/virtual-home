@@ -14,12 +14,12 @@ export function CaptureBridge({ hostRef, labelRef }: {
   const runtime = useHouseRuntime();
   const invalidate = useThree((s) => s.invalidate);
   const renderer = useThree((s) => s.gl);
-  const pending = useRef<{ resolve(blob: Blob): void; reject(error: Error): void } | null>(null);
+  const pending = useRef<{ beforeCapture?: () => void; resolve(blob: Blob): void; reject(error: Error): void } | null>(null);
   useEffect(() => {
-    runtime.captureImage = () => new Promise<Blob>((resolve, reject) => {
+    runtime.captureImage = (beforeCapture) => new Promise<Blob>((resolve, reject) => {
       if (renderer.getContext().isContextLost()) { reject(new Error("The 3D view is unavailable. Reload it before capturing an image.")); return; }
       if (pending.current) { reject(new Error("An image is already being captured.")); return; }
-      pending.current = { resolve, reject };
+      pending.current = { beforeCapture, resolve, reject };
       invalidate();
     });
     return () => {
@@ -34,8 +34,13 @@ export function CaptureBridge({ hostRef, labelRef }: {
     pending.current = null;
     const host = hostRef.current;
     if (!host) { request.reject(new Error("The 3D view is not ready.")); return; }
-    void captureHouseView({ renderer: gl, scene, camera, host, labelHost: labelRef.current,
-      background: runtime.store.getState().background }).then(request.resolve, request.reject);
+    try {
+      request.beforeCapture?.();
+      void captureHouseView({ renderer: gl, scene, camera, host, labelHost: labelRef.current,
+        background: runtime.store.getState().background }).then(request.resolve, request.reject);
+    } catch (error) {
+      request.reject(error instanceof Error ? error : new Error("The view could not be captured."));
+    }
   });
   return null;
 }

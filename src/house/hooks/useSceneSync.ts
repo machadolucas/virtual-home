@@ -16,6 +16,7 @@
 import { useEffect } from "react";
 import * as THREE from "three";
 
+import { presentedHouse } from "../xr/presentation";
 import { shallow } from "zustand/vanilla/shallow";
 import { planAllSurfaces } from "@/house/model/colorPlan";
 import { buildGroupOrder, clipGroupOf, explodeOffset, groupsOf } from "@/house/model/explodeGroups";
@@ -228,10 +229,10 @@ export function useSceneSync(): void {
       applyVisibility(plan, index, runtime.invalidate);
       applyFocusCuts(s, true);
     };
-    runtime.refreshFocusClipping = () => applyFocusCuts(store.getState(), false);
-    apply(store.getState());
+    runtime.refreshFocusClipping = () => applyFocusCuts(presentedHouse(store.getState()), false);
+    apply(presentedHouse(store.getState()));
     const unsubscribe = store.subscribe(
-      (s: HouseStore) => ({
+      (s: HouseStore) => ({ immersiveMode: s.immersiveMode,
         viewMode: s.viewMode,
         projection: s.projection,
         activeFloorId: s.activeFloorId,
@@ -249,7 +250,7 @@ export function useSceneSync(): void {
       }),
       () => {
         wallCentresByFloor.clear();
-        apply(store.getState());
+        apply(presentedHouse(store.getState()));
       },
       { equalityFn: shallow },
     );
@@ -271,11 +272,11 @@ export function useSceneSync(): void {
         runtime.invalidate,
       );
     };
-    apply(store.getState());
+    apply(presentedHouse(store.getState()));
     // Overrides arrive from the server before the meshes exist: re-apply as assets land.
     return store.subscribe(
       (s) => ({ overrides: s.overrides, loaded: s.loadedAssetIds }),
-      () => apply(store.getState()),
+      () => apply(presentedHouse(store.getState())),
       { equalityFn: shallow },
     );
   }, [runtime, store]);
@@ -296,10 +297,10 @@ export function useSceneSync(): void {
       runtime.refreshFocusClipping?.();
       runtime.invalidate();
     };
-    apply(store.getState());
+    apply(presentedHouse(store.getState()));
     return store.subscribe(
-      (s: HouseStore) => ({ cut: s.cut, explode: s.explode, loaded: s.loadedAssetIds }),
-      () => apply(store.getState()),
+      (s: HouseStore) => ({ immersiveMode: s.immersiveMode, cut: s.cut, explode: s.explode, loaded: s.loadedAssetIds }),
+      () => apply(presentedHouse(store.getState())),
       { equalityFn: shallow },
     );
   }, [runtime, store]);
@@ -319,10 +320,10 @@ export function useSceneSync(): void {
       });
       runtime.invalidate();
     };
-    apply(store.getState());
+    apply(presentedHouse(store.getState()));
     return store.subscribe(
-      (s: HouseStore) => ({ selection: s.selection, hover: s.hover }),
-      () => apply(store.getState()),
+      (s: HouseStore) => ({ immersiveMode: s.immersiveMode, selection: s.selection, hover: s.hover }),
+      () => apply(presentedHouse(store.getState())),
       { equalityFn: shallow },
     );
   }, [runtime, store]);
@@ -401,16 +402,16 @@ export function useSceneSync(): void {
       runtime.refreshFocusClipping?.();
       runtime.invalidate();
     };
-    apply(store.getState());
+    apply(presentedHouse(store.getState()));
     return store.subscribe(
-      (s: HouseStore) => ({
+      (s: HouseStore) => ({ immersiveMode: s.immersiveMode,
         placements: s.placements,
         editing: s.editing,
         equipmentLayer: s.layers.equipment,
         treesLayer: s.layers.trees,
         loaded: s.loadedAssetIds,
       }),
-      () => apply(store.getState()),
+      () => apply(presentedHouse(store.getState())),
       { equalityFn: shallow },
     );
   }, [runtime, store]);
@@ -430,9 +431,9 @@ export function useSceneSync(): void {
       if (s.explode.enabled) applyExplode(index, s.explode);
       runtime.invalidate();
     };
-    apply(store.getState());
+    apply(presentedHouse(store.getState()));
     return store.subscribe(
-      (s: HouseStore) => ({
+      (s: HouseStore) => ({ immersiveMode: s.immersiveMode,
         routes: s.routes,
         loaded: s.loadedAssetIds,
         routeLayer: s.layers.routes,
@@ -443,7 +444,7 @@ export function useSceneSync(): void {
         performanceMode: s.performanceMode,
         routeDraftId: s.routeDraft?.id ?? null,
       }),
-      () => apply(store.getState()),
+      () => apply(presentedHouse(store.getState())),
       { equalityFn: shallow },
     );
   }, [runtime, store]);

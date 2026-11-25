@@ -35,7 +35,6 @@ export type RouteSave = Route &
       | "medium"
       | "nominalSize"
       | "systemId"
-      | "isEstimated"
       | "projectId"
       | "fromEndpointId"
       | "toEndpointId"

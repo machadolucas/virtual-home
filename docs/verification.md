@@ -341,3 +341,17 @@ both have WebGL 2, and nothing needs Home Assistant. The failures were stale spe
   **157 passed, 103 skipped, 0 failed** in 14.8 min — desktop 105 / 25 / 0, phone 52 / 78 / 0.
   Swap stayed at 0.6–0.7 GB for the whole run (lowest free memory 30 %). WebKit projects were not run
   on this host. Unit: 143 files, 1758 passed, 23 skipped.
+
+### Immersive House
+
+The fixture suite exercises headset capability detection and denial, life-size room navigation,
+controller picking, head-pivot turns, presentation cleanup, live equipment command receipts,
+calibration, tracking loss, anchor recovery, and the private model-fix registry. Run the
+Chromium model-fixes spec with the isolated E2E output and WebGL disabled on the mini.
+
+Physical acceptance requires Quest Browser on the signed-in HTTPS House page. Check eye height
+and real-metre walking, both storeys, the garage and plot, teleport comfort, the two controller
+rays, menu recall and exit. In passthrough, record the third-point error in the laundry, move
+around the room, interrupt tracking, relaunch and check restored or manual alignment, inspect
+both fan channels, and compare a headset screenshot with the saved overlay. Reopening a
+desktop capture and resuming desktop controls after system exit are part of this check.

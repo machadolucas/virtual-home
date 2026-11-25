@@ -15,8 +15,10 @@ import { useFurnishings } from "./FurnishingsProvider";
 
 export function FurnishingLayer() {
   const runtime = useHouseRuntime();
-  const { items, preview } = useFurnishings();
-  const shown = useHouseStore((s) => s.layers.furnishings);
+  const { items, preview: desktopPreview } = useFurnishings();
+  const immersed = useHouseStore((s) => s.immersiveMode !== null);
+  const preview = immersed ? null : desktopPreview;
+  const shown = useHouseStore((s) => s.immersiveMode === "vr" || s.layers.furnishings);
   const gl = useThree((s) => s.gl);
   const rendered = preview ? [...items.filter((x) => x.id !== preview.id), preview] : items;
   const signature = items.filter((x) => x.id !== preview?.id).map((x) => `${x.id}:${x.kind}:${x.floorId}:${x.position.join(",")}:${x.widthM}:${x.depthM}:${x.heightM}:${x.rotationYDeg}`).join("|");

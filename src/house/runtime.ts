@@ -37,6 +37,8 @@ export interface CameraApi {
 }
 
 export interface HouseRuntime {
+  userId?: string;
+  enterImmersive?: (mode: import("./xr/presentation").ImmersiveMode) => Promise<void>;
   store: HouseStoreApi;
   dataApi: HouseDataApi;
   /** `/api/house-model/<modelId>` */
@@ -65,7 +67,7 @@ export interface HouseRuntime {
    */
   setControlsEnabled(enabled: boolean): void;
   /** One fresh rendered frame, composited locally with background and labels. */
-  captureImage: (() => Promise<Blob>) | null;
+  captureImage: ((beforeCapture?: () => void) => Promise<Blob>) | null;
   canvasEl: HTMLCanvasElement | null;
   /** The R3F renderer, published by `SceneRoot` for the test hook's render-info assertions. */
   gl: THREE.WebGLRenderer | null;
@@ -97,12 +99,14 @@ export interface HouseRuntime {
 }
 
 export function createRuntime(init: {
+  userId?: string;
   store: HouseStoreApi;
   dataApi: HouseDataApi;
   base: string;
 }): HouseRuntime {
   const snapListeners = new Set<(state: SnapIndicatorState | null) => void>();
   const runtime: HouseRuntime = {
+    userId: init.userId,
     store: init.store,
     dataApi: init.dataApi,
     base: init.base,

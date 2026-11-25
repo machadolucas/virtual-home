@@ -40,7 +40,7 @@ import { useEquipmentLights } from "../hooks/useEquipmentLights";
 import { useSceneSync } from "../hooks/useSceneSync";
 import { installTestHook } from "../test/testHook";
 
-function airMotionRate(feedback: VentilationFeedback): number {
+export function airMotionRate(feedback: VentilationFeedback): number {
   if (feedback.status === "illustrative") return 1;
   return feedback.status === "live" ? feedback.percentage / 100 : 0;
 }
@@ -284,6 +284,7 @@ export function SceneRoot() {
     const slop = touch ? CLICK_SLOP_TOUCH : CLICK_SLOP_MOUSE;
 
     const onPointerDown = (event: PointerEvent) => {
+      if (runtime.store.getState().immersiveMode) return;
       if (event.button !== 0 || event.shiftKey || runtime.store.getState().cameraOverride) { down.id = -1; return; }
       down.x = event.clientX;
       down.y = event.clientY;
@@ -292,6 +293,7 @@ export function SceneRoot() {
     };
 
     const onPointerMove = (event: PointerEvent) => {
+      if (runtime.store.getState().immersiveMode) return;
       if (down.id === event.pointerId) {
         if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > slop) down.moved = true;
         return;
@@ -319,6 +321,7 @@ export function SceneRoot() {
     };
 
     const onPointerUp = (event: PointerEvent) => {
+      if (runtime.store.getState().immersiveMode) return;
       if (down.id !== event.pointerId) return;
       const dragged = down.moved;
       down.id = -1;
@@ -358,6 +361,7 @@ export function SceneRoot() {
     };
 
     const onDoubleClick = () => {
+      if (runtime.store.getState().immersiveMode) return;
       const state = runtime.store.getState();
       if (state.tool === "pan" || state.cameraOverride || state.tool === "place" || state.furnishingsEditing || state.editing) return;
       void runtime.camera?.frameSelection();

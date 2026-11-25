@@ -25,3 +25,4 @@ export * from "./integrity";
 
 export * from "./memberAccess";
 export * from "./haReview";
+export * from "./modelFixes";

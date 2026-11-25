@@ -23,6 +23,7 @@ import { backgroundStyle, DEFAULT_HOUSE_BACKGROUND, type HouseBackground } from 
 import { useHouseStore } from "../hooks/useHouseStore";
 import { useIsPhone } from "../hooks/useReducedMotion";
 import { LabelHost, LabelProjector, useLabelAnchors } from "./LabelOverlay";
+import { XrBridge } from "../xr/XrBridge";
 import { CaptureBridge } from "./CaptureBridge";
 import { Lighting } from "./Lighting";
 import { MarkerButtons, MarkerDomLayer } from "./MarkerLayer";
@@ -48,6 +49,7 @@ export function HouseCanvas({ background = DEFAULT_HOUSE_BACKGROUND }: HouseCanv
   const diagnosticsRef = useRef<HTMLOutputElement>(null);
   const anchors = useLabelAnchors();
   const phone = useIsPhone();
+  const immersive = useHouseStore(s => s.immersiveMode);
   const performanceMode = useHouseStore((s) => s.performanceMode);
   const dpr = usePixelRatioCap(canvasHostRef, { phone, performanceMode });
 
@@ -91,14 +93,15 @@ export function HouseCanvas({ background = DEFAULT_HOUSE_BACKGROUND }: HouseCanv
         camera={undefined}
         className="!absolute !inset-0"
       >
+        <XrBridge />
         <Lighting />
         <Rig />
         <SceneRoot />
         <FurnishingLayer />
-        <RoutePointHandles />
-        <SnapIndicatorLayer />
-        <LabelProjector hostRef={hostRef} anchors={anchors} />
-        <MarkerDomLayer hostRef={markerHostRef} />
+        {!immersive && <RoutePointHandles />}
+        {!immersive && <SnapIndicatorLayer />}
+        {!immersive && <LabelProjector hostRef={hostRef} anchors={anchors} />}
+        {!immersive && <MarkerDomLayer hostRef={markerHostRef} />}
         <CaptureBridge hostRef={canvasHostRef} labelRef={hostRef} />
         <ViewerFrameObserver outputRef={diagnosticsRef} />
       </Canvas>

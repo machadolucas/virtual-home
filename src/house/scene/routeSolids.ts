@@ -72,6 +72,7 @@ type SolidBucket = {
   motion: MotionKind | null;
   airStream?: AirStream;
   silencer: boolean;
+  approximate: boolean;
   spans: THREE.BufferGeometry[];
   spanCount: number;
 };
@@ -115,28 +116,51 @@ export class RouteSolids {
     private readonly clip: ClipGroups,
   ) {}
 
+  /** Use metre-scaled gaps for stereo viewing. Flow phase still follows the whole route arc. */
+  addApproximate(
+    route: Route, group: ExplodeGroup, hex: number, a: Vec3, b: Vec3,
+    distance: number, length: number, routeLength: number,
+  ): void {
+    const period = Math.min(0.27, routeLength * 0.6);
+    const dashLength = period * 0.65;
+    const point = (station: number): Vec3 => {
+      const t = (station - distance) / length;
+      return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    };
+    const end = distance + length;
+    for (let dash = Math.floor(distance / period) * period; dash < end; dash += period) {
+      const start = Math.max(distance, dash);
+      const finish = Math.min(end, dash + dashLength);
+      if (finish - start < 1e-5) continue;
+      this.add(route, group, hex, point(start), point(finish), start, finish - start, routeLength, { approximate: true });
+    }
+  }
+
   add(
     route: Route, group: ExplodeGroup, hex: number, a: Vec3, b: Vec3,
-    distance: number, length: number, routeLength: number, join: boolean,
+    distance: number, length: number, routeLength: number, options: { join?: boolean; approximate?: boolean },
   ): void {
+    const { join, approximate = false } = options;
     const motion = hasDocumentedFlow(route) ? (route.kind === "duct" ? "air" : "pipe") : null;
     const airStream = classifyAirStream(route.medium, route.airStream);
-    const silencer = route.kind === "duct" && route.ductFitting === "silencer" && route.points.length === 2;
-    const key = `${group}|${hex}|${route.flowState}|${route.certainty}|${motion ?? "static"}|${airStream ?? ""}${silencer ? "|silencer" : ""}`;
+    const silencer = !approximate && route.kind === "duct" && route.ductFitting === "silencer" && route.points.length === 2;
+    const key = `${group}|${hex}|${route.flowState}|${route.certainty}|${motion ?? "static"}|${airStream ?? ""}${silencer ? "|silencer" : ""}${approximate ? "|approximate" : ""}`;
     let bucket = this.pending.get(key);
     if (!bucket) {
       const color = new THREE.Color(hex);
       if (route.flowState === "inactive") color.lerp(new THREE.Color(0x797777), 0.8);
       else if (route.flowState !== "active") color.lerp(new THREE.Color(0x808080), 0.3);
-      if (route.certainty === "inferred") color.lerp(new THREE.Color(0x9b9b9b), 0.21);
-      bucket = { group, color, motion, airStream, silencer, spans: [], spanCount: 0 };
+      if (route.certainty === "inferred" || approximate) color.lerp(new THREE.Color(0x9b9b9b), 0.21);
+      bucket = { group, color, motion, airStream, silencer, approximate, spans: [], spanCount: 0 };
       this.pending.set(key, bucket);
     }
 
     // Only a documented diameter sets the exact circular size. Width-only ducts need a
     // schematic height; runs with no dimensions get a schematic diameter.
-    const radius = (route.diameterM ?? (route.kind === "duct" ? 0.125 : 0.032)) / 2;
-    const width = route.kind === "duct" && !route.diameterM ? route.widthM : undefined;
+    // Approximate paths use a schematic marker width to avoid implying an as-built diameter.
+    const radius = approximate ? (route.kind === "duct" ? 0.024 : 0.014)
+      : (route.diameterM ?? (route.kind === "duct" ? 0.125 : 0.032)) / 2;
+    const width = !approximate && route.kind === "duct" && !route.diameterM ? route.widthM : undefined;
     const parts = silencer ? silencerParts(length) : [width
       ? new THREE.BoxGeometry(width, length, Math.min(width, 0.15))
       : new THREE.CylinderGeometry(radius, radius, length, 10, 1)];
@@ -241,6 +265,7 @@ totalEmissiveRadiance += ${pulse !== undefined ? "vhRoutePulseColor" : "mix(diff
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = `vh-tube-${key}`;
       mesh.userData.vhRouteSpanCount = bucket.spanCount;
+      if (bucket.approximate) mesh.userData.vhApproximatePath = true;
       if (bucket.silencer) mesh.userData.vhDuctFitting = "silencer";
       if (bucket.airStream) mesh.userData.vhAirStream = bucket.airStream;
       if (pulse !== undefined) mesh.userData.vhRoutePulseColor = pulse;

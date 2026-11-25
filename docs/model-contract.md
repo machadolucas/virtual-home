@@ -789,3 +789,41 @@ and never runs the requested transition. The house workspace keeps the dialog an
 mounted while browsing or prompting. Furniture joins the model/equipment closest-hit picker, so
 one native pointer handler decides selection; background clicks explicitly clear furniture even
 when no model object was selected.
+
+## Quest walkthrough and mixed reality
+
+Open the signed-in House page in a secure browser. House checks `immersive-vr` and
+`immersive-ar` independently. **Enter VR** uses the existing metre-scale house scene and a
+separate tracked camera. Walk physically, use **Aim to teleport** and trigger on a floor or
+the plot, or choose **Rooms and floors**. The right stick turns 30 degrees. Point and trigger
+on an equipment body to see the linked readings and available controls. Squeeze a grip to
+bring the menu back. **Exit immersive view** and the headset's system exit both return to
+the desktop camera and tools.
+
+**Enter mixed reality** uses transparent passthrough. Stand in the pilot room, choose its
+name and floor, and use the numbered floor plan. Pick a fixed floor-level corner, touch it
+with the orange controller probe and press the trigger away from the menu. Repeat for a
+corner at least 1.5 m away. Choose a third corner off the line through the first two.
+The independent check measures three-dimensional error in centimetres. A result within
+5 cm reveals the active routes. **Realign** starts over. The error applies to registration
+at the check point. Individual concealed routes retain their recorded certainty.
+
+Choose **Pipes**, **Ducts** or **Both**. The two ventilation readings drive their respective
+air streams. A saved headset anchor can recover the calibrated frame when the browser
+supports persistence. Restoring tracking requires checking the reference point again.
+A cleared or unavailable anchor returns to manual alignment.
+
+### Reporting a model fix
+
+In the desktop House view, open **View** and choose **Capture model fix**. In the headset choose
+**Capture model fix**. Find the entry under **View → Model fixes**, add a description and
+reopen the captured viewpoint from a compatible model revision. The MR in-app capture
+shows the overlay only. To include the physical room, take a Quest system screenshot
+and attach the file to the same entry. Screenshots and descriptions belong to the household's
+private installation. The public repository only contains synthetic fixtures.
+
+Authorized AI clients can use `list_model_fixes`, `get_model_fix` and `get_model_fix_image`
+on the existing MCP connection. Use the recorded model fingerprint, room, equipment placement
+or route ID to find the source of a correction. Edit private model sources and import a new
+validated revision through the normal installer, or update the infrastructure record when
+the error is in a route. Verify the corrected view before recording its resolution.

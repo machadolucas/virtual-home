@@ -129,7 +129,7 @@ export function Rig() {
   useEffect(() => {
     const canvas = gl.domElement;
     const wheel = (event: WheelEvent) => {
-      if (inputPreset !== "trackpad") return;
+      if (inputPreset !== "trackpad" || runtime.store.getState().immersiveMode) return;
       const controls = controlsRef.current;
       if (!controls) return;
       event.preventDefault();
@@ -150,7 +150,7 @@ export function Rig() {
     };
     canvas.addEventListener("wheel", wheel, { capture: true, passive: false });
     return () => canvas.removeEventListener("wheel", wheel, true);
-  }, [gl, inputPreset, projection, invalidate]);
+  }, [gl, inputPreset, projection, invalidate, runtime]);
 
   /**
    * Plan view locks the rig: without this, one stray drag tumbles the camera out of plan, which is

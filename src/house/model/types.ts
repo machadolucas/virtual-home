@@ -270,6 +270,8 @@ export interface Route {
   /** One entry per span: `points.length - 1` entries. */
   segments: RoutePointPlace[];
   certainty: RouteCertainty;
+  /** Independent of evidence type: an observed run can still have an estimated path. */
+  isEstimated?: boolean;
   lifecycle: RouteLifecycle;
   medium?: InfraMedium;
   /** Forward follows the stored point sequence. */

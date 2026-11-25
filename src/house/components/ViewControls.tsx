@@ -8,11 +8,14 @@ import { RouteLegend } from "./RouteLayer";
 import { ViewToolbar, RenderingControls } from "./ViewToolbar";
 import { FullscreenButton } from "@/ui/FullscreenSurface";
 import { CameraNavigation } from "./CameraNavigation";
+import { EntryButtons } from "../xr/EntryButtons";
+import { HouseFixes } from "./HouseFixes";
 import { DownloadImageButton } from "./DownloadImageButton";
 
 /** One set of presentation controls for the desktop popover and phone sheet. */
 export function ViewSettings() {
   return <div className="grid min-w-0 gap-2 text-xs">
+    <HouseFixes />
     <details open className="border-b border-line pb-2"><summary className="min-h-8 cursor-pointer py-2 font-semibold">Visibility</summary><ViewToolbar section="layers" /><RouteLegend /></details>
     <details className="border-b border-line pb-2"><summary className="min-h-8 cursor-pointer py-2 font-semibold">Cut and separation</summary><div className="grid gap-3 sm:grid-cols-2"><CutawayControl /><ExplodeControl /></div></details>
     <details className="border-b border-line pb-2"><summary className="min-h-8 cursor-pointer py-2 font-semibold">Lighting</summary><RenderingControls section="lighting" /></details>
@@ -23,6 +26,7 @@ export function ViewSettings() {
 
 export function ViewControls() {
   return <div aria-label="View controls" className="pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg border border-line bg-surface/95 p-1 shadow-pop backdrop-blur">
+    <EntryButtons />
     <ViewToolbar section="presets" />
     <CameraNavigation />
     <FullscreenButton />

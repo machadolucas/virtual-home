@@ -67,7 +67,7 @@ const nextConfig: NextConfig = {
             // cross-origin frame — which frame-ancestors/X-Frame-Options already forbid — gets none.
             key: "Permissions-Policy",
             value:
-              "camera=(), microphone=(), geolocation=(), usb=(), payment=(), " +
+              "xr-spatial-tracking=(self), camera=(), microphone=(), geolocation=(), usb=(), payment=(), " +
               "publickey-credentials-get=(self), publickey-credentials-create=(self)",
           },
         ],
