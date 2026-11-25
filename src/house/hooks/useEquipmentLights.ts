@@ -169,7 +169,7 @@ export function useEquipmentLights() {
         Math.min(
           state.detailedLightBatched && state.detailedLightAll ? pointCount + spotCount : requestedLimit,
           state.detailedLightBatched ? Infinity : state.detailedLightExperimental ? SINGLE_PASS_LIGHT_MAX : hardwareLimit,
-          state.immersiveMode ? Math.min(2, hardwareLimit) : state.performanceMode ? 2 : Infinity,
+          state.immersiveLowDetail ? 0 : state.immersiveMode ? Math.min(2, hardwareLimit) : state.performanceMode ? 2 : Infinity,
         ),
         pointCount, spotCount,
       );

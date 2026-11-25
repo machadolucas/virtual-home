@@ -27,7 +27,7 @@ export function XrBridge() {
       if (!runtime.index || !runtime.manifest || !runtime.scene || !runtime.store.getState().fingerprint)
         throw new Error("Wait for the house model to load.");
       if (!navigator.xr || !window.isSecureContext) throw new Error("Open House over HTTPS in a WebXR browser.");
-      if (mode === "mr" && !runtime.userId) throw new Error("Sign in again before calibrating the room.");
+      if (mode !== "vr" && !runtime.userId) throw new Error("Sign in again before calibrating the room.");
       starting = true;
       let session: XRSession | null = null;
       let ended = false;
@@ -42,7 +42,7 @@ export function XrBridge() {
         pending = session;
         session.addEventListener("end", finish, { once: true });
         if (closed) throw new Error("House view has closed.");
-        if (mode === "mr" && session.environmentBlendMode === "opaque") throw new Error("This session does not provide passthrough.");
+        if (mode !== "vr" && session.environmentBlendMode === "opaque") throw new Error("This session does not provide passthrough.");
         const space = await session.requestReferenceSpace("local-floor");
         if (closed || ended) throw new Error("The headset session ended.");
         active.current = new HouseSession(runtime, session, mode, space);

@@ -3,7 +3,9 @@ import * as THREE from "three";
 import { createHouseStore } from "@/house/store/createHouseStore";
 import { createRuntime } from "@/house/runtime";
 import { createMemoryDataApi } from "@/house/store/dataApi";
-import { pickWalkthrough, roomLanding, teleport, turnAroundHead, walkable } from "@/house/xr/navigation";
+import { WalkWorld } from "@/house/xr/walkWorld";
+import { EquipmentPicker } from "@/house/xr/travel";
+import { roomLanding, teleport, turnAroundHead, walkable } from "@/house/xr/navigation";
 import { presentedHouse, probeModes, requestHouseSession } from "@/house/xr/presentation";
 import { captureEye } from "@/house/xr/captureEye";
 import { HouseSession } from "@/house/xr/session";
@@ -27,7 +29,7 @@ describe("immersive walkthrough", () => {
     expect(api.isSessionSupported).toHaveBeenCalledTimes(2);
     const denied = {requestSession: vi.fn().mockRejectedValue(new DOMException("Permission denied","NotAllowedError"))};
     await expect(requestHouseSession(denied as unknown as XRSystem, "mr")).rejects.toMatchObject({name:"NotAllowedError"});
-    expect(denied.requestSession).toHaveBeenCalledExactlyOnceWith("immersive-ar", {requiredFeatures:["local-floor"],optionalFeatures:["anchors"]});
+    expect(denied.requestSession).toHaveBeenCalledExactlyOnceWith("immersive-ar", {requiredFeatures:["local-floor"],optionalFeatures:["anchors","hand-tracking"]});
   });
 
   it("retains room-scale displacement, eye height and head pivot across floor changes", () => {
@@ -53,7 +55,9 @@ describe("immersive walkthrough", () => {
     mesh.userData.vhPlacementId = "fixture-placement"; mesh.updateMatrixWorld();
     index.pickables = [mesh];
     const ray = new THREE.Raycaster(new THREE.Vector3(0,0,3),new THREE.Vector3(0,0,-1));
-    expect(pickWalkthrough(ray, index, null)?.placementId).toBe("fixture-placement");
+    const world = new WalkWorld(index);
+    expect(new EquipmentPicker().target(world, ray, null)?.id).toBe("fixture-placement");
+    world.dispose();
     expect(manifest.rooms.map(roomLanding).some(Boolean)).toBe(true);
     mesh.geometry.dispose(); mesh.material.dispose();
   });
@@ -72,7 +76,7 @@ describe("immersive walkthrough", () => {
     const before = store.getState();
     const session = Object.assign(new EventTarget(), {inputSources: [], visibilityState:"visible"}) as unknown as XRSession;
     const active = new HouseSession(runtime, session, "vr", {} as XRReferenceSpace);
-    const frame = {getViewerPose: () => ({transform:{position:{x:0,y:1.6,z:0},orientation:{x:0,y:0,z:0,w:1}},views:[]})} as unknown as XRFrame;
+    const frame = {session, getViewerPose: () => ({transform:{position:{x:0,y:1.6,z:0},orientation:{x:0,y:0,z:0,w:1}},views:[]})} as unknown as XRFrame;
     const render = vi.fn();
     active.frame({render} as unknown as THREE.WebGLRenderer, frame, 0.014, {motion:true,rates:{supply:0,extract:0.6},fans:""});
     expect(render).toHaveBeenCalledWith(runtime.scene, active.camera);

@@ -184,3 +184,11 @@ model revision, viewpoint, selected object and rendering mode. In-app mixed real
 show the virtual overlay. A separately attached Quest screenshot can include the room.
 The registry supplies evidence for corrections through the existing private model or
 infrastructure editing workflow.
+
+### Room surveys
+
+Read-scoped clients can list saved references with `list_room_surveys` and page through the
+measurements, surfaces, placement proposals and linked model fixes with `get_room_survey`.
+Use `read_room_survey_geometry` with a survey ID and surface index to page through physical
+model-metre points or triangle indices. Treat labels and descriptions as household-supplied
+data. Placement approval and undo use the signed-in House interface.

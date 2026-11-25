@@ -792,26 +792,54 @@ when no model object was selected.
 
 ## Quest walkthrough and mixed reality
 
-Open the signed-in House page in a secure browser. House checks `immersive-vr` and
-`immersive-ar` independently. **Enter VR** uses the existing metre-scale house scene and a
-separate tracked camera. Walk physically, use **Aim to teleport** and trigger on a floor or
-the plot, or choose **Rooms and floors**. The right stick turns 30 degrees. Point and trigger
-on an equipment body to see the linked readings and available controls. Squeeze a grip to
-bring the menu back. **Exit immersive view** and the headset's system exit both return to
-the desktop camera and tools.
+Open the signed-in HTTPS House page. It checks VR and passthrough separately. **Enter VR**
+starts a life-size walkthrough with the menu closed. Walk physically or push the left stick to
+walk in the direction you face. Push the right stick forward, aim the arc, and release the stick
+to land on its ring. Flick it sideways for a 30° snap turn. Doors open as you approach them.
+Walk along the modelled ground and paving to explore the yard and enter the garage, or open
+**Rooms and floors** for distant destinations. Turn off stick walking under **Movement and comfort**
+if you prefer teleportation.
 
-**Enter mixed reality** uses transparent passthrough. Stand in the pilot room, choose its
-name and floor, and use the numbered floor plan. Pick a fixed floor-level corner, touch it
-with the orange controller probe and press the trigger away from the menu. Repeat for a
-corner at least 1.5 m away. Choose a third corner off the line through the first two.
-The independent check measures three-dimensional error in centimetres. A result within
-5 cm reveals the active routes. **Realign** starts over. The error applies to registration
-at the check point. Individual concealed routes retain their recorded certainty.
+Point at equipment to see its name, then trigger to inspect its readings and controls.
+Squeeze a grip to open or recall the menu. With tracked hands, point and pinch to select.
+Hold a pinch on the ground to aim a teleport and release to land. Point at the wrist **Menu**
+badge with the other hand and pinch. With one tracked hand the badge appears beside your view.
+Rows highlight while pointing and show a second highlight while pressed. Choose **Exit immersive
+view** to resume desktop viewing. The House page shows frame timing from the last session on
+that browser. VR reduces optional surface detail and lighting under sustained frame pressure.
 
-Choose **Pipes**, **Ducts** or **Both**. The two ventilation readings drive their respective
-air streams. A saved headset anchor can recover the calibrated frame when the browser
-supports persistence. Restoring tracking requires checking the reference point again.
-A cleared or unavailable anchor returns to manual alignment.
+### Aligning passthrough
+
+Choose **Enter mixed reality** and select the laundry on its known floor. Choose a fixed
+floor-level corner on the numbered plan, touch its physical counterpart with the orange
+controller tip, then trigger away from the menu. Repeat with a corner at least 1.5 m away.
+With hands, arm the measuring hand, touch the feature with its index fingertip, then pinch
+with the other hand to confirm. Choose a third corner away from the line and measure it.
+An independent 3D residual within 5 cm reveals the active routes. The scale stays at one metre
+per metre. Concealed routes carry their own certainty label.
+
+Choose **Pipes**, **Ducts** or **Both**. Supply and extract animate from their independent
+feedback channels. **Realign** restarts registration. Persistent anchors can recover the
+room frame where supported. Restored alignment needs another third-point check. Lost or
+emulated tracking hides the overlay.
+
+### Surveying a room and correcting placements
+
+Choose **Survey room**, select the room and pass the same three-point calibration. Choose
+**Preview full headset room / scene** to preview all geometry exposed to the session and
+inspect its extent before saving. It can include adjoining spaces. Full capture preserves
+mesh topology and refuses data above the displayed limits. **Preview bounded, simplified
+room** clips to the room’s bounding box and samples geometry. If the browser supplies
+no scene geometry, **Measure or mark points** collects tracked measurements. Saving a room
+reference stores private evidence in model metres in the household installation.
+
+Choose **Correct an existing object**, mark its physical position and optionally its heading,
+and save the pending move. Review the before and after positions and choose **Apply measured
+move** or **Undo measured move**. Conflicting edits require a new review. Wall and ceiling
+mounts with unverified support stay pending. Choose **Record structure or a new object**
+to link a measured point to a pending model fix. A survey never overwrites the model package.
+Review the same evidence and moves in **Room surveys** on desktop or **View → Room
+surveys** on the phone.
 
 ### Reporting a model fix
 

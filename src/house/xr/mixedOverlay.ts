@@ -9,7 +9,7 @@ import { createSceneIndex } from "@/house/scene/SceneIndex";
 
 export type MixedRealityRouteFilter = "pipes" | "ducts" | "both";
 
-export type MixedRealityRoutePick = Pick<Route, "id" | "name" | "kind" | "certainty"> & { label: string };
+export type MixedRealityRoutePick = Pick<Route, "id" | "name" | "kind" | "certainty"> & { label: string; distance: number; segment: readonly [Route["points"][number], Route["points"][number]]; approximate: boolean };
 
 const isApproximate = (route: Route): boolean =>
   route.certainty === "inferred" || route.certainty === "unknown" ||
@@ -125,6 +125,7 @@ export function buildMixedRealityOverlay(
       localRay.copy(ray).applyMatrix4(inverse.copy(group.matrixWorld).invert());
       let route: Route | undefined;
       let bestDistance = Infinity;
+      let segmentEnd = 0;
       for (const span of runs) {
         for (let i = 1; i < span.points.length; i++) {
           a.fromArray(span.points[i - 1]!);
@@ -134,13 +135,15 @@ export function buildMixedRealityOverlay(
           const radius = Math.max(0.055, (span.diameterM ?? span.widthM ?? 0) / 2);
           if (gapSquared <= radius * radius && distance > 0 && distance < bestDistance) {
             route = span;
+            segmentEnd = i;
             bestDistance = distance;
           }
         }
       }
       if (!route) return null;
       return {
-        id: route.id,
+        id: route.id, distance:bestDistance,
+        segment: [route.points[segmentEnd - 1]!, route.points[segmentEnd]!], approximate: isApproximate(route),
         name: route.name,
         kind: route.kind,
         certainty: route.certainty,

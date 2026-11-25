@@ -62,7 +62,7 @@ export function equipmentPlacementEnvelope(draft: EditDraft | Placement): Placem
 
 /** Test the model and placed-object envelopes; contact with the supporting face is intentional. */
 export function equipmentWallError(
-  draft: EditDraft,
+  draft: EditDraft | Placement,
   index: SceneIndex,
   furnishings: readonly Furnishing[] = [],
   placements: readonly Placement[] = [],
@@ -72,7 +72,7 @@ export function equipmentWallError(
     return "Overlaps a wall or door. Move or rotate the equipment.";
   if (collidesWithPlacementShape(equipmentCollisionShape(draft), [
     ...furnishings.map(furnishingCollisionShape),
-    ...placements.filter((placement) => placement.id !== draft.placementId).map(equipmentCollisionShape),
+    ...placements.filter((placement) => placement.id !== ("placementId" in draft ? draft.placementId : draft.id)).map(equipmentCollisionShape),
   ])) return "Overlaps furniture or equipment. Move or rotate the equipment.";
   return null;
 }

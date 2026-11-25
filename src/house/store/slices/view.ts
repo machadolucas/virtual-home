@@ -40,6 +40,7 @@ export interface IlluminationSettings {
 }
 
 export interface ViewSlice {
+  immersiveLowDetail: boolean;
   immersiveMode: import("../../xr/presentation").ImmersiveMode | null;
   illumination: IlluminationSettings;
   setIllumination(settings: Partial<IlluminationSettings>): void;
@@ -108,6 +109,7 @@ export interface ViewSlice {
 
 export const initialView = {
   immersiveMode: null,
+  immersiveLowDetail:false,
   illumination: {
     mode: "live",
     atMs: null,

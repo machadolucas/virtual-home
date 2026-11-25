@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ALL_LAYERS } from "./model/types";
+import type { RoomSurveyObservation } from "./roomSurveyTypes";
 
 const spatial = z.number().min(-100_000).max(100_000);
 const vector = z.tuple([spatial, spatial, spatial]);
@@ -113,6 +114,7 @@ export type ModelFixScreenshot = ModelFixViewScreenshot | ModelFixQuestScreensho
 export interface ModelFix extends ModelFixSummary {
   resolution: ModelFixResolution | null;
   screenshots: ModelFixScreenshot[];
+  surveyObservation?: RoomSurveyObservation;
 }
 
 export interface ModelFixCapture {

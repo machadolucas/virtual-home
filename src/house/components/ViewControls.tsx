@@ -10,11 +10,13 @@ import { FullscreenButton } from "@/ui/FullscreenSurface";
 import { CameraNavigation } from "./CameraNavigation";
 import { EntryButtons } from "../xr/EntryButtons";
 import { HouseFixes } from "./HouseFixes";
+import { RoomSurveys } from "./RoomSurveys";
 import { DownloadImageButton } from "./DownloadImageButton";
 
 /** One set of presentation controls for the desktop popover and phone sheet. */
-export function ViewSettings() {
+export function ViewSettings({ phone = false }: { phone?: boolean } = {}) {
   return <div className="grid min-w-0 gap-2 text-xs">
+    {phone && <RoomSurveys />}
     <HouseFixes />
     <details open className="border-b border-line pb-2"><summary className="min-h-8 cursor-pointer py-2 font-semibold">Visibility</summary><ViewToolbar section="layers" /><RouteLegend /></details>
     <details className="border-b border-line pb-2"><summary className="min-h-8 cursor-pointer py-2 font-semibold">Cut and separation</summary><div className="grid gap-3 sm:grid-cols-2"><CutawayControl /><ExplodeControl /></div></details>
@@ -31,6 +33,7 @@ export function ViewControls() {
     <CameraNavigation />
     <FullscreenButton />
     <DownloadImageButton />
+    <RoomSurveys />
     <Popover ariaLabel="View settings" align="end" className="w-[36rem] !max-w-[calc(100vw-2rem)]" trigger={<Button size="sm" variant="ghost" icon={<SlidersHorizontal />}>View</Button>}><ViewSettings /></Popover>
   </div>;
 }

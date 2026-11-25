@@ -355,3 +355,14 @@ rays, menu recall and exit. In passthrough, record the third-point error in the 
 around the room, interrupt tracking, relaunch and check restored or manual alignment, inspect
 both fan channels, and compare a headset screenshot with the saved overlay. Reopening a
 desktop capture and resuming desktop controls after system exit are part of this check.
+
+For Quest interaction changes, run `xrInteractionPolish`, `handHints`, `roomSurveyXr` and
+the room-surveys integration suite. The Chromium `house-surveys` spec exercises private
+review on desktop and phone with an isolated model. Repeat five right-stick teleports on
+the headset, try grip recall while facing away from an open menu, and select with each hand.
+Walk from the yard through each building entrance and back. Check the frame timing after exit.
+
+In **Survey room**, compare the preview with the real room and inspect adjacent-room extent
+before saving a full capture. Measure a known distance with the controller and with opposite-hand
+confirmation. Reopen the reference on desktop. Use a disposable fixture to exercise placement
+apply and undo. Tracking loss should clear all spatial previews until alignment is verified again.

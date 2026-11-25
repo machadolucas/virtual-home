@@ -22,6 +22,7 @@ import {
   type ModelFixViewScreenshot,
 } from "../modelFixTypes";
 import { requestEditSwitch } from "./edit/confirmSwitch";
+import { OPEN_ROOM_SURVEY } from "../roomSurveyApi";
 
 const source = { desktop: "Desktop", vr: "Virtual reality", mr: "Mixed reality overlay only" } as const;
 
@@ -209,6 +210,13 @@ export function HouseFixes() {
               <Button size="sm" variant="ghost" disabled={busy || capturing} onClick={() => { setFix(null); setError(null); }}>All fixes</Button>
               <span className="text-ink-3">{fix.status === "pending" ? "Pending" : "Resolved"}</span>
             </div>
+            {fix.surveyObservation && <div className="flex flex-wrap items-center gap-2 rounded-md bg-surface-2 px-3 py-2">
+              <span>{fix.surveyObservation.kind === "structure" ? "Structural survey observation" : "New object survey observation"}</span>
+              <Button size="sm" onClick={() => {
+                close();
+                window.dispatchEvent(new CustomEvent(OPEN_ROOM_SURVEY, { detail: { id: fix.surveyObservation?.surveyId } }));
+              }}>Open room survey</Button>
+            </div>}
             <label className="grid gap-1 font-medium text-ink">
               Description
               <textarea className="min-h-24 rounded-md border border-line bg-surface px-3 py-2 font-normal text-ink"

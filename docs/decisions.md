@@ -250,3 +250,12 @@ and model fingerprint. Fresh tracking and a checked pose govern overlay visibili
 The private fix registry keeps one captured revision and physical camera pose per viewer image.
 A Quest system screenshot can be attached separately as photographic evidence. Read-scoped
 MCP exposes the fix and a bounded image preview through the authenticated installation.
+
+## D-039 Room surveys keep evidence separate from reviewed placement changes
+
+Store headset observations in private, revision-bound SQLite records. Full previews preserve
+reported mesh topology and extent. The optional bounded preview trades detail for room-local
+coverage. A survey records its calibration residual so reviewers can interpret coordinates.
+Placement changes require explicit approval against the original object version. Undo checks
+the applied version before restoring the original position. Structure and new-object observations
+link to the pending-fix registry for correction in the private model source.

@@ -11,11 +11,14 @@ export function presentedHouse(state: HouseStore): HouseStore {
     layers: { ...DEFAULT_LAYERS, routes: false, annotations: false } };
 }
 
-export type ImmersiveMode = "vr" | "mr";
-export const sessionModes = { vr: "immersive-vr", mr: "immersive-ar" } as const;
+export type ImmersiveMode = "vr" | "mr" | "survey";
+export const sessionModes = { vr: "immersive-vr", mr: "immersive-ar", survey: "immersive-ar" } as const;
 export function requestHouseSession(xr: XRSystem, mode: ImmersiveMode) {
+  const optionalFeatures = mode === "survey"
+    ? ["anchors", "plane-detection", "mesh-detection", "hit-test", "hand-tracking"]
+    : mode === "mr" ? ["anchors", "hand-tracking"] : ["hand-tracking"];
   return xr.requestSession(sessionModes[mode], {
-    requiredFeatures: ["local-floor"], optionalFeatures: mode === "mr" ? ["anchors"] : [],
+    requiredFeatures: ["local-floor"], optionalFeatures,
   });
 }
 

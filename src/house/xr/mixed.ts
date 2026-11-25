@@ -143,12 +143,17 @@ export class MixedRealityCalibration {
 
   /** Call with the active select-event frame to sample exactly when the physical trigger fires. */
   capture(frame: XRFrame, gripSpace: XRSpace | undefined | null): void {
+    this.capturePosition(frame, this.pointerPosition(frame, gripSpace, new Vector3()));
+  }
+
+  /** A separately confirmed hand joint and a controller probe share the same fit and checks. */
+  capturePosition(frame: XRFrame, position: Vector3 | null): void {
     const { phase, selected } = this.current;
-    if (this.disposed || !selected || (phase !== "select" && phase !== "verify")) return;
+    if (this.disposed || frame.session !== this.options.session || !selected || (phase !== "select" && phase !== "verify")) return;
     const tracking = this.haveViewer && this.options.session.visibilityState === "visible";
-    const touch = tracking ? this.pointerPosition(frame, gripSpace, new Vector3()) : null;
+    const touch = tracking && position && isPoint(position.toArray()) ? position : null;
     if (!touch) {
-      this.update({ message: "Controller position is unavailable. Bring the controller into tracking view and try again." });
+      this.update({ message: "The tracked point is unavailable. Bring your hand or controller into tracking view." });
       return;
     }
     const pair = { feature: selected, observed: touch.toArray() };
@@ -224,6 +229,10 @@ export class MixedRealityCalibration {
 
   private checkPoint(matrix: Matrix4, pair: CalibrationPair): boolean {
     const errorM = calibrationError(matrix, pair);
+    if (!Number.isFinite(errorM)) {
+      this.update({ errorM: null, message: "The tracked point is invalid. Try the same feature again." });
+      return false;
+    }
     if (errorM > MAX_CALIBRATION_ERROR_M) {
       this.update({ errorM, message: `The check missed by ${Math.round(errorM * 100)} cm. Touch the same feature again or reset the alignment.` });
       return false;

@@ -4,7 +4,7 @@ import { and, count, desc, eq, lt, or } from "drizzle-orm";
 import { z } from "zod";
 import { writeTx, type Db } from "@/db/client";
 import { newId, nowMs } from "@/db/ids";
-import { attachment, auditLog, modelFix, modelFixScreenshot, modelRevision } from "@/db/schema";
+import { attachment, auditLog, modelFix, modelFixScreenshot, modelRevision, roomSurveyObservation } from "@/db/schema";
 import {
   MAX_MODEL_FIX_SCREENSHOTS,
   type ModelFix, type ModelFixPatch, type ModelFixScreenshot, type ModelFixSummary,
@@ -54,7 +54,11 @@ export function getModelFix(db: Db, id: string, modelId?: string): ModelFix {
         return { ...entry, imageCount, viewpoint, fingerprint, content: screenshotContent(viewpoint.mode) };
       return { ...entry, imageCount, viewpoint: null, fingerprint: null, content: "quest_system_screenshot" };
     });
-  return { ...summary(row), resolution: row.resolution, screenshots };
+  const linked = db.select({
+    fixId: roomSurveyObservation.fixId, surveyId: roomSurveyObservation.surveyId, kind: roomSurveyObservation.kind,
+    position: roomSurveyObservation.position, createdAtMs: roomSurveyObservation.createdAtMs,
+  }).from(roomSurveyObservation).where(eq(roomSurveyObservation.fixId, id)).get();
+  return { ...summary(row), resolution: row.resolution, screenshots, ...(linked ? { surveyObservation: linked } : {}) };
 }
 
 export function listModelFixes(db: Db, input: ListInput) {

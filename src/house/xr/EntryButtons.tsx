@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { FrameTiming } from "./FrameTiming";
 import { Button } from "@/ui";
 import { useHouseRuntime, useHouseStore } from "../hooks/useHouseStore";
 import { probeModes, type ImmersiveMode } from "./presentation";
@@ -26,7 +27,12 @@ export function EntryButtons() {
     finally { setStarting(false); }
   };
   const loading = starting || !["interactive", "enriching", "ready", "degraded"].includes(phase);
-  return <>{supported.vr && <Button size="sm" disabled={loading} onClick={() => void enter("vr")}>Enter VR</Button>}
+  if (!supported.vr && !supported.mr && !error) return null;
+  return <div className="flex min-w-0 flex-wrap items-center gap-1" aria-label="Headset modes">{supported.vr && <Button size="sm" disabled={loading} onClick={() => void enter("vr")}>Enter VR</Button>}
     {supported.mr && <Button size="sm" disabled={loading} onClick={() => void enter("mr")}>Enter mixed reality</Button>}
-    {error && <p role="alert" className="text-xs text-overdue">{error}</p>}</>;
+    {supported.mr && <Button size="sm" disabled={loading} onClick={() => void enter("survey")}>Survey room</Button>}
+    {supported.vr && <details className="text-xs text-muted"><summary className="cursor-pointer px-1">Quest controls</summary>
+      <p className="max-w-64 p-1">Walk with the left stick. Hold the right stick forward, aim and release to teleport. Squeeze a grip for the menu. With hands, hold a floor pinch to aim, or point and pinch the wrist menu.</p></details>}
+    {(supported.vr || supported.mr) && <FrameTiming userId={runtime.userId} />}
+    {error && <p role="alert" className="text-xs text-overdue">{error}</p>}</div>;
 }

@@ -4,6 +4,8 @@ import { registerFurnishingSelection } from "../../scene/furnishingSelection";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Furnishing } from "@/house/model/types";
 import { useHouseRuntime, useHouseStore } from "../../hooks/useHouseStore";
+import { ROOM_SURVEY_PLACEMENT_CHANGED } from "../../roomSurveyApi";
+import type { RoomSurveyMove } from "../../roomSurveyTypes";
 
 interface FurnishingsValue {
   items: Furnishing[];
@@ -38,6 +40,18 @@ export function FurnishingsProvider({ children }: { children: React.ReactNode })
   const [busy, setBusy] = useState(false);
   const [loadNonce, setLoadNonce] = useState(0);
   const retry = useCallback(() => { setError(null); setLoadNonce((value) => value + 1); }, []);
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ base: string; move: RoomSurveyMove }>).detail;
+      if (detail.base !== runtime.base || !modelId) return;
+      if (detail.move.target.kind === "furnishing") { retry(); return; }
+      void runtime.dataApi.listPlacements(modelId).then((items) => {
+        if (runtime.store.getState().fingerprint === fingerprint) runtime.store.getState().setPlacements(items);
+      }).catch(() => runtime.store.getState().announce("Reload the house to see the updated equipment placement."));
+    };
+    window.addEventListener(ROOM_SURVEY_PLACEMENT_CHANGED, refresh);
+    return () => window.removeEventListener(ROOM_SURVEY_PLACEMENT_CHANGED, refresh);
+  }, [fingerprint, modelId, retry, runtime]);
   const [preview, setPreview] = useState<Furnishing | null>(null);
   const editHandler = useRef<((id: string) => void) | null>(null);
   const requestEdit = useCallback((id: string) => editHandler.current?.(id), []);

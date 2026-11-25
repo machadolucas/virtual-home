@@ -35,6 +35,8 @@ const nextConfig: NextConfig = {
   typedRoutes: true,
   experimental: {
     cpus: 2,
+    // The room survey handler independently bounds and validates every streamed request.
+    proxyClientMaxBodySize: "12mb",
     serverActions: {
       allowedOrigins: [external.host],
       bodySizeLimit: "30mb",
