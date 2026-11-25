@@ -168,8 +168,11 @@ export function focusCutSurfaceIds(
   }
 
   const ids = new Set<SurfaceId>(cameraFacingWallIds);
-  for (const elementId of cutElements)
-    for (const sid of index.surfacesByElement.get(elementId) ?? []) ids.add(sid);
+  for (const elementId of cutElements) {
+    for (const sid of index.surfacesByElement.get(elementId) ?? []) {
+      if (index.surfaces.get(sid)?.kind !== "floor") ids.add(sid);
+    }
+  }
   return [...ids];
 }
 

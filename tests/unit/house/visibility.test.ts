@@ -84,6 +84,38 @@ describe("computeVisibility (fixture)", () => {
     }
   });
 
+  it("keeps the door's threshold floor visible and outside wall-focus clipping", () => {
+    const local = buildManifestIndex(loadManifest(FIXTURE_DIR));
+    const reveal = local.surfaces.get("s-o-l-door-reveal")!;
+    const threshold = { ...reveal, id: "s-o-l-door-threshold", kind: "floor" as const,
+      nodeRefs: [{ ...reveal.nodeRefs[0]!, nodeName: "s-o-l-door-threshold" }] };
+    local.surfaces.set(threshold.id, threshold);
+    local.surfacesByElement.get(reveal.elementId!)!.push(threshold.id);
+
+    for (const wallMode of ["cut", "contextual"] as const) {
+      const plan = computeVisibility(local, baseInput({ wallMode }, inventory, loadedAssetIds));
+      for (const ref of local.elements.get(reveal.elementId!)!.nodeRefs) {
+        const decision = plan.nodes.get(nodeKey(ref.assetId, ref.nodeName));
+        if (ref.nodeName === reveal.elementId && threshold.nodeRefs.some((floorRef) => floorRef.assetId === ref.assetId)) {
+          expect(decision).not.toBe(false);
+        } else {
+          expect(decision).toBe(false);
+        }
+      }
+      for (const ref of threshold.nodeRefs) {
+        expect(plan.nodes.get(nodeKey(ref.assetId, ref.nodeName))).not.toBe(false);
+      }
+      for (const id of ["s-o-l-door-reveal", "s-o-l-door-leaf"]) {
+        for (const ref of local.surfaces.get(id)!.nodeRefs) {
+          expect(plan.nodes.get(nodeKey(ref.assetId, ref.nodeName))).toBe(false);
+        }
+      }
+    }
+    const cuts = focusCutSurfaceIds(local, ["s-w-l-ab--r-l-a"]);
+    expect(cuts).toContain(reveal.id);
+    expect(cuts).not.toContain(threshold.id);
+  });
+
   it("shows everything in the overview", () => {
     const plan = computeVisibility(index, baseInput({}, inventory, loadedAssetIds));
     for (const [id, visible] of plan.assets) {

@@ -179,14 +179,21 @@ export function computeVisibility(index: ManifestIndex, v: VisibilityInput): Vis
     }
   }
 
-  // Door leaves and frames disappear in inside-cut modes, even when their wall is behind the
-  // camera. Their physical geometry remains indexed for placement collision checks.
+  // In cutaway, hide door leaves and reveals while preserving walkable thresholds.
+  // A threshold can live under the door group, so keep that group on its owning asset.
   if (v.wallMode === "cut" || v.wallMode === "contextual") {
     for (const element of index.elements.values()) {
       if (element.kind !== "door") continue;
-      for (const ref of element.nodeRefs) nodes.set(nodeKey(ref.assetId, ref.nodeName), false);
+      const thresholdAssets = new Set<AssetId>();
       for (const sid of index.surfacesByElement.get(element.id) ?? []) {
-        for (const ref of index.surfaces.get(sid)?.nodeRefs ?? []) nodes.set(nodeKey(ref.assetId, ref.nodeName), false);
+        const surface = index.surfaces.get(sid);
+        for (const ref of surface?.nodeRefs ?? []) {
+          if (surface?.kind === "floor") thresholdAssets.add(ref.assetId);
+          else nodes.set(nodeKey(ref.assetId, ref.nodeName), false);
+        }
+      }
+      for (const ref of element.nodeRefs) {
+        if (!thresholdAssets.has(ref.assetId)) nodes.set(nodeKey(ref.assetId, ref.nodeName), false);
       }
     }
   }

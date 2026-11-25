@@ -571,6 +571,35 @@ describe("routes (fixture)", () => {
     layer.dispose();
   });
 
+  it("keeps a short reversed air cue continuous across a floor boundary", () => {
+    const built = buildScene(FIXTURE_DIR);
+    const layer = new RouteLayer(built.index, built.clip);
+    layer.set([
+      route({
+        points: [[1, 1, 1], [1.1, 1, 1], [1.2, 1, 1]],
+        segments: [
+          { floorId: "f-lower", roomId: "r-l-a" },
+          { floorId: "f-upper", roomId: "r-u-a" },
+        ],
+        medium: "supply_air",
+        flowState: "active",
+        flowDirection: "reverse",
+        flowBasis: "declared",
+      }),
+    ], { tubes: true });
+    const phases = ["f-lower", "f-upper"].map((floor) => {
+      const mesh = built.index.overlay.floorGroups.get(floor)?.children.find(
+        (node) => node.name.startsWith("vh-tube-"),
+      ) as THREE.Mesh<THREE.BufferGeometry, THREE.Material> | undefined;
+      expect(mesh?.material.customProgramCacheKey()).toMatch(/-air$/);
+      return Array.from(mesh!.geometry.getAttribute("vhRouteDistance").array);
+    });
+    expect(Math.max(...phases[0]!)).toBeCloseTo(0);
+    expect(Math.min(...phases[0]!)).toBeCloseTo(Math.max(...phases[1]!));
+    expect(Math.min(...phases[1]!)).toBeCloseTo(-1.35);
+    layer.dispose();
+  });
+
   it("attaches each tube span to its own floor group", () => {
     const built = buildScene(FIXTURE_DIR);
     const layer = new RouteLayer(built.index, built.clip);

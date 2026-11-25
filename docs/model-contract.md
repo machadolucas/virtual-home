@@ -324,9 +324,10 @@ and the two endpoint descriptors above are coarser than what the workspace can e
 
 The House view renders installed pipes and ducts with medium colours and a schematic cross-section
 where dimensions are incomplete. Unknown paths, plans and removed paths use static dashes. Retained
-out-of-service pipes are muted. On an in-service run with a declared or inferred direction, a pulse
-illustrates that direction at a fixed schematic speed. Historical date views, performance mode,
-reduced motion and the House visibility control can pause it.
+out-of-service pipes are muted. On an in-service run with a declared or inferred direction, air
+ducts use broad bands and pipes use short pulses at different schematic cadences. Short runs use
+a more closely spaced cue. Historical date views, performance mode, reduced motion and the House
+visibility control can pause it.
 
 “Active pipes and ducts only” shows installed pipes and ducts whose recorded service state is
 active. It composes with the independent Pipes and Ducts switches, system visibility and

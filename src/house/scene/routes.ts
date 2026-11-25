@@ -1,5 +1,6 @@
 /** Infrastructure lines and 3D runs share the same semantic floor and clipping groups. */
 import * as THREE from "three";
+import { polylineLength } from "@/house/model/geometry2d";
 import { clipGroupOf } from "@/house/model/explodeGroups";
 import type {
   ExplodeGroup,
@@ -95,6 +96,7 @@ export class RouteLayer {
 
     for (const route of routes) {
       const solid = opts.tubes && hasSolidRoute(route);
+      const routeLength = solid ? polylineLength(route.points) : 0;
       let distance = 0;
       let previousGroup: ExplodeGroup | null = null;
       for (let i = 1; i < route.points.length; i++) {
@@ -105,7 +107,7 @@ export class RouteLayer {
         if (length < 1e-5) continue;
         if (solid) {
           const color = routeMediumColor(route, SYSTEM_COLORS[route.system]);
-          this.solids.add(route, group, color, a, b, distance, length, previousGroup === group);
+          this.solids.add(route, group, color, a, b, distance, length, routeLength, previousGroup === group);
         } else {
           const bucket = this.bucketFor(group, route);
           bucket.positions.push(...a, ...b);

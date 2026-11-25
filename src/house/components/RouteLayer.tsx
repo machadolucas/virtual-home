@@ -99,7 +99,7 @@ export function RouteLegend() {
             Animate documented direction
           </label>
           <p className="max-w-prose text-ink-3">
-            Pulses illustrate documented direction on in-service runs. This is a schematic.
+            Broad bands show air direction. Short pulses show pipe flow direction. The motion is illustrative.
             {flowPaused ? " Animation is paused in this view or by reduced motion." : ""}
           </p>
         </>

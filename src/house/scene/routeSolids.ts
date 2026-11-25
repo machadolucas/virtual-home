@@ -36,10 +36,30 @@ export function hasDocumentedFlow(route: Route): boolean {
     (route.flowBasis === "declared" || route.flowBasis === "inferred");
 }
 
+const FLOW_MOTION = {
+  air: {
+    repeatM: 0.85,
+    cyclesPerSecond: 1,
+    shader: `
+float mainBand = smoothstep(0.30, 0.62, phase) * (1.0 - smoothstep(0.76, 0.96, phase));
+float wake = smoothstep(0.04, 0.11, phase) * (1.0 - smoothstep(0.19, 0.36, phase));
+float glow = (mainBand + 0.38 * wake) * 0.36;`,
+  },
+  pipe: {
+    repeatM: 0.88,
+    cyclesPerSecond: 0.5,
+    shader: `
+float packet = smoothstep(0.57, 0.83, phase) * (1.0 - smoothstep(0.83, 0.94, phase));
+float glow = packet * 0.48;`,
+  },
+} as const;
+
+type MotionKind = keyof typeof FLOW_MOTION;
+
 type SolidBucket = {
   group: ExplodeGroup;
   color: THREE.Color;
-  animated: boolean;
+  motion: MotionKind | null;
   spans: THREE.BufferGeometry[];
   spanCount: number;
 };
@@ -62,17 +82,17 @@ export class RouteSolids {
 
   add(
     route: Route, group: ExplodeGroup, hex: number, a: Vec3, b: Vec3,
-    distance: number, length: number, join: boolean,
+    distance: number, length: number, routeLength: number, join: boolean,
   ): void {
-    const animated = hasDocumentedFlow(route);
-    const key = `${group}|${hex}|${route.flowState}|${route.certainty}|${animated}`;
+    const motion = hasDocumentedFlow(route) ? (route.kind === "duct" ? "air" : "pipe") : null;
+    const key = `${group}|${hex}|${route.flowState}|${route.certainty}|${motion ?? "static"}`;
     let bucket = this.pending.get(key);
     if (!bucket) {
       const color = new THREE.Color(hex);
       if (route.flowState === "inactive") color.lerp(new THREE.Color(0x797777), 0.8);
       else if (route.flowState !== "active") color.lerp(new THREE.Color(0x808080), 0.3);
       if (route.certainty === "inferred") color.lerp(new THREE.Color(0x9b9b9b), 0.21);
-      bucket = { group, color, animated, spans: [], spanCount: 0 };
+      bucket = { group, color, motion, spans: [], spanCount: 0 };
       this.pending.set(key, bucket);
     }
 
@@ -84,13 +104,17 @@ export class RouteSolids {
       ? new THREE.BoxGeometry(width, length, Math.min(width, 0.15))
       : new THREE.CylinderGeometry(radius, radius, length, 10, 1);
     const direction = route.flowDirection === "reverse" ? -1 : 1;
-    if (animated) this.setProgress(geometry, (y) => direction * (distance + length / 2 + y));
+    // Repeat the cue more closely on short terminals. All spans in a run share the
+    // same scale and arc length, including spans on another floor.
+    const repeat = motion ? Math.min(FLOW_MOTION[motion].repeatM, Math.max(0.12, routeLength / 1.35)) : 1;
+    const cyclesPerMetre = direction / repeat;
+    if (motion) this.setProgress(geometry, (y) => cyclesPerMetre * (distance + length / 2 + y));
 
     // Join circular spans only within one semantic floor so the elbow cannot bridge an explode
     // gap. The pulse uses the exact same progress at both sides of the join.
     if (join && !width) {
       const elbow = new THREE.SphereGeometry(radius, 10, 6);
-      if (animated) this.setProgress(elbow, () => direction * distance);
+      if (motion) this.setProgress(elbow, () => cyclesPerMetre * distance);
       elbow.translate(...a);
       bucket.spans.push(elbow);
     }
@@ -117,8 +141,9 @@ export class RouteSolids {
       if (!geometry) continue;
       geometry.computeBoundingBox();
       const material = new THREE.MeshStandardMaterial({ color: bucket.color, roughness: 0.72 });
-      if (bucket.animated) {
-        material.customProgramCacheKey = () => "vh-route-flow-v1";
+      if (bucket.motion) {
+        const { cyclesPerSecond, shader: glow } = FLOW_MOTION[bucket.motion];
+        material.customProgramCacheKey = () => `vh-route-flow-v2-${bucket.motion}`;
         material.onBeforeCompile = (shader) => {
           shader.uniforms.vhRouteTime = this.time;
           shader.uniforms.vhRouteMotion = this.showMotion;
@@ -134,9 +159,9 @@ varying float vhDistance;
 ${shader.fragmentShader}`.replace(
             "#include <emissivemap_fragment>",
             `#include <emissivemap_fragment>
-float phase = fract((vhDistance - vhRouteTime * 0.34) / 1.1);
-float pulse = smoothstep(0.54, 0.83, phase) * (1.0 - smoothstep(0.83, 0.97, phase));
-totalEmissiveRadiance += mix(diffuseColor.rgb, vec3(1.0), 0.5) * pulse * vhRouteMotion * 0.32;`,
+float phase = fract(vhDistance - vhRouteTime * ${cyclesPerSecond.toFixed(2)});
+${glow}
+totalEmissiveRadiance += mix(diffuseColor.rgb, vec3(1.0), 0.5) * glow * vhRouteMotion;`,
           );
         };
       }
@@ -148,7 +173,7 @@ totalEmissiveRadiance += mix(diffuseColor.rgb, vec3(1.0), 0.5) * pulse * vhRoute
       this.clip.attach(mesh, bucket.group);
       overlayGroup(this.index, bucket.group).add(mesh);
       this.meshes.push(mesh);
-      if (bucket.animated) this.moving.push(mesh);
+      if (bucket.motion) this.moving.push(mesh);
     }
     this.pending.clear();
   }
@@ -158,7 +183,7 @@ totalEmissiveRadiance += mix(diffuseColor.rgb, vec3(1.0), 0.5) * pulse * vhRoute
     if (!allowMotion || !this.moving.some((mesh) => this.isVisible(mesh))) return false;
     this.showMotion.value = 1;
     // Keep continuity after a suspension without jumping through a long background delta.
-    this.time.value = (this.time.value + Math.min(delta, 0.05)) % (1.1 / 0.34 * 96);
+    this.time.value = (this.time.value + Math.min(delta, 0.05)) % 120;
     return true;
   }
 
