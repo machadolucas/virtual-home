@@ -1,0 +1,1 @@
+ALTER TABLE `infra_route` ADD `duct_fitting` text;

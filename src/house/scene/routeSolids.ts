@@ -64,11 +64,32 @@ type SolidBucket = {
   color: THREE.Color;
   motion: MotionKind | null;
   airStream?: AirStream;
+  silencer: boolean;
   spans: THREE.BufferGeometry[];
   spanCount: number;
 };
 
 const UP = new THREE.Vector3(0, 1, 0);
+const SILENCER_CASING = new THREE.Color(0xa2aab0);
+const SILENCER_COLLAR = new THREE.Color(0x69757e);
+
+/** Display sizes for an inline fitting whose connection DN may be unrecorded. */
+function silencerParts(length: number): THREE.BufferGeometry[] {
+  const collarLength = Math.min(0.065, 0.16 * length);
+  const bodyLength = length - 2 * collarLength;
+  const collarCentre = (length - collarLength) / 2;
+  return [
+    { centre: -collarCentre, length: collarLength, radius: 0.105, color: SILENCER_COLLAR },
+    { centre: 0, length: bodyLength, radius: 0.13, color: SILENCER_CASING },
+    { centre: collarCentre, length: collarLength, radius: 0.105, color: SILENCER_COLLAR },
+  ].map(({ centre, length, radius, color }) => {
+    const geometry = new THREE.CylinderGeometry(radius, radius, length, 20, 1).translate(0, centre, 0);
+    const colors = new Float32Array(geometry.getAttribute("position").count * 3);
+    for (let i = 0; i < colors.length; i += 3) color.toArray(colors, i);
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    return geometry;
+  });
+}
 
 export class RouteSolids {
   private readonly pending = new Map<string, SolidBucket>();
@@ -90,14 +111,15 @@ export class RouteSolids {
   ): void {
     const motion = hasDocumentedFlow(route) ? (route.kind === "duct" ? "air" : "pipe") : null;
     const airStream = classifyAirStream(route.medium, route.airStream);
-    const key = `${group}|${hex}|${route.flowState}|${route.certainty}|${motion ?? "static"}|${airStream ?? ""}`;
+    const silencer = route.kind === "duct" && route.ductFitting === "silencer" && route.points.length === 2;
+    const key = `${group}|${hex}|${route.flowState}|${route.certainty}|${motion ?? "static"}|${airStream ?? ""}${silencer ? "|silencer" : ""}`;
     let bucket = this.pending.get(key);
     if (!bucket) {
       const color = new THREE.Color(hex);
       if (route.flowState === "inactive") color.lerp(new THREE.Color(0x797777), 0.8);
       else if (route.flowState !== "active") color.lerp(new THREE.Color(0x808080), 0.3);
       if (route.certainty === "inferred") color.lerp(new THREE.Color(0x9b9b9b), 0.21);
-      bucket = { group, color, motion, airStream, spans: [], spanCount: 0 };
+      bucket = { group, color, motion, airStream, silencer, spans: [], spanCount: 0 };
       this.pending.set(key, bucket);
     }
 
@@ -105,19 +127,17 @@ export class RouteSolids {
     // schematic height; runs with no dimensions get a schematic diameter.
     const radius = (route.diameterM ?? (route.kind === "duct" ? 0.125 : 0.032)) / 2;
     const width = route.kind === "duct" && !route.diameterM ? route.widthM : undefined;
-    const geometry = width
+    const parts = silencer ? silencerParts(length) : [width
       ? new THREE.BoxGeometry(width, length, Math.min(width, 0.15))
-      : new THREE.CylinderGeometry(radius, radius, length, 10, 1);
+      : new THREE.CylinderGeometry(radius, radius, length, 10, 1)];
     const direction = route.flowDirection === "reverse" ? -1 : 1;
     // Repeat the cue more closely on short terminals. All spans in a run share the
     // same scale and arc length, including spans on another floor.
     const repeat = motion ? Math.min(FLOW_MOTION[motion].repeatM, Math.max(0.12, routeLength / 1.35)) : 1;
     const cyclesPerMetre = direction / repeat;
-    if (motion) this.setProgress(geometry, (y) => cyclesPerMetre * (distance + length / 2 + y));
-
     // Join circular spans only within one semantic floor so the elbow cannot bridge an explode
     // gap. The pulse uses the exact same progress at both sides of the join.
-    if (join && !width) {
+    if (join && !width && !silencer) {
       const elbow = new THREE.SphereGeometry(radius, 10, 6);
       if (motion) this.setProgress(elbow, () => cyclesPerMetre * distance);
       elbow.translate(...a);
@@ -126,9 +146,14 @@ export class RouteSolids {
     const start = new THREE.Vector3(...a);
     const end = new THREE.Vector3(...b);
     const axis = end.clone().sub(start).normalize();
-    geometry.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(UP, axis));
-    geometry.translate(...start.add(end).multiplyScalar(0.5).toArray());
-    bucket.spans.push(geometry);
+    const rotation = new THREE.Quaternion().setFromUnitVectors(UP, axis);
+    const centre = start.add(end).multiplyScalar(0.5);
+    for (const part of parts) {
+      if (motion) this.setProgress(part, (y) => cyclesPerMetre * (distance + length / 2 + y));
+      part.applyQuaternion(rotation);
+      part.translate(centre.x, centre.y, centre.z);
+      bucket.spans.push(part);
+    }
     bucket.spanCount++;
   }
 
@@ -168,7 +193,9 @@ export class RouteSolids {
       bucket.spans.forEach((span) => span.dispose());
       if (!geometry) continue;
       geometry.computeBoundingBox();
-      const material = new THREE.MeshStandardMaterial({ color: bucket.color, roughness: 0.72 });
+      const material = new THREE.MeshStandardMaterial(bucket.silencer
+        ? { vertexColors: true, roughness: 0.50, metalness: 0.25 }
+        : { color: bucket.color, roughness: 0.72 });
       const pulse = bucket.motion && bucket.airStream ? AIR_STREAM_STYLE[bucket.airStream].pulse : undefined;
       if (bucket.motion) {
         const { cyclesPerSecond, shader: glow } = FLOW_MOTION[bucket.motion];
@@ -200,6 +227,7 @@ totalEmissiveRadiance += ${pulse !== undefined ? "vhRoutePulseColor" : "mix(diff
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = `vh-tube-${key}`;
       mesh.userData.vhRouteSpanCount = bucket.spanCount;
+      if (bucket.silencer) mesh.userData.vhDuctFitting = "silencer";
       if (bucket.airStream) mesh.userData.vhAirStream = bucket.airStream;
       if (pulse !== undefined) mesh.userData.vhRoutePulseColor = pulse;
       // The house uses semantic pickables and the route editor's existing point/path targets.

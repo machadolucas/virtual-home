@@ -522,6 +522,7 @@ export function routeWrite(route: RouteSave): Record<string, unknown> {
     system: route.system,
     medium: route.medium ?? mediumForSystem(route.system, null),
     airStream: route.airStream,
+    ductFitting: route.ductFitting,
     systemId: route.systemId ?? null,
     nominalSize: route.nominalSize ?? null,
     diameterM: route.diameterM ?? null,

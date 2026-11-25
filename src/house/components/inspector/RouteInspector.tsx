@@ -3,6 +3,7 @@ import { requestEditSwitch } from "../edit/confirmSwitch";
 import { useState } from "react";
 import { Archive, PencilLine, SquarePen, Trash2, X } from "lucide-react";
 import { polylineLength } from "@/house/model/geometry2d";
+import { DUCT_FITTING_LABELS } from "@/domain/ductFitting";
 import { AIR_STREAM_STYLE, classifyAirStream } from "@/domain/airStream";
 import { MEDIUM_LABELS } from "@/features/projects/infraMedium";
 import { isRouteVisible } from "@/house/model/routeVisibility";
@@ -93,6 +94,7 @@ export function RouteInspector({ routeId }: { routeId: RouteId }) {
         <Row label="Confidence" value={route.certainty} />
         <Row label="Lifecycle" value={route.lifecycle} />
         {airStream ? <Row label="Air stream" value={AIR_STREAM_STYLE[airStream].label} /> : null}
+        {route.ductFitting ? <Row label="Inline fitting" value={DUCT_FITTING_LABELS[route.ductFitting]} /> : null}
         <Row label="Service status" value={
           route.flowState === "active" ? "In service" : route.flowState === "inactive" ? "Out of service" : "Unknown"
         } />

@@ -125,6 +125,7 @@ export function collectInfrastructure(db: Db): DatasetRows {
       is_estimated: r.isEstimated ? 1 : 0,
       lifecycle: r.lifecycle,
       air_stream: r.airStream,
+      duct_fitting: r.ductFitting,
       flow_direction: r.flowDirection,
       flow_basis: r.flowBasis,
       flow_state: r.flowState,

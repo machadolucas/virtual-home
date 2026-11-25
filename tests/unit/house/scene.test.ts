@@ -605,6 +605,55 @@ describe("routes (fixture)", () => {
     layer.dispose();
   });
 
+  it("draws a silencer body between two collars with one continuous airflow span", () => {
+    const { index, clip } = buildScene(FIXTURE_DIR);
+    const layer = new RouteLayer(index, clip);
+    const air = route({
+      points: [[1, 1.5, 1], [1.6, 1.5, 1]], segments: [{ floorId: "f-lower", roomId: "r-l-a" }],
+      medium: "supply_air", ductFitting: "silencer", flowState: "active",
+      flowDirection: "reverse", flowBasis: "declared",
+    });
+    const casing = () => index.overlay.floorGroups.get("f-lower")!.children.find(
+      (node) => node.userData.vhDuctFitting === "silencer",
+    ) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> | undefined;
+    layer.set([air], { tubes: true });
+    const mesh = casing()!;
+    expect(mesh.userData.vhRouteSpanCount).toBe(1);
+    expect(mesh.userData.vhRoutePulseColor).toBe(0xcafa83);
+    expect(mesh.material.clippingPlanes).toBe(clip.ensure("f-lower"));
+    const positions = mesh.geometry.getAttribute("position");
+    const phases = mesh.geometry.getAttribute("vhRouteDistance");
+    const colors = mesh.geometry.getAttribute("color");
+    expect(mesh.material.vertexColors).toBe(true);
+    const radius = (i: number) => Math.hypot(positions.getY(i) - 1.5, positions.getZ(i) - 1);
+    const color = (i: number) => new THREE.Color(colors.getX(i), colors.getY(i), colors.getZ(i)).getHex();
+    const at = (x: number) => Array.from({ length: positions.count }, (_, i) => i)
+      .filter(i => Math.abs(positions.getX(i) - x) < 1e-5);
+    expect(Math.max(...at(1).map(radius))).toBeCloseTo(.105);
+    expect(Math.max(...at(1.065).map(radius))).toBeCloseTo(.130);
+    expect(Math.max(...at(1.6).map(radius))).toBeCloseTo(.105);
+    expect(new Set(at(1).map(color))).toEqual(new Set([0x69757e]));
+    expect(new Set(at(1.065).map(color))).toEqual(new Set([0x69757e, 0xa2aab0]));
+    for (const i of at(1.065)) expect(phases.getX(i)).toBeCloseTo(-.065 / (.6 / 1.35));
+    expect(phases.getX(at(1.6)[0]!)).toBeCloseTo(-1.35);
+    expect(layer.tick(1 / 60, false)).toBe(false);
+    expect(layer.tick(1 / 60, true)).toBe(true);
+    const floor = index.overlay.floorGroups.get("f-lower")!;
+    floor.visible = false;
+    expect(layer.tick(1 / 60, true)).toBe(false);
+    floor.visible = true;
+
+    layer.set([{ ...air, flowState: "inactive" }], { tubes: true });
+    expect(casing()?.geometry.getAttribute("vhRouteDistance")).toBeUndefined();
+    expect(layer.tick(1 / 60, true)).toBe(false);
+    layer.set([air], { tubes: false });
+    expect(casing()).toBeUndefined();
+    layer.set([{ ...air, points: [[1, 1.5, 1], [1.3, 1.5, 1], [1.6, 1.5, 1]], segments: [...air.segments, ...air.segments] }], { tubes: true });
+    expect(casing()).toBeUndefined();
+    expect(layer.tick(1 / 60, true)).toBe(true);
+    layer.dispose();
+  });
+
   it("keeps a short reversed air cue continuous across a floor boundary", () => {
     const built = buildScene(FIXTURE_DIR);
     const layer = new RouteLayer(built.index, built.clip);

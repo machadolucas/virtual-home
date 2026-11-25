@@ -201,6 +201,7 @@ export function listRoutes(db: Db, modelId: string, index: ManifestIndex): Route
 
       medium: row.medium,
       airStream: row.airStream,
+      ductFitting: row.ductFitting,
       nominalSize: row.nominalSize,
       systemId: row.systemId,
       isEstimated: row.isEstimated,

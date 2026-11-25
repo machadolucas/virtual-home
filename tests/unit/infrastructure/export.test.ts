@@ -99,6 +99,31 @@ describe("JSON export", () => {
     expect(routes[0]?.points[1]?.floor_id).toBe("f-upper");
   });
 
+  it("exports an inline fitting independently of the nominal size in JSON and CSV", async () => {
+    const result = await PUT_ROUTE(jsonRequest(`/api/house-model/${h.modelId}/routes`, "PUT", {
+      fingerprint: h.fingerprint, viewMode: "normal",
+      route: {
+        name: "Inline silencer", medium: "extract_air", ductFitting: "silencer",
+        certainty: "observed", lifecycle: "installed",
+        points: [
+          { position: [2, 1.4, 2], floorId: "f-lower", roomId: "r-l-a" },
+          { position: [2, 1.4, 2.6], floorId: "f-lower", roomId: "r-l-a" },
+        ],
+      },
+    }), ctx({ modelId: h.modelId }));
+    expect(result.status).toBe(200);
+    const json = await bodyOf<ExportEnvelope>(await request());
+    expect(json.datasets.infraRoutes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "Inline silencer", duct_fitting: "silencer", nominal_size: null }),
+      expect.objectContaining({ name: "Riser to the upper floor", duct_fitting: null }),
+    ]));
+    const csv = await (await request("?format=csv&dataset=infraRoutes")).text();
+    const [header, ...rows] = csv.trim().split("\r\n");
+    const fitting = header!.split(",").indexOf("duct_fitting");
+    expect(fitting).toBeGreaterThan(-1);
+    expect(rows.find((line) => line.includes("Inline silencer"))?.split(",")[fitting]).toBe("silencer");
+  });
+
   it("records the run: who exported what, and how many rows", async () => {
     await request();
     const runs = h.handle.db.select().from(exportRun).all();

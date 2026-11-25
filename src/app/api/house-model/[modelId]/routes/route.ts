@@ -34,7 +34,7 @@ import {
   system as systemTable,
 } from "@/db/schema";
 import { airStreamFitsMedium } from "@/domain/airStream";
-import { mediumForSystem, systemOfMedium } from "@/features/projects/infraMedium";
+import { kindOfMedium, mediumForSystem, systemOfMedium } from "@/features/projects/infraMedium";
 import { formatNominalSize } from "@/features/projects/nominalSize";
 import { ROUTE_PARTIAL_FIELDS, RoutePutSchema } from "@/features/projects/wire";
 import { authed, badRequest, conflict, HttpError } from "@/server/api/handler";
@@ -162,6 +162,7 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
           id: infraRoute.id,
           medium: infraRoute.medium,
           airStream: infraRoute.airStream,
+          ductFitting: infraRoute.ductFitting,
           nominalSize: infraRoute.nominalSize,
           flowDirection: infraRoute.flowDirection,
           flowBasis: infraRoute.flowBasis,
@@ -187,6 +188,13 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
   const previousAirStream = existing?.airStream;
   const airStream = r.airStream !== undefined ? r.airStream
     : previousAirStream && airStreamFitsMedium(previousAirStream, medium) ? previousAirStream : null;
+
+  const isDuct = kindOfMedium(medium) === "duct";
+  if (r.ductFitting && !isDuct)
+    throw badRequest("duct_fitting_medium_mismatch", { medium, ductFitting: r.ductFitting });
+  // Legacy edits omit the field. Null explicitly clears it, as does choosing a non-duct medium.
+  const ductFitting = isDuct && r.ductFitting === undefined ? (existing?.ductFitting ?? null)
+    : (r.ductFitting ?? null);
 
   const today = householdToday(db);
   // A removed run with no removal date cannot answer "was it there then?"; stamp today rather than
@@ -226,6 +234,7 @@ export const PUT = authed<Ctx>(async (session, req, ctx) => {
     systemId: r.systemId ?? null,
     medium,
     airStream,
+    ductFitting,
     nominalSize,
     fromEndpointId: r.fromEndpointId ?? null,
     toEndpointId: r.toEndpointId ?? null,

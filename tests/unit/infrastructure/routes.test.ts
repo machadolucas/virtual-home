@@ -162,6 +162,32 @@ describe("PUT routes", () => {
     expect((await bodyOf<{ route: RouteDto }>(cleared)).route.airStream).toBeNull();
   });
 
+  it("retains optional silencers through old and new edits without assigning a nominal size", async () => {
+    const duct = { system: "ventilation", medium: "supply_air" };
+    const created = await put(routeBody({ ...duct, ductFitting: "silencer" }));
+    expect(created.status).toBe(200);
+    const { route } = await bodyOf<{ route: RouteDto }>(created);
+    expect(route).toMatchObject({ ductFitting: "silencer", nominalSize: null });
+    expect(route.diameterM).toBeUndefined();
+    expect(routeWrite(route)).toMatchObject({ ductFitting: "silencer" });
+
+    const renamed = await put(routeBody({ ...duct, id: route.id, name: "Renamed by older client" }));
+    expect(renamed.status).toBe(200);
+    const read = await bodyOf<{ routes: RouteDto[] }>(await list());
+    expect(read.routes[0]).toMatchObject({ ductFitting: "silencer", name: "Renamed by older client" });
+
+    const invalid = await put(routeBody({ id: route.id, ductFitting: "silencer" }));
+    expect(invalid.status).toBe(400);
+    expect(await bodyOf(invalid)).toMatchObject({ error: "duct_fitting_medium_mismatch" });
+    const cleared = await put(routeBody({ ...duct, id: route.id, ductFitting: null }));
+    expect(cleared.status).toBe(200);
+    expect((await bodyOf<{ route: RouteDto }>(cleared)).route.ductFitting).toBeNull();
+    expect((await put(routeBody({ ...duct, id: route.id, ductFitting: "silencer" }))).status).toBe(200);
+    const converted = await put(routeBody({ id: route.id, medium: "cold_water" }));
+    expect(converted.status).toBe(200);
+    expect((await bodyOf<{ route: RouteDto }>(converted)).route.ductFitting).toBeNull();
+  });
+
   it("accepts retained out-of-service runs and rejects contradictory flow fields", async () => {
     const rejected = await put(routeBody({ flowDirection: "forward" }));
     expect(rejected.status).toBe(400);

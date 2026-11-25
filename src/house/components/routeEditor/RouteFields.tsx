@@ -9,6 +9,7 @@ import { DocumentLink } from "@/features/documents/DocumentViewer";
  * immediately) and reverted to the previous route on failure, because a change that looks saved
  * and is not is worse than one that visibly snaps back.
  */
+import { DUCT_FITTING_LABELS, type DuctFitting } from "@/domain/ductFitting";
 import { airStreamFitsMedium } from "@/domain/airStream";
 import { FLOW_STATES, type FlowBasis, type FlowDirection, type FlowState } from "@/domain/routeFlow";
 import { useEffect, useState } from "react";
@@ -60,6 +61,7 @@ const LIFECYCLE_HELP: Record<InfraLifecycle, string> = {
 interface Draft {
   name: string;
   medium: InfraMedium;
+  ductFitting: DuctFitting | null;
   certainty: InfraCertainty;
   lifecycle: InfraLifecycle;
   flowState: FlowState;
@@ -82,6 +84,7 @@ function draftOf(route: Route & Partial<RouteDto>): Draft {
   return {
     name: route.name,
     medium: route.medium ?? "cold_water",
+    ductFitting: route.ductFitting ?? null,
     certainty: route.certainty,
     lifecycle: route.lifecycle,
     flowState: route.flowState ?? "unknown",
@@ -179,6 +182,7 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
       airStream: route.airStream && airStreamFitsMedium(route.airStream, next.medium) ? route.airStream : undefined,
       system: systemOfMedium(next.medium),
       kind: kindOfMedium(next.medium),
+      ductFitting: kindOfMedium(next.medium) === "duct" ? next.ductFitting : null,
       certainty: next.certainty,
       lifecycle: next.lifecycle,
       flowState: next.lifecycle === "installed" ? next.flowState : "unknown",
@@ -278,8 +282,9 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
             value={draft.medium}
             onValueChange={(value) => {
               const medium = value as InfraMedium;
-              set("medium", medium);
-              void save({ medium });
+              const ductFitting = kindOfMedium(medium) === "duct" ? draft.ductFitting : null;
+              setDraft({ ...draft, medium, ductFitting });
+              void save({ medium, ductFitting });
             }}
             options={MEDIA.map((value) => ({ value, label: MEDIUM_LABELS[value] }))}
           />
@@ -308,6 +313,23 @@ export function RouteFields({ routeId }: { routeId: RouteId }) {
           />
         </label>
       </div>
+
+      {kindOfMedium(draft.medium) === "duct" && (
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="text-ink-2">Inline fitting</span>
+          <Select
+            selectSize="sm"
+            value={draft.ductFitting ?? "none"}
+            onValueChange={(value) => {
+              const ductFitting = value === "silencer" ? value : null;
+              set("ductFitting", ductFitting);
+              void save({ ductFitting });
+            }}
+            options={[{ value: "none", label: "None" }, { value: "silencer", label: DUCT_FITTING_LABELS.silencer }]}
+          />
+          {draft.ductFitting && <span className="text-[11px] text-ink-3">A two-point run shows the fitting at schematic size.</span>}
+        </label>
+      )}
 
       <fieldset className="flex flex-col gap-1">
         <legend className="text-xs text-ink-2">Confidence</legend>

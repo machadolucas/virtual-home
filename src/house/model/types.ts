@@ -8,6 +8,7 @@
  * user text). The aliases still document intent at every signature. Deviation recorded in
  * `docs/model-contract.md`.
  */
+import type { DuctFitting } from "@/domain/ductFitting";
 import type { ExteriorAirStream } from "@/domain/airStream";
 import type { FlowBasis, FlowDirection, FlowState } from "@/domain/routeFlow";
 import type { InfraMedium } from "@/db/schema/infrastructure";
@@ -275,6 +276,7 @@ export interface Route {
   flowDirection?: FlowDirection;
   flowBasis?: FlowBasis;
   airStream?: ExteriorAirStream | null;
+  ductFitting?: DuctFitting | null;
   flowState?: FlowState;
   needsReconciliation?: boolean;
   widthM?: number;

@@ -8,6 +8,7 @@
  * `is_estimated` (default 1) plus `certainty` and `lifecycle` say how much a route can be trusted
  * and whether it actually exists yet.
  */
+import type { DuctFitting } from "@/domain/ductFitting";
 import type { ExteriorAirStream } from "@/domain/airStream";
 import type { FlowBasis, FlowDirection, FlowState } from "@/domain/routeFlow";
 import { sql } from "drizzle-orm";
@@ -50,6 +51,8 @@ export const infraRoute = sqliteTable(
     medium: text("medium").$type<InfraMedium>().notNull(),
     /** Explicit outdoor stream. Null air media use the legacy room stream for their medium. */
     airStream: text("air_stream").$type<ExteriorAirStream>(),
+    /** An optional inline fitting. Schematic casing geometry does not define nominal size. */
+    ductFitting: text("duct_fitting").$type<DuctFitting>(),
     /** "DN20", "Cat6a". */
     nominalSize: text("nominal_size"),
     fromEndpointId: text("from_endpoint_id").references(
