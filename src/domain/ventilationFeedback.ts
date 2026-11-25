@@ -8,7 +8,8 @@ const registryId = z.string().trim().min(1).max(250).nullable();
 export const ventilationFeedbackSchema = z.object({
   supply: registryId,
   extract: registryId,
-  staleAfterSeconds: z.number().int().min(30).max(86_400),
+  // Change-only sensors can keep HA's report time unchanged while the source is readable.
+  staleAfterSeconds: z.union([z.literal(0), z.number().int().min(30).max(86_400)]),
 }).refine(({ supply, extract }) => !supply || supply !== extract, {
   message: "Supply and extract require separate sensor entities.",
 });
@@ -54,7 +55,8 @@ export function classifyVentilationFeedback(
   }
   if (reading.state === "unavailable") return { status: "unavailable" };
   if (reading.state === "unknown") return { status: "unknown" };
-  if (now - (reading.lastReported ?? reading.lastUpdated) >= config.staleAfterSeconds * 1000) {
+  const maxReportAgeMs = config.staleAfterSeconds * 1000;
+  if (maxReportAgeMs > 0 && now - (reading.lastReported ?? reading.lastUpdated) >= maxReportAgeMs) {
     return { status: "stale" };
   }
 

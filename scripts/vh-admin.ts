@@ -55,7 +55,7 @@ const USAGE = `Usage: pnpm vh-admin <command> [args]
   remove-passkeys <username>        delete every passkey of one user (sessions are kept)
   ventilation-feedback              show configured supply and extract sensors and feedback
   ventilation-feedback set <supply-registry-id|none> <extract-registry-id|none> [stale-seconds]
-                                    configure independent ventilation feedback sensors
+                                    configure fan feedback (0 for change-only sensors)
   ha-token-check                    GET \${HA_URL}/api/ with the configured token (status only)
   model-import <dir>                validate and install a house-model package
   doctor                            environment, permissions, integrity, migrations, HA, launchd, disk
@@ -117,7 +117,7 @@ async function provisioning() {
 
 async function cmdVentilationFeedback(env: Env, args: string[]): Promise<void> {
   if (args.length && (args[0] !== "set" || args.length < 3 || args.length > 4)) {
-    throw new Error("Use ventilation-feedback set <supply-registry-id|none> <extract-registry-id|none> [stale-seconds].");
+    throw new Error("Use ventilation-feedback set <supply-registry-id|none> <extract-registry-id|none> [stale-seconds]. Use 0 for change-only sensors.");
   }
   const handle = openConfiguredDb(env);
   try {
@@ -128,10 +128,12 @@ async function cmdVentilationFeedback(env: Env, args: string[]): Promise<void> {
     const { classifyVentilationFeedback, VENTILATION_FANS } = await import("@/domain/ventilationFeedback");
 
     const saved = readVentilationFeedback(handle.db);
+    const staleSeconds = args[3]?.trim();
+    if (staleSeconds === "") throw new Error("Supply a report age in seconds or omit the argument.");
     const config = args.length ? configureVentilationFeedback(handle, {
       supply: args[1] === "none" ? null : args[1],
       extract: args[2] === "none" ? null : args[2],
-      staleAfterSeconds: args[3] === undefined ? saved.staleAfterSeconds : Number(args[3]),
+      staleAfterSeconds: staleSeconds === undefined ? saved.staleAfterSeconds : Number(staleSeconds),
     }) : saved;
     const entities = ventilationEntities(handle.db, config);
     const states = readSnapshot(handle.db, entities.map(({ entityId }) => entityId));

@@ -409,13 +409,16 @@ pnpm vh-admin ventilation-feedback set <supply-registry-id> <extract-registry-id
 pnpm vh-admin ventilation-feedback
 ```
 
-The optional final argument to `set` sets the allowed time since the last HA report in seconds
-(default 180). Open or reload House after changing the configuration. The worker picks up changes
-without a restart. The setting lives in the household database.
+The optional final argument to `set` sets the allowed age of the last HA report in seconds
+(default 180). Pass `0` for change-only sensors that retain old report timestamps while the value
+holds steady. This uses recent successful reads to confirm the feedback connection. The readback
+shows `"staleAfterSeconds": 0` and keeps the original HA report timestamp. Open or reload House
+after changing the configuration. The worker picks up changes without a restart. The setting lives
+in the household database.
 
-The worker streams changes through the shared HA cache and SSE stream. It also reads the two
-bound states from HA about every 20 seconds to refresh `last_reported` even when the percentage
-holds steady. Feedback pauses for a lost connection, a stale or unavailable reading, or a measured
-0%. The legend distinguishes these cases. Supply controls the outdoor intake and room supply
-bands. Extract controls room extract and outdoor exhaust. Percentages scale the animation rate
-and represent fan output. Reduced motion pauses the animation while leaving feedback readable.
+The worker streams changes through the shared HA cache and SSE stream and reads the bound states
+from HA about every 20 seconds. Feedback pauses for a lost connection, a stale or unavailable
+reading, or a measured 0%. The legend distinguishes these cases. Supply controls the outdoor
+intake and room supply bands. Extract controls room extract and outdoor exhaust. Percentages
+scale the animation rate and represent fan output. Reduced motion pauses the animation while
+leaving feedback readable.
