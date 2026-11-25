@@ -34,7 +34,8 @@ import { applyVisibility } from "@/house/scene/applyVisibility";
 import { applyExplode } from "@/house/scene/explode";
 import { defaultSymbol, isPlacementSymbol } from "@/house/scene/symbols";
 import { highlightTargets } from "@/house/scene/highlight";
-import { inventoryOf } from "@/house/scene/SceneIndex";
+import { inventoryOf, type SceneIndex } from "@/house/scene/SceneIndex";
+import { WallSectionCaps } from "@/house/scene/wallSectionCaps";
 import { classifyState, haStore, markerStateKey } from "@/house/store/haStore";
 import type { HouseStore } from "@/house/store/createHouseStore";
 import { useHouseRuntime } from "./useHouseStore";
@@ -50,6 +51,23 @@ export function useSceneSync(): void {
   // ---- visibility -------------------------------------------------------
   useEffect(() => {
     const wallCentresByFloor = new Map<string, Map<string, [number, number, number]>>();
+
+    let sectionIndex: SceneIndex | null = null;
+    let caps: WallSectionCaps | null = null;
+
+    const setFocusCuts = (cuts: ReadonlyMap<string, number>, refreshCaps: boolean) => {
+      const { index, clip } = runtime;
+      if (!index || !clip) return false;
+      if (sectionIndex !== index) {
+        refreshCaps = true;
+        caps?.dispose();
+        sectionIndex = index;
+        caps = new WallSectionCaps(index, clip);
+      }
+      const wallsChanged = clip.setFocusCuts(cuts);
+      const capsChanged = (refreshCaps || wallsChanged) && (caps?.update(cuts) ?? false);
+      return capsChanged || wallsChanged;
+    };
 
     const resolveFocus = (s: HouseStore) =>
       runtime.manifest
@@ -140,14 +158,14 @@ export function useSceneSync(): void {
             cuts.set(sid, focusCutYForSurface(manifest, sid, cap, floorY));
           }
         }
-        const wallsChanged = runtime.clip.setFocusCuts(cuts);
+        const wallsChanged = setFocusCuts(cuts, clearWhenInactive);
         if (wallsChanged) { runtime.occlusionRevision++; runtime.invalidate(); }
         return;
       }
       const focuses = contextualRoomFocuses(s, resolvedFocus);
       if (s.wallMode !== "contextual" || focuses.length === 0 || !runtime.camera3d) {
         if (clearWhenInactive) {
-          const wallsChanged = runtime.clip.setFocusCuts(new Map());
+          const wallsChanged = setFocusCuts(new Map(), true);
           if (wallsChanged) { runtime.occlusionRevision++; runtime.invalidate(); }
         }
         return;
@@ -178,7 +196,7 @@ export function useSceneSync(): void {
           }
         }
       }
-      const wallsChanged = runtime.clip.setFocusCuts(cuts);
+      const wallsChanged = setFocusCuts(cuts, clearWhenInactive);
       if (wallsChanged) { runtime.occlusionRevision++; runtime.invalidate(); }
     };
 
@@ -235,6 +253,7 @@ export function useSceneSync(): void {
     );
     return () => {
       unsubscribe();
+      caps?.dispose();
       runtime.refreshFocusClipping = null;
     };
   }, [runtime, store]);
@@ -272,6 +291,7 @@ export function useSceneSync(): void {
       clip.setCutAll(s.cut, (group) =>
         applied.offsets.get(group) ?? explodeOffset(order, group, s.explode.enabled ? s.explode.gap : 0),
       );
+      runtime.refreshFocusClipping?.();
       runtime.invalidate();
     };
     apply(store.getState());

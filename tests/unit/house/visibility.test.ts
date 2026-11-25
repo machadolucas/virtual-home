@@ -69,13 +69,17 @@ describe("computeVisibility (fixture)", () => {
     expect(isGroupVisible(index, plan, "f-lower", focused)).toBe(true);
   });
 
-  it("hides complete door geometry in both cut modes and restores it with walls up", () => {
+  it("hides door leaves in both cut modes and restores them with walls up", () => {
     const doors = [...index.elements.values()].filter((element) => element.kind === "door");
     expect(doors.length).toBeGreaterThan(0);
     for (const wallMode of ["cut", "contextual"] as const) {
       const plan = computeVisibility(index, baseInput({ wallMode }, inventory, loadedAssetIds));
-      for (const door of doors) for (const ref of door.nodeRefs)
-        expect(plan.nodes.get(nodeKey(ref.assetId, ref.nodeName))).toBe(false);
+      for (const door of doors) for (const ref of door.nodeRefs) {
+        const surfaceId = index.surfaceByNode.get(nodeKey(ref.assetId, ref.nodeName));
+        const role = surfaceId ? index.surfaces.get(surfaceId)?.role : undefined;
+        const visible = plan.nodes.get(nodeKey(ref.assetId, ref.nodeName)) !== false;
+        expect(visible).toBe(role !== "door-leaf");
+      }
     }
     for (const wallMode of ["up", "closed"] as const) {
       const plan = computeVisibility(index, baseInput({ wallMode }, inventory, loadedAssetIds));
@@ -96,7 +100,7 @@ describe("computeVisibility (fixture)", () => {
       const plan = computeVisibility(local, baseInput({ wallMode }, inventory, loadedAssetIds));
       for (const ref of local.elements.get(reveal.elementId!)!.nodeRefs) {
         const decision = plan.nodes.get(nodeKey(ref.assetId, ref.nodeName));
-        if (ref.nodeName === reveal.elementId && threshold.nodeRefs.some((floorRef) => floorRef.assetId === ref.assetId)) {
+        if (ref.nodeName !== "s-o-l-door-leaf" && threshold.nodeRefs.some((floorRef) => floorRef.assetId === ref.assetId)) {
           expect(decision).not.toBe(false);
         } else {
           expect(decision).toBe(false);
@@ -105,12 +109,11 @@ describe("computeVisibility (fixture)", () => {
       for (const ref of threshold.nodeRefs) {
         expect(plan.nodes.get(nodeKey(ref.assetId, ref.nodeName))).not.toBe(false);
       }
-      for (const id of ["s-o-l-door-reveal", "s-o-l-door-leaf"]) {
-        for (const ref of local.surfaces.get(id)!.nodeRefs) {
-          expect(plan.nodes.get(nodeKey(ref.assetId, ref.nodeName))).toBe(false);
-        }
-      }
+      const leaf = local.surfaces.get("s-o-l-door-leaf")!;
+      for (const ref of leaf.nodeRefs) expect(plan.nodes.get(nodeKey(ref.assetId, ref.nodeName))).toBe(false);
     }
+    const door = local.elements.get(reveal.elementId!)!;
+    delete door.wallId;
     const cuts = focusCutSurfaceIds(local, ["s-w-l-ab--r-l-a"]);
     expect(cuts).toContain(reveal.id);
     expect(cuts).not.toContain(threshold.id);

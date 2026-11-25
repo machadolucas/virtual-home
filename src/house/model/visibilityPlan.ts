@@ -179,21 +179,21 @@ export function computeVisibility(index: ManifestIndex, v: VisibilityInput): Vis
     }
   }
 
-  // In cutaway, hide door leaves and reveals while preserving walkable thresholds.
-  // A threshold can live under the door group, so keep that group on its owning asset.
+  // In cutaway, hide door leaves while keeping solid reveals and thresholds.
+  // Reveals and thresholds can live under the door group on the same asset.
   if (v.wallMode === "cut" || v.wallMode === "contextual") {
     for (const element of index.elements.values()) {
       if (element.kind !== "door") continue;
-      const thresholdAssets = new Set<AssetId>();
+      const openingAssets = new Set<AssetId>();
       for (const sid of index.surfacesByElement.get(element.id) ?? []) {
         const surface = index.surfaces.get(sid);
         for (const ref of surface?.nodeRefs ?? []) {
-          if (surface?.kind === "floor") thresholdAssets.add(ref.assetId);
+          if (surface?.kind === "floor" || surface?.role === "reveal") openingAssets.add(ref.assetId);
           else nodes.set(nodeKey(ref.assetId, ref.nodeName), false);
         }
       }
       for (const ref of element.nodeRefs) {
-        if (!thresholdAssets.has(ref.assetId)) nodes.set(nodeKey(ref.assetId, ref.nodeName), false);
+        if (!openingAssets.has(ref.assetId)) nodes.set(nodeKey(ref.assetId, ref.nodeName), false);
       }
     }
   }

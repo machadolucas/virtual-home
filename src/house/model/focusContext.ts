@@ -6,7 +6,7 @@
  */
 import { boxCenter, boxSize, roomBox } from "./framingBoxes";
 import type { ManifestIndex } from "./manifestIndex";
-import type { BuildingId, FloorId, Placement, RoomId, Selection, SurfaceId, Vec3 } from "./types";
+import type { BuildingId, Element, FloorId, Placement, RoomId, Selection, SurfaceId, Vec3 } from "./types";
 
 export interface FocusContext {
   floorId: FloorId | null;
@@ -147,6 +147,12 @@ export function cameraFacingRoomWalls(
   return hidden;
 }
 
+/** Older model packages recorded the host wall only inside the opening's properties. */
+export function openingWallId(opening: Element): string | undefined {
+  const nested = opening.properties?.wallId;
+  return opening.wallId ?? (typeof nested === "string" ? nested : undefined);
+}
+
 /**
  * Expand camera-facing wall faces to the rest of the same physical wall and its attached openings.
  * This keeps exterior skins, wall-top/trim bands, door leaves and window reveals from floating
@@ -164,7 +170,8 @@ export function focusCutSurfaceIds(
 
   const cutElements = new Set(wallElements);
   for (const element of index.elements.values()) {
-    if (element.wallId && wallElements.has(element.wallId)) cutElements.add(element.id);
+    const wallId = openingWallId(element);
+    if (wallId && wallElements.has(wallId)) cutElements.add(element.id);
   }
 
   const ids = new Set<SurfaceId>(cameraFacingWallIds);
