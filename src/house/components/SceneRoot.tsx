@@ -27,7 +27,7 @@ import { Highlighter, highlightTargets } from "@/house/scene/highlight";
 import { loadTier, planTiers, scanTier, structureTier } from "@/house/scene/loadAssets";
 import { MarkerLayer } from "@/house/scene/markers";
 import { auditMaterials } from "@/house/scene/materialAudit";
-import { CLICK_SLOP_MOUSE, CLICK_SLOP_TOUCH, Picker } from "@/house/scene/picker";
+import { CLICK_SLOP_MOUSE, CLICK_SLOP_TOUCH, Picker, type PickResult } from "@/house/scene/picker";
 import { RouteLayer } from "@/house/scene/routes";
 import { createSceneIndex, indexAsset, makeNonPickable } from "@/house/scene/SceneIndex";
 import type { Selection } from "@/house/model/types";
@@ -417,10 +417,11 @@ export function SceneRoot() {
 export { OVERVIEW_PRESET };
 
 function selectionOf(
-  hit: { surfaceId: string | null; roomId: string | null; elementId: string | null } | null,
+  hit: Pick<PickResult, "surfaceId" | "roomId" | "elementId" | "object"> | null,
   current: Selection | null,
 ): Selection | null {
   if (!hit) return null;
+  if (typeof hit.object.userData.vhPlacementId === "string") return { kind: "equipment", id: hit.object.userData.vhPlacementId };
   // Clicking a room's face selects the room; clicking it again drills into the surface.
   if (hit.roomId && !(current?.kind === "room" && current.id === hit.roomId))
     return { kind: "room", id: hit.roomId };
@@ -430,9 +431,10 @@ function selectionOf(
 }
 
 function hoverSelectionOf(
-  hit: { surfaceId: string | null; roomId: string | null } | null,
+  hit: Pick<PickResult, "surfaceId" | "roomId" | "object"> | null,
 ): Selection | null {
   if (!hit) return null;
+  if (typeof hit.object.userData.vhPlacementId === "string") return { kind: "equipment", id: hit.object.userData.vhPlacementId };
   if (hit.surfaceId) return { kind: "surface", id: hit.surfaceId };
   if (hit.roomId) return { kind: "room", id: hit.roomId };
   return null;

@@ -68,6 +68,7 @@ export function disposeViewer(index: SceneIndex, scene: THREE.Scene | null): Dis
   index.overlay.floorGroups.clear();
 
   index.assets.clear();
+  index.placementBodies.clear();
   index.surfaceNode.clear();
   index.surfaceMesh.clear();
   index.elementGroups.clear();

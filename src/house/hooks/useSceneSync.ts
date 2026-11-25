@@ -31,6 +31,7 @@ import { computeVisibility, isGroupVisible } from "@/house/model/visibilityPlan"
 import type { Placement } from "@/house/model/types";
 import { applyColors } from "@/house/scene/applyColors";
 import { applyVisibility } from "@/house/scene/applyVisibility";
+import { applyPlacementBodies, hasPlacementBody } from "@/house/scene/placementBodies";
 import { applyExplode } from "@/house/scene/explode";
 import { defaultSymbol, isPlacementSymbol } from "@/house/scene/symbols";
 import { highlightTargets } from "@/house/scene/highlight";
@@ -223,6 +224,7 @@ export function useSceneSync(): void {
       ));
       for (const [group, overlay] of index.overlay.floorGroups) overlay.visible = !index.hiddenGroups.has(group);
       runtime.occlusionRevision++;
+      applyPlacementBodies(index, plan, s.placements, s.editing);
       applyVisibility(plan, index, runtime.invalidate);
       applyFocusCuts(s, true);
     };
@@ -389,7 +391,8 @@ export function useSceneSync(): void {
             ];
 
       // Hiding equipment also hides draft silhouettes for a clean model-only view.
-      const drawn = withDraft.filter(p => p.symbol === "tree" ? s.layers.trees : s.layers.equipment);
+      const drawn = withDraft.filter(p => (p.symbol === "tree" ? s.layers.trees : s.layers.equipment)
+        && !hasPlacementBody(index, p.id, p.floorId));
 
       markers.set(drawn, stateOf, groupOf, symbolOf);
       applyExplode(index, s.explode);
@@ -405,6 +408,7 @@ export function useSceneSync(): void {
         editing: s.editing,
         equipmentLayer: s.layers.equipment,
         treesLayer: s.layers.trees,
+        loaded: s.loadedAssetIds,
       }),
       () => apply(store.getState()),
       { equalityFn: shallow },

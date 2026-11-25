@@ -63,6 +63,7 @@ const ISOLATING: ReadonlySet<ViewMode> = new Set<ViewMode>(["floor", "plan", "se
 
 /** Which layer checkbox gates a whole asset, if any. Derived from the manifest, not hard-coded ids. */
 export function assetLayer(index: ManifestIndex, asset: Asset): LayerId | undefined {
+  if (asset.placementBody) return "equipment";
   if (asset.kind === "scan-reference") return "scanReferences";
   if (asset.kind === "terrain") return "yard";
   if (asset.kind === "detail") {

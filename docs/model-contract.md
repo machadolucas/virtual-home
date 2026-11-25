@@ -42,6 +42,13 @@ must not fail validation for adding a field. `src/house/model/crossref.ts` then 
 *diagnostics* rather than throwing, so a partially broken package still yields a useful setup
 state instead of a blank canvas.
 
+A floor asset can represent an existing equipment placement with optional
+`placementBody: { placementId, anchor, rotationYDeg }`. Author the GLB in site
+coordinates and give its mounting point in metres. The viewer picks the mesh as
+that placement, applies its saved position and yaw, and follows the equipment
+layer. A placement on a different floor or with an unloaded body uses its usual
+symbol. A placement ID can own one asset body.
+
 Asset **existence** is checked server-side only (the browser cannot `fs.stat`):
 `GET .../status` reports per-asset presence, and the client merges that with its own zod +
 cross-reference result.

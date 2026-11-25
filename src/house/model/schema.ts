@@ -111,6 +111,8 @@ export const AssetSchema = z.looseObject({
   path: AssetPathSchema,
   kind: AssetKindSchema,
   loadByDefault: z.boolean(),
+  /** Optional detailed body for an existing placement, authored in package coordinates. */
+  placementBody: z.object({ placementId: IdSchema, anchor: Vec3Schema, rotationYDeg: z.number() }).optional(),
   buildingId: IdSchema.optional(),
   floorId: IdSchema.optional(),
   edgesNode: z.string().nullable().optional(),

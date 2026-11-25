@@ -38,6 +38,8 @@ export interface AssetEntry {
 export interface SceneIndex {
   manifest: ManifestIndex;
   assets: Map<AssetId, AssetEntry>;
+  /** A pose below the asset root keeps physical placement separate from exploded-floor offsets. */
+  placementBodies: Map<string, { assetId: AssetId; pose: THREE.Group }>;
 
   surfaceNode: Map<SurfaceId, THREE.Object3D>;
   /** Mesh-backed surfaces only. Two surfaces of the shipped package are absent by design. */
@@ -68,6 +70,7 @@ export function createSceneIndex(manifest: ManifestIndex): SceneIndex {
   return {
     manifest,
     assets: new Map(),
+    placementBodies: new Map(),
     surfaceNode: new Map(),
     surfaceMesh: new Map(),
     elementGroups: new Map(),
@@ -203,6 +206,14 @@ export function indexAsset(index: SceneIndex, assetId: AssetId, root: THREE.Grou
     disposables: { geometries, materials },
   };
   index.assets.set(assetId, entry);
+  const binding = m.assets.get(assetId)?.placementBody;
+  if (binding) {
+    const pose = new THREE.Group();
+    pose.add(...root.children);
+    root.add(pose);
+    for (const mesh of meshes) mesh.userData.vhPlacementId = binding.placementId;
+    index.placementBodies.set(binding.placementId, { assetId, pose });
+  }
   return entry;
 }
 

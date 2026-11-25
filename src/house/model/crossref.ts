@@ -84,7 +84,14 @@ export function crossCheck(m: Manifest): Diagnostic[] {
     }
   }
 
+  const bodyPlacements = new Set<string>();
   for (const a of m.assets) {
+    if (a.placementBody) {
+      const id = a.placementBody.placementId;
+      if (!a.floorId) err("E_PLACEMENT_BODY", `equipment body ${a.id} requires a floor`, [a.id]);
+      if (bodyPlacements.has(id)) err("E_PLACEMENT_BODY", `multiple assets represent placement ${id}`, [a.id, id]);
+      bodyPlacements.add(id);
+    }
     if (!ASSET_PATH_RE.test(a.path))
       err("E_ASSET_PATH", `asset ${a.id} has an unsafe or non-glb path ${a.path}`, [a.id]);
     if (a.buildingId && !buildings.has(a.buildingId))
