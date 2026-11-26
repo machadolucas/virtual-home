@@ -875,3 +875,17 @@ on the existing MCP connection. Use the recorded model fingerprint, room, equipm
 or route ID to find the source of a correction. Edit private model sources and import a new
 validated revision through the normal installer, or update the infrastructure record when
 the error is in a route. Verify the corrected view before recording its resolution.
+
+### Spatial tools on Quest
+
+Open the House menu with grip or the wrist button. **Tabletop map** in VR brings the floor plans and yard within reach. Hold a clear spot, aim a little beyond it to set the arrival direction or use the controller stick, then release. Change floors on the panel. **Trace ventilation ducts** highlights the selected active run across the model. The miniature has its own scale. Every landing is checked in the life-size scene.
+
+**Find equipment** searches household equipment and documented infrastructure by purpose, room, category, name or model. Choose **Locate in house** to move to a clear viewing spot in VR or see the marked position in the verified MR room. If only a room is known, the headset identifies it. A valve lists downstream fixtures only when directional records support the connection.
+
+Select a placed item and open **Maintenance and parts** for its open work, recorded stock, specifications and service history. A step can be pinned beside the unit with its linked illustration. Close the menu to read it while working. Completion has a separate review and confirmation, including material use. A pinned step has no effect on the maintenance record.
+
+In aligned MR, choose **Inspect a wall patch** and point at the wall. The frame limits visible active pipes and ducts to a local volume. Select a crossing to compare centreline heights and their vertical separation. Inspect a run for its path confidence and linked installation photos, when present. The alignment residual and route confidence describe different sources of uncertainty.
+
+**Fit planner** in VR or aligned MR previews an appliance or cabinet in the current room. Set product dimensions and the opening type. Select A or B, place its outline on the floor, and adjust its heading. Drag the opening control to inspect the moving leaf or drawer. The room boundary, recorded equipment, furnishings and modeled walls constrain the clearance calculation. The displayed gap is measured across the product width beyond the fully open front, up to five metres. Choose an existing item under **Place as** when planning a replacement. **Save as preferred** records the comparison privately at the current model fingerprint. Reopen it under **Saved proposals**.
+
+In **Survey room**, acquire or reopen a room reference and choose **Review scan discrepancies**. Select a comparison to see the model and measured outlines, displacement, fit uncertainty and registration residual. **Save as pending model fix** attaches that evidence to the private fix registry for review. Alignment must be verified before revealing room-anchored graphics.

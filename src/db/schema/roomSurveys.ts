@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { check, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { Vec3 } from "@/house/model/types";
 import type {
-  RoomSurveyGeometryMetadata, RoomSurveyMove, RoomSurveyObservation, RoomSurveyPose, RoomSurveyStatistics,
+  RoomSurveyGeometryMetadata, RoomSurveyMove, RoomSurveyPose, RoomSurveyStatistics, StoredRoomSurveyComparison,
 } from "@/house/roomSurveyTypes";
 import { auditQuad, createdPair, oneOf } from "./columns";
 import { modelRevision } from "./model";
@@ -80,8 +80,9 @@ export const roomSurveyMove = sqliteTable("room_survey_move", {
 export const roomSurveyObservation = sqliteTable("room_survey_observation", {
   fixId: text("fix_id").primaryKey().references(() => modelFix.id, { onDelete: "restrict" }),
   surveyId: text("survey_id").notNull().references(() => roomSurvey.id, { onDelete: "restrict" }),
-  kind: text("kind").$type<RoomSurveyObservation["kind"]>().notNull(),
+  kind: text("kind").$type<"structure" | "new_object">().notNull(),
   position: text("position_json", { mode: "json" }).$type<Vec3>().notNull(),
+  comparison: text("comparison_json", { mode: "json" }).$type<StoredRoomSurveyComparison>(),
   requestId: text("request_id").notNull(),
   requestHash: text("request_hash").notNull(),
   ...createdPair(),

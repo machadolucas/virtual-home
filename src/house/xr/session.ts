@@ -10,6 +10,12 @@ import { HeadsetPanel, type PanelPage } from "./panel";
 import { HeadsetEquipment } from "./equipment";
 import { landFacing, roomLanding, teleport, turnAroundHead, viewHeading } from "./navigation";
 
+import { Tabletop } from "./tabletop";
+import { FitPlanner } from "./fitPlanner";
+import { GuidanceMarker, inspectionLanding } from "./guidance";
+import { HeadsetTasks } from "./headsetTasks";
+import { HeadsetStepCard } from "./headsetStepCard";
+import type { HeadsetLocateTarget, HeadsetStepPin } from "./headsetTasksTypes";
 import { WalkWorld } from "./walkWorld";
 import { EquipmentPicker, HAND_AIM_MS, stickAxes, stickIntent, TeleportArc } from "./travel";
 import { FrameBudget, WalkAppearance } from "./visuals";
@@ -24,9 +30,20 @@ interface FrameOptions {
   rates: { supply: number; extract: number };
   fans: string;
 }
-type Page = "home" | "destinations" | "equipment" | "mixed" | "comfort";
+type Page = "home" | "destinations" | "equipment" | "mixed" | "comfort" | "fitRooms";
 type Press = {
-  kind: "panel" | "equipment" | "door" | "wrist" | "travel" | "landing" | "mixed" | "empty";
+  kind:
+    | "panel"
+    | "equipment"
+    | "door"
+    | "wrist"
+    | "travel"
+    | "landing"
+    | "mixed"
+    | "tabletop"
+    | "fit"
+    | "marker"
+    | "empty";
   id?: string;
   since: number;
   initialHeading?: number;
@@ -89,6 +106,14 @@ export class HouseSession {
   private moveAtBlack: (() => void) | null = null;
   private readonly mixed: MixedPilot | null;
   private equipment: HeadsetEquipment | null = null;
+  private map: Tabletop | null = null;
+  private planner: FitPlanner | null = null;
+  private readonly guide = new GuidanceMarker();
+  private readonly tasks: HeadsetTasks;
+  private readonly pinCard = new HeadsetStepCard();
+  private pinned: HeadsetStepPin | null = null;
+  private readonly pinSpace = new THREE.Group();
+  private readonly identity = new THREE.Matrix4();
   private scene: THREE.Scene;
   private readonly previousBackground: THREE.Scene["background"];
   private firstPose = true;
@@ -120,6 +145,18 @@ export class HouseSession {
     }
     this.mixed = mode === "vr" ? null : new MixedPilot(runtime, session, space, mode);
     this.scene = this.mixed?.scene ?? runtime.scene!;
+    this.tasks = new HeadsetTasks(runtime, {
+      locate: (target) => this.locate(target),
+      openPinned: (pin) => this.pinStep(pin),
+      tell: (message) => this.tell(message),
+      exit: () => {
+        this.home();
+        this.recall();
+      },
+    });
+    this.pinSpace.matrixAutoUpdate = false;
+    this.pinSpace.add(this.pinCard.mesh);
+    this.scene.add(this.pinSpace, this.guide.group);
     this.previousBackground = this.scene.background;
     if (!this.mixed) this.scene.background = new THREE.Color(0x93a6b2);
     this.destinations = [...runtime.manifest!.rooms.values()].flatMap((room) => {
@@ -150,13 +187,148 @@ export class HouseSession {
     this.panel.mesh.visible = true;
     this.lastMenu = 0;
   };
+  private leaveTools = () => {
+    this.home();
+    this.recall();
+  };
   private home = () => {
+    this.map?.dispose();
+    this.map = null;
+    this.planner?.dispose();
+    this.planner = null;
+    this.tasks.close();
     this.mixed?.home();
     this.equipment?.dispose();
     this.equipment = null;
     this.page = this.mixed ? "mixed" : "home";
     this.lastMenu = 0;
   };
+  private tell(message: string) {
+    this.notice = message;
+    this.lastMenu = 0;
+    if (!this.panel.mesh.visible) this.statusCard.show({ title: message }, this.head, this.orientation);
+  }
+  private currentRoom() {
+    return this.mixed?.room ?? this.runtime.manifest!.rooms.get(this.placeId ?? "");
+  }
+  private openPlanner(room: Room) {
+    this.planner?.dispose();
+    this.planner = new FitPlanner(this.runtime, room, this.leaveTools, this.recall);
+    this.scene.add(this.planner.group);
+    this.recall();
+  }
+  private openTabletop() {
+    if (!this.world) return;
+    this.map?.dispose();
+    this.map = new Tabletop(
+      this.runtime,
+      this.world,
+      this.worldHead,
+      viewHeading(this.rig, this.orientation),
+      this.currentRoom()?.floorId,
+      (p, yaw) => this.go(p, yaw),
+      this.leaveTools,
+    );
+    this.scene.add(this.map.group);
+    this.recall();
+  }
+  private locate(target: HeadsetLocateTarget) {
+    const room = this.runtime.manifest!.rooms.get(target.roomId ?? "");
+    if (this.mixed && (!this.mixed.readyTransform || !room || this.mixed.room?.id !== room.id)) {
+      this.tell("Align in " + (target.roomName ?? "the equipment room") + " to see this location.");
+      return;
+    }
+    if (!target.position) {
+      const door = room && roomLanding(room);
+      if (door && room && !this.mixed) this.travelTo(door, room);
+      else this.tell("Only the room is recorded for this item.");
+      return;
+    }
+    if (this.world) {
+      const point = new THREE.Vector3(...target.position);
+      const view = inspectionLanding(
+        this.world,
+        point,
+        room,
+        room?.floorElevation ??
+          this.runtime.manifest!.floors.get(target.floorId ?? "")?.elevation ??
+          point.y,
+        this.head.y,
+        target.placementId,
+      );
+      if (!view) {
+        this.tell("No clear viewing spot found near " + target.name);
+        return;
+      }
+      this.blink(view.point, view.heading);
+    }
+    this.guide.set(target);
+    this.panel.hide();
+    this.statusCard.show(
+      { title: target.name, detail: "Look for the mint ring." },
+      this.head,
+      this.orientation,
+    );
+  }
+  private pinStep(pin: HeadsetStepPin | null) {
+    this.pinned = pin;
+    if (!pin) {
+      this.pinCard.hide();
+      return;
+    }
+    const m = this.mixed ? this.mixed.readyTransform : this.identity;
+    if (!m || (this.mixed && this.mixed.room?.id !== pin.target.roomId)) {
+      this.tell("Align in the equipment room to pin this step.");
+      return;
+    }
+    const local = m.clone().invert();
+    const h = this.worldHead.clone().applyMatrix4(local);
+    const q = this.rig.quaternion
+      .clone()
+      .multiply(this.orientation)
+      .premultiply(new THREE.Quaternion().setFromRotationMatrix(local));
+    const at = pin.target.position && new THREE.Vector3(...pin.target.position);
+    if (at) {
+      const normal = h.clone().sub(at);
+      normal.y = 0;
+      if (normal.lengthSq() < 0.001) normal.set(0, 0, 1);
+      normal.normalize();
+      at.addScaledVector(new THREE.Vector3(normal.z, 0, -normal.x), 0.31).addScaledVector(normal, 0.22);
+      at.y = Math.max(
+        at.y + 0.23,
+        (this.runtime.manifest!.rooms.get(pin.target.roomId ?? "")?.floorElevation ?? 0) + 1.04,
+      );
+      this.pinCard.show(pin, h, q, { position: at, facing: normal });
+    } else this.pinCard.show(pin, h, q);
+    this.panel.hide();
+  }
+  private roomEquipment() {
+    if (!this.mixed?.showHouseTools || !this.mixed.readyTransform || !this.mixed.room || this.tasks.active)
+      return null;
+    const roomId = this.mixed.room.id;
+    let best = 4,
+      found: string | undefined;
+    for (const item of this.runtime.store.getState().placements) {
+      if (item.roomId !== roomId) continue;
+      this.movement.fromArray(item.position).applyMatrix4(this.mixed.readyTransform);
+      const distance = this.ray.ray.origin.distanceTo(this.movement);
+      if (distance < best && this.ray.ray.distanceSqToPoint(this.movement) < 0.085 ** 2) {
+        best = distance;
+        found = item.id;
+      }
+    }
+    return found ? { id: found, point: this.ray.ray.at(best, new THREE.Vector3()) } : null;
+  }
+  private equipmentCard(id: string) {
+    const item = this.runtime.store.getState().placements.find((p) => p.id === id);
+    if (!item) return;
+    this.tasks.close();
+    this.equipment?.dispose();
+    this.equipment = new HeadsetEquipment(item);
+    this.page = "equipment";
+    this.notice = "";
+    this.recall();
+  }
   private capture = () => {
     if (this.uploading || this.queuedCapture) return;
     if (this.retrySave) {
@@ -182,11 +354,60 @@ export class HouseSession {
   }
   private menu(options: FrameOptions): PanelPage {
     let menu: PanelPage;
-    if (this.mixed) {
+    const toolRows = [
+      {
+        id: "find",
+        label: "Find equipment",
+        icon: "find" as const,
+        style: "secondary" as const,
+        act: () => {
+          this.notice = "";
+          this.tasks.find(this.currentRoom()?.id);
+        },
+      },
+      {
+        id: "fit",
+        label: "Fit planner",
+        icon: "fit" as const,
+        style: "secondary" as const,
+        act: () => {
+          const room = this.currentRoom();
+          if (room) this.openPlanner(room);
+          else this.page = "fitRooms";
+        },
+      },
+    ];
+    if (this.tasks.active) menu = this.tasks.menu();
+    else if (this.planner) menu = this.planner.menu(() => this.panel.hide());
+    else if (this.map) menu = this.map.menu();
+    else if (this.page === "fitRooms")
+      menu = {
+        title: "Choose a room to plan",
+        lines: [],
+        back: this.home,
+        rows: this.destinations.map(({ room }) => ({
+          id: room.id,
+          label: room.name,
+          act: () => this.openPlanner(room),
+        })),
+      };
+    else if (this.page === "equipment" && this.equipment) {
+      menu = this.equipment.menu();
+      menu.rows.unshift(
+        {
+          id: "maintenance",
+          label: "Maintenance and parts",
+          style: "primary",
+          icon: "service",
+          act: () => this.tasks.maintenance(this.equipment!.placement.id),
+        },
+        { label: "Capture model fix", act: this.capture },
+      );
+    } else if (this.mixed) {
       menu = this.mixed.menu(options.fans, this.capture);
+      if (this.mixed.showHouseTools) menu.rows.push(...toolRows);
       if (this.mixed.readyTransform) menu.close = () => this.panel.hide();
-    }
-    else if (this.page === "destinations")
+    } else if (this.page === "destinations")
       menu = {
         title: "Rooms and floors",
         lines: [],
@@ -197,10 +418,7 @@ export class HouseSession {
           act: () => this.travelTo(position, room),
         })),
       };
-    else if (this.page === "equipment" && this.equipment) {
-      menu = this.equipment.menu();
-      menu.rows.unshift({ label: "Capture model fix", act: this.capture });
-    } else if (this.page === "comfort")
+    else if (this.page === "comfort")
       menu = {
         title: "Movement and comfort",
         lines: [this.budget.label],
@@ -252,6 +470,14 @@ export class HouseSession {
             act: garage ? () => this.travelTo(garage.position, garage.room) : undefined,
           },
           {
+            id: "tabletop",
+            label: "Tabletop map",
+            icon: "map",
+            style: "primary",
+            act: () => this.openTabletop(),
+          },
+          ...toolRows,
+          {
             id: "rooms",
             label: "Rooms and floors",
             style: "primary",
@@ -276,14 +502,36 @@ export class HouseSession {
             icon: "camera",
             act: this.capture,
           },
-          ...(previous ? [{
-            id: "return", label: "Return to " + previous.place.name, detail: previous.place.floor,
-            act: () => this.returnToPrevious(),
-          }] : []),
+          ...(previous
+            ? [
+                {
+                  id: "return",
+                  label: "Return to " + previous.place.name,
+                  detail: previous.place.floor,
+                  act: () => this.returnToPrevious(),
+                },
+              ]
+            : []),
         ],
       };
     }
-    if (this.page === "destinations" || this.page === "comfort") menu.back = this.home;
+    if (
+      this.guide.target &&
+      !this.tasks.active &&
+      !this.map &&
+      !this.planner &&
+      (!this.mixed || this.mixed.showHouseTools)
+    )
+      menu.rows.push({ label: "Hide location marker", act: () => this.guide.set(null) });
+    if (this.pinned && !this.tasks.active)
+      menu.rows.push({ label: "Unpin maintenance step", act: () => this.tasks.clearPin() });
+    if (
+      !this.map &&
+      !this.planner &&
+      !this.tasks.active &&
+      (this.page === "destinations" || this.page === "comfort")
+    )
+      menu.back = this.home;
     if (this.notice) menu.lines.unshift(this.notice);
     return menu;
   }
@@ -355,6 +603,8 @@ export class HouseSession {
   }
 
   private resetInput = () => {
+    this.map?.cancel();
+    this.planner?.hover(null);
     this.backButton.reset();
     this.inputHints?.hide();
     this.panel.cancel();
@@ -393,7 +643,13 @@ export class HouseSession {
       !this.alive ||
       this.session.visibilityState !== "visible" ||
       this.stickSource ||
-      [...this.presses.values()].some((press) => press.kind === "landing" || press.kind === "travel") ||
+      [...this.presses.values()].some(
+        (press) =>
+          press.kind === "landing" ||
+          press.kind === "travel" ||
+          press.kind === "tabletop" ||
+          press.kind === "fit",
+      ) ||
       this.fadeStart !== null
     )
       return;
@@ -404,9 +660,38 @@ export class HouseSession {
       press.kind = "panel";
       this.panel.start(source, hit);
     } else if (hasRay && this.wristHit(source)) press.kind = "wrist";
-    else if (this.mixed) {
+    else if (hasRay && this.map && !this.presses.size) {
+      const hit = this.map.hit(this.ray.ray);
+      if (hit) {
+        press.kind = "tabletop";
+        press.id = hit.route?.id;
+        this.map.begin(hit, this.head.y, viewHeading(this.rig, this.orientation));
+      }
+    } else if (hasRay && this.planner?.moving) {
+      const point = this.planner.point(this.ray.ray);
+      if (point) { press.kind = "fit"; this.planner.hover(point); }
+    } else if (
+      hasRay &&
+      this.guide.hit(this.ray.ray) &&
+      this.guide.target?.placementId &&
+      !this.mixed?.inspectingWall
+    ) {
+      press.kind = "marker";
+      press.id = this.guide.target.placementId;
+    } else if (this.map || this.planner) {
+      // World clicks belong to the open spatial tool.
+    } else if (this.mixed) {
       press.kind = "mixed";
-      if (hasRay) press.id = this.mixed.overlay?.pick(this.ray.ray)?.id;
+      if (hasRay && !this.mixed.inspectingWall) {
+        press.id = this.mixed.overlay?.pick(this.ray.ray)?.id;
+        if (!press.id) {
+          const item = this.roomEquipment();
+          if (item) {
+            press.kind = "equipment";
+            press.id = item.id;
+          }
+        }
+      }
     } else if (hasRay && this.world) {
       const target = this.picker.target(this.world, this.ray, this.runtime.markers);
       if (target?.id) {
@@ -433,6 +718,7 @@ export class HouseSession {
   private end = (e: XRInputSourceEvent) => {
     if (this.panel.owns(e.inputSource)) this.panel.cancel();
     const kind = this.presses.get(e.inputSource)?.kind;
+    if (kind === "tabletop") this.map?.cancel();
     if (kind === "travel" || kind === "landing") this.arc.clear();
     this.presses.delete(e.inputSource);
   };
@@ -446,8 +732,28 @@ export class HouseSession {
       if (this.panel.end(source, hasRay ? this.panel.hit(this.ray, true) : null)) pulse(source);
     } else if (press.kind === "wrist") {
       if (hasRay && this.wristHit(source)) this.toggleMenu();
-    } else if (hasRay && this.panel.hit(this.ray)) {
+    } else if (hasRay && (this.panel.hit(this.ray) || this.wristHit(source))) {
+      if (press.kind === "tabletop") this.map?.cancel();
       // Press began in the world and ended on UI. Neither target owns a click.
+    } else if (press.kind === "tabletop" && this.map && hasRay) {
+      this.map.orient(this.ray.ray, stickAxes(source.gamepad), viewHeading(this.rig, this.orientation));
+      this.map.release(this.map.hit(this.ray.ray), press.id);
+      pulse(source);
+    } else if (press.kind === "fit" && this.planner && hasRay) {
+      const p = this.planner.point(this.ray.ray);
+      if (p) {
+        this.planner.commit(p);
+        pulse(source);
+      }
+    } else if (
+      press.kind === "marker" &&
+      hasRay &&
+      press.id &&
+      this.guide.target?.placementId === press.id &&
+      this.guide.hit(this.ray.ray)
+    ) {
+      this.equipmentCard(press.id);
+      pulse(source);
     } else if (press.kind === "landing" && hasRay && this.world) {
       this.aimLeft(source, press);
       const p = this.arc.landing,
@@ -467,25 +773,32 @@ export class HouseSession {
       const p = this.arc.landing;
       if (p && this.arc.group.visible) this.blink(p);
       this.arc.clear();
+    } else if (
+      press.kind === "equipment" &&
+      hasRay &&
+      this.mixed &&
+      press.id &&
+      this.roomEquipment()?.id === press.id &&
+      !this.mixed.overlay?.pick(this.ray.ray)
+    ) {
+      this.equipmentCard(press.id);
+      pulse(source);
     } else if (press.kind === "equipment" && this.world && hasRay) {
       const hit = this.picker.target(this.world, this.ray, this.runtime.markers);
       const item =
         hit?.id === press.id && this.runtime.store.getState().placements.find((p) => p.id === hit?.id);
       if (item) {
-        this.equipment?.dispose();
-        this.equipment = new HeadsetEquipment(item);
-        this.notice = "";
-        this.page = "equipment";
-        this.recall();
+        this.equipmentCard(item.id);
         pulse(source);
       }
     } else if (press.kind === "mixed" && this.mixed) {
-      const choosingRoute = this.mode === "mr" && !!this.mixed.readyTransform;
+      const choosingRoute = this.mode === "mr" && !!this.mixed.readyTransform && !this.mixed.inspectingWall;
       if (!choosingRoute || (hasRay && this.mixed.overlay?.pick(this.ray.ray)?.id === press.id)) {
         this.nextSample = source;
-        this.routeAtPress = choosingRoute ? press.id ?? null : undefined;
+        this.routeAtPress = choosingRoute ? (press.id ?? null) : undefined;
       }
     }
+    if (press.kind === "tabletop") this.map?.cancel();
     this.presses.delete(source);
   };
   private syncWorld() {
@@ -518,7 +831,7 @@ export class HouseSession {
       this.sticksNeutral = this.walkNeutral = false;
       return;
     }
-    if (!this.world || this.fadeStart !== null) return;
+    if (this.map || this.planner || !this.world || this.fadeStart !== null) return;
     const right = sources.find((s) => !s.hand && s.handedness === "right");
     const axis = stickAxes(right?.gamepad),
       intent = stickIntent(axis.x, axis.y);
@@ -597,8 +910,12 @@ export class HouseSession {
   }
   private pointers(frame: XRFrame, sources: XRInputSource[], now: number) {
     this.beams.clear();
+    this.planner?.hover(null);
     if (!this.stickSource) this.arc.clear();
     this.updateWrist(frame, sources);
+    const placing = this.planner?.moving ? Array.from(this.presses).find(([, p]) => p.kind === "fit")?.[0] : undefined;
+    const preferred = placing ?? sources.find((s) => s.handedness === "right") ?? sources[0];
+    let previewed = false;
     const placed = this.runtime.store.getState().placements;
     if (placed !== this.placements) {
       this.hoverNames = new Map(placed.map((p) => [p.id, p.name]));
@@ -612,12 +929,17 @@ export class HouseSession {
       if (!source || !this.rayFrom(frame, source)) {
         this.panel.cursor(i, null);
         if (source && this.panel.owns(source)) this.panel.cancel();
-        if (source) this.presses.delete(source);
+        if (source) {
+          if (this.presses.get(source)?.kind === "tabletop") this.map?.cancel();
+          this.presses.delete(source);
+        }
         continue;
       }
       const pose = frame.getPose(source.targetRaySpace, this.space)!;
       const { line, dot, label } = slot;
-      this.poseMatrix.fromArray(pose.transform.matrix).decompose(line.position, line.quaternion, line.scale);
+      this.poseMatrix
+        .fromArray(pose.transform.matrix)
+        .decompose(line.position, line.quaternion, line.scale);
       const hit = this.panel.hit(this.ray);
       if (hit) {
         slot.probe.visible = false;
@@ -646,6 +968,29 @@ export class HouseSession {
           active = true;
           slot.probe.visible = false;
           this.mixed?.hideAimPreview(source);
+        } else if (this.map) {
+          if (press?.kind === "tabletop")
+            this.map.orient(
+              this.ray.ray,
+              stickAxes(source.gamepad),
+              viewHeading(this.rig, this.orientation),
+            );
+          const spot = this.map.hit(this.ray.ray);
+          point = spot?.point;
+          text = spot?.label ?? "";
+          active = !!spot;
+        } else if (this.planner) {
+          const p = this.planner.point(this.ray.ray);
+          if (p) {
+            if (source === preferred || (!placing && !previewed)) { this.planner.hover(p); previewed = true; }
+            point = p.clone().applyMatrix4(this.planner.group.matrixWorld);
+            active = true;
+            text = "Place here";
+          }
+        } else if (!this.mixed?.inspectingWall && this.guide.hit(this.ray.ray)) {
+          point = this.guide.hit(this.ray.ray) ?? undefined;
+          active = !!this.guide.target?.placementId;
+          text = this.guide.target?.name ?? "";
         } else if (this.world) {
           const target = this.picker.target(this.world, this.ray, this.runtime.markers);
           point = target?.point;
@@ -669,13 +1014,20 @@ export class HouseSession {
             this.arc.aim(this.world, this.ray.ray, this.head.y, viewHeading(this.rig, this.orientation));
             continue;
           } else if (source.hand && target?.floor) active = true;
-        } else if (this.mixed?.overlay) {
+        } else if (this.mixed?.overlay && !this.mixed.inspectingWall) {
           const route = this.mixed.overlay.pick(this.ray.ray);
           if (route) {
             point = this.ray.ray.at(route.distance, new THREE.Vector3());
             slot.highlight.route(this.mixed.overlay.group, route.segment, route.approximate);
             text = route.label;
             active = true;
+          } else {
+            const item = this.roomEquipment();
+            if (item) {
+              point = item.point;
+              active = true;
+              text = this.hoverNames.get(item.id) ?? "Equipment";
+            }
           }
         }
       }
@@ -709,7 +1061,17 @@ export class HouseSession {
       const room = this.mixed.room;
       const verified = room && this.mixed.readyTransform;
       if (!verified) {
-        if (this.alignedRoom) this.recall();
+        if (this.alignedRoom) {
+          this.planner?.dispose();
+          this.planner = null;
+          this.tasks.close();
+          this.tasks.clearPin();
+          this.guide.set(null);
+          this.equipment?.dispose();
+          this.equipment = null;
+          this.page = "mixed";
+          this.recall();
+        }
         this.alignedRoom = null;
       } else if (room.id !== this.alignedRoom && this.presses.size === 0) {
         this.alignedRoom = room.id;
@@ -717,8 +1079,15 @@ export class HouseSession {
           this.panel.hide();
           const error = this.mixed.calibration?.state.errorM;
           const name = this.runtime.store.getState().labelPreferences.names[room.id] ?? room.name;
-          const detail = [error == null ? "" : `${(100 * error).toFixed(1)} cm`, "Select a route to trace"].filter(Boolean).join(" · ");
-          this.statusCard.show({title: name + " aligned", detail, tone: "success", durationMs: 4800}, this.head, this.orientation, now);
+          const detail = [error == null ? "" : `${(100 * error).toFixed(1)} cm`, "Select a route to trace"]
+            .filter(Boolean)
+            .join(" · ");
+          this.statusCard.show(
+            { title: name + " aligned", detail, tone: "success", durationMs: 4800 },
+            this.head,
+            this.orientation,
+            now,
+          );
         }
       }
       return;
@@ -729,13 +1098,24 @@ export class HouseSession {
     const place = walkPlace(this.runtime, feet, this.destinations);
     this.area = place.area;
     // Do not flash a card for every doorway crossed in passing. Named travel is immediate.
-    if (this.announceDestination || !this.placeId || (place.id !== this.placeId && this.pendingPlaceId === place.id)) {
+    if (
+      this.announceDestination ||
+      !this.placeId ||
+      (place.id !== this.placeId && this.pendingPlaceId === place.id)
+    ) {
       const first = !this.placeId;
       this.placeId = place.id;
       if (!this.panel.mesh.visible) {
-        const usingHands = Array.from(this.session.inputSources).some(input => input.hand);
-        const detail = [place.floor, first ? (usingHands ? "Pinch the wrist menu" : "Grip for menu") : ""].filter(Boolean).join(" · ");
-        this.statusCard.show({title: place.name, detail, tone: "arrival"}, this.head, this.orientation, now);
+        const usingHands = Array.from(this.session.inputSources).some((input) => input.hand);
+        const detail = [place.floor, first ? (usingHands ? "Pinch the wrist menu" : "Grip for menu") : ""]
+          .filter(Boolean)
+          .join(" · ");
+        this.statusCard.show(
+          { title: place.name, detail, tone: "arrival" },
+          this.head,
+          this.orientation,
+          now,
+        );
       }
     }
     this.pendingPlaceId = place.id;
@@ -781,6 +1161,9 @@ export class HouseSession {
       else if (this.panel.mesh.visible) {
         this.panel.backOrClose();
         this.lastMenu = 0;
+      } else if (this.map || this.planner || this.tasks.active) {
+        if (this.planner?.moving) this.planner.back();
+        else this.recall();
       } else this.returnToPrevious();
     }
     this.inputHints?.update(frame, this.space, sources);
@@ -804,6 +1187,19 @@ export class HouseSession {
     }
     this.rig.updateMatrixWorld(true);
     this.worldHead.copy(this.head).applyMatrix4(this.rig.matrixWorld);
+    const modelToWorld = this.mixed ? this.mixed.readyTransform : this.identity;
+    this.planner?.transform(modelToWorld);
+    this.guide.update(modelToWorld, this.mixed?.room?.id ?? null, this.worldHead);
+    this.pinSpace.visible =
+      !!modelToWorld && !!this.pinned && (!this.mixed || this.mixed.room?.id === this.pinned.target.roomId);
+    if (modelToWorld && this.pinSpace.visible) {
+      this.pinSpace.matrix.copy(modelToWorld);
+      this.pinSpace.updateMatrixWorld(true);
+    }
+    if (this.map) {
+      this.movement.copy(this.worldHead).y = this.rig.position.y;
+      this.map.userPose(this.movement, viewHeading(this.rig, this.orientation));
+    }
     this.appearance?.sky.position.copy(this.worldHead);
     this.appearance?.updateSky(this.scene, now);
     this.updatePlace(now);
@@ -829,10 +1225,19 @@ export class HouseSession {
           this.mixed.select(frame, source, ray);
           if (previous !== overlay.focusedId) {
             const route = this.mixed.selectedRoute;
-            this.statusCard.show(overlay.focusedId && route
-              ? {title: route.name, detail: route.approximate ? "Approximate · Select again for all" : "Tracing · Select again for all"}
-              : {title: "Showing all routes", detail: "Point at one and click to trace it."},
-              this.head, this.orientation, now);
+            this.statusCard.show(
+              overlay.focusedId && route
+                ? {
+                    title: route.name,
+                    detail: route.approximate
+                      ? "Approximate · Select again for all"
+                      : "Tracing · Select again for all",
+                  }
+                : { title: "Showing all routes", detail: "Point at one and click to trace it." },
+              this.head,
+              this.orientation,
+              now,
+            );
           }
         }
       }
@@ -918,6 +1323,12 @@ export class HouseSession {
     this.session.removeEventListener("inputsourceschange", this.resetInput);
     this.session.removeEventListener("visibilitychange", this.resetInput);
     this.space.removeEventListener?.("reset", this.resetInput);
+    this.tasks.dispose();
+    this.pinCard.dispose();
+    this.pinSpace.removeFromParent();
+    this.map?.dispose();
+    this.planner?.dispose();
+    this.guide.dispose();
     this.budget.log.save(this.runtime.userId);
     this.world?.dispose();
     this.appearance?.dispose();

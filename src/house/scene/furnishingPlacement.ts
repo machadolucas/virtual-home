@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { Furnishing, Vec3 } from "../model/types";
 import type { SceneIndex } from "./SceneIndex";
+import { explodeTargets, offsetsFor, type ExplodeState } from "./explode";
 import { furnishingGeometry } from "./furnishingGeometry";
 
 interface WallTriangles { surfaceId?: string; bounds: THREE.Box3; vertices: THREE.Vector3[] }
@@ -135,9 +136,15 @@ export function collidesWithPlacementShape(item: PlacementCollisionShape | null,
 
 /** Physical wall triangles, including walls temporarily hidden/cut for an inside view. The
  * oriented furniture box is tested against triangles, not a diagonal wall's oversized AABB. */
-export function wallTriangles(index: SceneIndex): WallTriangles[] {
+export function wallTriangles(index: SceneIndex, physicalExplode?: ExplodeState): WallTriangles[] {
+  const offsets = new Map<THREE.Object3D, number>();
+  if (physicalExplode?.enabled) {
+    const values = offsetsFor(index, physicalExplode);
+    for (const [group, nodes] of explodeTargets(index))
+      for (const node of nodes) offsets.set(node, values.get(group) ?? 0);
+  }
   const previous = cache.get(index);
-  if (previous?.count === index.assets.size) return previous.walls;
+  if (!offsets.size && previous?.count === index.assets.size) return previous.walls;
   const walls: WallTriangles[] = [];
   for (const asset of index.assets.values()) {
     if (index.manifest.assets.get(asset.id)?.kind === "scan-reference") continue;
@@ -151,16 +158,23 @@ export function wallTriangles(index: SceneIndex): WallTriangles[] {
       const position = mesh.geometry.getAttribute("position");
       if (!position) continue;
       const indices = mesh.geometry.index;
+      let lift = 0;
+      for (let node: THREE.Object3D | null = mesh; node && offsets.size; node = node.parent)
+        lift += offsets.get(node) ?? 0;
       const vertices: THREE.Vector3[] = [];
       const bounds = new THREE.Box3();
       for (let i = 0; i < (indices?.count ?? position.count); i++) {
-        const point = new THREE.Vector3().fromBufferAttribute(position, indices ? indices.getX(i) : i).applyMatrix4(mesh.matrixWorld);
-        vertices.push(point); bounds.expandByPoint(point);
+        const point = new THREE.Vector3()
+          .fromBufferAttribute(position, indices ? indices.getX(i) : i)
+          .applyMatrix4(mesh.matrixWorld);
+        point.y -= lift;
+        vertices.push(point);
+        bounds.expandByPoint(point);
       }
       walls.push({ surfaceId: sid, bounds, vertices });
     }
   }
-  cache.set(index, { count: index.assets.size, walls });
+  if (!offsets.size) cache.set(index, { count: index.assets.size, walls });
   return walls;
 }
 

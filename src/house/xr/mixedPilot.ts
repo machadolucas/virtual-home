@@ -14,6 +14,7 @@ import { readAlignmentEvidence, snapScannedCorner, type AlignmentEvidence } from
 import { AlignmentRays } from "./roomAlignmentRay";
 import { triangulateFloorCorner } from "./roomAlignmentTriangulation";
 import { canOpenHeadsetRoomSetup, openHeadsetRoomSetup, QUEST_ROOM_SETUP_GUIDE } from "./headsetRoomSetup";
+import { WallInspector } from "./wallInspector";
 
 const ROOM_SETUP_GRACE_MS = 3_000;
 
@@ -29,6 +30,7 @@ export class MixedPilot {
   private choosingRoom = true;
   private features = new Map<string, CalibrationFeature[]>();
   private survey: RoomSurveyPilot | null = null;
+  private wallInspector: WallInspector | null = null;
   private readonly hand = new HandConfirmation();
   private readonly samplePoint = new THREE.Vector3();
   private readonly viewerPoint = new THREE.Vector3();
@@ -51,8 +53,12 @@ export class MixedPilot {
   get aimingAtRoom(): boolean {
     const state = this.calibration?.state;
     return !this.setupOpen && !!state && (state.phase === "ready"
-      ? this.survey?.aiming === true
+      ? this.survey?.aiming === true || this.inspectingWall
       : !!(this.hint || (this.manual && state.selected && this.remotePoints())));
+  }
+  get inspectingWall(): boolean { return this.wallInspector?.aiming === true; }
+  get showHouseTools(): boolean {
+    return this.mode === "mr" && this.calibration?.state.phase === "ready" && !this.wallInspector?.active;
   }
 
   constructor(private runtime: HouseRuntime, private session: XRSession, private space: XRReferenceSpace,
@@ -79,6 +85,8 @@ export class MixedPilot {
     } else {
       this.overlay = buildMixedRealityOverlay(this.runtime.manifest!, state.routes, room.floorId);
       this.scene.add(this.overlay.group);
+      this.wallInspector = new WallInspector(room, this.alignmentModel.walls, this.overlay);
+      this.scene.add(this.wallInspector.group);
     }
     this.calibration = new MixedRealityCalibration({ session: this.session, referenceSpace: this.space,
       userId: this.runtime.userId!, floorId: room.floorId, roomId: room.id, fingerprint: state.fingerprint!,
@@ -88,6 +96,7 @@ export class MixedPilot {
         this.overlay?.applyTransform(null);
         this.selectedRoute = null;
         this.survey?.pause();
+        this.wallInspector?.frame(null);
         if (s.phase === "tracking-lost") this.clearScan();
       } });
   }
@@ -184,6 +193,8 @@ export class MixedPilot {
       menu.rows.push(reset, change);
       return menu;
     }
+    if (this.wallInspector?.active && state.errorM !== null)
+      return this.wallInspector.menu(state.errorM, () => this.closeWallInspector());
     const focused = this.overlay?.focusedId != null;
     return { title: room.name, lines: [error + (state.persistence === "saved" ? " · Anchor saved" : " · Session alignment"),
       fans, focused ? this.selectedRoute?.label ?? "Tracing one route" : "Trigger a route to trace it. Dashed paths are approximate."],
@@ -191,6 +202,10 @@ export class MixedPilot {
         ...(focused ? [{ label: "Show all routes", act: () => this.clearRouteFocus() }] : []),
         ...(["pipes", "ducts", "both"] as const).map(filter => ({ label: (filter === this.filter ? "✓ " : "") + filter[0]!.toUpperCase() + filter.slice(1),
           act: () => { this.filter = filter; this.selectedRoute = null; this.overlay?.setFilter(filter); } })),
+        { label: "Inspect a wall patch", style: "primary", act: () => {
+          this.clearRouteFocus();
+          this.wallInspector?.start();
+        } },
         { label: "Capture model fix · overlay only", act: capture }, reset, change] };
   }
   clearRouteFocus(): void {
@@ -214,16 +229,22 @@ export class MixedPilot {
     this.survey?.frame(frame, matrix, this.calibration.state.errorM);
     this.overlay?.applyTransform(matrix);
     if (!matrix || !this.overlay) {
+      this.wallInspector?.frame(null);
       this.selectedRoute = null;
       return;
     }
     this.overlay.setRoutes(this.runtime.store.getState().routes);
+    this.wallInspector?.frame(matrix);
     if (this.selectedRoute?.id !== this.overlay.focusedId) this.selectedRoute = null;
     this.overlay.tick(delta, motion, fanRates);
   }
   probePosition(frame: XRFrame, source: XRInputSource, target: THREE.Vector3): THREE.Vector3 | null {
     if (!this.calibration) return null;
     if (this.survey?.aiming && this.calibration.state.phase === "ready") return this.survey.previewAim(frame, source, target);
+    if (this.inspectingWall && this.readyTransform) {
+      const ray = this.rays.trackedRay(frame, source, this.aimingRay);
+      return ray ? this.wallInspector!.probe(ray, this.readyTransform, target) : null;
+    }
     if (this.aimingAtRoom) return this.pointAtScan(frame, source, target);
     return source.hand ? trackedIndexTip(frame, this.space, source, target)
       : this.calibration.pointerPosition(frame, source.gripSpace, target);
@@ -234,6 +255,11 @@ export class MixedPilot {
     if (!calibration || this.setupOpen) return;
     const { phase, selected } = calibration.state;
     if (phase === "ready" && this.overlay) {
+      if (this.inspectingWall && this.readyTransform) {
+        const tracked = this.rays.trackedRay(frame, source, this.aimingRay);
+        if (tracked) this.wallInspector!.confirm(tracked, this.readyTransform);
+        return;
+      }
       if (!ray || !this.overlay.group.visible) return;
       const hit = this.overlay.pick(ray);
       const focused = this.overlay.toggleFocus(hit?.id ?? null);
@@ -278,6 +304,11 @@ export class MixedPilot {
   home(): void {
     this.selectedRoute = null;
     this.survey?.home();
+    this.closeWallInspector();
+  }
+  private closeWallInspector() {
+    this.wallInspector?.clear();
+    this.selectedRoute = null;
   }
   private remoteAvailable(): boolean {
     return this.rays.available || !!(this.evidence?.patches.length || this.evidence?.triangles.length);
@@ -402,6 +433,7 @@ export class MixedPilot {
   };
   private clearRoom() {
     this.calibration?.dispose(); this.calibration = null;
+    this.wallInspector?.dispose(); this.wallInspector = null;
     this.overlay?.dispose(); this.overlay = null;
     this.selectedRoute = null;
     this.survey?.dispose(); this.survey = null;

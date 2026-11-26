@@ -11,10 +11,11 @@ import {
   MAX_ROOM_SURVEY_BODY_BYTES, MAX_ROOM_SURVEY_RESIDUAL_M,
   surveyDistanceM, surveyHeadingChange,
   type RoomSurveyCapture, type RoomSurveyGeometry, type RoomSurveyMeasurement, type RoomSurveyMove, type RoomSurveyMoveInput,
-  type RoomSurveyObservationInput, type RoomSurveyPose, type RoomSurveySummary,
+  type RoomSurveyObservation, type RoomSurveyObservationInput, type RoomSurveyPose, type RoomSurveySummary,
 } from "../roomSurveyTypes";
 import type { PanelPage, PanelRow } from "./panel";
 import { canOpenHeadsetRoomSetup, openHeadsetRoomSetup, QUEST_ROOM_SETUP_GUIDE } from "./headsetRoomSetup";
+import { modelSurveyFaces, suggestSurveyDiscrepancies, type SurveyDiscrepancy } from "./surveyDiscrepancies";
 import { SurveyDisplay } from "./surveyDisplay";
 import { SurveyAimInput } from "./surveyInput";
 import {
@@ -22,12 +23,12 @@ import {
   surveyExtent, surveyHeading,
 } from "./surveyGeometry";
 
-type Page = "main" | "measure" | "references" | "targets" | "move" | "observation" | "saved";
+type Page = "main" | "measure" | "references" | "targets" | "move" | "observation" | "saved" | "discrepancies" | "discrepancy";
 type Target =
   | { kind: "equipment"; item: Placement }
   | { kind: "furnishing"; item: Furnishing };
 type MeasureKind = RoomSurveyMeasurement["kind"];
-type ObservationKind = RoomSurveyObservationInput["kind"];
+type ManualObservation = Extract<RoomSurveyObservationInput, { description: string }>;
 type SensorScope = "full" | "bounded";
 type PointMode = "aim" | "touch";
 type Sample =
@@ -35,7 +36,9 @@ type Sample =
   | { kind: "measurement"; measure: MeasureKind; a?: Vec3 }
   | { kind: "move_position" }
   | { kind: "move_heading" }
-  | { kind: "observation"; observation: ObservationKind };
+  | { kind: "observation"; observation: ManualObservation["kind"] };
+
+type DiscrepancyReview = SurveyDiscrepancy & { requestId: string; fixId?: string };
 
 const MEASURE_KINDS: Record<MeasureKind, string> = {
   distance: "Distance", ceiling_height: "Ceiling height", opening_width: "Opening width", opening_height: "Opening height",
@@ -59,6 +62,7 @@ export class RoomSurveyPilot {
   private alive = true;
   private notice = "";
   private errorM: number | null = null;
+  private captureErrorM: number | null = null;
   private plannedPreview: SensorScope | null = null;
   private missingSensorGeometry = false;
   private openingRoomSetup = false;
@@ -76,7 +80,11 @@ export class RoomSurveyPilot {
   private draftPointSource: "manual" | "hit-test" = "manual";
   private move: RoomSurveyMove | null = null;
   private reopenedMoves: RoomSurveyMove[] = [];
-  private observationRequest: (RoomSurveyObservationInput & { surveyId: string }) | null = null;
+  private observationRequest: (ManualObservation & { surveyId: string }) | null = null;
+  private discrepancies: DiscrepancyReview[] = [];
+  private selectedDiscrepancy: DiscrepancyReview | null = null;
+  private reopenedObservations: RoomSurveyObservation[] = [];
+  private discrepancyHome: "main" | "saved" = "main";
 
   get sampling() { return this.sample !== null; }
   get aiming() { return this.sampling && this.pointMode === "aim"; }
@@ -307,10 +315,14 @@ export class RoomSurveyPilot {
   };
 
   private updateGeometry(geometry: RoomSurveyGeometry) {
+    this.captureErrorM = Math.max(this.captureErrorM ?? 0, this.errorM ?? 0);
     this.geometry = geometry;
     this.saved = null;
     this.saveCapture = null;
     this.reopenedMoves = [];
+    this.reopenedObservations = [];
+    this.discrepancies = [];
+    this.selectedDiscrepancy = null;
     this.renderGeometry();
   }
 
@@ -336,20 +348,23 @@ export class RoomSurveyPilot {
       return;
     }
     return this.task(async () => {
-      this.saveCapture ??= {
-        requestId: crypto.randomUUID(), fingerprint: this.fingerprint,
-        floorId: this.room.floorId, roomId: this.room.id, registrationErrorM: this.errorM!,
-        geometry: this.geometry,
-      };
-      if (new TextEncoder().encode(JSON.stringify(this.saveCapture)).byteLength > MAX_ROOM_SURVEY_BODY_BYTES) {
-        this.notice = "This preview exceeds the upload limit. Choose the bounded preview.";
-        return;
-      }
-      const result = await saveRoomSurvey(this.runtime.base, this.saveCapture);
-      if (!this.alive) return;
-      this.saved = result;
-      this.notice = "Room reference saved.";
+      await this.persistReference();
+      if (this.alive) this.notice = "Room reference saved.";
     });
+  }
+
+  private async persistReference() {
+    if (this.saved) return this.saved;
+    this.saveCapture ??= {
+      requestId: crypto.randomUUID(), fingerprint: this.fingerprint,
+      floorId: this.room.floorId, roomId: this.room.id, registrationErrorM: this.captureErrorM ?? this.errorM!,
+      geometry: this.geometry,
+    };
+    if (new TextEncoder().encode(JSON.stringify(this.saveCapture)).byteLength > MAX_ROOM_SURVEY_BODY_BYTES)
+      throw new Error("This preview exceeds the upload limit. Choose the bounded preview.");
+    const result = await saveRoomSurvey(this.runtime.base, this.saveCapture);
+    if (this.alive) this.saved = result;
+    return result;
   }
 
   private async listReferences(more = false) {
@@ -375,8 +390,12 @@ export class RoomSurveyPilot {
       ]);
       if (!this.alive) return;
       this.saved = saved;
+      this.captureErrorM = saved.registrationErrorM;
       this.saveCapture = null;
       this.reopenedMoves = saved.moves;
+      this.reopenedObservations = saved.observations;
+      this.discrepancies = [];
+      this.selectedDiscrepancy = null;
       this.geometry = geometry;
       this.chosen = null;
       this.draft = null;
@@ -476,11 +495,71 @@ export class RoomSurveyPilot {
     });
   }
 
+  private get hasScan() {
+    return this.geometry.surfaces.some(({ source }) => source === "plane" || source === "mesh");
+  }
+
+  private async reviewDiscrepancies() {
+    if (!this.aligned() || !this.hasScan) return;
+    const index = this.runtime.index;
+    if (!index) { this.notice = "Wait for the room model to load."; return; }
+    this.discrepancyHome = this.page === "saved" ? "saved" : "main";
+    this.display.compare(null);
+    this.page = "discrepancies";
+    return this.task(async () => {
+      const response = await fetch(`${this.runtime.base}/furnishings`, { cache: "no-store" }).catch(() => null);
+      if (!this.alive || !this.aligned()) return;
+      const { furnishings } = response?.ok ? await response.json() as { furnishings: Furnishing[] } : { furnishings: [] };
+      if (!this.alive || !this.aligned()) return;
+      const recorded = this.reopenedObservations.flatMap(({ comparison, position, fixId }) =>
+        comparison ? [{ comparison, position, fixId, requestId: fixId }] : []);
+      const drafts = suggestSurveyDiscrepancies(this.geometry, this.room,
+        modelSurveyFaces(index, this.room.id, this.runtime.store.getState().explode),
+        furnishings.filter((item) => item.floorId === this.room.floorId && (item.roomId === this.room.id ||
+          (item.roomId === null && pointInFootprint(item.position[0], item.position[2], this.room.footprint)))),
+        this.captureErrorM ?? this.errorM!);
+      const previous = this.discrepancies;
+      this.discrepancies = [...recorded, ...drafts.filter(({ comparison: { target } }) =>
+        !recorded.some(({ comparison }) => comparison.target.kind === target.kind && comparison.target.id === target.id))
+        .map((draft) => ({ ...draft, requestId: previous.find(({ comparison }) =>
+          comparison.target.kind === draft.comparison.target.kind && comparison.target.id === draft.comparison.target.id)?.requestId ?? crypto.randomUUID() }))];
+      this.notice = this.discrepancies.length ? "Choose an outline pair to review." : "No clear discrepancies in the available scan.";
+    });
+  }
+
+  private openDiscrepancy(review: DiscrepancyReview) {
+    if (!this.aligned()) return;
+    this.selectedDiscrepancy = review;
+    this.page = "discrepancy";
+    this.notice = review.fixId ? "Linked to a model fix." : "";
+    this.display.showDiscrepancy(review.comparison);
+  }
+
+  private async saveDiscrepancy(review: DiscrepancyReview) {
+    if (!this.aligned() || review.fixId) return;
+    return this.task(async () => {
+      const saved = await this.persistReference();
+      if (!this.alive) return;
+      if (!this.aligned()) {
+        this.notice = "Room reference saved. Verify alignment to continue reviewing.";
+        return;
+      }
+      const result = await recordRoomSurveyObservation(this.runtime.base, saved.id, {
+        kind: "discrepancy", requestId: review.requestId, comparison: review.comparison, position: review.position,
+      });
+      if (!this.alive) return;
+      review.fixId = result.fixId;
+      this.reopenedObservations = [...this.reopenedObservations, result];
+      this.notice = "Pending model fix saved with the scan and comparison outlines.";
+    });
+  }
+
   menu(): PanelPage {
     const { room, notice, sample } = this;
     const registration = this.errorM === null ? "" : `Registration ${(this.errorM * 100).toFixed(1)} cm`;
     const lines = [notice, registration].filter(Boolean);
     const home = back(() => this.home());
+    const reviewScan = { label: "Review scan discrepancies", act: () => void this.reviewDiscrepancies() };
     if (this.openingRoomSetup) return { title: `Survey · ${room.name}`, lines: ["Complete headset room setup, then return to the survey."], rows: [] };
     if (this.busy) return { title: `Survey · ${room.name}`, lines, rows: [] };
     if (sample) return {
@@ -514,10 +593,34 @@ export class RoomSurveyPilot {
     if (this.page === "saved") return {
       title: "Saved survey preview", lines: [...lines, this.extentLabel(), this.countLabel()],
       rows: [
+        ...(this.hasScan ? [reviewScan] : []),
         ...this.reopenedMoves.map((move) => ({ label: `${move.target.name} · ${move.status}`, act: () => { this.chosen = null; this.showMove(move); } })),
         { label: "Correct another object", act: () => void this.loadTargets() }, home,
       ],
     };
+    if (this.page === "discrepancies") {
+      const leave = () => { this.page = this.discrepancyHome; this.notice = ""; };
+      return { title: "Scan discrepancies", lines, back: leave, rows: [
+        ...this.discrepancies.map((review) => ({ label: review.comparison.label,
+          detail: review.fixId ? "Linked model fix" : `${(review.comparison.offsetM * 100).toFixed(1)} cm offset`,
+          act: () => this.openDiscrepancy(review) })),
+        { label: "Back to survey", act: leave },
+      ] };
+    }
+    if (this.page === "discrepancy" && this.selectedDiscrepancy) {
+      const review = this.selectedDiscrepancy;
+      const { label, offsetM, scanUncertaintyM, target } = review.comparison;
+      const leave = () => { this.page = "discrepancies"; this.notice = ""; this.display.compare(null); };
+      return { title: label, back: leave, lines: [
+        `${(offsetM * 100).toFixed(1)} cm ${target.kind === "surface" ? "surface" : "footprint"} offset`,
+        `Capture alignment ${((this.captureErrorM ?? this.errorM ?? 0) * 100).toFixed(1)} cm · scan fit ±${(scanUncertaintyM * 100).toFixed(1)} cm`,
+        "Blue scan outline · amber modeled outline", notice,
+      ].filter(Boolean), rows: [
+        ...(review.fixId ? [] : [{ label: "Save as pending model fix", detail: this.saved ? "Attach this comparison" : "Save room reference and attach comparison",
+          act: () => void this.saveDiscrepancy(review) }]),
+        { label: "Back to suggestions", act: leave },
+      ] };
+    }
     if (this.page === "targets") return {
       title: "Choose an existing object", lines, rows: [
         ...this.targets.map((target) => ({ label: target.item.name, act: () => this.selectTarget(target) })), home,
@@ -539,6 +642,7 @@ export class RoomSurveyPilot {
       rows: [
         { label: "Preview full headset room / scene", act: () => this.planPreview("full") },
         { label: "Preview bounded, simplified room", act: () => this.planPreview("bounded") },
+        ...(this.hasScan ? [reviewScan] : []),
         ...(this.canOpenRoomSetup() ? [{ label: "Open headset room setup", act: () => void this.openRoomSetup() }] : []),
         { label: "Measure or mark points", act: () => { this.page = "measure"; this.notice = ""; } },
         { label: this.saved ? "Room reference saved" : "Save the preview as a room reference",

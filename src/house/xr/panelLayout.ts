@@ -5,8 +5,8 @@ export interface PanelRow {
   id?: string;
   active?: boolean;
   detail?: string;
-  style?: "travel" | "primary" | "secondary";
-  icon?: "yard" | "garage" | "rooms" | "comfort" | "camera";
+  style?: "travel" | "primary" | "secondary" | "choice";
+  icon?: "yard" | "garage" | "rooms" | "comfort" | "camera" | "map" | "find" | "fit" | "service";
 }
 export interface PanelPage {
   title: string;
@@ -74,11 +74,15 @@ function wrap(text: string, width: number, measure: (text: string) => number) {
 }
 
 export function layoutPanel(
-  page: PanelPage, measure: (text: string) => number, home: () => void, exit: () => void,
+  page: PanelPage,
+  measure: (text: string) => number,
+  home: () => void,
+  exit: () => void,
 ): PanelLayout {
   const fullWidth = PANEL_WIDTH - 2 * INSET;
-  const backIndex = page.rows.findIndex((row) => row.act &&
-    (row.id === "back" || /^(Back(?: to .+)?|Survey tools)$/.test(row.label)));
+  const backIndex = page.rows.findIndex(
+    (row) => row.act && (row.id === "back" || /^(Back(?: to .+)?|Survey tools)$/.test(row.label)),
+  );
   const promoted = backIndex >= 0 && !page.back ? page.rows[backIndex] : undefined;
   const back = page.back ?? promoted?.act;
   const items = page.rows.filter((item) => item !== promoted);
@@ -94,14 +98,34 @@ export function layoutPanel(
     for (let index = 0; index < items.length; index++) {
       const item = items[index]!;
       const next = items[index + 1];
-      const pair = !!next && next.style === item.style && (item.style === "travel" || item.style === "secondary");
+      const pair =
+        !!next &&
+        next.style === item.style &&
+        (item.style === "travel" || item.style === "secondary" || item.style === "choice");
       const width = pair ? (rowWidth - GAP) / 2 : rowWidth;
-      const height = item.style === "travel" ? 177 : item.style === "primary" ? 90
-        : item.value === undefined ? NORMAL_ROW : SLIDER_ROW;
-      const add = (value: PanelRow, x: number, ordinal: number) => rows.push({
-        ...value, x, y: cursor, width, height, kind: "row",
-        key: page.title + "/row/" + (value.id ?? (value.value === undefined ? value.label + "/" + ordinal : "slider-" + ordinal)),
-      });
+      const height =
+        item.style === "travel"
+          ? 177
+          : item.style === "choice"
+            ? 110
+            : item.style === "primary"
+              ? 90
+              : item.value === undefined
+                ? NORMAL_ROW
+                : SLIDER_ROW;
+      const add = (value: PanelRow, x: number, ordinal: number) =>
+        rows.push({
+          ...value,
+          x,
+          y: cursor,
+          width,
+          height,
+          kind: "row",
+          key:
+            page.title +
+            "/row/" +
+            (value.id ?? (value.value === undefined ? value.label + "/" + ordinal : "slider-" + ordinal)),
+        });
       add(item, INSET, index);
       if (pair) add(next, INSET + width + GAP, ++index);
       cursor += height + GAP;
@@ -109,25 +133,45 @@ export function layoutPanel(
     return { plan, lines, rows, contentHeight: Math.max(76, cursor - HEADER + 4), rowWidth };
   };
   const fullBody = arrangeBody(fullWidth);
-  const { plan, lines, rows, contentHeight, rowWidth } = fullBody.contentHeight > MAX_HEIGHT - HEADER - FOOTER
-    ? arrangeBody(fullWidth - SCROLL_GUTTER)
-    : fullBody;
+  const { plan, lines, rows, contentHeight, rowWidth } =
+    fullBody.contentHeight > MAX_HEIGHT - HEADER - FOOTER
+      ? arrangeBody(fullWidth - SCROLL_GUTTER)
+      : fullBody;
   const height = Math.min(MAX_HEIGHT, HEADER + contentHeight + FOOTER);
   const body: PanelRect = { x: INSET, y: HEADER, width: rowWidth, height: height - FOOTER - HEADER };
-  const track: PanelRect = { x: PANEL_WIDTH - INSET - 23, y: body.y + 14, width: 24, height: body.height - 28 };
+  const track: PanelRect = {
+    x: PANEL_WIDTH - INSET - 23,
+    y: body.y + 14,
+    width: 24,
+    height: body.height - 28,
+  };
   const nav: Array<{ kind: "back" | "home" | "exit" | "close"; label: string; act: () => void }> = [
     ...(back ? [{ kind: "back" as const, label: "Back", act: () => back(0) }] : []),
-    page.close ? { kind: "close", label: "Close menu", act: page.close } : { kind: "home", label: "Main menu", act: home },
-    { kind: "exit", label: "Exit immersive view", act: exit },
+    page.close
+      ? { kind: "close", label: "Close menu", act: page.close }
+      : { kind: "home", label: "Main menu", act: home },
+    { kind: "exit", label: back ? "Exit headset" : "Exit immersive view", act: exit },
   ];
   const navWidth = (PANEL_WIDTH - INSET * 2 - (nav.length - 1) * GAP) / nav.length;
   const footer = nav.map((item, index): PanelButton => ({
-    ...item, key: item.kind, x: INSET + (navWidth + GAP) * index, y: height - FOOTER + 16,
-    width: navWidth, height: 55,
+    ...item,
+    key: item.kind,
+    x: INSET + (navWidth + GAP) * index,
+    y: height - FOOTER + 16,
+    width: navWidth,
+    height: 55,
   }));
   return {
-    title: page.title, height, body, track, maxScroll: contentHeight - body.height,
-    lines, plan, corners: page.corners, rows, footer,
+    title: page.title,
+    height,
+    body,
+    track,
+    maxScroll: contentHeight - body.height,
+    lines,
+    plan,
+    corners: page.corners,
+    rows,
+    footer,
   };
 }
 
@@ -286,24 +330,81 @@ function drawToolIcon(c: CanvasRenderingContext2D, icon: PanelRow["icon"], x: nu
   c.beginPath();
   if (icon === "rooms") {
     c.rect(x, y, 28, 26);
-    c.moveTo(x + 13, y); c.lineTo(x + 13, y + 17);
-    c.moveTo(x + 13, y + 11); c.lineTo(x + 28, y + 11);
-    c.moveTo(x, y + 19); c.lineTo(x + 7, y + 19);
+    c.moveTo(x + 13, y);
+    c.lineTo(x + 13, y + 17);
+    c.moveTo(x + 13, y + 11);
+    c.lineTo(x + 28, y + 11);
+    c.moveTo(x, y + 19);
+    c.lineTo(x + 7, y + 19);
+  } else if (icon === "map") {
+    c.moveTo(x, y + 7);
+    c.lineTo(x + 10, y + 2);
+    c.lineTo(x + 19, y + 7);
+    c.lineTo(x + 29, y + 2);
+    c.lineTo(x + 29, y + 22);
+    c.lineTo(x + 19, y + 27);
+    c.lineTo(x + 10, y + 22);
+    c.lineTo(x, y + 27);
+    c.closePath();
+    c.moveTo(x + 10, y + 2);
+    c.lineTo(x + 10, y + 22);
+    c.moveTo(x + 19, y + 7);
+    c.lineTo(x + 19, y + 27);
+  } else if (icon === "find") {
+    c.arc(x + 11, y + 10, 9, 0, 2 * Math.PI);
+    c.moveTo(x + 18, y + 17);
+    c.lineTo(x + 28, y + 27);
+  } else if (icon === "fit") {
+    c.moveTo(x, y + 7);
+    c.lineTo(x + 14, y);
+    c.lineTo(x + 28, y + 7);
+    c.lineTo(x + 14, y + 14);
+    c.closePath();
+    c.lineTo(x, y + 20);
+    c.lineTo(x + 14, y + 27);
+    c.lineTo(x + 28, y + 20);
+    c.lineTo(x + 28, y + 7);
+    c.moveTo(x + 14, y + 14);
+    c.lineTo(x + 14, y + 27);
+  } else if (icon === "service") {
+    c.roundRect(x + 2, y + 3, 24, 23, 3);
+    c.moveTo(x + 7, y + 15);
+    c.lineTo(x + 12, y + 20);
+    c.lineTo(x + 21, y + 10);
   } else if (icon === "camera") {
     c.roundRect(x, y + 5, 29, 20, 4);
-    c.moveTo(x + 7, y + 5); c.lineTo(x + 10, y + 1); c.lineTo(x + 19, y + 1); c.lineTo(x + 22, y + 5);
-    c.moveTo(x + 19.5, y + 15); c.arc(x + 14.5, y + 15, 5, 0, Math.PI * 2);
+    c.moveTo(x + 7, y + 5);
+    c.lineTo(x + 10, y + 1);
+    c.lineTo(x + 19, y + 1);
+    c.lineTo(x + 22, y + 5);
+    c.moveTo(x + 19.5, y + 15);
+    c.arc(x + 14.5, y + 15, 5, 0, Math.PI * 2);
   } else {
-    c.moveTo(x, y + 6); c.lineTo(x + 29, y + 6);
-    c.moveTo(x, y + 20); c.lineTo(x + 29, y + 20);
-    c.moveTo(x + 9, y + 1); c.lineTo(x + 9, y + 11);
-    c.moveTo(x + 21, y + 15); c.lineTo(x + 21, y + 25);
+    c.moveTo(x, y + 6);
+    c.lineTo(x + 29, y + 6);
+    c.moveTo(x, y + 20);
+    c.lineTo(x + 29, y + 20);
+    c.moveTo(x + 9, y + 1);
+    c.lineTo(x + 9, y + 11);
+    c.moveTo(x + 21, y + 15);
+    c.lineTo(x + 21, y + 25);
   }
   c.stroke();
 }
 
 function paintHomeButton(c: CanvasRenderingContext2D, row: PanelButton, rect: PanelRect) {
   const { x, y, width, height } = rect;
+  if (row.style === "choice") {
+    fill(c, rect, 14, row.active ? "#254d49" : "#202d40");
+    stroke(c, rect, 14, row.active ? "#82d5b9" : "#577093", row.active ? 2.5 : 1.4);
+    c.fillStyle = row.active ? "#a6eed0" : "#bbcce6";
+    c.font = `640 30px ${FONT}`;
+    text(c, row.label, x + 20, y + 41, width - 40);
+    c.font = `510 21px ${FONT}`;
+    c.fillStyle = "#d7e1e8";
+    text(c, row.detail ?? "", x + 20, y + 78, width - 40);
+    return;
+  }
   if (row.style === "travel") {
     const yard = row.icon === "yard";
     const gradient = c.createLinearGradient(x, y, x + width, y + height);
@@ -317,7 +418,7 @@ function paintHomeButton(c: CanvasRenderingContext2D, row: PanelButton, rect: Pa
     text(c, row.label, x + 23, y + 61, width - 170);
     c.fillStyle = yard ? "#a6c5b5" : "#d5b8a3";
     c.font = `510 21px ${FONT}`;
-    text(c, row.act ? row.detail ?? "" : "Unavailable", x + 24, y + 95, width - 165);
+    text(c, row.act ? (row.detail ?? "") : "Unavailable", x + 24, y + 95, width - 165);
     if (row.act) drawArrow(c, x + 17, y + 133, "row");
     return;
   }

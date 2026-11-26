@@ -11,7 +11,7 @@ import {
   getRoomSurvey, getRoomSurveyGeometry, listRoomSurveys, OPEN_ROOM_SURVEY,
 } from "../roomSurveyApi";
 import { reviewRoomSurveyMove } from "../roomSurveyReview";
-import type { RoomSurvey, RoomSurveyGeometry, RoomSurveyMove, RoomSurveyPage, RoomSurveyPose } from "../roomSurveyTypes";
+import type { RoomSurvey, RoomSurveyGeometry, RoomSurveyMove, RoomSurveyPage, RoomSurveyPose, StoredRoomSurveyComparison } from "../roomSurveyTypes";
 import { equipmentPreviewShape } from "../scene/equipmentPlacement";
 import { furnishingGeometry } from "../scene/furnishingGeometry";
 import { SurveyDisplay } from "../xr/surveyDisplay";
@@ -29,6 +29,7 @@ interface Preview {
   survey: RoomSurvey;
   geometry: RoomSurveyGeometry;
   move?: RoomSurveyMove;
+  comparison?: StoredRoomSurveyComparison;
 }
 
 export function RoomSurveys() {
@@ -103,14 +104,19 @@ export function RoomSurveys() {
       } : undefined;
       display.compare(move.before, move.after, shape);
     }
+    if (preview.comparison) display.showDiscrepancy(preview.comparison);
     display.apply(new Matrix4());
     scene.add(display.group);
     runtime.invalidate();
-    void runtime.camera?.fitBox(bounds, { padding: 0.6 });
+    const comparisonBounds = bounds.clone().makeEmpty();
+    if (preview.comparison)
+      for (const point of [...preview.comparison.scanOutline, ...preview.comparison.modelOutline])
+        comparisonBounds.expandByPoint(new Vector3(...point));
+    void runtime.camera?.fitBox(preview.comparison ? comparisonBounds.expandByScalar(0.35) : bounds, { padding: 0.6 });
     return () => { display.dispose(); runtime.invalidate(); };
   }, [furnishings.items, preview, previewActive, runtime]);
 
-  const previewSurvey = async (record: RoomSurvey, move?: RoomSurveyMove) => {
+  const previewSurvey = async (record: RoomSurvey, evidence?: { move: RoomSurveyMove } | { comparison: StoredRoomSurveyComparison }) => {
     setWaiting(true);
     setError(null);
     try {
@@ -123,7 +129,7 @@ export function RoomSurveys() {
         state.setExplode({ enabled: false });
         state.isolateFloor(record.floorId);
         runtime.select({ kind: "room", id: record.roomId }, { focus: true });
-        setPreview({ survey: record, geometry, move });
+        setPreview({ survey: record, geometry, ...evidence });
         state.announce("Room survey preview opened.");
       });
     } catch (err) {
@@ -213,7 +219,7 @@ export function RoomSurveys() {
             </dl>
             {move.applyBlockedReason && <p>Saved for manual review of the mounting surface.</p>}
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" disabled={waiting || survey.fingerprint !== fingerprint} onClick={() => void previewSurvey(survey, move)}>Compare in house</Button>
+              <Button size="sm" disabled={waiting || survey.fingerprint !== fingerprint} onClick={() => void previewSurvey(survey, { move })}>Compare in house</Button>
               {move.status === "proposed" && !move.applyBlockedReason && <Button size="sm" disabled={waiting || survey.fingerprint !== fingerprint}
                 onClick={() => setConfirming({ move, action: "apply" })}>Review and apply</Button>}
               {move.status === "applied" && <Button size="sm" disabled={waiting || survey.fingerprint !== fingerprint}
@@ -232,8 +238,13 @@ export function RoomSurveys() {
           <h3 className="font-semibold text-ink">Linked model fixes</h3>
           {survey.observations.map((entry) => <div key={entry.fixId} className="grid gap-1">
             <Button className="w-fit" size="sm" disabled={waiting} onClick={() => void readFix(entry.fixId)}>
-              {entry.kind === "structure" ? "Structural observation" : "New object observation"}
+              {entry.comparison ? entry.comparison.label : entry.kind === "structure" ? "Structural observation" : "New object observation"}
             </Button>
+            {entry.comparison && <div className="flex flex-wrap items-center gap-2">
+              <span>{number(entry.comparison.offsetM * 100)} cm offset · alignment {number(entry.comparison.registrationErrorM * 100)} cm · scan fit ±{number(entry.comparison.scanUncertaintyM * 100)} cm</span>
+              <Button size="sm" disabled={waiting || survey.fingerprint !== fingerprint}
+                onClick={() => void previewSurvey(survey, { comparison: entry.comparison! })}>Compare outlines in house</Button>
+            </div>}
             {fix?.id === entry.fixId && <p>{fix.status === "pending" ? "Pending" : "Resolved"} · {fix.description}</p>}
           </div>)}
         </section>}

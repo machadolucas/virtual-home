@@ -68,12 +68,27 @@ export const roomSurveyMoveInput = z.strictObject({
   registrationErrorM: residual,
 });
 
-export const roomSurveyObservationInput = z.strictObject({
+const manualObservation = z.strictObject({
   requestId,
   kind: z.enum(["structure", "new_object"]),
   position: vec,
   description: z.string().trim().min(1).max(4000),
 });
+
+const outline = z.array(vec).min(3).max(12);
+export const roomSurveyComparison = z.strictObject({
+  target: z.strictObject({ kind: z.enum(["surface", "furnishing"]), id: semanticId }),
+  label: z.string().trim().min(1).max(240),
+  sourceSurface: z.number().int().min(0).max(MAX_ROOM_SURVEY_SURFACES - 1),
+  scanOutline: outline,
+  modelOutline: outline,
+  offsetM: z.number().positive().max(0.5),
+  scanUncertaintyM: z.number().min(0).max(0.25),
+});
+export const roomSurveyObservationInput = z.union([
+  manualObservation,
+  z.strictObject({ requestId, kind: z.literal("discrepancy"), position: vec, comparison: roomSurveyComparison }),
+]);
 
 export const roomSurveyListInput = z.strictObject({
   modelId: semanticId.optional(),
@@ -96,6 +111,8 @@ export type RoomSurveyMeasurement = RoomSurveyGeometry["measurements"][number];
 export type RoomSurveyCapture = z.infer<typeof roomSurveyCapture>;
 export type RoomSurveyMoveInput = z.infer<typeof roomSurveyMoveInput>;
 export type RoomSurveyObservationInput = z.infer<typeof roomSurveyObservationInput>;
+export type RoomSurveyComparison = z.infer<typeof roomSurveyComparison>;
+export type StoredRoomSurveyComparison = RoomSurveyComparison & { registrationErrorM: number };
 export type RoomSurveyScope = z.infer<typeof scope>;
 export type RoomSurveySurfaceSummary = Pick<RoomSurveySurface, "source" | "label" | "orientation"> & {
   pointCount: number;
@@ -156,6 +173,7 @@ export interface RoomSurveyObservation {
   kind: RoomSurveyObservationInput["kind"];
   position: Vec3;
   createdAtMs: number;
+  comparison?: StoredRoomSurveyComparison;
 }
 
 export interface RoomSurvey extends RoomSurveySummary {

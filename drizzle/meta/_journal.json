@@ -169,6 +169,13 @@
       "when": 1795619867248,
       "tag": "0023_room_surveys",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1795655989105,
+      "tag": "0024_spatial_proposals",
+      "breakpoints": true
     }
   ]
 }

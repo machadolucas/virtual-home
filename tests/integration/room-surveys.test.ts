@@ -252,4 +252,25 @@ describe("private room survey evidence", () => {
       .toMatchObject({ result: { structuredContent: { source: "mesh", values: [[1, 0, 1]], nextOffset: 1 } } });
     expect(await (await call("apply_room_survey_move", { id: survey.id }, token)).json()).toMatchObject({ result: { isError: true } });
   });
+
+  it("keeps a discrepancy pending with both outlines, the captured source and the original alignment measurement", async () => {
+    const survey = await capture();
+    const comparison = {
+      target: { kind: "surface", id: "s-e-l-ext--r-l-a" }, label: "Synthetic wall", sourceSurface: 1,
+      scanOutline: [[1, 0, 1], [1, 0, 2], [1, 1, 2], [1, 1, 1]],
+      modelOutline: [[0.82, 0, 1], [0.82, 0, 2], [0.82, 1, 2], [0.82, 1, 1]],
+      offsetM: 0.18, scanUncertaintyM: 0.025,
+    };
+    const input = { requestId: randomUUID(), kind: "discrepancy", position: [1, 0.5, 1.5], comparison };
+    expect((await OBSERVE(json({ ...input, comparison: { ...comparison, sourceSurface: 4 } }), detailContext(survey.id))).status).toBe(400);
+    expect((await OBSERVE(json({ ...input, comparison: { ...comparison, offsetM: 0.45 } }), detailContext(survey.id))).status).toBe(400);
+    const response = await OBSERVE(json(input), detailContext(survey.id));
+    expect(response.status).toBe(200);
+    const observed = await response.json() as RoomSurveyObservation;
+    expect(observed).toMatchObject({ kind: "discrepancy", surveyId: survey.id,
+      comparison: { ...comparison, registrationErrorM: 0.032 } });
+    expect(await (await OBSERVE(json(input), detailContext(survey.id))).json()).toEqual(observed);
+    expect(getModelFix(handle.db, observed.fixId)).toMatchObject({ status: "pending", surveyObservation: observed });
+    expect(await (await DETAIL(new Request(endpoint), detailContext(survey.id))).json()).toMatchObject({ observations: [observed] });
+  });
 });

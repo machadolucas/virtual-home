@@ -1,7 +1,9 @@
-import { Matrix4, Vector3 } from "three";
+import { Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, Vector3 } from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Furnishing, Room } from "@/house/model/types";
 import type { HouseRuntime } from "@/house/runtime";
+import { buildManifestIndex } from "@/house/model/manifestIndex";
+import { createSceneIndex } from "@/house/scene/SceneIndex";
 import type { RoomSurveyMove, RoomSurveySummary } from "@/house/roomSurveyTypes";
 import { MAX_ROOM_SURVEY_POINTS } from "@/house/roomSurveyTypes";
 import * as api from "@/house/roomSurveyApi";
@@ -432,5 +434,47 @@ describe("survey room WebXR", () => {
       expect.objectContaining({ kind: "new_object", position: [2, 5, 1] })));
     expect(api.proposeRoomSurveyMove).not.toHaveBeenCalled();
     survey.dispose();
+  });
+
+  it("previews scanned and modeled outlines, then saves a fix and its reference on one deliberate click", async () => {
+    const index = createSceneIndex(buildManifestIndex(loadManifest(FIXTURE_DIR)));
+    const floorId = index.manifest.roomSurfacesByKind.get(`${room.id}|floor`)![0]!;
+    const modelFloor = new Mesh(new PlaneGeometry(4, 3), new MeshBasicMaterial());
+    modelFloor.rotation.x = -Math.PI / 2;
+    modelFloor.position.set(2, 5, 1.5);
+    index.surfaceMesh.set(floorId, modelFloor);
+    const state = { fingerprint, placements: [], explode: { enabled: false, gap: 0 } };
+    const runtime = { base: "/house", index, store: { getState: () => state } } as unknown as HouseRuntime;
+    const session = { visibilityState: "visible" } as XRSession;
+    const plane = { planeSpace: {}, orientation: "horizontal", semanticLabel: "floor",
+      polygon: [[0, 5.18, 0], [4, 5.18, 0], [4, 5.18, 3], [0, 5.18, 3]]
+        .map(([x, y, z]) => tracked(x!, y!, z!)) };
+    const frame = { session, detectedPlanes: new Set([plane]), getPose: () =>
+      ({ emulatedPosition: false, transform: { matrix: new Matrix4().toArray() } }) } as unknown as XRFrame;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ furnishings: [] })));
+    vi.mocked(api.saveRoomSurvey).mockResolvedValue(summary);
+    vi.mocked(api.recordRoomSurveyObservation).mockResolvedValue({
+      fixId: "fix", surveyId: summary.id, kind: "discrepancy", position: [2, 5.18, 1.5], createdAtMs: 1_000,
+    });
+    const survey = new RoomSurveyPilot(runtime, session, reference, room);
+    survey.frame(frame, localFromModel, 0.025);
+    click(survey, "Preview full headset room / scene");
+    survey.frame(frame, localFromModel, 0.025);
+    survey.frame(frame, localFromModel, 0.04);
+    click(survey, "Review scan discrepancies");
+    await vi.waitFor(() => expect(survey.menu().rows.some((row) => row.label === "Floor")).toBe(true));
+    click(survey, "Floor");
+    expect(survey.menu().lines.join(" ")).toContain("18.0 cm surface offset");
+    expect(survey.menu().lines.join(" ")).toContain("Capture alignment 2.5 cm");
+    expect(api.saveRoomSurvey).not.toHaveBeenCalled();
+    expect(api.recordRoomSurveyObservation).not.toHaveBeenCalled();
+    click(survey, "Save as pending model fix");
+    await vi.waitFor(() => expect(api.recordRoomSurveyObservation).toHaveBeenCalledWith("/house", summary.id,
+      expect.objectContaining({ kind: "discrepancy", comparison: expect.objectContaining({ target: { kind: "surface", id: floorId } }) })));
+    expect(api.saveRoomSurvey).toHaveBeenCalledWith("/house", expect.objectContaining({ registrationErrorM: 0.025 }));
+    expect(api.proposeRoomSurveyMove).not.toHaveBeenCalled();
+    survey.dispose();
+    modelFloor.geometry.dispose();
+    modelFloor.material.dispose();
   });
 });

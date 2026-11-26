@@ -7,12 +7,13 @@ import { ClipGroups } from "@/house/scene/clipGroups";
 import { RouteLayer } from "@/house/scene/routes";
 import { createRouteFlowState } from "@/house/scene/routeSolids";
 import { createSceneIndex } from "@/house/scene/SceneIndex";
+import { clipWallRoutes, type WallPatch } from "./wallPatch";
 
 export type MixedRealityRouteFilter = "pipes" | "ducts" | "both";
 
 export type MixedRealityRoutePick = Pick<Route, "id" | "name" | "kind" | "certainty"> & { label: string; distance: number; segment: readonly [Route["points"][number], Route["points"][number]]; approximate: boolean };
 
-const isApproximate = (route: Route): boolean =>
+export const isApproximateRoute = (route: Route): boolean =>
   route.certainty === "inferred" || route.certainty === "unknown" ||
   (route.isEstimated ?? route.certainty !== "measured");
 
@@ -75,6 +76,12 @@ export function buildMixedRealityOverlay(
     return { root, layer: new RouteLayer(index, clip, flow) };
   }
   const floor = createLayer("vh-mr-floor-routes");
+  const patch = createLayer("vh-mr-wall-routes");
+  patch.root.removeFromParent();
+  let patchSpec: WallPatch | null = null;
+  let patchRuns: Route[] = [];
+  let patchCount = 0;
+  patch.root.visible = false;
   let trace: (ReturnType<typeof createLayer> & { id: string; runs: Route[] }) | null = null;
   const activeTrace = () => trace?.root.visible ? trace : null;
   let filter: MixedRealityRouteFilter = "both";
@@ -89,7 +96,7 @@ export function buildMixedRealityOverlay(
   const styled = new WeakSet<THREE.Material>();
 
   function draw({ layer, root }: ReturnType<typeof createLayer>, runs: Route[]): void {
-    layer.set(runs, { tubes: true, approximatePaths: isApproximate });
+    layer.set(runs, { tubes: true, approximatePaths: isApproximateRoute });
     root.traverse((object) => {
       const material = (object as THREE.Mesh<THREE.BufferGeometry, THREE.Material>).material;
       if (!material || styled.has(material)) return;
@@ -110,7 +117,22 @@ export function buildMixedRealityOverlay(
     trace.layer.dispose();
     trace.root.removeFromParent();
     trace = null;
-    floor.root.visible = true;
+    baseVisibility();
+  }
+
+  function baseVisibility() {
+    floor.root.visible = !patchSpec;
+    patch.root.visible = !!patchSpec;
+  }
+
+  function drawPatch() {
+    patchRuns = patchSpec ? clipWallRoutes(mixedRealityRuns(source, floorId, "both")
+      .filter((route) => route.modelId === manifest.modelId), patchSpec) : [];
+    patchCount = new Set(patchRuns.map(({ id }) => id)).size;
+    draw(patch, patchRuns);
+    if (patchSpec && !patch.root.parent) group.add(patch.root);
+    if (!patchSpec) patch.root.removeFromParent();
+    baseVisibility();
   }
 
   function rebuild(): void {
@@ -118,20 +140,28 @@ export function buildMixedRealityOverlay(
     eligible = mixedRealityRuns(source, floorId, filter).filter((r) => r.modelId === manifest.modelId);
     count = new Set(eligible.map(({ id }) => id)).size;
     draw(floor, eligible);
+    if (patchSpec) drawPatch();
   }
 
   function clearFocus() {
     const current = activeTrace();
     if (!current) return;
     current.root.visible = false;
-    floor.root.visible = true;
+    baseVisibility();
   }
 
   rebuild();
   return {
     group,
-    get count() { return activeTrace() ? 1 : count; },
+    get count() { return activeTrace() ? 1 : patchSpec ? patchCount : count; },
     get focusedId() { return activeTrace()?.id ?? null; },
+    get patchRoutes() { return patchRuns as readonly Route[]; },
+    setWallPatch(next: WallPatch | null) {
+      if (patchSpec === next) return;
+      disposeTrace();
+      patchSpec = next;
+      drawPatch();
+    },
     clearFocus,
     toggleFocus(routeId: string | null) {
       const current = activeTrace();
@@ -139,13 +169,14 @@ export function buildMixedRealityOverlay(
       if (routeId === null || routeId === current?.id) clearFocus();
       else if (!current) {
         if (trace?.id !== routeId) {
-          const runs = eligible.filter(({ id }) => id === routeId);
+          const runs = (patchSpec ? patchRuns : eligible).filter(({ id }) => id === routeId);
           if (!runs.length) return null;
           disposeTrace();
           trace = { ...createLayer("vh-mr-focused-route"), id: routeId, runs };
           draw(trace, runs);
         }
         floor.root.visible = false;
+        patch.root.visible = false;
         trace.root.visible = true;
       }
       return activeTrace()?.id ?? null;
@@ -173,7 +204,7 @@ export function buildMixedRealityOverlay(
       rebuild();
     },
     tick(delta: number, enabled: boolean, fanRates: Readonly<Record<VentilationFan, number>>) {
-      return (activeTrace() ?? floor).layer.tick(delta, enabled, fanRates);
+      return (activeTrace() ?? (patchSpec ? patch : floor)).layer.tick(delta, enabled, fanRates);
     },
     pick(ray: THREE.Ray): MixedRealityRoutePick | null {
       if (!group.visible) return null;
@@ -182,7 +213,7 @@ export function buildMixedRealityOverlay(
       let route: Route | undefined;
       let bestDistance = Infinity;
       let segmentEnd = 0;
-      for (const span of activeTrace()?.runs ?? eligible) {
+      for (const span of activeTrace()?.runs ?? (patchSpec ? patchRuns : eligible)) {
         for (let i = 1; i < span.points.length; i++) {
           a.fromArray(span.points[i - 1]!);
           b.fromArray(span.points[i]!);
@@ -199,11 +230,11 @@ export function buildMixedRealityOverlay(
       if (!route) return null;
       return {
         id: route.id, distance:bestDistance,
-        segment: [route.points[segmentEnd - 1]!, route.points[segmentEnd]!], approximate: isApproximate(route),
+        segment: [route.points[segmentEnd - 1]!, route.points[segmentEnd]!], approximate: isApproximateRoute(route),
         name: route.name,
         kind: route.kind,
         certainty: route.certainty,
-        label: isApproximate(route)
+        label: isApproximateRoute(route)
           ? `${route.name} · Approximate concealed route`
           : `${route.name} · ${route.certainty} path`,
       };
@@ -211,6 +242,7 @@ export function buildMixedRealityOverlay(
     dispose() {
       disposeTrace();
       floor.layer.dispose();
+      patch.layer.dispose();
       group.removeFromParent();
       group.clear();
       eligible = [];

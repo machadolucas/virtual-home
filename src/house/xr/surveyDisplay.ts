@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { Room, Vec3 } from "@/house/model/types";
-import type { RoomSurveyGeometry, RoomSurveyPose } from "../roomSurveyTypes";
+import type { RoomSurveyComparison, RoomSurveyGeometry, RoomSurveyPose } from "../roomSurveyTypes";
 
 type SurveySurface = RoomSurveyGeometry["surfaces"][number];
 
@@ -119,12 +119,40 @@ export class SurveyDisplay {
 
   compare(before: RoomSurveyPose | null, after?: RoomSurveyPose, shape?: SurveyObjectShape) {
     clear(this.comparison);
+    this.reference.visible = true;
+    this.outline.visible = true;
     if (!before) return;
     this.addPose(before, ORIGINAL, shape);
     if (after) {
       this.addPose(after, PROPOSED, shape);
       this.comparison.add(line([before.position, after.position], PROPOSED));
     }
+  }
+
+  showDiscrepancy(comparison: RoomSurveyComparison) {
+    clear(this.comparison);
+    this.reference.visible = false;
+    this.outline.visible = false;
+    const { scanOutline, modelOutline } = comparison;
+    const centre = (outline: Vec3[]) => outline.reduce((point, value) => point.add(new THREE.Vector3(...value)), new THREE.Vector3())
+      .divideScalar(outline.length).toArray();
+    for (const [outline, color] of [[scanOutline, REFERENCE], [modelOutline, ORIGINAL]] as const) {
+      const segments = new THREE.Group();
+      const material = new THREE.MeshBasicMaterial({ color, transparent: true, depthTest: false, depthWrite: false });
+      outline.forEach((start, i) => {
+        const a = new THREE.Vector3(...start), b = new THREE.Vector3(...outline[(i + 1) % outline.length]!);
+        const delta = b.clone().sub(a);
+        if (delta.lengthSq() === 0) return;
+        const edge = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, delta.length(), 5), material.clone());
+        edge.position.copy(a).lerp(b, 0.5);
+        edge.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize());
+        edge.renderOrder = 4;
+        segments.add(edge);
+      });
+      material.dispose();
+      this.comparison.add(segments, pin(centre(outline), color, 0.014));
+    }
+    this.comparison.add(line([centre(modelOutline), centre(scanOutline)], 0xffffff));
   }
 
   private addPose(pose: RoomSurveyPose, color: number, shape?: SurveyObjectShape) {

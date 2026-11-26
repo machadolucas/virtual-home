@@ -11,6 +11,7 @@ import {
   type ModelFixViewpoint, type ModelFixViewScreenshot, type modelFixListInput,
 } from "@/house/modelFixTypes";
 import { badRequest, conflict, notFound } from "@/server/api/handler";
+import { surveyObservationDto } from "@/server/room-surveys/registry";
 import { prepareScreenshot, registerScreenshot, removeScreenshotFile } from "./screenshotFiles";
 
 type FixRow = typeof modelFix.$inferSelect;
@@ -56,9 +57,9 @@ export function getModelFix(db: Db, id: string, modelId?: string): ModelFix {
     });
   const linked = db.select({
     fixId: roomSurveyObservation.fixId, surveyId: roomSurveyObservation.surveyId, kind: roomSurveyObservation.kind,
-    position: roomSurveyObservation.position, createdAtMs: roomSurveyObservation.createdAtMs,
+    position: roomSurveyObservation.position, createdAtMs: roomSurveyObservation.createdAtMs, comparison: roomSurveyObservation.comparison,
   }).from(roomSurveyObservation).where(eq(roomSurveyObservation.fixId, id)).get();
-  return { ...summary(row), resolution: row.resolution, screenshots, ...(linked ? { surveyObservation: linked } : {}) };
+  return { ...summary(row), resolution: row.resolution, screenshots, ...(linked ? { surveyObservation: surveyObservationDto(linked) } : {}) };
 }
 
 export function listModelFixes(db: Db, input: ListInput) {

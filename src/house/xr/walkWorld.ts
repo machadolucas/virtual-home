@@ -178,6 +178,12 @@ export class WalkWorld {
     return true;
   }
 
+  outdoorLandingAt(point: THREE.Vector3, height: number) {
+    const inBuilding = this.buildingBounds.some(box => box.containsPoint(new THREE.Vector2(point.x, point.z)));
+    if (inBuilding || !this.safeYard(point, height)) return null;
+    return point.clone();
+  }
+
   yardLanding(height: number) {
     if (!this.yard) return null;
     const point = new THREE.Vector3(...this.yard);

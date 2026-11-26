@@ -211,7 +211,8 @@ export function HouseFixes() {
               <span className="text-ink-3">{fix.status === "pending" ? "Pending" : "Resolved"}</span>
             </div>
             {fix.surveyObservation && <div className="flex flex-wrap items-center gap-2 rounded-md bg-surface-2 px-3 py-2">
-              <span>{fix.surveyObservation.kind === "structure" ? "Structural survey observation" : "New object survey observation"}</span>
+              <span>{fix.surveyObservation.kind === "discrepancy" ? "Scan discrepancy with comparison outlines"
+                : fix.surveyObservation.kind === "structure" ? "Structural survey observation" : "New object survey observation"}</span>
               <Button size="sm" onClick={() => {
                 close();
                 window.dispatchEvent(new CustomEvent(OPEN_ROOM_SURVEY, { detail: { id: fix.surveyObservation?.surveyId } }));
