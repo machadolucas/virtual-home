@@ -5,7 +5,7 @@ import {
   applyAlignmentHint, buildAlignmentModel, matchRoomAlignment, uniqueRoomAlignment, type RoomEvidence,
 } from "@/house/xr/roomAlignment";
 import { intersectAlignmentEvidence, readAlignmentEvidence, snapScannedCorner } from "@/house/xr/roomAlignmentEvidence";
-import { chooseFacing } from "@/house/xr/roomFacing";
+import { chooseFacing, FacingHold } from "@/house/xr/roomFacing";
 import { fitWallTrace, floorAim, WallTrace } from "@/house/xr/wallTrace";
 import { AlignmentRays } from "@/house/xr/roomAlignmentRay";
 import { calibrationFeatures } from "@/house/xr/mixedCalibration";
@@ -232,12 +232,14 @@ function pilotFixture(roomSetup?: XRSession["initiateRoomCapture"], anchor?: XRA
     expect(action, `Missing action ${label}`).toBeTypeOf("function");
     action!(0);
   };
-  const tick = () => pilot.frame(frame, 0.014, false, { supply: 0, extract: 0 });
+  const tick = (panelHit = false, promptAvailable = true) =>
+    pilot.frame(frame, 0.014, false, { supply: 0, extract: 0 }, () => panelHit, promptAvailable);
   const confirm = (origin: Vector3, target: Vector3) => {
     matrix.lookAt(origin, target, new Vector3(0, 1, 0)).setPosition(origin);
     pilot.select(frame, source, aim(origin, target));
   };
-  const roomRow = menu().rows[0]!;
+  if (!menu().rows.some((row) => row.id === room.id)) click("Choose room myself");
+  const roomRow = menu().rows.find((row) => row.id === room.id)!;
   click(roomRow.label);
   const trace = (a: Vec3, b: Vec3) => {
     const origin = viewer.clone().add(new Vector3(0.2, -0.35, 0));
@@ -249,12 +251,15 @@ function pilotFixture(roomSetup?: XRSession["initiateRoomCapture"], anchor?: XRA
     pilot.finishWallTrace(frame, source);
     tick();
   };
-  const face = (p: Vec3) => {
+  const lookAt = (p: Vec3) => {
     orientation.setFromRotationMatrix(new Matrix4().lookAt(viewer, tracking(p), new Vector3(0, 1, 0)));
+  };
+  const face = (p: Vec3) => {
+    lookAt(p);
     pilot.select(frame, source, null);
     tick();
   };
-  return { pilot, ref, session, click, menu, tick, confirm, frame, roomRow, trace, face };
+  return { pilot, ref, session, click, menu, tick, confirm, frame, roomRow, trace, face, lookAt };
 }
 
 it("checks hand-traced walls when a scan supplies a partial floor, and rejects bent or duplicate strokes", () => {
@@ -326,6 +331,111 @@ it("aligns from a stationary position by tracing broad wall sections with no nat
   }
 });
 
+it("does not accept an idle head or menu gaze, and re-arms a deliberate hold after hiding the prompt", () => {
+  let now = 1_000;
+  const time = vi.spyOn(performance, "now").mockImplementation(() => now);
+  const { pilot, click, menu, tick, trace, lookAt } = pilotFixture();
+  const hold = (frames: number, panelHit = false) => {
+    for (let i = 0; i < frames; i++) { now += 100; tick(panelHit); }
+  };
+  const marker = () => pilot.scene.getObjectByName("vh-facing-progress");
+  const cue: Vec3 = [2, 4.5, 0], away: Vec3 = [4, 4.5, 1.5];
+  try {
+    tick();
+    click("Trace wall bases");
+    trace([0.7, 3, 0], [3.1, 3, 0]);
+    trace([4, 3, 0.5], [4, 3, 2.5]);
+    trace([3.3, 3, 3], [0.7, 3, 3]);
+    if (!menu().title.startsWith("Look toward")) trace([0, 3, 2.6], [0, 3, 0.5]);
+    expect(menu().title).toBe("Look toward the highlighted wall");
+    lookAt(cue);
+    hold(20);
+    expect(pilot.readyTransform).toBeNull();
+    expect(marker()?.visible).toBeFalsy();
+    lookAt(away); hold(2, true);
+    lookAt(cue); hold(20, true);
+    expect(pilot.readyTransform).toBeNull();
+    expect(marker()?.visible).toBeFalsy();
+    hold(5);
+    expect(marker()?.visible).toBe(true);
+    expect(menu().lines[0]).toBe("Hold your view until the ring fills.");
+    click("Choose another direction");
+    expect(marker()?.visible).toBe(false);
+    click("Look toward the highlighted wall");
+    menu(); hold(20);
+    expect(pilot.readyTransform).toBeNull();
+    lookAt(away); hold(2);
+    lookAt(cue); hold(5);
+    expect(marker()?.visible).toBe(true);
+    tick(false, false);
+    expect(marker()?.visible).toBe(false);
+    menu(); hold(20);
+    expect(pilot.readyTransform).toBeNull();
+    lookAt(away); hold(2);
+    lookAt(cue); hold(13);
+    assertMapsToTracking(pilot.readyTransform!);
+    expect(marker()?.visible).toBe(false);
+  } finally {
+    pilot.dispose();
+    time.mockRestore();
+  }
+});
+
+it("requires stable heading and the same candidate across newly read evidence", () => {
+  const candidates = matchRoomAlignment(model, measured(), viewer);
+  const [first, other] = candidates;
+  const hold = new FacingHold();
+  const target = { label: "wall", point: [2, 3, 0] as Vec3 };
+  const away = new Vector3(1, 0, 0), ahead = new Vector3(0, 0, -1);
+  const sample = (t: number, version: number, candidate = first ?? null, gaze = ahead) =>
+    hold.update(target, candidate, viewer, gaze, version, t, false);
+  sample(0, 1, null, away);
+  for (let t = 100; t <= 1_300; t += 100) expect(sample(t, 1)).toBeNull();
+  expect(hold.progress).toBe(0.95);
+  const wobble = new Vector3(0.15, 0, -1).normalize();
+  expect(sample(1_400, 2, first, wobble)).toBeNull();
+  expect(hold.progress).toBe(0);
+  expect(sample(1_500, 2, other, wobble)).toBeNull();
+  for (let t = 1_600; t <= 2_900; t += 100) expect(sample(t, 3, other, wobble)).toBeNull();
+  expect(hold.progress).toBe(0);
+  sample(3_000, 3, null, away);
+  for (let t = 3_100; t <= 4_000; t += 100) expect(sample(t, 3, other, wobble)).toBeNull();
+  expect(sample(4_500, 4, other, wobble)).toBeNull(); // A stalled frame restarts deliberate response.
+  expect(hold.progress).toBe(0);
+});
+
+it("fails closed if the final forced scan no longer supports the held direction", () => {
+  let now = 1_000;
+  const time = vi.spyOn(performance, "now").mockImplementation(() => now);
+  const { pilot, click, menu, tick, trace, lookAt } = pilotFixture();
+  try {
+    tick();
+    click("Trace wall bases");
+    trace([0.7, 3, 0], [3.1, 3, 0]);
+    trace([4, 3, 0.5], [4, 3, 2.5]);
+    trace([3.3, 3, 3], [0.7, 3, 3]);
+    if (!menu().title.startsWith("Look toward")) trace([0, 3, 2.6], [0, 3, 0.5]);
+    expect(menu().title).toBe("Look toward the highlighted wall");
+    lookAt([4, 4.5, 1.5]); tick();
+    lookAt([2, 4.5, 0]);
+    for (let i = 0; i < 11; i++) { now += 100; tick(); }
+    expect(pilot.scene.getObjectByName("vh-facing-progress")?.visible).toBe(true);
+    expect(pilot.readyTransform).toBeNull();
+
+    // Change evidence between periodic reads. Only the forced confirmation scan sees this change.
+    pilot["trace"]?.undo(); pilot["trace"]?.undo();
+    pilot["nextScan"] = now + 400;
+    now += 100; tick();
+    expect(pilot["nextScan"]).toBe(now + 500);
+    expect(pilot.calibration?.state.phase).not.toBe("ready");
+    expect(pilot.readyTransform).toBeNull();
+    expect(pilot.scene.getObjectByName("vh-facing-progress")?.visible).toBe(false);
+  } finally {
+    pilot.dispose();
+    time.mockRestore();
+  }
+});
+
 it("drops wall strokes at a tracking-origin reset and lets the wearer undo without losing earlier walls", () => {
   const { pilot, ref, click, menu, tick, trace } = pilotFixture();
   try {
@@ -343,6 +453,23 @@ it("drops wall strokes at a tracking-origin reset and lets the wearer undo witho
     expect(menu().title).toBe("Trace a wall");
   } finally {
     pilot.dispose();
+  }
+});
+
+it("starts a wall trace directly from a held trigger after room scanning finds no geometry", () => {
+  let now = 1000;
+  vi.spyOn(performance, "now").mockImplementation(() => now);
+  const { pilot, tick, trace, menu } = pilotFixture();
+  try {
+    tick();
+    now += 3500;
+    tick();
+    trace([0.7, 3, 0], [3.1, 3, 0]);
+    expect(menu().title).toContain("1 marked");
+    expect(pilot.readyTransform).toBeNull();
+  } finally {
+    pilot.dispose();
+    vi.restoreAllMocks();
   }
 });
 

@@ -62,6 +62,13 @@ export class HouseSession {
   private readonly orientation = new THREE.Quaternion();
   private readonly poseMatrix = new THREE.Matrix4();
   private readonly ray = new THREE.Raycaster();
+  private readonly menuGaze = new THREE.Raycaster();
+  private readonly lookingAtPanel = (gaze: THREE.Ray) => {
+    if (!this.panel.mesh.visible) return false;
+    if (this.placeMenu) return true;
+    this.menuGaze.ray.copy(gaze).applyMatrix4(this.rig.matrixWorld);
+    return !!this.panel.hit(this.menuGaze);
+  };
   private readonly panel = new HeadsetPanel();
   private readonly statusCard = new HeadsetNotice();
   private readonly history = new WalkHistory();
@@ -1321,7 +1328,7 @@ export class HouseSession {
   }
 
   frame(gl: THREE.WebGLRenderer, frame: XRFrame, delta: number, options: FrameOptions) {
-    this.mixed?.frame(frame, delta, options.motion, options.rates);
+    this.mixed?.frame(frame, delta, options.motion, options.rates, this.lookingAtPanel, this.panel.mesh.visible);
     const viewer = frame.getViewerPose(this.space);
     if (!viewer || this.session.visibilityState !== "visible" || viewer.emulatedPosition) {
       if (this.mixed) this.suspendAlignment();

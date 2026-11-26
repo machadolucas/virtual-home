@@ -346,3 +346,114 @@ export function applyAlignmentHint(
   });
   return matching.length === 1 ? matching[0]! : null;
 }
+
+/** Maximum change in metres anywhere on the modeled floor perimeter. */
+export function roomPoseDrift(room: Room, a: Matrix4, b: Matrix4): number {
+  const p = new Vector3(),
+    q = new Vector3();
+  let maximum = 0;
+  for (const [x, z] of room.footprint.outer) {
+    p.set(x, room.floorElevation, z);
+    q.copy(p).applyMatrix4(b);
+    maximum = Math.max(maximum, p.applyMatrix4(a).distanceTo(q));
+  }
+  return maximum;
+}
+
+/** Check a previously tracked pose against a measured floor/wall corner without fitting a new transform. */
+export function checkAnchoredCorner(
+  model: AlignmentModel,
+  evidence: RoomEvidence,
+  viewer: Vector3,
+  matrix: Matrix4,
+  featureId?: string,
+): AlignmentCandidate | null {
+  const floor = evidence.floor;
+  if (
+    !floor ||
+    (floor.source !== "plane" && floor.source !== "mesh") ||
+    Math.abs(floor.y) > FLOOR_TOLERANCE_M ||
+    !pointInFootprint(viewer.x, viewer.z, { outer: floor.outline })
+  )
+    return null;
+  const localViewer = viewer.clone().applyMatrix4(matrix.clone().invert());
+  if (!pointInFootprint(localViewer.x, localViewer.z, model.room.footprint)) return null;
+  const y = matrix.elements[13]!;
+  const floorError = Math.abs(model.room.floorElevation + y - floor.y);
+  if (
+    floorError > LIMIT ||
+    viewer.y - floor.y < 0.45 ||
+    viewer.y - floor.y > (model.room.ceilingHeight ?? 2.7) + 0.2
+  )
+    return null;
+  const yaw = Math.atan2(matrix.elements[8]!, matrix.elements[10]!);
+  const perimeter = model.walls.map((w) =>
+    transformed(w, yaw, [matrix.elements[12]!, matrix.elements[14]!]),
+  );
+  const marks = matchesLandmarks(matrix, model.landmarks, evidence.landmarks, perimeter, y);
+  if (marks.conflict) return null;
+  // Match overlapping wall faces first. A nearby contradictory surface is grounds to seek a full scan.
+  const observed = evidence.walls.filter(
+    (w) => !w.baseOnly && Math.abs(w.low - floor.y) < 0.35 && w.high - w.low >= 1.2,
+  );
+  const faces = perimeter.map((wall) => {
+    const matches = observed
+      .map((seen) => ({ seen, error: wallResidual(wall, seen) }))
+      .sort((a, b) => a.error - b.error);
+    return matches[0];
+  });
+  if (faces.some((hit) => hit && hit.error > LIMIT && hit.error < 0.22)) return null;
+  for (const check of model.corners) {
+    if (featureId && check.id !== featureId) continue;
+    const expected = new Vector3(...check.point).applyMatrix4(matrix);
+    const corner: Point = [expected.x, expected.z];
+    const sides = perimeter.flatMap((wall, i) => {
+      const hit = faces[i];
+      if (
+        !hit ||
+        hit.error > LIMIT ||
+        Math.min(length(sub(corner, wall.a)), length(sub(corner, wall.b))) > 0.01 ||
+        wallDistance(corner, hit.seen) > 0.16
+      )
+        return [];
+      return [{ wall, seen: hit.seen }];
+    });
+    for (let i = 0; i < sides.length; ++i)
+      for (let j = i + 1; j < sides.length; ++j) {
+        const first = sides[i]!,
+          second = sides[j]!;
+        const a = wallAxis(first.seen),
+          b = wallAxis(second.seen),
+          det = cross(a, b);
+        if (Math.abs(det) < 0.55) continue;
+        const t = cross(sub(second.seen.a, first.seen.a), b) / det;
+        const intersection = new Vector3(first.seen.a[0] + t * a[0], floor.y, first.seen.a[1] + t * a[1]);
+        const error = expected.distanceTo(intersection);
+        // A rotation around the check point must also stay within tolerance across the room.
+        const reach = Math.max(
+          ...model.corners.map((c) => length(sub(planar(c.point), planar(check.point)))),
+        );
+        const angle = Math.max(
+          ...[first, second].map((s) =>
+            Math.acos(Math.min(1, Math.abs(dot(wallAxis(s.seen), wallAxis(s.wall))))),
+          ),
+        );
+        const errorM = Math.max(marks.error, error + 2 * reach * Math.sin(angle / 2));
+        if (Number.isFinite(errorM) && errorM <= MAX_CALIBRATION_ERROR_M) {
+          return {
+            fit: {
+              matrix: matrix.clone(),
+              yaw,
+              modelOrigin: check.point,
+              anchorPosition: expected.toArray(),
+            },
+            check,
+            errorM,
+            landmarkCount: marks.count,
+            landmarkConflict: false,
+          };
+        }
+      }
+  }
+  return null;
+}

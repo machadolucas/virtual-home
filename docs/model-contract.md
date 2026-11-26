@@ -820,22 +820,29 @@ The House page shows frame timing from the last session on that browser.
 
 ### Aligning passthrough
 
-Choose **Enter mixed reality** or **Survey room** and select the room you are standing in. Stay
-inside your Quest boundary. If the browser shares a scan, House compares its floor, walls and
-available door or window observations with the installed model at fixed scale. Geometry withheld
-from the fit checks the registration. A unique checked match reveals the overlay. In a symmetric
-room, turn your head toward the suggested door, window, neighbouring room or wall highlighted on
-the plan. While looking at it, click either trigger or pinch once. Your facing direction selects
-between already checked orientations. The headset shows the registration error in centimetres.
-The pilot threshold is 5 cm.
+Choose **Enter mixed reality** or **Survey room** and look around from where you are. House
+compares the shared scan with the modeled rooms and floors. Two fresh scans must agree on
+one room before it is selected automatically. A checked, unique orientation reveals the
+overlay. If several rooms still fit, select yours from the shortlist. **Choose room myself**
+opens the full room list immediately.
 
-If the scan is missing or incomplete, **Open headset room setup** refreshes it where supported.
-Alternatively, choose **Trace wall bases** and stay where you are. Hold a trigger or pinch and sweep
-along about a metre of the line where a wall meets the floor, then release. Repeat on different
-sides of the room. The headset draws each accepted stroke and asks for a facing direction if needed.
-**Undo last wall** removes a mistaken stroke. With no shared scan, this uses the headset’s local
-floor height and requires independently observed walls to agree before showing infrastructure.
-Traces are cleared when tracking or the reference space is lost.
+On return visits, House also tries the headset’s saved floor anchors for the current
+account and model. It can verify a saved check corner from the observed floor and two
+adjoining walls even when the scan is incomplete. A tracked anchor alone keeps routes hidden.
+Two consistent, independently verified native fits can replace a stale alignment.
+
+If the room is symmetric, follow the **Look toward** prompt. Turn toward the suggested
+door, window, neighbouring room or highlighted wall and hold your view until the progress
+ring fills. A trigger click or pinch confirms immediately, including when you already face
+the feature. Head direction only distinguishes geometrically checked orientations. The
+scale stays 1:1 and the pilot registration threshold stays at 5 cm.
+
+If there is too little scan data, **Open headset room setup** refreshes it where supported.
+Alternatively, choose your room and hold a trigger or pinch while sweeping along about a metre
+of a wall base. Release when the line turns green. **Trace wall bases** also opens this tool
+explicitly. Repeat on different sides of the room. **Undo last wall** removes a mistaken
+stroke. The tracked floor height and independent wall observations check the result. A
+tracking interruption clears the traces.
 
 **Point to align manually** lets you mark two widely spaced model corners and verify a third from
 where you stand. Aim at the physical corner and confirm. If the browser supplies no surface hit,

@@ -66,6 +66,7 @@ function readAlignment(raw: string | null | undefined): SavedAlignment | null {
 export class MixedRealityCalibration {
   private current = INITIAL_STATE;
   private readonly key: string;
+  private roomId?: string;
   private readonly storage: MixedRealityCalibrationOptions["storage"];
   private readonly probeOffset: Readonly<Vec3>;
   private pairs: CalibrationPair[] = [];
@@ -83,6 +84,7 @@ export class MixedRealityCalibration {
 
   constructor(private readonly options: MixedRealityCalibrationOptions) {
     this.key = `vh:mr-anchor:v1:${JSON.stringify([options.userId, options.fingerprint, options.floorId])}`;
+    this.roomId = options.roomId;
     this.probeOffset = options.probeOffset ?? MIXED_REALITY_PROBE_OFFSET;
     try {
       const storage = options.storage ?? window.localStorage;
@@ -107,8 +109,27 @@ export class MixedRealityCalibration {
 
   /** A same-floor anchor can be out of range in a different room. A checked local scan can replace it. */
   get awaitingForeignAnchor(): boolean {
-    return this.current.phase === "restoring" && !!this.options.roomId &&
-      this.saved?.check.roomId !== this.options.roomId;
+    return this.current.phase === "restoring" && !!this.roomId &&
+      this.saved?.check.roomId !== this.roomId;
+  }
+
+  /** A tracked floor anchor is a location hint until fresh room evidence independently checks it. */
+  savedFloorPose(frame: XRFrame): Matrix4 | null {
+    if (
+      !this.saved ||
+      !this.anchor ||
+      this.disposed ||
+      !this.haveViewer ||
+      frame.session !== this.options.session ||
+      this.options.session.visibilityState !== "visible"
+    )
+      return null;
+    return this.trackedMatrix(frame, true);
+  }
+
+  bindRoom(roomId: string) {
+    this.roomId = roomId;
+    if (this.current.phase === "verify") this.requestCheck();
   }
 
   /** Adopt a rigid fit independently verified against the room scan. */
@@ -307,6 +328,7 @@ export class MixedRealityCalibration {
     const origin = this.fit?.modelOrigin ?? this.saved?.modelOrigin;
     if (!pose || pose.emulatedPosition || !origin) return null;
     const m = pose.transform.matrix;
+    if (m.length !== 16 || !m.every(Number.isFinite)) return null;
     // Keep the calibration leveled to gravity. XR anchors can introduce small pitch/roll corrections.
     return this.anchorMatrix.makeRotationY(Math.atan2(m[8]!, m[10]!))
       .setPosition(m[12]!, m[13]!, m[14]!)
@@ -401,7 +423,7 @@ export class MixedRealityCalibration {
   }
 
   private isLocalFeature(feature: CalibrationFeature): boolean {
-    return !this.options.roomId || feature.roomId === this.options.roomId;
+    return !this.roomId || feature.roomId === this.roomId;
   }
 
   private loseTracking(): void {
