@@ -793,39 +793,47 @@ when no model object was selected.
 ## Quest walkthrough and mixed reality
 
 Open the signed-in HTTPS House page. It checks VR and passthrough separately. **Enter VR**
-starts a life-size walkthrough with the menu closed. Walk physically or push the left stick to
-walk in the direction you face. Push the right stick forward, aim the arc, and release the stick
-to land on its ring. Flick it sideways for a 30° snap turn. Doors open as you approach them.
-Walk along the modelled ground and paving to explore the yard and enter the garage, or open
-**Rooms and floors** for distant destinations. Turn off stick walking under **Movement and comfort**
-if you prefer teleportation.
+starts a life-size walkthrough. Point the left controller at the ground to preview a landing.
+Click its trigger to teleport. To choose your facing, hold the trigger, steer the arrow with
+the left thumbstick, then release the trigger. Between teleports, the left stick walks in the
+direction you face. The right stick snap-turns 30°. Physical walking stays at 1:1 scale.
+Stick walking can be disabled under **Movement and comfort**.
 
-Point at equipment to see its name, then trigger to inspect its readings and controls.
-Squeeze a grip to open or recall the menu. With tracked hands, point and pinch to select.
-Hold a pinch on the ground to aim a teleport and release to land. Point at the wrist **Menu**
-badge with the other hand and pinch. With one tracked hand the badge appears beside your view.
-Rows highlight while pointing and show a second highlight while pressed. Choose **Exit immersive
-view** to resume desktop viewing. The House page shows frame timing from the last session on
-that browser. VR reduces optional surface detail and lighting under sustained frame pressure.
+Point and trigger to inspect equipment or open a distant door. Approaching a virtual door clears
+its leaves once for the session. Frames, tall obstacles and low ceilings keep their clearance
+checks. **Yard** lands on open ground outside the buildings, facing back towards the nearest
+building. **Garage** and **Rooms and floors** use the selected room’s footprint.
+
+Squeeze a grip to open or recall the menu. Aim at a list and move either thumbstick up or down,
+grab and drag its content, or drag the scrollbar. Navigation and exit stay in reach. With hands,
+point and pinch to select, hold a ground pinch to aim a teleport, or pinch and drag a list.
+Point at the wrist **Menu** badge with the other hand and pinch to recall the menu. With one
+tracked hand the badge appears beside your view. **Exit immersive view** returns to desktop.
+The House page shows frame timing from the last session on that browser.
 
 ### Aligning passthrough
 
-Choose **Enter mixed reality** and select the laundry on its known floor. Choose a fixed
-floor-level corner on the numbered plan, touch its physical counterpart with the orange
-controller tip, then trigger away from the menu. Repeat with a corner at least 1.5 m away.
-With hands, arm the measuring hand, touch the feature with its index fingertip, then pinch
-with the other hand to confirm. Choose a third corner away from the line and measure it.
-An independent 3D residual within 5 cm reveals the active routes. The scale stays at one metre
-per metre. Concealed routes carry their own certainty label.
+Choose **Enter mixed reality** or **Survey room** and select the room you are standing in. Stay
+inside your Quest boundary. If the browser shares a scan, House compares its floor, walls and
+available door or window observations with the installed model at fixed scale. Geometry withheld
+from the fit checks the registration. A unique checked match reveals the overlay. In a symmetric
+room House can ask you to identify one wall or doorway by pointing. The headset shows the error
+in centimetres. The pilot threshold is 5 cm.
+
+If a room scan is missing, **Open headset room setup** starts Space Setup where supported.
+**Point to align manually** lets you mark two widely spaced model corners and verify a third from
+where you stand. Aim at the physical corner and confirm. If the browser supplies no surface hit,
+aim at that same corner again after moving your hand sideways as prompted. House triangulates
+the point from the two rays. Touch with the orange probe or use a tracked fingertip when preferred.
 
 Choose **Pipes**, **Ducts** or **Both**. Supply and extract animate from their independent
-feedback channels. **Realign** restarts registration. Persistent anchors can recover the
-room frame where supported. Restored alignment needs another third-point check. Lost or
-emulated tracking hides the overlay.
+feedback channels. Concealed routes retain their own certainty labels. **Realign the room**
+restarts registration. Lost or emulated tracking hides the overlay. A recovered anchor must
+agree with a fresh scan or a new check before the overlay returns.
 
 ### Surveying a room and correcting placements
 
-Choose **Survey room**, select the room and pass the same three-point calibration. Choose
+Choose **Survey room**, select the room and complete the same alignment. Choose
 **Preview full headset room / scene** to preview all geometry exposed to the session and
 inspect its extent before saving. It can include adjoining spaces. Full capture preserves
 mesh topology and refuses data above the displayed limits. **Preview bounded, simplified

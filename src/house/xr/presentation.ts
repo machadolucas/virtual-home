@@ -14,9 +14,8 @@ export function presentedHouse(state: HouseStore): HouseStore {
 export type ImmersiveMode = "vr" | "mr" | "survey";
 export const sessionModes = { vr: "immersive-vr", mr: "immersive-ar", survey: "immersive-ar" } as const;
 export function requestHouseSession(xr: XRSystem, mode: ImmersiveMode) {
-  const optionalFeatures = mode === "survey"
-    ? ["anchors", "plane-detection", "mesh-detection", "hit-test", "hand-tracking"]
-    : mode === "mr" ? ["anchors", "hand-tracking"] : ["hand-tracking"];
+  const optionalFeatures = mode === "vr" ? ["hand-tracking"]
+    : ["anchors", "plane-detection", "mesh-detection", "hit-test", "hand-tracking"];
   return xr.requestSession(sessionModes[mode], {
     requiredFeatures: ["local-floor"], optionalFeatures,
   });

@@ -15,6 +15,9 @@ test("a household member can review a captured fix and attach a headset screensh
   await login(page, "marja", {next:"/house"});
   await expect(page.getByRole("button", {name:"Enter VR",exact:true})).toBeVisible();
   await expect(page.getByRole("button", {name:"Enter mixed reality",exact:true})).toHaveCount(0);
+  await page.getByText("Quest controls", {exact:true}).click();
+  await expect(page.getByText(/steer the landing arrow with the left stick/)).toBeVisible();
+  await page.getByText("Quest controls", {exact:true}).click();
   const installed = await page.request.get(base + "/status");
   expect(installed.ok()).toBe(true);
   const {fingerprint} = await installed.json();

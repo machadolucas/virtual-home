@@ -32,7 +32,7 @@ export function EntryButtons() {
     {supported.mr && <Button size="sm" disabled={loading} onClick={() => void enter("mr")}>Enter mixed reality</Button>}
     {supported.mr && <Button size="sm" disabled={loading} onClick={() => void enter("survey")}>Survey room</Button>}
     {supported.vr && <details className="text-xs text-muted"><summary className="cursor-pointer px-1">Quest controls</summary>
-      <p className="max-w-64 p-1">Walk with the left stick. Hold the right stick forward, aim and release to teleport. Squeeze a grip for the menu. With hands, hold a floor pinch to aim, or point and pinch the wrist menu.</p></details>}
+      <p className="max-w-64 p-1">Point the left controller at the ground. Click its trigger to teleport, or hold the trigger and steer the landing arrow with the left stick. Release to land. The left stick also walks. Squeeze a grip for the menu. With hands, hold a floor pinch to aim, or point and pinch the wrist menu.</p></details>}
     {(supported.vr || supported.mr) && <FrameTiming userId={runtime.userId} />}
     {error && <p role="alert" className="text-xs text-overdue">{error}</p>}</div>;
 }

@@ -8,7 +8,16 @@ export function roomLanding(room: Room): Vec3 | null {
   return clearance > 0.2 ? [point[0], room.floorElevation, point[1]] : null;
 }
 
-const walkRoles = new Set(["ground", "terrain", "paving", "step", "outdoor-stair", "terrace", "balcony", "door-threshold"]);
+const walkRoles = new Set([
+  "ground",
+  "terrain",
+  "paving",
+  "step",
+  "outdoor-stair",
+  "terrace",
+  "balcony",
+  "door-threshold",
+]);
 const walkElements = new Set(["stair", "step", "paving", "terrain", "terrace", "balcony"]);
 export function walkable(surface: Surface | undefined, normalY: number, elementKind?: string): boolean {
   if (!surface || normalY < 0.72) return false;
@@ -28,4 +37,23 @@ export function turnAroundHead(rig: THREE.Group, head: THREE.Vector3, angle: num
   const after = head.clone().applyQuaternion(rig.quaternion);
   rig.position.add(before.sub(after));
   rig.updateMatrixWorld(true);
+}
+
+/** Yaw of the wearer's gaze in the model. A positive yaw turns model north toward west. */
+export function viewHeading(rig: THREE.Group, headOrientation: THREE.Quaternion): number {
+  const forward = new THREE.Vector3(0, 0, -1)
+    .applyQuaternion(headOrientation)
+    .applyQuaternion(rig.quaternion);
+  return Math.atan2(-forward.x, -forward.z);
+}
+
+export function landFacing(
+  rig: THREE.Group,
+  head: THREE.Vector3,
+  orientation: THREE.Quaternion,
+  point: THREE.Vector3,
+  heading: number,
+) {
+  rig.rotateY(heading - viewHeading(rig, orientation));
+  teleport(rig, head, point);
 }

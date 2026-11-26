@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import type { SceneIndex } from "../scene/SceneIndex";
-import type { Vec3 } from "../model/types";
 import { pointInFootprint } from "../model/geometry2d";
+import type { Room, Vec3 } from "../model/types";
+import { DoorPassage } from "./doorPassage";
 import { walkable } from "./navigation";
 
 const CELL = 2;
@@ -18,28 +19,14 @@ interface Triangle {
   mesh: THREE.Mesh;
   stand: boolean;
   visited: number;
-  door?: Door;
-}
-interface Door {
-  mesh: THREE.Mesh;
-  base: THREE.Matrix4;
-  bounds: THREE.Box3;
-  movingBounds: THREE.Box3;
-  shapes: THREE.Triangle[];
-  transformed: THREE.Triangle[];
-  auto: boolean;
-  hinge: THREE.Vector3;
-  center: THREE.Vector3;
-  width: number;
-  height: number;
-  amount: number;
-  sign: number;
-  axis: THREE.Vector3;
+  door?: DoorPassage;
+  foundation: boolean;
 }
 export interface WalkHit {
   point: THREE.Vector3;
   walkable: boolean;
   placementId?: string;
+  doorId?: string;
   object: THREE.Mesh;
 }
 
@@ -48,19 +35,34 @@ export class WalkWorld {
   private cells = new Map<number, Map<number, Triangle[]>>();
   private wide: Triangle[] = [];
   private query = 0;
-  private doors: Door[] = [];
-  private moving = new Set<Door>();
+  private doors = new Map<THREE.Mesh, DoorPassage>();
+  private buildingBounds: THREE.Box2[];
+  private thresholds: THREE.Triangle[] = [];
+  private nearThreshold = new THREE.Vector3();
+  private skyRay = new THREE.Ray(new THREE.Vector3(), new THREE.Vector3(0, 1, 0));
   private ray = new THREE.Ray();
   private intersection = new THREE.Vector3();
   private normal = new THREE.Vector3();
   private body = new THREE.Box3();
-  private transform = new THREE.Matrix4();
-  private offset = new THREE.Matrix4();
-  private parentInverse = new THREE.Matrix4();
-  private yardCandidates: THREE.Vector3[] = [];
   yard: Vec3 | null = null;
+  yardHeading = 0;
 
-  constructor(index: SceneIndex) {
+  constructor(
+    index: SceneIndex,
+    private openedDoors = new Set<string>(),
+  ) {
+    // Project the whole building including upper floors. Terrain can extend underneath it.
+    const buildings = new Map<string, THREE.Box2>();
+    const point = new THREE.Vector2();
+    for (const room of index.manifest.rooms.values()) {
+      const id = room.buildingId ?? index.manifest.floors.get(room.floorId)?.buildingId ?? room.floorId;
+      const bounds = buildings.get(id) ?? new THREE.Box2();
+      for (const [x, z] of room.footprint?.outer ?? []) bounds.expandByPoint(point.set(x, z));
+      buildings.set(id, bounds);
+    }
+    this.buildingBounds = [...buildings.values()].filter((box) => !box.isEmpty());
+    const yardCandidates: THREE.Vector3[] = [];
+    const floors = [...index.manifest.floors.values()];
     for (const object of index.pickables) {
       if (!(object instanceof THREE.Mesh) || object instanceof THREE.InstancedMesh) continue;
       const sid = index.meshSurfaceId.get(object);
@@ -74,37 +76,11 @@ export class WalkWorld {
       const vertices: THREE.Vector3[] = [];
       for (let i = 0; i < position.count; i++)
         vertices.push(new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(object.matrixWorld));
-      const box = new THREE.Box3().setFromPoints(vertices);
-      let door: Door | undefined;
-      if (surface?.role === "door-leaf") {
-        const center = box.getCenter(new THREE.Vector3());
-        let far = vertices[0]!,
-          horizontal = 0;
-        for (const v of vertices) {
-          const distance = Math.hypot(v.x - center.x, v.z - center.z);
-          if (distance > horizontal) {
-            far = v;
-            horizontal = distance;
-          }
-        }
-        const axis = new THREE.Vector3(far.x - center.x, 0, far.z - center.z).normalize();
-        door = {
-          mesh: object,
-          base: object.matrix.clone(),
-          bounds: box,
-          movingBounds: box.clone(),
-          shapes: [],
-          transformed: [],
-          auto: object.matrixAutoUpdate,
-          hinge: center.clone().addScaledVector(axis, horizontal),
-          center,
-          width: horizontal * 2,
-          height: box.max.y - box.min.y,
-          amount: 0,
-          sign: 1,
-          axis,
-        };
-        this.doors.push(door);
+      let door: DoorPassage | undefined;
+      if (sid && surface?.role === "door-leaf") {
+        door = new DoorPassage(sid, object, new THREE.Box3().setFromPoints(vertices));
+        this.doors.set(object, door);
+        if (this.openedDoors.has(sid)) door.clear(true);
       }
       const inds = geometry.index;
       for (let i = 0; i + 2 < (inds?.count ?? position.count); i += 3) {
@@ -115,39 +91,90 @@ export class WalkWorld {
         const normal = shape.getNormal(this.normal);
         const yard = surface?.role === "paving" || surface?.role === "ground";
         // Some authored terrain and two-sided floors have downward winding.
-        const stand = walkable(surface, normal.y, element?.kind) || (yard && Math.abs(normal.y) >= 0.72);
-        const tri = { shape, mesh: object, stand, door, visited: 0 };
-        if (door) {
-          door.shapes.push(shape);
-          door.transformed.push(shape.clone());
-        }
+        const slab =
+          element?.kind === "slab" &&
+          normal.y > 0.95 &&
+          floors.some(
+            (floor) =>
+              (!element.buildingId || element.buildingId === floor.buildingId) &&
+              Math.abs(a.y - floor.elevation) < 0.12,
+          );
+        const stand =
+          slab || walkable(surface, normal.y, element?.kind) || (yard && Math.abs(normal.y) >= 0.72);
+        if (stand && surface?.role === "door-threshold") this.thresholds.push(shape);
+        const foundation = surface?.role === "plinth" || element?.kind === "footing";
+        const tri = { shape, mesh: object, stand, door, foundation, visited: 0 };
         this.insert(tri);
-        if (stand && yard) this.yardCandidates.push(shape.getMidpoint(new THREE.Vector3()));
+        if (stand && yard) {
+          yardCandidates.push(shape.getMidpoint(new THREE.Vector3()));
+          // A coarse plot may have only two triangles with centroids underneath the house.
+          if (shape.getArea() > 4) {
+            const divisions = Math.min(16, Math.ceil(Math.sqrt(shape.getArea()) / 1.5));
+            for (let u = 0; u < divisions; u++)
+              for (let v = 0; v < divisions - u; v++) {
+                const x = (u + 0.33) / divisions,
+                  z = (v + 0.33) / divisions;
+                yardCandidates.push(
+                  a
+                    .clone()
+                    .multiplyScalar(1 - x - z)
+                    .addScaledVector(b, x)
+                    .addScaledVector(c, z),
+                );
+              }
+          }
+        }
       }
     }
-    // Prefer outdoor ground near a building. Tiny slivers at the model boundary fail the footprint check.
-    const room = [...index.manifest.rooms.values()].find((r) => r.footprint?.outer.length);
-    const reference = room?.footprint?.outer[0];
-    if (reference)
-      this.yardCandidates.sort(
-        (a, b) =>
-          Math.hypot(a.x - reference[0], a.z - reference[1]) -
-          Math.hypot(b.x - reference[0], b.z - reference[1]),
-      );
-    for (const p of this.yardCandidates) {
-      if (
-        this.canStand(p, 1.75) &&
-        ![...index.manifest.rooms.values()].some(
-          (r) =>
-            r.footprint && Math.abs(r.floorElevation - p.y) < 1 && pointInFootprint(p.x, p.z, r.footprint),
-        )
-      ) {
-        this.yard = p.toArray();
-        break;
+    const scored = yardCandidates
+      .map((p) => {
+        point.set(p.x, p.z);
+        const distance = this.buildingBounds.length
+          ? Math.min(...this.buildingBounds.map((box) => box.distanceToPoint(point)))
+          : 3;
+        return { p, distance };
+      })
+      .filter((item) => item.distance >= 1.35);
+    scored.sort((a, b) => Math.abs(a.distance - 3) - Math.abs(b.distance - 3));
+    for (const { p } of scored) {
+      if (!this.safeYard(p, 1.75)) continue;
+      this.yard = p.toArray();
+      if (this.buildingBounds.length) {
+        point.set(p.x, p.z);
+        const nearest = this.buildingBounds.reduce((a, b) =>
+          a.distanceToPoint(point) <= b.distanceToPoint(point) ? a : b,
+        );
+        const centre = nearest.getCenter(point);
+        this.yardHeading = Math.atan2(p.x - centre.x, p.z - centre.y);
       }
+      break;
     }
-    this.yardCandidates.length = 0;
   }
+
+  private safeYard(p: THREE.Vector3, height: number) {
+    this.skyRay.origin.copy(p).y += 0.05;
+    if (this.hit(this.skyRay, 25) || !this.canStand(p, height)) return false;
+    // Reserve space to leave the destination in every direction, including on gently graded terrain.
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI * i) / 4;
+      let foot = p;
+      const dx = 0.22 * Math.sin(angle),
+        dz = 0.22 * Math.cos(angle);
+      for (let stride = 0; stride < 5; stride++) {
+        const next = this.step(foot, dx, dz, height);
+        if (!next || Math.abs(next.y - p.y) > 0.42) return false;
+        foot = next;
+      }
+    }
+    return true;
+  }
+
+  yardLanding(height: number) {
+    if (!this.yard) return null;
+    const point = new THREE.Vector3(...this.yard);
+    return this.safeYard(point, height) ? point : null;
+  }
+
   private insert(t: Triangle) {
     const { a, b, c } = t.shape;
     const x0 = Math.floor(Math.min(a.x, b.x, c.x) / CELL),
@@ -178,7 +205,7 @@ export class WalkWorld {
     const visit = (triangles: Triangle[] | undefined) => {
       if (!triangles) return;
       for (const t of triangles) {
-        if (t.visited === serial || (floorsOnly && !t.stand) || (t.door && t.door.amount > 0)) continue;
+        if (t.visited === serial || (floorsOnly && !t.stand) || t.door?.open) continue;
         t.visited = serial;
         const { a, b, c } = t.shape;
         if (!ray.intersectTriangle(a, b, c, false, this.intersection)) continue;
@@ -190,19 +217,6 @@ export class WalkWorld {
         point.copy(this.intersection);
       }
     };
-    if (!floorsOnly) {
-      for (const door of this.moving) {
-        if (!ray.intersectsBox(door.movingBounds)) continue;
-        for (const shape of door.transformed) {
-          if (!ray.intersectTriangle(shape.a, shape.b, shape.c, false, this.intersection)) continue;
-          const distance = ray.origin.distanceTo(this.intersection);
-          if (distance > nearest) continue;
-          nearest = distance;
-          mesh = door.mesh;
-          point.copy(this.intersection);
-        }
-      }
-    }
     visit(this.wide);
     const { x, z } = ray.direction,
       origin = ray.origin;
@@ -226,7 +240,13 @@ export class WalkWorld {
       }
     }
     return mesh
-      ? { point, walkable: standing, object: mesh, placementId: (mesh as THREE.Mesh).userData.vhPlacementId }
+      ? {
+          point,
+          walkable: standing,
+          object: mesh,
+          doorId: this.doors.get(mesh)?.id,
+          placementId: (mesh as THREE.Mesh).userData.vhPlacementId,
+        }
       : null;
   }
   private support(x: number, z: number, y: number, rise = STEP, drop = STEP) {
@@ -239,10 +259,24 @@ export class WalkWorld {
     const b = this.body;
     b.min.set(p.x - RADIUS, p.y + STEP + 0.012, p.z - RADIUS);
     b.max.set(p.x + RADIUS, p.y + Math.max(1.05, height) + 0.08, p.z + RADIUS);
-    const obstacle = (t: Triangle) => !(t.door && t.door.amount > 0) && b.intersectsTriangle(t.shape);
-    for (const door of this.moving)
-      if (b.intersectsBox(door.movingBounds) && door.transformed.some((t) => b.intersectsTriangle(t)))
-        return false;
+    const obstacle = (t: Triangle) => {
+      if (t.door?.open || !b.intersectsTriangle(t.shape)) return false;
+      // A continuous foundation may run below a modeled doorway. Give its actual sill priority
+      // within one footstep of that threshold, without removing walls, frames or head clearance.
+      if (t.foundation) {
+        const top = Math.max(t.shape.a.y, t.shape.b.y, t.shape.c.y);
+        for (const sill of this.thresholds) {
+          const nearest = sill.closestPointToPoint(p, this.nearThreshold);
+          if (
+            top <= nearest.y + STEP + 0.01 &&
+            Math.abs(p.y - nearest.y) <= STEP &&
+            Math.hypot(p.x - nearest.x, p.z - nearest.z) < 0.45
+          )
+            return false;
+        }
+      }
+      return true;
+    };
     if (this.wide.some(obstacle)) return false;
     for (let x = Math.floor(b.min.x / CELL); x <= Math.floor(b.max.x / CELL); x++)
       for (let z = Math.floor(b.min.z / CELL); z <= Math.floor(b.max.z / CELL); z++)
@@ -253,7 +287,7 @@ export class WalkWorld {
     const p = this.support(from.x + dx, from.z + dz, from.y);
     return p && this.canStand(p, height) ? p : null;
   }
-  landing(near: THREE.Vector3, height: number) {
+  landing(near: THREE.Vector3, height: number, room?: Room) {
     for (const radius of [0, 0.4, 0.8, 1.2]) {
       for (let i = 0; i < (radius === 0 ? 1 : 12); i++) {
         const angle = (i * Math.PI) / 6;
@@ -264,53 +298,24 @@ export class WalkWorld {
           0.45,
           0.65,
         );
-        if (p && this.canStand(p, height)) return p;
+        if (p && (!room || pointInFootprint(p.x, p.z, room.footprint)) && this.canStand(p, height)) return p;
       }
     }
     return null;
   }
+  openDoor(id: string) {
+    this.openedDoors.add(id);
+    for (const door of this.doors.values()) if (door.id === id) door.clear();
+  }
+
   updateDoors(head: THREE.Vector3, dt: number) {
-    for (const d of this.doors) {
-      const dx = head.x - d.center.x,
-        dz = head.z - d.center.z;
-      const close =
-        Math.abs(head.y - d.center.y) < d.height / 2 + 0.35 &&
-        Math.hypot(dx, dz) < Math.max(1.65, d.width * 0.65);
-      if ((!close && d.amount === 0) || (close && d.amount === 1)) continue;
-      if (close && !d.amount) d.sign = dx * d.axis.z - dz * d.axis.x >= 0 ? 1 : -1;
-      d.amount = THREE.MathUtils.clamp(d.amount + (close ? 1 : -1) * dt * 3, 0, 1);
-      const ease = d.amount * d.amount * (3 - 2 * d.amount);
-      if (d.width > 2.15) this.transform.makeTranslation(0, (d.height + 0.1) * ease, 0);
-      else
-        this.transform
-          .makeTranslation(d.hinge.x, d.hinge.y, d.hinge.z)
-          .multiply(this.offset.makeRotationY(d.sign * ease * Math.PI * 0.49))
-          .multiply(this.offset.makeTranslation(-d.hinge.x, -d.hinge.y, -d.hinge.z));
-      if (d.amount > 0) {
-        this.moving.add(d);
-        d.movingBounds.copy(d.bounds).applyMatrix4(this.transform);
-        d.shapes.forEach((shape, i) => {
-          const out = d.transformed[i]!;
-          out.a.copy(shape.a).applyMatrix4(this.transform);
-          out.b.copy(shape.b).applyMatrix4(this.transform);
-          out.c.copy(shape.c).applyMatrix4(this.transform);
-        });
-      } else this.moving.delete(d);
-      const parent = d.mesh.parent;
-      if (parent)
-        this.transform
-          .premultiply(this.parentInverse.copy(parent.matrixWorld).invert())
-          .multiply(parent.matrixWorld);
-      d.mesh.matrixAutoUpdate = false;
-      d.mesh.matrix.multiplyMatrices(this.transform, d.base);
-      d.mesh.matrixWorldNeedsUpdate = true;
+    for (const door of this.doors.values()) {
+      if (!door.open && door.bounds.distanceToPoint(head) < 1.2) this.openDoor(door.id);
+      door.tick(dt);
     }
   }
+
   dispose() {
-    for (const d of this.doors) {
-      d.mesh.matrix.copy(d.base);
-      d.mesh.matrixAutoUpdate = d.auto;
-      d.mesh.matrixWorldNeedsUpdate = true;
-    }
+    for (const door of this.doors.values()) door.dispose();
   }
 }

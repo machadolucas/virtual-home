@@ -1,330 +1,378 @@
 import * as THREE from "three";
+import {
+  PANEL_WIDTH, contains, layoutPanel, paintPanel, panelFont, scrollThumb, sliderRange, visibleRow,
+  type PanelButton, type PanelLayout, type PanelPage, type PanelRect,
+} from "./panelLayout";
 
-export interface PanelRow {
-  label: string;
-  act?: (fraction: number) => void;
-  value?: number;
-  id?: string;
-}
-export interface PanelPage {
-  title: string;
-  lines: string[];
-  rows: PanelRow[];
-  corners?: readonly (readonly number[])[];
-}
-interface Button extends PanelRow {
-  key: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type { PanelPage, PanelRow } from "./panelLayout";
+
 export interface PanelHit {
   point: THREE.Vector3;
   x: number;
   y: number;
-  row?: Button;
-}
-const WIDTH = 768,
-  MAX_HEIGHT = 1024,
-  PER_PAGE = 6;
-const padding = 20,
-  gap = 8,
-  buttonHeight = 70;
-
-function rounded(context: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  if (typeof context.roundRect !== "function") {
-    context.fillRect(x, y, w, h);
-    return;
-  }
-  context.beginPath();
-  context.roundRect(x, y, w, h, r);
-  context.fill();
+  row?: PanelButton;
+  scrollbar?: boolean;
 }
 
-function highlight(color: number) {
+const WIDTH_M = 0.61;
+const CLICK_SLOP = 13;
+const DRAG_THRESHOLD = 16;
+const MAX_VELOCITY = 2_800;
+
+function highlight(color: number, opacity: number) {
   const mark = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1),
-    new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.22,
-      depthTest: false,
-      depthWrite: false,
-      toneMapped: false,
-    }),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, depthWrite: false, toneMapped: false }),
   );
   mark.renderOrder = 1000;
   mark.visible = false;
   return mark;
 }
 
-/** Text is uploaded only on content changes. Pointer/press feedback moves cheap overlay quads. */
+function backingShape() {
+  const shape = new THREE.Shape();
+  const edge = .5, corner = .025;
+  shape.moveTo(-edge + corner, -edge);
+  shape.lineTo(edge - corner, -edge);
+  shape.quadraticCurveTo(edge, -edge, edge, -edge + corner);
+  shape.lineTo(edge, edge - corner);
+  shape.quadraticCurveTo(edge, edge, edge - corner, edge);
+  shape.lineTo(-edge + corner, edge);
+  shape.quadraticCurveTo(-edge, edge, -edge, edge - corner);
+  shape.lineTo(-edge, -edge + corner);
+  shape.quadraticCurveTo(-edge, -edge, -edge + corner, -edge);
+  return new THREE.ShapeGeometry(shape, 10);
+}
+
+interface Hold {
+  source: XRInputSource;
+  kind: "press" | "slider" | "scroll" | "thumb";
+  key?: string;
+  x: number;
+  y: number;
+  offset: number;
+  position: number;
+  time: number;
+  thumbGrab: number;
+}
+
+function roundedContains(rect: PanelRect, x: number, y: number, radius: number) {
+  if (!contains(rect, x, y)) return false;
+  const dx = x - THREE.MathUtils.clamp(x, rect.x + radius, rect.x + rect.width - radius);
+  const dy = y - THREE.MathUtils.clamp(y, rect.y + radius, rect.y + rect.height - radius);
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+/** The headset texture and ray-hit coordinates share one clipped, continuously scrolling layout. */
 export class HeadsetPanel {
   private canvas = document.createElement("canvas");
   private context: CanvasRenderingContext2D;
   private texture: THREE.CanvasTexture;
   readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
-  private hover = [highlight(0x7bdfcd), highlight(0x7bdfcd)];
-  private pressed = highlight(0xffbc65);
-  private rows: Button[] = [];
-  private last = "";
-  private page = 0;
+  private backing = new THREE.Mesh(backingShape(), new THREE.MeshBasicMaterial({
+    color: 0x0a121a, depthTest: false, depthWrite: false, toneMapped: false,
+  }));
+  private hover = [highlight(0x7de3cf, .19), highlight(0x7de3cf, .19)];
+  private pressed = highlight(0x86e6d3, .35);
+  private hoverPoint: Array<Pick<PanelHit, "x" | "y"> | null> = [null, null];
+  private layout: PanelLayout | null = null;
+  private paintKey = "";
   private title = "";
-  private held: { source: XRInputSource; key: string; slider: boolean; cancelled: boolean } | null = null;
+  private offset = 0;
+  private velocity = 0;
+  private lastMovedAt = 0;
+  private dirty = false;
+  private held: Hold | null = null;
   private rangePlane = new THREE.Plane();
   private planeNormal = new THREE.Vector3();
   private planePoint = new THREE.Vector3();
+
   constructor() {
-    this.canvas.width = WIDTH;
-    this.canvas.height = MAX_HEIGHT;
+    this.canvas.width = PANEL_WIDTH;
+    this.canvas.height = 510;
     const ctx = this.canvas.getContext("2d");
     if (!ctx) throw new Error("The headset menu could not be created.");
     this.context = ctx;
-    this.texture = new THREE.CanvasTexture(this.canvas);
-    this.texture.colorSpace = THREE.SRGBColorSpace;
+    this.texture = this.makeTexture();
     this.mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1),
       new THREE.MeshBasicMaterial({
-        map: this.texture,
-        transparent: true,
-        depthTest: false,
-        depthWrite: false,
-        toneMapped: false,
+        map: this.texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
       }),
     );
-    this.mesh.add(...this.hover, this.pressed);
+    this.backing.scale.set(1.014, 1.015, 1);
+    this.backing.position.set(.004, -.009, -.012);
+    this.backing.renderOrder = 998;
+    this.mesh.add(this.backing, ...this.hover, this.pressed);
     this.mesh.renderOrder = 999;
-    this.mesh.scale.set(0.52, 0.69, 1);
+    this.mesh.scale.set(WIDTH_M, WIDTH_M * this.canvas.height / PANEL_WIDTH, 1);
   }
+
+  private makeTexture() {
+    const texture = new THREE.CanvasTexture(this.canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    return texture;
+  }
+
   place(head: THREE.Vector3, orientation: THREE.Quaternion) {
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(orientation);
-    this.mesh.rotation.set(0, Math.atan2(-forward.x, -forward.z) + 0.16, 0);
-    this.mesh.position.set(0, -0.1, -0.85).applyQuaternion(this.mesh.quaternion).add(head);
+    const forward = this.planeNormal.set(0, 0, -1).applyQuaternion(orientation);
+    this.mesh.rotation.set(0, Math.atan2(-forward.x, -forward.z) + 0.11, 0);
+    this.mesh.position.set(0, -0.1, -0.91).applyQuaternion(this.mesh.quaternion).add(head);
     this.mesh.updateWorldMatrix(true, true);
   }
+
   draw(menu: PanelPage, home: () => void, exit: () => void) {
     if (menu.title !== this.title) {
-      this.page = 0;
       this.title = menu.title;
       this.cancel();
+      this.offset = 0;
     }
-    const pages = Math.max(1, Math.ceil(menu.rows.length / PER_PAGE));
-    this.page = Math.min(this.page, pages - 1);
-    const slice = menu.rows.slice(this.page * PER_PAGE, (this.page + 1) * PER_PAGE);
     const c = this.context;
-    c.font = "27px sans-serif";
-    const lines: string[] = [];
-    for (const line of menu.lines) {
-      let part = "";
-      for (const word of line.split(" ")) {
-        const next = part ? part + " " + word : word;
-        if (part && c.measureText(next).width > (menu.corners ? 483 : 716)) {
-          lines.push(part);
-          part = word;
-        } else part = next;
-      }
-      if (part) lines.push(part);
-    }
-    const contentTop = Math.max(menu.corners ? 215 : 94, 90 + Math.min(5, lines.length) * 31);
-    let y = contentTop;
-    const full = WIDTH - 2 * padding,
-      half = (full - gap) / 2;
-    const rows: Button[] = [];
-    const add = (item: PanelRow, x: number, width: number, key: string) => {
-      rows.push({ ...item, x, y, width, height: buttonHeight, key: menu.title + "/" + key });
-    };
-    for (const [i, row] of slice.entries()) {
-      add(
-        row,
-        padding,
-        full,
-        row.id ?? (row.value === undefined ? row.label : "slider-" + this.page + "-" + i),
-      );
-      y += buttonHeight + gap;
-    }
-    if (pages > 1) {
-      add(
-        {
-          label: "‹  Previous",
-          act:
-            this.page > 0
-              ? () => {
-                  this.page--;
-                }
-              : undefined,
-        },
-        padding,
-        half,
-        "previous",
-      );
-      add(
-        {
-          label: `Next  ›    ${this.page + 1}/${pages}`,
-          act:
-            this.page < pages - 1
-              ? () => {
-                  this.page++;
-                }
-              : undefined,
-        },
-        padding + half + gap,
-        half,
-        "next",
-      );
-      y += buttonHeight + gap;
-    }
-    add({ label: "Main menu", act: home }, padding, half, "home");
-    add({ label: "Exit immersive view", act: exit }, padding + half + gap, half, "exit");
-    this.rows = rows;
-    const ink = JSON.stringify([
-      menu.title,
-      lines,
-      menu.corners,
-      rows.map((r) => [r.key, r.label, r.value, !!r.act]),
+    panelFont(c);
+    const layout = layoutPanel(menu, (value) => c.measureText(value).width, home, exit);
+    this.layout = layout;
+    this.setOffset(this.offset);
+    const key = JSON.stringify([
+      layout.title, layout.lines, menu.corners,
+      ...[...layout.rows, ...layout.footer].map((row) => [
+        row.key, row.label, row.value, row.active, row.detail, row.style, row.icon, !!row.act,
+      ]),
     ]);
-    if (this.last === ink) return;
-    this.last = ink;
-    const height = y + buttonHeight + padding;
-    if (this.canvas.height !== height) {
-      this.canvas.height = height;
-      // Three textures have immutable storage dimensions once uploaded.
+    if (key !== this.paintKey) {
+      this.paintKey = key;
+      this.dirty = true;
+    }
+    if (this.canvas.height !== layout.height) {
+      this.canvas.height = layout.height;
+      // A newly sized canvas needs a new immutable GPU texture allocation.
       this.texture.dispose();
-      this.texture = new THREE.CanvasTexture(this.canvas);
-      this.texture.colorSpace = THREE.SRGBColorSpace;
+      this.texture = this.makeTexture();
       this.mesh.material.map = this.texture;
+      this.mesh.scale.y = WIDTH_M * layout.height / PANEL_WIDTH;
+      this.mesh.updateWorldMatrix(true, true);
+      this.dirty = true;
     }
-    this.mesh.scale.y = (this.mesh.scale.x * height) / WIDTH;
-    this.mesh.updateWorldMatrix(true, true);
-    c.clearRect?.(0, 0, WIDTH, height);
-    c.fillStyle = "#13282df7";
-    rounded(c, 0, 0, WIDTH, height, 26);
-    c.fillStyle = "#74dcc9";
-    rounded(c, 24, 14, 64, 4, 2);
-    c.fillStyle = "#ffffff";
-    c.font = "bold 40px sans-serif";
-    c.fillText(menu.title, 24, 64, 720);
-    c.fillStyle = "#c8dcde";
-    c.font = "27px sans-serif";
-    lines.slice(0, 5).forEach((line, i) => c.fillText(line, 25, 92 + i * 31, menu.corners ? 490 : 716));
-    if (menu.corners?.length) this.drawCorners(menu.corners);
-    for (const r of rows) {
-      const footer = r.key.endsWith("/exit") || r.key.endsWith("/home");
-      c.fillStyle = footer ? "#23363d" : r.act ? "#2d4b53" : "#1c3339";
-      rounded(c, r.x, r.y, r.width, r.height, 12);
-      if (r.value !== undefined) {
-        c.fillStyle = "#69d4bd";
-        rounded(c, r.x + 12, r.y + r.height - 9, Math.max(5, (r.width - 24) * r.value), 4, 2);
-      }
-      c.fillStyle = r.act ? "#ffffff" : "#a4bbbf";
-      c.font = "29px sans-serif";
-      c.fillText(r.label, r.x + 15, r.y + 45, r.width - 30);
+    this.renderPanel();
+    this.updateHighlights();
+  }
+
+  get canScroll() {
+    return this.mesh.visible && (this.layout?.maxScroll ?? 0) > 0;
+  }
+
+  /** Positive Y moves forward through the list. The session arbitrates locomotion first. */
+  scroll(axisY: number, dt: number) {
+    if (!this.canScroll || this.held || Math.abs(axisY) < .18 || !Number.isFinite(axisY) || !Number.isFinite(dt)) return false;
+    const magnitude = (Math.min(1, Math.abs(axisY)) - .18) / .82;
+    this.velocity = 0;
+    this.setOffset(this.offset + Math.sign(axisY) * magnitude ** 1.5 * 760 * THREE.MathUtils.clamp(dt, 0, .05));
+    return true;
+  }
+
+  /** Inertia is active only after releasing a content drag. Paint at most once per frame. */
+  tick(dt: number) {
+    if (!this.mesh.visible) {
+      if (this.held || this.velocity || this.hoverPoint.some(Boolean)) this.cancel();
+      return;
     }
+    if (!this.held && this.velocity && Number.isFinite(dt) && dt > 0) {
+      const elapsed = Math.min(dt, .05);
+      this.setOffset(this.offset + this.velocity * elapsed);
+      this.velocity *= Math.exp(-8.5 * elapsed);
+      if (Math.abs(this.velocity) < 14 || this.offset <= 0 || this.offset >= (this.layout?.maxScroll ?? 0)) this.velocity = 0;
+    }
+    this.renderPanel();
+    this.updateHighlights();
+  }
+
+  private setOffset(value: number) {
+    const clamped = THREE.MathUtils.clamp(value, 0, this.layout?.maxScroll ?? 0);
+    const position = Math.round(clamped * 4) / 4;
+    if (position !== this.offset) {
+      this.offset = position;
+      this.dirty = true;
+    }
+  }
+
+  private renderPanel() {
+    if (!this.layout || !this.dirty) return;
+    this.dirty = false;
+    paintPanel(this.context, this.layout, this.offset, this.held?.kind === "thumb");
     this.texture.needsUpdate = true;
   }
-  private drawCorners(points: readonly (readonly number[])[]) {
-    const c = this.context,
-      xs = points.map((p) => p[0]!),
-      zs = points.map((p) => p[2]!);
-    const x = Math.min(...xs),
-      z = Math.min(...zs);
-    const scale = Math.min(
-      160 / Math.max(0.01, Math.max(...xs) - x),
-      94 / Math.max(0.01, Math.max(...zs) - z),
-    );
-    const plot = points.map((p) => [553 + (p[0]! - x) * scale, 97 + (p[2]! - z) * scale] as const);
-    c.strokeStyle = "#8ad8ce";
-    c.lineWidth = 3;
-    c.beginPath();
-    plot.forEach(([px, py], i) => (i ? c.lineTo(px, py) : c.moveTo(px, py)));
-    c.closePath();
-    c.stroke();
-    plot.forEach(([px, py], i) => {
-      c.fillStyle = "#142128";
-      c.fillRect(px - 9, py - 14, 20, 25);
-      c.fillStyle = "#fff";
-      c.fillText(String(i + 1), px - 7, py + 7);
-    });
+
+  private rowAt(x: number, y: number) {
+    const layout = this.layout;
+    if (!layout) return undefined;
+    const footer = layout.footer.find((row) => roundedContains(row, x, y, 13));
+    if (footer || !contains(layout.body, x, y)) return footer;
+    const row = layout.rows.find((item) => roundedContains(item, x, y + this.offset, 14));
+    return row ? visibleRow(layout, row, this.offset) : undefined;
   }
+
   hit(ray: THREE.Raycaster, extended = false): PanelHit | null {
-    if (!this.mesh.visible) return null;
+    if (!this.mesh.visible || !this.layout) return null;
     this.mesh.updateWorldMatrix(true, false);
     this.planeNormal.set(0, 0, 1).transformDirection(this.mesh.matrixWorld);
-    if (ray.ray.direction.dot(this.planeNormal) >= -0.005) return null;
-    this.rangePlane.setFromNormalAndCoplanarPoint(
-      this.planeNormal,
-      this.planePoint.setFromMatrixPosition(this.mesh.matrixWorld),
-    );
+    if (ray.ray.direction.dot(this.planeNormal) >= -.005) return null;
+    this.rangePlane.setFromNormalAndCoplanarPoint(this.planeNormal, this.planePoint.setFromMatrixPosition(this.mesh.matrixWorld));
     const point = ray.ray.intersectPlane(this.rangePlane, new THREE.Vector3());
     if (!point || point.distanceTo(ray.ray.origin) > 4) return null;
     const local = this.mesh.worldToLocal(point.clone());
-    const x = (local.x + 0.5) * WIDTH,
-      y = (0.5 - local.y) * this.canvas.height;
-    if (!extended && (x < 0 || x > WIDTH || y < 0 || y > this.canvas.height)) return null;
-    const row = this.rows.find((r) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height);
-    return { point, x, y, row };
+    const x = (local.x + .5) * PANEL_WIDTH, y = (.5 - local.y) * this.layout.height;
+    if (!extended && !roundedContains({ x: 1, y: 1, width: PANEL_WIDTH - 2, height: this.layout.height - 2 }, x, y, 26)) return null;
+    return { point, x, y, row: this.rowAt(x, y), scrollbar: this.canScroll && contains(this.layout.track, x, y) };
   }
-  private mark(mesh: ReturnType<typeof highlight>, row?: Button) {
-    mesh.visible = !!row?.act;
-    if (!row) return;
-    const h = this.canvas.height;
-    mesh.position.set((row.x + row.width / 2) / WIDTH - 0.5, 0.5 - (row.y + row.height / 2) / h, 0.001);
-    mesh.scale.set(row.width / WIDTH, row.height / h, 1);
+
+  private mark(mesh: ReturnType<typeof highlight>, rect?: PanelRect) {
+    mesh.visible = !!rect && rect.height > 4;
+    if (!rect || !this.layout) return;
+    const height = this.layout.height;
+    mesh.position.set((rect.x + rect.width / 2) / PANEL_WIDTH - .5, .5 - (rect.y + rect.height / 2) / height, .001);
+    mesh.scale.set((rect.width - 6) / PANEL_WIDTH, Math.max(0, rect.height - 4) / height, 1);
   }
+
+  private visible(key: string | undefined) {
+    if (!key || !this.layout) return undefined;
+    const row = this.layout.rows.find((button) => button.key === key) ?? this.layout.footer.find((button) => button.key === key);
+    return row ? visibleRow(this.layout, row, this.offset) : undefined;
+  }
+
+  private updateHighlights() {
+    for (const [i, mark] of this.hover.entries()) {
+      const p = this.hoverPoint[i];
+      const row = p ? this.rowAt(p.x, p.y) : undefined;
+      const layout = this.layout;
+      const thumb = p && this.canScroll && layout ? scrollThumb(layout, this.offset) : undefined;
+      this.mark(mark, row?.act ? row : thumb && p && contains(thumb, p.x, p.y) ? thumb : undefined);
+    }
+    const hold = this.held;
+    const pressed = hold?.kind === "press" || hold?.kind === "slider" ? this.visible(hold.key) : undefined;
+    this.mark(this.pressed, pressed?.act ? pressed : undefined);
+  }
+
   cursor(index: number, hit: PanelHit | null) {
-    this.mark(this.hover[index]!, hit?.row);
+    if (index < 0 || index >= this.hoverPoint.length) return;
+    this.hoverPoint[index] = hit;
+    this.updateHighlights();
   }
+
   start(source: XRInputSource, hit: PanelHit) {
-    if (this.held || !hit.row?.act) return;
-    this.held = { source, key: hit.row.key, slider: hit.row.value !== undefined, cancelled: false };
-    this.mark(this.pressed, hit.row);
-    if (this.held.slider) hit.row.act(THREE.MathUtils.clamp((hit.x - hit.row.x) / hit.row.width, 0, 1));
+    if (!this.mesh.visible || this.held || !this.layout) return;
+    const { x, y } = hit;
+    const row = this.rowAt(x, y);
+    const layout = this.layout;
+    const scrollbar = this.canScroll && contains(layout.track, x, y);
+    const body = this.canScroll && contains(layout.body, x, y);
+    if (!row?.act && !scrollbar && !body) return;
+    this.velocity = 0;
+    this.held = {
+      source, kind: scrollbar ? "thumb" : row?.act && row.value !== undefined ? "slider" : "press",
+      x, y, key: row?.act ? row.key : undefined,
+      offset: this.offset, position: this.offset, time: performance.now(), thumbGrab: 0,
+    };
+    if (scrollbar) {
+      const thumb = scrollThumb(layout, this.offset);
+      this.held.thumbGrab = contains(thumb, x, y) ? y - thumb.y : thumb.height / 2;
+      this.dragThumb(y, this.held.thumbGrab);
+      this.dirty = true;
+    } else if (row?.act && this.held.kind === "slider") {
+      row.act(this.fraction(row, x));
+    }
+    this.updateHighlights();
   }
+
   owns(source: XRInputSource) {
     return this.held?.source === source;
   }
+
+  private fraction(row: PanelButton, x: number) {
+    const [left, right] = sliderRange(row);
+    return THREE.MathUtils.clamp((x - left) / (right - left), 0, 1);
+  }
+
+  private dragThumb(y: number, grab: number) {
+    if (!this.layout) return;
+    const track = this.layout.track;
+    const thumb = scrollThumb(this.layout, this.offset);
+    const travel = Math.max(1, track.height - thumb.height);
+    this.setOffset((y - track.y - grab) / travel * this.layout.maxScroll);
+  }
+
   drag(source: XRInputSource, hit: PanelHit | null) {
-    if (!this.held || !this.owns(source)) return;
-    const r = this.rows.find((row) => row.key === this.held!.key);
-    if (!r || !r.act || !hit) {
-      this.held.cancelled = true;
-      this.mark(this.pressed);
+    const hold = this.held;
+    if (!hold || hold.source !== source || !this.layout) return;
+    if (!hit) {
+      this.cancel();
       return;
     }
-    if (this.held.slider && !this.held.cancelled) r.act(THREE.MathUtils.clamp((hit.x - r.x) / r.width, 0, 1));
-    else if (
-      hit.x < r.x - 15 ||
-      hit.x > r.x + r.width + 15 ||
-      hit.y < r.y - 13 ||
-      hit.y > r.y + r.height + 13
-    ) {
-      this.held.cancelled = true;
-      this.mark(this.pressed);
+    if (hold.kind === "thumb") this.dragThumb(hit.y, hold.thumbGrab);
+    else if (hold.kind === "slider") {
+      const row = this.visible(hold.key);
+      if (!row?.act) this.cancel();
+      else row.act(this.fraction(row, hit.x));
+    } else {
+      const vertical = hit.y - hold.y;
+      const horizontal = Math.abs(hit.x - hold.x);
+      const canDrag = this.canScroll && contains(this.layout.body, hold.x, hold.y);
+      if (hold.kind === "press" && canDrag && Math.abs(vertical) >= DRAG_THRESHOLD && Math.abs(vertical) > horizontal * .55)
+        hold.kind = "scroll";
+      if (hold.kind === "scroll") {
+        this.setOffset(hold.offset - vertical);
+        if (this.offset !== hold.position) {
+          const now = performance.now();
+          const elapsed = THREE.MathUtils.clamp((now - hold.time) / 1_000, .008, .05);
+          const speed = THREE.MathUtils.clamp((this.offset - hold.position) / elapsed, -MAX_VELOCITY, MAX_VELOCITY);
+          this.velocity = this.velocity * .35 + speed * .65;
+          hold.position = this.offset;
+          hold.time = this.lastMovedAt = now;
+        }
+      } else if (hold.key) {
+        const row = this.visible(hold.key);
+        if (!row || !contains(row, hit.x, hit.y, CLICK_SLOP)) this.cancel();
+      }
     }
+    this.updateHighlights();
   }
+
   end(source: XRInputSource, hit: PanelHit | null) {
-    if (!this.held || !this.owns(source)) return false;
+    if (!this.owns(source)) return false;
     this.drag(source, hit);
-    const hold = this.held,
-      r = this.rows.find((row) => row.key === hold.key);
-    this.cancel();
-    if (hold.cancelled || !r?.act || !hit) return false;
-    if (!hold.slider) r.act(THREE.MathUtils.clamp((hit.x - r.x) / r.width, 0, 1));
+    const hold = this.held;
+    if (!hold || !hit) return false;
+    const row = this.visible(hold.key);
+    this.held = null;
+    if (hold.kind === "thumb") this.dirty = true;
+    if (hold.kind !== "scroll" || performance.now() - this.lastMovedAt > 90) this.velocity = 0;
+    this.updateHighlights();
+    if (hold.kind !== "press" || !row?.act) return hold.kind === "slider" && !!row?.act;
+    row.act(this.fraction(row, hit.x));
     return true;
   }
+
   cancel() {
+    if (this.held?.kind === "thumb") this.dirty = true;
     this.held = null;
-    this.mark(this.pressed);
-    for (const h of this.hover) this.mark(h);
+    this.velocity = 0;
+    this.hoverPoint.fill(null);
+    for (const mark of [...this.hover, this.pressed]) mark.visible = false;
   }
+
+  hide() {
+    this.mesh.visible = false;
+    this.cancel();
+  }
+
   dispose() {
     this.mesh.removeFromParent();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
     this.texture.dispose();
-    for (const h of [...this.hover, this.pressed]) {
-      h.geometry.dispose();
-      h.material.dispose();
+    for (const part of [this.backing, ...this.hover, this.pressed]) {
+      part.geometry.dispose();
+      part.material.dispose();
     }
   }
 }

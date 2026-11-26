@@ -6,6 +6,16 @@ import { buildMixedRealityOverlay, type MixedRealityRouteFilter, type MixedReali
 import type { PanelPage } from "./panel";
 import { RoomSurveyPilot } from "./roomSurvey";
 import { HandConfirmation, trackedIndexTip } from "./surveyInput";
+import {
+  applyAlignmentHint, buildAlignmentModel, matchRoomAlignment, uniqueRoomAlignment,
+  type AlignmentCandidate, type AlignmentHint, type AlignmentModel,
+} from "./roomAlignment";
+import { readAlignmentEvidence, snapScannedCorner, type AlignmentEvidence } from "./roomAlignmentEvidence";
+import { AlignmentRays } from "./roomAlignmentRay";
+import { triangulateFloorCorner } from "./roomAlignmentTriangulation";
+import { canOpenHeadsetRoomSetup, openHeadsetRoomSetup, QUEST_ROOM_SETUP_GUIDE } from "./headsetRoomSetup";
+
+const ROOM_SETUP_GRACE_MS = 3_000;
 
 export class MixedPilot {
   readonly scene = new THREE.Scene();
@@ -21,9 +31,34 @@ export class MixedPilot {
   private survey: RoomSurveyPilot | null = null;
   private readonly hand = new HandConfirmation();
   private readonly samplePoint = new THREE.Vector3();
+  private readonly viewerPoint = new THREE.Vector3();
+  private readonly rays: AlignmentRays;
+  private alignmentModel: AlignmentModel | null = null;
+  private evidence: AlignmentEvidence | null = null;
+  private candidates: AlignmentCandidate[] = [];
+  private nextScan = -Infinity;
+  private hint: AlignmentHint | null = null;
+  private scanStatus = "";
+  private pointMode: "auto" | "aim" | "touch" = "auto";
+  private manual = false;
+  private scanStarted = 0;
+  private setupGeneration = 0;
+  private setupOpen = false;
+  private setupNotice = "";
+  private firstRay: THREE.Ray | null = null;
+  private readonly aimingRay = new THREE.Ray();
+
+  get aimingAtRoom(): boolean {
+    const state = this.calibration?.state;
+    return !this.setupOpen && !!state && state.phase !== "ready" &&
+      !!(this.hint || (this.manual && state.selected && this.remotePoints()));
+  }
 
   constructor(private runtime: HouseRuntime, private session: XRSession, private space: XRReferenceSpace,
     private mode: "mr" | "survey" = "mr") {
+    this.rays = new AlignmentRays(session, space);
+    this.space.addEventListener("reset", this.invalidateScan);
+    this.session.addEventListener("visibilitychange", this.visibilityChanged);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8896a3, 2));
     this.rooms = [...runtime.manifest!.rooms.values()].filter(r => r.kind !== "void" && r.kind !== "attic");
     const laundry = (r: Room) => [r.name, ...(r.aliases ?? []), runtime.store.getState().labelPreferences.names[r.id]]
@@ -34,6 +69,9 @@ export class MixedPilot {
     this.clearRoom();
     this.room = room; this.choosingRoom = false; this.filter = "both"; this.selectedRoute = null;
     const state = this.runtime.store.getState();
+    this.alignmentModel = buildAlignmentModel(room, this.roomFeatures(room), this.runtime.index, state.explode);
+    this.scanStarted = performance.now();
+    this.scanStatus = "Looking for room geometry. Stay inside the selected room.";
     if (this.mode === "survey") {
       this.survey = new RoomSurveyPilot(this.runtime, this.session, this.space, room);
       this.scene.add(this.survey.display.group);
@@ -42,12 +80,13 @@ export class MixedPilot {
       this.scene.add(this.overlay.group);
     }
     this.calibration = new MixedRealityCalibration({ session: this.session, referenceSpace: this.space,
-      userId: this.runtime.userId!, floorId: room.floorId, fingerprint: state.fingerprint!,
+      userId: this.runtime.userId!, floorId: room.floorId, roomId: room.id, fingerprint: state.fingerprint!,
       onState: s => {
         if (s.phase === "ready") return;
         this.readyTransform = null;
         this.overlay?.applyTransform(null);
         this.survey?.pause();
+        if (s.phase === "tracking-lost") this.clearScan();
       } });
   }
   private roomFeatures(room: Room): CalibrationFeature[] {
@@ -61,16 +100,27 @@ export class MixedPilot {
   menu(fans: string, capture: () => void): PanelPage {
     const model = this.runtime.manifest!;
     if (this.choosingRoom || !this.room || !this.calibration) {
+      const names = this.runtime.store.getState().labelPreferences.names;
       return { title: this.mode === "survey" ? "Choose a room to survey" : "Choose a calibration room",
         lines: ["Stand in the real room and select its model counterpart."],
-        rows: this.rooms.map(room => ({ label: `${room.name} · ${model.floors.get(room.floorId)?.name ?? room.floorId}`, act: () => this.enter(room) })) };
+        rows: this.rooms.map(room => ({
+          id: room.id, label: names[room.id] ?? room.name, detail: model.floors.get(room.floorId)?.name ?? room.floorId,
+          act: () => this.enter(room),
+        })) };
     }
     const room = this.room, cal = this.calibration, state = cal.state;
-    const checkRoom = state.phase === "verify" && state.selected?.roomId ? model.rooms.get(state.selected.roomId) : undefined;
-    const featureRoom = checkRoom ?? room;
-    const features = this.roomFeatures(featureRoom);
-    const error = state.errorM === null ? "" : `Third point: ${(100 * state.errorM).toFixed(1)} cm`;
-    const reset = { label: "Realign from the first point", act: () => { this.selectedRoute = null; this.hand.clear(); cal.reset(); } };
+    const features = this.roomFeatures(room);
+    const error = state.errorM === null ? "" : `Alignment error: ${(100 * state.errorM).toFixed(1)} cm`;
+    const reset = { label: "Realign the room", act: () => {
+      this.selectedRoute = null;
+      this.hand.clear();
+      this.manual = false;
+      this.pointMode = "auto";
+      this.scanStarted = performance.now();
+      this.setupNotice = "";
+      this.clearScan();
+      cal.reset();
+    } };
     const change = { label: "Choose another room", act: () => {
       this.clearRoom();
       this.room = null; this.choosingRoom = true; this.selectedRoute = null;
@@ -81,13 +131,50 @@ export class MixedPilot {
     const handsAvailable = this.mode === "survey" || this.session.enabledFeatures?.includes("hand-tracking") ||
       Array.from(this.session.inputSources).some((input) => !!input.hand);
     if (state.phase !== "ready") {
-      return { title: `Align · ${featureRoom.name}`,
-        lines: [this.hand.aiming ? handNotice : "", error, state.message,
-          handsAvailable && !this.hand.aiming ? handNotice : ""].filter(Boolean),
+      const verify = state.phase === "verify";
+      const localCheck = verify && !!state.selected;
+      const mayChoose = state.phase === "select" || verify;
+      const remote = this.remotePoints();
+      const title = verify ? `Recheck · ${room.name}` : `Align · ${room.name}`;
+      if (this.setupOpen) return { title, lines: ["Complete headset room setup, then return here."], rows: [] };
+      if (this.hint) return { title: this.hintLabel(this.hint), lines: [this.scanStatus],
         corners: features.map(f => f.point),
-        rows: [...(state.phase === "select" ? features.map(f => ({
-          label: `${state.selected?.id === f.id ? "Selected · " : ""}${f.planLabel ?? f.label}`, act: () => cal.select(f),
-        })) : []), reset, change] };
+        rows: [{ label: "Choose another feature", act: () => { this.hint = null; this.scanStatus = ""; } }, change] };
+      if (!this.manual || !mayChoose) {
+        const needsHint = !this.manual && mayChoose && this.candidates.length > 1;
+        const maySetup = !this.hasSceneGeometry() && performance.now() - this.scanStarted >= ROOM_SETUP_GRACE_MS;
+        const manualEntry = { label: localCheck ? "Point to recheck" : "Point to align manually", act: () => {
+          this.manual = true; this.pointMode = "aim"; this.scanStatus = ""; this.hint = null; this.firstRay = null;
+          if ((verify && !localCheck) || state.phase === "restoring") cal.startManualHere();
+        } };
+        const status = needsHint ? "Identify one wall or doorway to check which way the room faces."
+          : localCheck ? "Checking the saved alignment. You can point at the check corner instead."
+            : verify ? state.message
+              : mayChoose ? this.scanStatus || "Looking for room geometry. Stay inside the selected room." : state.message;
+        return { title, lines: [this.setupNotice || status].filter(Boolean),
+          ...(needsHint ? { corners: features.map(f => f.point) } : {}),
+          rows: [
+            ...(maySetup && mayChoose && canOpenHeadsetRoomSetup(this.session)
+              ? [{ label: "Open headset room setup", act: () => void this.openRoomSetup() }] : []),
+            ...(needsHint ? this.hintChoices() : []),
+            ...(mayChoose || state.phase === "restoring" ? [manualEntry] : []),
+            ...(verify || state.phase === "restoring" ? [reset] : []), change,
+          ],
+        };
+      }
+      const info = state.selected && remote ? this.scanStatus || (state.errorM !== null ? state.message
+        : `Aim at ${state.selected.label} and confirm. Keep your feet still.`) : state.message;
+      return { title, lines: [error, info, handsAvailable && !remote ? handNotice : ""].filter(Boolean),
+        corners: features.map(f => f.point), rows: [
+          ...(state.phase === "select" ? features.map(f => ({
+            label: `${state.selected?.id === f.id ? "Selected · " : ""}${f.planLabel ?? f.label}`,
+            act: () => { this.scanStatus = ""; this.firstRay = null; cal.select(f); },
+          })) : []),
+          ...(this.firstRay ? [{ label: "Restart the two aims", act: () => { this.firstRay = null; this.scanStatus = ""; } }] : []),
+          { label: remote ? "Touch with controller or fingertip" : "Point remotely instead",
+            act: () => { this.pointMode = remote ? "touch" : "aim"; this.firstRay = null; this.scanStatus = ""; this.hand.clear(); } },
+          reset, change,
+        ] };
     }
     if (this.survey) {
       const menu = this.survey.menu();
@@ -103,8 +190,17 @@ export class MixedPilot {
   }
   frame(frame: XRFrame, delta: number, motion: boolean, fanRates: { supply: number; extract: number }) {
     if (!this.calibration) return;
-    if (this.hand.aiming && !Array.from(this.session.inputSources).includes(this.hand.aiming)) this.hand.clear();
+    const inputs = Array.from(this.session.inputSources);
+    if (this.hand.aiming && !inputs.includes(this.hand.aiming)) this.hand.clear();
     const matrix = this.calibration.frame(frame);
+    if (this.calibration.state.phase === "ready") {
+      this.rays.clear();
+      if (this.evidence) this.clearScan();
+    }
+    else if (!this.setupOpen) {
+      this.rays.sync(inputs);
+      this.updateScan(frame);
+    }
     this.readyTransform = matrix;
     this.survey?.frame(frame, matrix, this.calibration.state.errorM);
     this.overlay?.applyTransform(matrix);
@@ -114,20 +210,45 @@ export class MixedPilot {
   }
   probePosition(frame: XRFrame, source: XRInputSource, target: THREE.Vector3): THREE.Vector3 | null {
     if (!this.calibration) return null;
+    if (this.aimingAtRoom) return this.pointAtScan(frame, source, target);
     return source.hand ? trackedIndexTip(frame, this.space, source, target)
       : this.calibration.pointerPosition(frame, source.gripSpace, target);
   }
   select(frame: XRFrame, source: XRInputSource, ray: THREE.Ray | null) {
     const calibration = this.calibration;
-    if (!calibration) return;
+    if (!calibration || this.setupOpen) return;
     const { phase, selected } = calibration.state;
     if (phase === "ready" && this.overlay) {
       this.selectedRoute = ray ? this.overlay.pick(ray) : null;
       return;
     }
+    if (this.hint && this.alignmentModel && (phase === "select" || phase === "verify")) {
+      const position = this.pointAtScan(frame, source, this.samplePoint);
+      if (!position) {
+        this.scanStatus = "No tracked surface on the ray. Point at the visible wall or door and try again.";
+        return;
+      }
+      const match = applyAlignmentHint(this.alignmentModel, this.candidates, this.hint, position);
+      if (match && this.useCandidate(frame, match)) {
+        this.hint = null;
+        this.scanStatus = "";
+      } else this.scanStatus = "That point did not identify a unique checked match. Aim farther from the corner or choose a different feature.";
+      return;
+    }
     if (!(phase === "ready" ? this.survey?.sampling : selected)) return;
+    if (phase !== "ready" && !this.manual) return;
     if (this.survey?.samplingWithHit && phase === "ready") {
       this.survey.capture(null);
+      return;
+    }
+    if (phase !== "ready" && this.remotePoints()) {
+      const position = this.firstRay ? this.pointByTwoAims(frame, source) : this.pointAtScan(frame, source, this.samplePoint) ??
+        this.pointByTwoAims(frame, source);
+      if (position) {
+        const before = calibration.state.sampleCount;
+        calibration.capturePosition(frame, position);
+        this.scanStatus = calibration.state.sampleCount === before && calibration.state.phase !== "ready" ? calibration.state.message : "";
+      }
       return;
     }
     const input = this.hand.select(source);
@@ -140,12 +261,146 @@ export class MixedPilot {
     this.selectedRoute = null;
     this.survey?.home();
   }
+  private remoteAvailable(): boolean {
+    return this.rays.available || !!(this.evidence?.patches.length || this.evidence?.triangles.length);
+  }
+  private hasSceneGeometry(): boolean {
+    return !!(this.evidence?.patches.length || this.evidence?.triangles.length);
+  }
+  private remotePoints(): boolean {
+    return this.pointMode === "aim" || (this.pointMode === "auto" && this.remoteAvailable());
+  }
+  private pointAtScan(frame: XRFrame, source: XRInputSource, target: THREE.Vector3): THREE.Vector3 | null {
+    const evidence = performance.now() <= this.nextScan + 200 ? this.evidence : null;
+    const point = this.rays.hit(frame, source, evidence, target);
+    if (point && evidence && !this.hint) snapScannedCorner(evidence, point);
+    return point;
+  }
+  private pointByTwoAims(frame: XRFrame, source: XRInputSource): THREE.Vector3 | null {
+    const ray = this.rays.trackedRay(frame, source, this.aimingRay);
+    if (!ray) { this.scanStatus = "Aim at the floor corner with a tracked pointer and confirm again."; return null; }
+    if (!this.firstRay) {
+      this.firstRay = ray.clone();
+      this.scanStatus = "First aim marked. Keep your feet still, move your aiming hand sideways 30 cm or more, then confirm the same corner.";
+      return null;
+    }
+    const result = triangulateFloorCorner(this.firstRay, ray);
+    if (!result.point) { this.scanStatus = result.message; return null; }
+    this.firstRay = null;
+    return this.samplePoint.copy(result.point);
+  }
+  private hintLabel(hint: AlignmentHint): string {
+    if (hint.kind === "landmark") {
+      const mark = this.alignmentModel?.landmarks[hint.index];
+      const nearest = this.alignmentModel?.corners.reduce<{ index: number; distance: number }>((best, feature, index) => {
+        const distance = Math.hypot(feature.point[0] - (mark?.center[0] ?? 0), feature.point[2] - (mark?.center[2] ?? 0));
+        return distance < best.distance ? { index, distance } : best;
+      }, { index: 0, distance: Infinity });
+      return `${mark?.kind === "window" ? "Window" : "Door"} ${hint.index + 1} near corner ${(nearest?.index ?? 0) + 1}`;
+    }
+    const wall = this.alignmentModel?.walls[hint.index], corners = this.alignmentModel?.corners ?? [];
+    const corner = (point?: [number, number]) =>
+      corners.findIndex(({ point: [x, , z] }) => point?.[0] === x && point[1] === z) + 1;
+    return `Wall between corners ${corner(wall?.a)} and ${corner(wall?.b)}`;
+  }
+  private hintChoices() {
+    const model = this.alignmentModel;
+    if (!model) return [];
+    const doors = model.landmarks.map((_, index) => ({ kind: "landmark" as const, index })).slice(0, 2);
+    const walls = model.walls.map((wall, index) => ({ index, length: Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]) }))
+      .sort((a, b) => b.length - a.length);
+    const hints: AlignmentHint[] = [...doors, ...walls.slice(0, doors.length ? 1 : 2)
+      .map(({ index }) => ({ kind: "wall" as const, index }))];
+    return hints.map((hint) => ({ label: `Aim at ${this.hintLabel(hint)}`, act: () => {
+      this.hint = hint;
+      this.scanStatus = "Aim at that feature in the real room and confirm away from the menu.";
+    } }));
+  }
+  private updateScan(frame: XRFrame) {
+    const model = this.alignmentModel, calibration = this.calibration;
+    if (!model || !calibration) return;
+    if (!calibration.tracking) {
+      this.clearScan();
+      return;
+    }
+    const now = performance.now();
+    if (now < this.nextScan) return;
+    const viewer = frame.getViewerPose(this.space);
+    if (!viewer || viewer.emulatedPosition) return;
+    this.nextScan = now + 500;
+    const { x, y, z } = viewer.transform.position;
+    this.viewerPoint.set(x, y, z);
+    this.evidence = readAlignmentEvidence(frame, this.space, this.viewerPoint);
+    const { phase, sampleCount, selected } = calibration.state;
+    if (this.manual || (phase !== "verify" && !calibration.awaitingForeignAnchor &&
+      (phase !== "select" || sampleCount > 0 || selected))) return;
+    this.candidates = matchRoomAlignment(model, this.evidence, this.viewerPoint);
+    const match = uniqueRoomAlignment(this.candidates);
+    if (match && this.useCandidate(frame, match)) {
+      this.hint = null;
+      this.scanStatus = "";
+    } else if (!this.hint) {
+      this.scanStatus = phase === "verify" ? "" : now - this.scanStarted < ROOM_SETUP_GRACE_MS
+        ? "Looking for room geometry. Stay inside the selected room."
+        : this.hasSceneGeometry()
+          ? "A checked room match is unavailable. Point to align from where you stand."
+          : canOpenHeadsetRoomSetup(this.session)
+            ? "No room geometry found. Open room setup or point to align from here."
+            : `No room geometry found. ${QUEST_ROOM_SETUP_GUIDE} You can also point to align from here.`;
+    }
+  }
+  private useCandidate(frame: XRFrame, candidate: AlignmentCandidate) {
+    const cal = this.calibration;
+    if (!cal || !this.alignmentModel) return false;
+    return cal.state.phase === "verify"
+      ? cal.verifyScanned(frame, candidate.fit, candidate.errorM, this.alignmentModel.corners, candidate.check)
+      : cal.acceptScanned(frame, candidate.fit, candidate.check, candidate.errorM);
+  }
+  private clearScan() {
+    this.nextScan = -Infinity;
+    this.evidence = null;
+    this.candidates = [];
+    this.hint = null;
+    this.firstRay = null;
+    this.scanStatus = "";
+  }
+  private async openRoomSetup() {
+    if (this.setupOpen || this.hasSceneGeometry() || !canOpenHeadsetRoomSetup(this.session) ||
+      performance.now() - this.scanStarted < ROOM_SETUP_GRACE_MS) return;
+    const generation = ++this.setupGeneration;
+    this.setupOpen = true;
+    this.setupNotice = "";
+    this.clearScan();
+    const opened = await openHeadsetRoomSetup(this.session);
+    if (generation !== this.setupGeneration) return;
+    this.setupOpen = false;
+    this.scanStarted = performance.now();
+    this.setupNotice = opened ? "" : `Room setup did not open. ${QUEST_ROOM_SETUP_GUIDE} You can point to align from here.`;
+    this.clearScan();
+  }
+  private invalidateScan = (): void => { this.clearScan(); };
+  private visibilityChanged = (): void => {
+    if (this.session.visibilityState !== "visible") this.clearScan();
+  };
   private clearRoom() {
     this.calibration?.dispose(); this.calibration = null;
     this.overlay?.dispose(); this.overlay = null;
     this.survey?.dispose(); this.survey = null;
     this.readyTransform = null;
     this.hand.clear();
+    this.rays.clear();
+    this.clearScan();
+    this.alignmentModel = null;
+    this.setupGeneration++;
+    this.setupOpen = false;
+    this.setupNotice = "";
+    this.manual = false;
+    this.pointMode = "auto";
   }
-  dispose() { this.clearRoom(); this.scene.clear(); }
+  dispose() {
+    this.space.removeEventListener("reset", this.invalidateScan);
+    this.session.removeEventListener("visibilitychange", this.visibilityChanged);
+    this.clearRoom();
+    this.scene.clear();
+  }
 }

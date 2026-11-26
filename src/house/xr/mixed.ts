@@ -36,6 +36,7 @@ interface MixedRealityCalibrationOptions {
   userId: string;
   fingerprint: string;
   floorId: string;
+  roomId?: string;
   onState: (state: MixedRealityState) => void;
   storage?: Pick<Storage, "getItem" | "setItem" | "removeItem">;
   probeOffset?: Readonly<Vec3>;
@@ -102,6 +103,57 @@ export class MixedRealityCalibration {
   get state(): MixedRealityState {
     return this.current;
   }
+  get tracking(): boolean { return this.haveViewer; }
+
+  /** A same-floor anchor can be out of range in a different room. A checked local scan can replace it. */
+  get awaitingForeignAnchor(): boolean {
+    return this.current.phase === "restoring" && !!this.options.roomId &&
+      this.saved?.check.roomId !== this.options.roomId;
+  }
+
+  /** Adopt a rigid fit independently verified against the room scan. */
+  acceptScanned(frame: XRFrame, fit: CalibrationFit, check: CalibrationFeature, errorM: number): boolean {
+    if (!this.canUseScan(frame, errorM) || !this.isLocalFeature(check) ||
+      (!this.awaitingForeignAnchor && this.current.phase !== "select") ||
+      this.pairs.length > 0 || this.current.selected) return false;
+    if (this.awaitingForeignAnchor) this.clear();
+    this.fit = fit;
+    this.check = check;
+    this.createPending = true;
+    this.update({
+      phase: "ready", sampleCount: 3, errorM, selected: null, persistence: "session",
+      message: "Alignment checked against independent room geometry.",
+    });
+    return true;
+  }
+
+  /** Rechecking an anchor requires agreement across independent points in the selected room. */
+  verifyScanned(
+    frame: XRFrame, fit: CalibrationFit, errorM: number, features: CalibrationFeature[], check?: CalibrationFeature,
+  ): boolean {
+    if (!this.canUseScan(frame, errorM) || this.current.phase !== "verify" || !this.check ||
+      features.length < 3 || features.some((feature) => !this.isLocalFeature(feature))) return false;
+    const matrix = this.anchor ? this.trackedMatrix(frame, false) : this.fit?.matrix;
+    if (!matrix) return false;
+    const p = new Vector3(), q = new Vector3();
+    let drift = 0;
+    for (const { point } of features) {
+      drift = Math.max(drift, p.fromArray(point).applyMatrix4(matrix)
+        .distanceTo(q.fromArray(point).applyMatrix4(fit.matrix)));
+    }
+    // Both the scan's residual and disagreement with it contribute to the verification bound.
+    const disagreement = errorM + drift;
+    if (!Number.isFinite(disagreement) || disagreement > MAX_CALIBRATION_ERROR_M) return false;
+    if (check && features.some(({ id }) => id === check.id) && this.isLocalFeature(check)) this.check = check;
+    this.update({ phase: "ready", errorM: disagreement, selected: null, message: "Alignment rechecked against room geometry." });
+    return true;
+  }
+
+  private canUseScan(frame: XRFrame, errorM: number): boolean {
+    return !this.disposed && frame.session === this.options.session && this.haveViewer &&
+      this.options.session.visibilityState === "visible" && Number.isFinite(errorM) &&
+      errorM >= 0 && errorM <= MAX_CALIBRATION_ERROR_M;
+  }
 
   /** Called from an active animation frame. A null result always hides mapped geometry. */
   frame(frame: XRFrame): Matrix4 | null {
@@ -129,7 +181,8 @@ export class MixedRealityCalibration {
   }
 
   select(feature: CalibrationFeature): void {
-    if (this.current.phase !== "select" || this.pairs.some((pair) => pair.feature.id === feature.id)) return;
+    if (this.current.phase !== "select" || !this.isLocalFeature(feature) ||
+      this.pairs.some((pair) => pair.feature.id === feature.id)) return;
     this.update({ selected: feature, message: `Touch ${feature.label} with the controller probe, then press the trigger.`, errorM: null });
   }
 
@@ -206,6 +259,13 @@ export class MixedRealityCalibration {
       this.storage?.removeItem(this.key);
     } catch { /* Manual calibration still works when storage is unavailable. */ }
     if (handle) void this.deletePersistent(handle);
+    this.update(INITIAL_STATE);
+  }
+
+  /** Begin a full local registration while keeping the saved handle available for later sessions. */
+  startManualHere(): void {
+    if (this.disposed) return;
+    this.clear();
     this.update(INITIAL_STATE);
   }
 
@@ -330,12 +390,18 @@ export class MixedRealityCalibration {
 
   private requestCheck(): void {
     if (!this.check) return;
+    const local = this.isLocalFeature(this.check);
     this.update({
       phase: "verify",
-      selected: this.check,
-      message: `Touch ${this.check.label} with the controller probe to check the alignment before showing routes.`,
+      selected: local ? this.check : null,
+      message: local ? `Touch ${this.check.label} with the controller probe to check the alignment.`
+        : "Checking the saved alignment against this room. You can also align manually here.",
       errorM: null,
     });
+  }
+
+  private isLocalFeature(feature: CalibrationFeature): boolean {
+    return !this.options.roomId || feature.roomId === this.options.roomId;
   }
 
   private loseTracking(): void {

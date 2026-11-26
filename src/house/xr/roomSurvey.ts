@@ -14,6 +14,7 @@ import {
   type RoomSurveyObservationInput, type RoomSurveyPose, type RoomSurveySummary,
 } from "../roomSurveyTypes";
 import type { PanelPage, PanelRow } from "./panel";
+import { canOpenHeadsetRoomSetup, openHeadsetRoomSetup, QUEST_ROOM_SETUP_GUIDE } from "./headsetRoomSetup";
 import { SurveyDisplay } from "./surveyDisplay";
 import {
   fitsSurveyUpload, localToSurveyPoint, measurementLength, readFullRoomSurfaces, readRoomSurfaces, readSurveyHit, surveyBounds,
@@ -41,9 +42,7 @@ const emptyGeometry = (): RoomSurveyGeometry => ({ scope: "manual", surfaces: []
 const dateLabel = (ms: number) => new Date(ms).toLocaleString();
 const back = (act: () => void): PanelRow => ({ label: "Survey tools", act });
 const BLOCKED_MOVE = "The mounting surface needs manual review. The measurement is saved.";
-const SETUP_GUIDE = "On Quest, find Space Setup in Settings under Physical Space or Environment Setup, or mark points manually.";
-// The browser permits one room-setup request per immersive session, even when the user changes rooms.
-const roomSetupRequested = new WeakSet<XRSession>();
+const SETUP_GUIDE = `${QUEST_ROOM_SETUP_GUIDE} You can also mark points manually.`;
 
 export class RoomSurveyPilot {
   readonly display: SurveyDisplay;
@@ -156,21 +155,19 @@ export class RoomSurveyPilot {
   }
 
   private canOpenRoomSetup(): boolean {
-    return this.missingSensorGeometry && typeof this.session.initiateRoomCapture === "function" &&
-      !roomSetupRequested.has(this.session);
+    return this.missingSensorGeometry && canOpenHeadsetRoomSetup(this.session);
   }
 
   private async openRoomSetup(): Promise<void> {
     if (!this.canOpenRoomSetup() || !this.aligned() || this.busy) return;
-    roomSetupRequested.add(this.session);
     this.openingRoomSetup = true;
     this.pause();
     try {
       // Start directly in the menu activation. Wait for the next tracked frame after returning.
-      await this.session.initiateRoomCapture!();
-      if (this.alive) this.notice = "When room setup is complete, return here and preview geometry again.";
-    } catch {
-      if (this.alive) this.notice = `Headset room setup did not open. ${SETUP_GUIDE}`;
+      const opened = await openHeadsetRoomSetup(this.session);
+      if (this.alive) this.notice = opened
+        ? "When room setup is complete, return here and preview geometry again."
+        : `Headset room setup did not open. ${SETUP_GUIDE}`;
     } finally {
       this.openingRoomSetup = false;
     }

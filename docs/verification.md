@@ -351,16 +351,22 @@ Chromium model-fixes spec with the isolated E2E output and WebGL disabled on the
 
 Physical acceptance requires Quest Browser on the signed-in HTTPS House page. Check eye height
 and real-metre walking, both storeys, the garage and plot, teleport comfort, the two controller
-rays, menu recall and exit. In passthrough, record the third-point error in the laundry, move
+rays, menu recall and exit. In passthrough, record the scan or manual check error in the laundry, move
 around the room, interrupt tracking, relaunch and check restored or manual alignment, inspect
 both fan channels, and compare a headset screenshot with the saved overlay. Reopening a
 desktop capture and resuming desktop controls after system exit are part of this check.
 
 For Quest interaction changes, run `xrInteractionPolish`, `handHints`, `roomSurveyXr` and
 the room-surveys integration suite. The Chromium `house-surveys` spec exercises private
-review on desktop and phone with an isolated model. Repeat five right-stick teleports on
-the headset, try grip recall while facing away from an open menu, and select with each hand.
-Walk from the yard through each building entrance and back. Check the frame timing after exit.
+review on desktop and phone with an isolated model. On Quest, aim left, repeat five trigger teleports
+and change arrival heading on one of them. Try grip recall while facing away, scroll a long list
+by stick and drag, and select with each hand. Verify the Yard shortcut has clear approaches.
+Open one door from a distance, walk through it, then return and check it has stayed open. Walk
+through each building entrance and check frame timing after exit.
+
+Exercise automatic registration from inside the boundary, ambiguous headings, an empty room scan
+and the remote two-ray fallback. The `roomAlignment` tests exercise gravity-aligned fits, held-out
+error, ambiguous matches and stale tracking. Only a real headset run establishes physical accuracy.
 
 In **Survey room**, compare the preview with the real room and inspect adjacent-room extent
 before saving a full capture. Measure a known distance with the controller and with opposite-hand

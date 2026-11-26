@@ -29,6 +29,18 @@ export class TeleportArc {
       depthWrite: false,
     }),
   );
+  // An asymmetric chevron makes arrival orientation readable at a glance.
+  private readonly arrow = new THREE.Mesh(
+    new THREE.ShapeGeometry(
+      new THREE.Shape([
+        new THREE.Vector2(0, 0.31),
+        new THREE.Vector2(-0.105, 0.12),
+        new THREE.Vector2(0, 0.16),
+        new THREE.Vector2(0.105, 0.12),
+      ]),
+    ),
+    this.ring.material,
+  );
   private previous = new THREE.Vector3();
   private current = new THREE.Vector3();
   private segment = new THREE.Ray();
@@ -40,12 +52,16 @@ export class TeleportArc {
     );
     const line = new THREE.Line(this.geometry, this.ink);
     line.frustumCulled = false;
+    this.group.name = "vh-teleport-preview";
+    this.ring.name = "vh-teleport-landing";
     this.group.add(line, this.ring);
+    this.ring.add(this.arrow);
+    this.arrow.renderOrder = 999;
     this.group.visible = false;
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.renderOrder = 998;
   }
-  aim(world: WalkWorld, ray: THREE.Ray, height: number) {
+  aim(world: WalkWorld, ray: THREE.Ray, height: number, heading = 0) {
     this.landing = null;
     this.group.visible = true;
     this.previous.copy(ray.origin);
@@ -72,6 +88,8 @@ export class TeleportArc {
     this.ink.color.setHex(this.landing ? 0x72e2d3 : 0xe8a471);
     this.ring.visible = !!this.landing;
     if (this.landing) {
+      this.ring.quaternion.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, heading);
+      this.ring.rotateX(-Math.PI / 2);
       this.ring.position.copy(this.landing);
       this.ring.position.y += 0.02;
     }
@@ -86,6 +104,7 @@ export class TeleportArc {
     this.ink.dispose();
     this.ring.geometry.dispose();
     this.ring.material.dispose();
+    this.arrow.geometry.dispose();
   }
 }
 
@@ -95,6 +114,7 @@ export interface WorldTarget {
   floor: boolean;
   mesh: THREE.Mesh;
   instanceId?: number;
+  doorId?: string;
 }
 interface Instances {
   version: number;
@@ -111,7 +131,13 @@ export class EquipmentPicker {
     const hit = world.hit(ray.ray, 18);
     let limit = hit ? ray.ray.origin.distanceTo(hit.point) + 0.012 : 18;
     let result: WorldTarget | null = hit
-      ? { id: hit.placementId ?? null, point: hit.point, floor: hit.walkable, mesh: hit.object }
+      ? {
+          id: hit.placementId ?? null,
+          point: hit.point,
+          floor: hit.walkable,
+          mesh: hit.object,
+          doorId: hit.doorId,
+        }
       : null;
     for (const mesh of markers?.meshes ?? []) {
       if (!mesh.count || !isVisibleUp(mesh)) continue;

@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as T from "three";
 import { TargetHighlight } from "@/house/xr/pointers";
-import { HeadsetPanel } from "@/house/xr/panel";
+import { HeadsetPanel, type PanelPage } from "@/house/xr/panel";
+import { layoutPanel, PANEL_WIDTH, scrollThumb } from "@/house/xr/panelLayout";
 import { WalkWorld } from "@/house/xr/walkWorld";
+import { landFacing } from "@/house/xr/navigation";
 import { FrameBudget, WalkAppearance } from "@/house/xr/visuals";
 import { HouseSession } from "@/house/xr/session";
 import { createRuntime } from "@/house/runtime";
@@ -16,6 +18,20 @@ function canvas() {
   const ctx = {
     fillRect: vi.fn(),
     fillText: vi.fn(),
+    clearRect: vi.fn(),
+    beginPath: vi.fn(),
+    roundRect: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    closePath: vi.fn(),
+    arc: vi.fn(),
+    createLinearGradient: () => ({ addColorStop: vi.fn() }),
     measureText: (s: string) => ({ width: s.length * 10 }),
   };
   vi.stubGlobal("document", { createElement: () => ({ getContext: () => ctx }) });
@@ -39,9 +55,11 @@ function flat() {
   const floor = box("paved-test", new T.Vector3(100, 0.1, 100), new T.Vector3(0, -0.05, 0), "paving");
   return { index, scene, box, floor };
 }
-function sessionFixture() {
+function sessionFixture(configure?: (layout: ReturnType<typeof flat>) => void) {
   canvas();
-  const { scene, index } = flat();
+  const layout = flat();
+  configure?.(layout);
+  const { scene, index } = layout;
   const store = createHouseStore(),
     runtime = createRuntime({ base: "/fixture", store, dataApi: createMemoryDataApi() });
   runtime.index = index;
@@ -75,7 +93,7 @@ function sessionFixture() {
       fans: "",
     });
   };
-  return { active, render, axes, inputs, source, frame };
+  return { active, render, axes, inputs, source, frame, scene, index };
 }
 afterEach(() => {
   vi.restoreAllMocks();
@@ -135,6 +153,55 @@ describe("Quest motion and pointing", () => {
     expect(initial.z - active.rig.position.z).toBeGreaterThan(0.5);
     active.dispose();
   });
+  it("previews from the left ray, steers the arrival arrow during a trigger hold, and lands facing that heading", () => {
+    const { active, render, source, frame, inputs, axes, scene } = sessionFixture();
+    source.handedness = "left";
+    const event = (type: string) =>
+      inputs.dispatchEvent(Object.assign(new Event(type), { inputSource: source, frame }));
+    render();
+    const landing = scene.getObjectByName("vh-teleport-landing")!;
+    expect(landing.parent?.visible).toBe(true);
+    expect(landing.visible).toBe(true);
+    const before = active.rig.position.clone();
+    event("selectstart");
+    axes[2] = 1;
+    render();
+    const arrow = new T.Vector3(0, 1, 0).applyQuaternion(landing.quaternion);
+    expect(arrow.x).toBeCloseTo(1, 5);
+    expect(active.rig.position.toArray()).toEqual(before.toArray());
+    axes[2] = 0;
+    render();
+    const aim = landing.position.clone();
+    event("select");
+    event("selectend");
+    render(0.12);
+    render(0.13);
+    expect(active.rig.position.x).toBeCloseTo(aim.x, 5);
+    expect(active.rig.position.z).toBeCloseTo(aim.z, 5);
+    expect(new T.Vector3(0, 0, -1).applyQuaternion(active.rig.quaternion).x).toBeCloseTo(1, 5);
+    const landed = active.rig.position.clone();
+    event("selectstart");
+    inputs.dispatchEvent(new Event("inputsourceschange"));
+    event("select");
+    event("selectend");
+    render(0.26);
+    expect(active.rig.position.toArray()).toEqual(landed.toArray());
+    active.dispose();
+  });
+  it("keeps the actual tracked head over the landing when rotating a room-scale rig", () => {
+    const rig = new T.Group();
+    rig.rotation.y = -0.8;
+    const head = new T.Vector3(1.2, 1.65, -0.7);
+    const orientation = new T.Quaternion().setFromEuler(new T.Euler(0.12, 0.7, 0, "YXZ"));
+    landFacing(rig, head, orientation, new T.Vector3(-4, 3, 10), Math.PI);
+    expect(rig.localToWorld(head.clone()).toArray()).toEqual([
+      expect.closeTo(-4, 6),
+      expect.closeTo(4.65, 6),
+      expect.closeTo(10, 6),
+    ]);
+    const gaze = new T.Vector3(0, 0, -1).applyQuaternion(orientation).applyQuaternion(rig.quaternion);
+    expect(gaze.z).toBeGreaterThan(0.98);
+  });
   it("moves with the left stick while retaining head height", () => {
     const { active, render, source, axes } = sessionFixture();
     source.handedness = "left";
@@ -158,18 +225,106 @@ describe("Quest motion and pointing", () => {
     expect(w.canStand(new T.Vector3(0, 0, 3), 1.7)).toBe(false);
     expect(w.step(new T.Vector3(-1.82, 0, 0), -0.14, 0, 1.7)?.y).toBeCloseTo(0.2);
   });
-  it("opens a model door on approach and restores its original transform at exit", () => {
+  it("chooses open-sky yard ground beyond every storey, with traversable exits in eight directions", () => {
     const { index, box } = flat();
-    const door = box("door", new T.Vector3(1, 2, 0.07), new T.Vector3(0, 1, 0), "door-leaf");
-    const before = door.matrix.clone(),
-      w = new WalkWorld(index);
+    const upper = [...index.manifest.rooms.values()][0]!;
+    index.manifest.rooms.clear();
+    index.manifest.rooms.set(upper.id, {
+      ...upper,
+      floorElevation: 3,
+      footprint: {
+        holes: [],
+        outer: [
+          [-3, -3],
+          [-3, 3],
+          [3, 3],
+          [3, -3],
+        ],
+      },
+    });
+    box("canopy", new T.Vector3(12, 0.15, 12), new T.Vector3(0, 3.3, 0), "roof");
+    const world = new WalkWorld(index);
+    const yard = world.yardLanding(1.8)!;
+    expect(Math.max(Math.abs(yard.x), Math.abs(yard.z))).toBeGreaterThan(6);
+    for (let i = 0; i < 8; i++) {
+      let p = yard;
+      for (let j = 0; j < 5; j++) {
+        const next = world.step(
+          p,
+          0.22 * Math.sin((i * Math.PI) / 4),
+          0.22 * Math.cos((i * Math.PI) / 4),
+          1.8,
+        );
+        expect(next).not.toBeNull();
+        p = next!;
+      }
+    }
+    box("covered-site", new T.Vector3(105, 0.1, 105), new T.Vector3(0, 4, 0), "roof");
+    const covered = new WalkWorld(index);
+    expect(covered.yardLanding(1.7)).toBeNull();
+    world.dispose();
+    covered.dispose();
+  });
+  it("clears low foundation overlap only beside an authored threshold and preserves tall obstacles", () => {
+    const { index, box } = flat();
+    box("plinth", new T.Vector3(5, 0.55, 0.3), new T.Vector3(0, 0.1, 0), "plinth");
+    const before = new WalkWorld(index);
+    expect(before.canStand(new T.Vector3(), 1.7)).toBe(false);
+    box("sill", new T.Vector3(0.85, 0.03, 0.32), new T.Vector3(0, 0.17, 0), "door-threshold");
+    const after = new WalkWorld(index);
+    expect(after.canStand(new T.Vector3(), 1.7)).toBe(true);
+    expect(after.canStand(new T.Vector3(2, 0, 0), 1.7)).toBe(false);
+    box("wall", new T.Vector3(0.15, 2.3, 1), new T.Vector3(0, 1, 0), "exterior");
+    const wall = new WalkWorld(index);
+    expect(wall.canStand(new T.Vector3(), 1.7)).toBe(false);
+    before.dispose();
+    after.dispose();
+    wall.dispose();
+  });
+  it("latches a multi-part door open without changing its transform or shared material, including across a scene refresh", () => {
+    const { index, box } = flat();
+    const door = box("door", new T.Vector3(1, 2, 0.07), new T.Vector3(2, 1, 0), "door-leaf");
+    const parent = new T.Group();
+    parent.position.set(-2, 0, 0);
+    door.parent!.add(parent);
+    parent.add(door);
+    const original = door.material,
+      before = door.matrix.clone(),
+      opened = new Set<string>();
+    let w = new WalkWorld(index, opened);
     expect(w.canStand(new T.Vector3(), 1.7)).toBe(false);
     w.updateDoors(new T.Vector3(0, 1.7, 0.9), 0.4);
-    expect(door.matrix.equals(before)).toBe(false);
+    expect(door.matrix.equals(before)).toBe(true);
+    expect(door.material.visible).toBe(false);
+    expect(original.visible).toBe(true);
+    w.updateDoors(new T.Vector3(8, 1.7, 0), 1);
+    expect(w.canStand(new T.Vector3(), 1.7)).toBe(true);
+    w.dispose();
+    expect(door.material).toBe(original);
+    w = new WalkWorld(index, opened);
+    expect(door.material.visible).toBe(false);
     expect(w.canStand(new T.Vector3(), 1.7)).toBe(true);
     w.dispose();
     expect(door.matrix.toArray()).toEqual(before.toArray());
-    expect(door.matrixAutoUpdate).toBe(true);
+    expect(door.material).toBe(original);
+  });
+  it("opens a distant VR door on trigger without moving the viewer or operating equipment", () => {
+    let leaf!: T.Mesh<T.BoxGeometry, T.MeshStandardMaterial>;
+    const { active, source, inputs, frame, render } = sessionFixture((layout) => {
+      layout.index.manifest.rooms.clear();
+      leaf = layout.box("entry", new T.Vector3(2, 2.3, 0.06), new T.Vector3(0, 1.15, -2), "door-leaf");
+    });
+    source.handedness = "left";
+    render();
+    expect(leaf.material.visible).toBe(true);
+    const before = active.rig.position.clone();
+    for (const name of ["selectstart", "select", "selectend"])
+      inputs.dispatchEvent(Object.assign(new Event(name), { inputSource: source, frame }));
+    for (let i = 0; i < 8; i++) render(0.04);
+    expect(leaf.material.visible).toBe(false);
+    expect(active.rig.position.toArray()).toEqual(before.toArray());
+    active.dispose();
+    expect(leaf.material.visible).toBe(true);
   });
   it("adds ground grain and returns original materials", () => {
     const { index, floor } = flat(),
@@ -236,9 +391,13 @@ describe("Quest motion and pointing", () => {
       expect(mesh.material).not.toBe(originals[i]);
       expect(mesh.material.map).toBe(map);
       expect(mesh.material.color.getHex()).toBe(originals[i]!.color.getHex());
-      const shader = { uniforms: {}, fragmentShader: "#include <color_fragment>" } as Parameters<typeof mesh.material.onBeforeCompile>[0];
+      const shader = { uniforms: {}, fragmentShader: "#include <color_fragment>" } as Parameters<
+        typeof mesh.material.onBeforeCompile
+      >[0];
       mesh.material.onBeforeCompile(shader, {} as T.WebGLRenderer);
-      expect(shader.fragmentShader).toContain(i === 0 ? "diffuseColor.rgb *= 1.14" : "diffuseColor.rgb *= 0.90");
+      expect(shader.fragmentShader).toContain(
+        i === 0 ? "diffuseColor.rgb *= 1.14" : "diffuseColor.rgb *= 0.90",
+      );
     }
     visual.detail(false);
     expect([threshold.material, frame.material, glass.material]).toEqual(originals);
@@ -283,82 +442,224 @@ describe("Quest motion and pointing", () => {
     material.dispose();
     instances.dispose();
   });
-  it("uses one layout for hover and click, retains small release jitter and cancels a drag to another button", () => {
-    const paint = canvas(),
-      panel = new HeadsetPanel(),
-      first = vi.fn(),
-      second = vi.fn(),
-      source = {} as XRInputSource;
-    const draw = () =>
-      panel.draw(
-        {
-          title: "Fixture menu",
-          lines: [],
-          rows: [
-            { label: "One", act: first },
-            { label: "Two", act: second },
-          ],
-        },
-        () => {},
-        () => {},
-      );
+  function panelFixture(page: PanelPage) {
+    const paint = canvas();
+    const panel = new HeadsetPanel();
+    const home = vi.fn();
+    const exit = vi.fn();
+    const draw = () => panel.draw(page, home, exit);
     draw();
-    const rayAt = (x: number, y: number) => {
-      const canvas = (panel.mesh.material.map as T.CanvasTexture).image as HTMLCanvasElement;
-      const world = panel.mesh.localToWorld(new T.Vector3(x / 768 - 0.5, 0.5 - y / canvas.height, 0));
+    const layout = layoutPanel(page, (value) => value.length * 10, home, exit);
+    const ray = (x: number, y: number) => {
+      const world = panel.mesh.localToWorld(new T.Vector3(x / PANEL_WIDTH - 0.5, 0.5 - y / layout.height, 0));
       return new T.Raycaster(world.clone().add(new T.Vector3(0, 0, 1)), new T.Vector3(0, 0, -1));
     };
-    const initial = panel.hit(rayAt(300, 104))!;
+    return { panel, draw, paint, layout, ray, home, exit };
+  }
+  const center = (rect: { x: number; y: number; width: number; height: number }) =>
+    [rect.x + rect.width / 2, rect.y + rect.height / 2] as const;
+
+  it("uses one layout for hover and click, retains small release jitter and cancels by tracking loss", () => {
+    const first = vi.fn(),
+      second = vi.fn();
+    const { panel, paint, draw, ray, layout } = panelFixture({
+      title: "Fixture menu",
+      lines: [],
+      rows: [
+        { label: "One", act: first },
+        { label: "Two", act: second },
+      ],
+    });
+    const source = {} as XRInputSource;
+    const row = layout.rows[0]!;
+    const initial = panel.hit(ray(...center(row)))!;
     expect(initial.row?.label).toBe("One");
-    const paints = paint.fillRect.mock.calls.length;
+    const paints = paint.clearRect.mock.calls.length;
     panel.cursor(0, initial);
     draw();
-    expect(paint.fillRect).toHaveBeenCalledTimes(paints);
+    panel.tick(1 / 72);
+    expect(paint.clearRect).toHaveBeenCalledTimes(paints);
     panel.start(source, initial);
-    expect(panel.end(source, panel.hit(rayAt(300, 89), true))).toBe(true);
+    expect(panel.end(source, panel.hit(ray(initial.x, row.y - 5), true))).toBe(true);
     expect(first).toHaveBeenCalledTimes(1);
     panel.start(source, initial);
-    panel.drag(source, panel.hit(rayAt(300, 210), true));
+    panel.drag(source, null);
+    expect(panel.end(source, initial)).toBe(false);
+    panel.start(source, initial);
+    panel.drag(source, panel.hit(ray(...center(layout.rows[1]!)), true));
     expect(panel.end(source, initial)).toBe(false);
     expect(second).not.toHaveBeenCalled();
-    expect(panel.hit(rayAt(2, 104))?.row).toBeUndefined();
+    expect(panel.hit(ray(row.x + 1, row.y + 1))?.row).toBeUndefined();
+    expect(panel.hit(ray(2, initial.y))?.row).toBeUndefined();
     panel.dispose();
   });
-  it("captures a slider across a drag and drops the gesture when tracking is interrupted", () => {
-    canvas();
-    const panel = new HeadsetPanel(),
-      change = vi.fn(),
-      clicked = vi.fn(),
-      source = {} as XRInputSource;
-    panel.draw(
-      {
-        title: "Fixture",
-        lines: [],
-        rows: [
-          { label: "Brightness", act: change, value: 0.2 },
-          { label: "Turn off", act: clicked },
-        ],
-      },
-      () => {},
-      () => {},
-    );
-    const hit = panel.hit(
-      new T.Raycaster(
-        new T.Vector3(
-          0,
-          panel.mesh.scale.y * (0.5 - 125 / (panel.mesh.material.map!.image as HTMLCanvasElement).height),
-          1,
-        ),
-        new T.Vector3(0, 0, -1),
-      ),
-    )!;
+
+  it("captures a slider across a drag, then releases its owner on hide", () => {
+    const change = vi.fn(),
+      clicked = vi.fn();
+    const { panel, ray, layout } = panelFixture({
+      title: "Fixture",
+      lines: [],
+      rows: [
+        { label: "Brightness", act: change, value: 0.2 },
+        { label: "Turn off", act: clicked },
+      ],
+    });
+    const source = {} as XRInputSource,
+      another = {} as XRInputSource;
+    const hit = panel.hit(ray(...center(layout.rows[0]!)))!;
     panel.start(source, hit);
-    panel.drag(source, { ...hit, x: 900, y: 245 });
+    panel.drag(another, { ...hit, x: PANEL_WIDTH + 10, y: 240 });
+    expect(change.mock.lastCall).toEqual([0.5]);
+    panel.drag(source, { ...hit, x: PANEL_WIDTH + 10, y: 240 });
     expect(change.mock.lastCall).toEqual([1]);
-    panel.cancel();
+    panel.hide();
     expect(panel.end(source, hit)).toBe(false);
+    expect(panel.hit(ray(...center(layout.rows[0]!)))).toBeNull();
     expect(clicked).not.toHaveBeenCalled();
     panel.dispose();
+  });
+
+  it("scrolls long menus continuously, clips partially visible rows and keeps navigation pinned", () => {
+    const back = vi.fn();
+    const { panel, ray, layout, exit } = panelFixture({
+      title: "Long fixture menu",
+      lines: [],
+      rows: [
+        ...Array.from({ length: 45 }, (_, i) => ({ label: "Room " + i, act: vi.fn() })),
+        { label: "Back to room tools", act: back },
+      ],
+    });
+    const source = {} as XRInputSource;
+    const first = layout.rows[0]!;
+    expect(panel.hit(ray(...center(first)))?.row?.label).toBe("Room 0");
+    expect(layout.maxScroll).toBeGreaterThan(1_000);
+    expect(panel.scroll(0.1, 1 / 72)).toBe(false);
+    for (let i = 0; i < 2; i++) {
+      panel.scroll(1, 0.05);
+      panel.tick(0.05);
+    }
+    const clipped = panel.hit(ray(300, layout.body.y + 5))?.row;
+    expect(clipped?.y).toBe(layout.body.y);
+    expect(panel.hit(ray(300, layout.body.y - 8))?.row).toBeUndefined();
+
+    const backHit = panel.hit(ray(...center(layout.footer[0]!)))!;
+    expect(backHit.row?.label).toBe("Back");
+    panel.start(source, backHit);
+    expect(panel.end(source, backHit)).toBe(true);
+    expect(back).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 150; i++) {
+      panel.scroll(1, 0.05);
+      panel.tick(0.05);
+    }
+    const last = layout.rows.at(-1)!;
+    const lastHit = panel.hit(ray(...center({ ...last, y: last.y - layout.maxScroll })));
+    expect(lastHit?.row?.label).toBe("Room 44");
+    const exitHit = panel.hit(ray(...center(layout.footer.at(-1)!)))!;
+    panel.start(source, exitHit);
+    panel.end(source, exitHit);
+    expect(exit).toHaveBeenCalledTimes(1);
+    panel.dispose();
+  });
+
+  it("promotes a row press to drag scrolling, coasts and captures the scrollbar through release", () => {
+    const click = vi.fn();
+    const { panel, ray, layout } = panelFixture({
+      title: "Rooms",
+      lines: [],
+      rows: Array.from({ length: 35 }, (_, i) => ({ label: "Room " + i, act: click })),
+    });
+    const source = {} as XRInputSource;
+    const original = panel.hit(ray(...center(layout.rows[4]!)))!;
+    panel.start(source, original);
+    const drag = panel.hit(ray(original.x, original.y - 115), true)!;
+    panel.drag(source, drag);
+    expect(panel.end(source, drag)).toBe(false);
+    const beforeCoast = panel.hit(ray(original.x, original.y))?.row?.label;
+    for (let i = 0; i < 12; i++) panel.tick(1 / 72);
+    expect(panel.hit(ray(original.x, original.y))?.row?.label).not.toBe(beforeCoast);
+    expect(click).not.toHaveBeenCalled();
+
+    const top = scrollThumb(layout, 0);
+    const thumb = panel.hit(ray(top.x + top.width / 2, layout.track.y + layout.track.height - 5))!;
+    expect(thumb.scrollbar).toBe(true);
+    panel.start(source, thumb);
+    const beyond = panel.hit(ray(PANEL_WIDTH + 25, layout.height + 45), true)!;
+    panel.drag(source, beyond);
+    expect(panel.owns(source)).toBe(true);
+    expect(panel.end(source, beyond)).toBe(false);
+    expect(click).not.toHaveBeenCalled();
+    const final = layout.rows.at(-1)!;
+    expect(panel.hit(ray(...center({ ...final, y: final.y - layout.maxScroll })))?.row?.label).toBe(
+      "Room 34",
+    );
+    panel.dispose();
+  });
+
+  it("targets adjacent quick-travel cards individually even when their top edge is clipped", () => {
+    const yard = vi.fn(),
+      garage = vi.fn(),
+      close = vi.fn();
+    const { panel, ray, layout } = panelFixture({
+      title: "Virtual Home",
+      lines: [],
+      close,
+      rows: [
+        { label: "Yard", style: "travel", icon: "yard", act: yard },
+        { label: "Garage", style: "travel", icon: "garage", act: garage },
+        { label: "Rooms and floors", style: "primary", icon: "rooms", act: vi.fn() },
+        ...Array.from({ length: 14 }, (_, i) => ({
+          label: "Fixture room " + i,
+          detail: "Synthetic floor",
+          act: vi.fn(),
+        })),
+      ],
+    });
+    const [left, right] = layout.rows;
+    const source = {} as XRInputSource;
+    expect(left?.y).toBe(right?.y);
+    expect(layout.footer.map((row) => row.label)).toEqual(["Close menu", "Exit immersive view"]);
+    const gap = (left!.x + left!.width + right!.x) / 2;
+    expect(panel.hit(ray(gap, center(left!)[1]))?.row).toBeUndefined();
+    panel.scroll(1, 0.05);
+    panel.tick(0.05);
+    for (const [card, expected] of [
+      [left!, "Yard"],
+      [right!, "Garage"],
+    ] as const) {
+      const x = center(card)[0];
+      const hit = panel.hit(ray(x, layout.body.y + 9))!;
+      expect(hit.row).toMatchObject({ label: expected, y: layout.body.y });
+      expect(panel.hit(ray(x, layout.body.y - 1))?.row).toBeUndefined();
+      panel.start(source, hit);
+      expect(panel.end(source, hit)).toBe(true);
+    }
+    expect(yard).toHaveBeenCalledTimes(1);
+    expect(garage).toHaveBeenCalledTimes(1);
+    panel.dispose();
+  });
+
+  it("aligns short home cards with the panel insets and reserves the gutter only for overflow", () => {
+    const act = () => {};
+    const page: PanelPage = {
+      title: "Virtual Home", close: act, lines: [],
+      rows: [
+        { label: "Yard", style: "travel", icon: "yard", act },
+        { label: "Garage", style: "travel", icon: "garage", act },
+        { label: "Rooms and floors", style: "primary", icon: "rooms", act },
+      ],
+    };
+    const measure = (value: string) => value.length * 10;
+    const layout = layoutPanel(page, measure, act, act);
+    const [left, right, full] = layout.rows;
+    const inward = (rect: { x: number; width: number }) => PANEL_WIDTH - rect.x - rect.width;
+    expect(layout.maxScroll).toBe(0);
+    expect(left?.width).toBe(right?.width);
+    expect(left?.x).toBe(layout.footer[0]?.x);
+    expect([inward(right!), inward(full!), inward(layout.footer.at(-1)!)]).toEqual([left?.x, left?.x, left?.x]);
+    const long = layoutPanel({ ...page, rows: [...page.rows, ...Array.from({ length: 15 }, () => ({ label: "Room", act }))] }, measure, act, act);
+    expect(long.maxScroll).toBeGreaterThan(0);
+    expect(long.rows[1]!.x + long.rows[1]!.width).toBeLessThan(long.track.x);
   });
   it("reduces optional detail on sustained missed frames and excludes a suspended interval", () => {
     const s = {

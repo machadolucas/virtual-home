@@ -29,7 +29,7 @@ describe("immersive walkthrough", () => {
     expect(api.isSessionSupported).toHaveBeenCalledTimes(2);
     const denied = {requestSession: vi.fn().mockRejectedValue(new DOMException("Permission denied","NotAllowedError"))};
     await expect(requestHouseSession(denied as unknown as XRSystem, "mr")).rejects.toMatchObject({name:"NotAllowedError"});
-    expect(denied.requestSession).toHaveBeenCalledExactlyOnceWith("immersive-ar", {requiredFeatures:["local-floor"],optionalFeatures:["anchors","hand-tracking"]});
+    expect(denied.requestSession).toHaveBeenCalledExactlyOnceWith("immersive-ar", {requiredFeatures:["local-floor"],optionalFeatures:["anchors","plane-detection","mesh-detection","hit-test","hand-tracking"]});
   });
 
   it("retains room-scale displacement, eye height and head pivot across floor changes", () => {
