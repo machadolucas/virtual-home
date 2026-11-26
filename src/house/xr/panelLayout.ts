@@ -13,8 +13,21 @@ export interface PanelPage {
   lines: string[];
   rows: PanelRow[];
   corners?: readonly (readonly number[])[];
+  keyboard?: {
+    text: string;
+    placeholder: string;
+    keys: readonly (readonly PanelKey[])[];
+    status?: string;
+    resultSlots?: number;
+  };
   back?: () => void;
   close?: () => void;
+}
+
+export interface PanelKey extends PanelRow {
+  id: string;
+  span?: number;
+  keyTone?: "utility" | "confirm";
 }
 
 export interface PanelRect {
@@ -27,6 +40,8 @@ export interface PanelRect {
 export interface PanelButton extends PanelRow, PanelRect {
   key: string;
   kind: "row" | "back" | "home" | "exit" | "close";
+  keycap?: true;
+  keyTone?: PanelKey["keyTone"];
 }
 
 export interface PanelLayout {
@@ -38,6 +53,13 @@ export interface PanelLayout {
   lines: string[];
   plan: PanelRect | null;
   corners: PanelPage["corners"];
+  keyboard: {
+    field: PanelRect;
+    text: string;
+    placeholder: string;
+    status?: string;
+    statusY: number;
+  } | null;
   rows: PanelButton[];
   footer: PanelButton[];
 }
@@ -52,6 +74,8 @@ const SLIDER_ROW = 86;
 const GAP = 10;
 const SCROLL_GUTTER = 42;
 const LINE_HEIGHT = 32;
+const KEY_HEIGHT = 55;
+const KEY_GAP = 7;
 
 export function contains(rect: PanelRect, x: number, y: number, slack = 0) {
   return x >= rect.x - slack && y >= rect.y - slack &&
@@ -95,6 +119,35 @@ export function layoutPanel(
     const intro = Math.max(plan ? plan.height + 24 : 0, lines.length ? lines.length * LINE_HEIGHT + 24 : 0);
     let cursor = HEADER + intro + 8;
     const rows: PanelButton[] = [];
+    let keyboard: PanelLayout["keyboard"] = null;
+    if (page.keyboard) {
+      const { text, placeholder, status, keys } = page.keyboard;
+      const field = { x: INSET, y: cursor + 3, width: rowWidth, height: 62 };
+      cursor += field.height + 16;
+      const unit = (rowWidth - KEY_GAP * 9) / 10;
+      for (const line of keys) {
+        const widths = line.map((key) => unit * (key.span ?? 1));
+        const width = widths.reduce((sum, value) => sum + value, 0) + KEY_GAP * (line.length - 1);
+        let x = INSET + (rowWidth - width) / 2;
+        for (const [index, key] of line.entries()) {
+          const width = widths[index]!;
+          rows.push({
+            ...key,
+            x,
+            y: cursor,
+            width,
+            height: KEY_HEIGHT,
+            kind: "row",
+            keycap: true,
+            key: page.title + "/key/" + key.id,
+          });
+          x += width + KEY_GAP;
+        }
+        cursor += KEY_HEIGHT + KEY_GAP;
+      }
+      keyboard = { field, text, placeholder, status, statusY: cursor + 28 };
+      cursor += status === undefined ? 6 : 44;
+    }
     for (let index = 0; index < items.length; index++) {
       const item = items[index]!;
       const next = items[index + 1];
@@ -130,10 +183,11 @@ export function layoutPanel(
       if (pair) add(next, INSET + width + GAP, ++index);
       cursor += height + GAP;
     }
-    return { plan, lines, rows, contentHeight: Math.max(76, cursor - HEADER + 4), rowWidth };
+    cursor += Math.max(0, (page.keyboard?.resultSlots ?? 0) - items.length) * (NORMAL_ROW + GAP);
+    return { plan, lines, rows, keyboard, contentHeight: Math.max(76, cursor - HEADER + 4), rowWidth };
   };
   const fullBody = arrangeBody(fullWidth);
-  const { plan, lines, rows, contentHeight, rowWidth } =
+  const { plan, lines, rows, keyboard, contentHeight, rowWidth } =
     fullBody.contentHeight > MAX_HEIGHT - HEADER - FOOTER
       ? arrangeBody(fullWidth - SCROLL_GUTTER)
       : fullBody;
@@ -170,6 +224,7 @@ export function layoutPanel(
     lines,
     plan,
     corners: page.corners,
+    keyboard,
     rows,
     footer,
   };
@@ -432,11 +487,62 @@ function paintHomeButton(c: CanvasRenderingContext2D, row: PanelButton, rect: Pa
   if (primary) drawArrow(c, x + width - 37, y + height / 2, "row");
 }
 
+function paintKey(c: CanvasRenderingContext2D, row: PanelButton, rect: PanelRect) {
+  const { x, y, width, height } = rect;
+  const accent = !!row.act && (row.active || row.keyTone === "confirm");
+  fill(c, rect, 11, accent ? "#24544c" : row.keyTone === "utility" ? "#233544" : "#2a4154");
+  stroke(c, rect, 11, accent ? "#7bdaca" : row.act ? "#4f697e" : "#364b5c", 1.4);
+  c.fillStyle = row.act ? (accent ? "#d6fff2" : "#f0f8fc") : "#859aa9";
+  c.font = `${row.keyTone ? "640 23" : "660 30"}px ${FONT}`;
+  c.textAlign = "center";
+  c.textBaseline = "middle";
+  c.fillText(row.label, x + width / 2, y + height / 2 + 1, width - 10);
+  c.textAlign = "left";
+  c.textBaseline = "alphabetic";
+}
+
+function paintKeyboardField(
+  c: CanvasRenderingContext2D,
+  keyboard: NonNullable<PanelLayout["keyboard"]>,
+  offset: number,
+) {
+  const { field, status, statusY, placeholder } = keyboard;
+  const rect = { ...field, y: field.y - offset };
+  fill(c, rect, 13, "#101f2b");
+  stroke(c, rect, 13, "#5ba99b", 1.7);
+  c.font = `550 32px ${FONT}`;
+  const width = rect.width - 51;
+  let value = keyboard.text;
+  if (c.measureText(value).width > width) {
+    let start = 1;
+    while (start < value.length && c.measureText("…" + value.slice(start)).width > width) start++;
+    value = "…" + value.slice(start);
+  }
+  c.fillStyle = value ? "#e9fbf8" : "#9bb2c1";
+  text(c, value || placeholder, rect.x + 19, rect.y + 41, width);
+  if (value)
+    fill(
+      c,
+      { x: rect.x + 23 + c.measureText(value).width, y: rect.y + 16, width: 2, height: 29 },
+      1,
+      "#90e8d5",
+    );
+  if (status) {
+    c.font = `550 22px ${FONT}`;
+    c.fillStyle = "#aaccd1";
+    text(c, status, rect.x + 6, statusY - offset, rect.width - 12);
+  }
+}
+
 function paintButton(c: CanvasRenderingContext2D, row: PanelButton, offset = 0) {
   const y = row.y - offset;
   const { label, act, x, width, height, kind, value } = row;
   const active = row.active ?? /^(✓\s|Selected · )/.test(label);
   const rect = { x, y, width, height };
+  if (row.keycap) {
+    paintKey(c, row, rect);
+    return;
+  }
   if (kind !== "row") {
     fill(c, rect, 13, kind === "exit" ? "#33262b" : "#273645");
     stroke(c, rect, 13, kind === "exit" ? "#78504b" : "#42566b", 1.5);
@@ -459,7 +565,7 @@ function paintButton(c: CanvasRenderingContext2D, row: PanelButton, offset = 0) 
   let labelWidth = width - 82;
   if (row.detail) {
     c.font = `530 21px ${FONT}`;
-    const badgeWidth = Math.min(width * .36, c.measureText(row.detail).width + 24);
+    const badgeWidth = Math.min(width * 0.36, c.measureText(row.detail).width + 24);
     const badgeX = x + width - badgeWidth - 47;
     fill(c, { x: badgeX, y: y + 22, width: badgeWidth, height: 30 }, 5, "#1a2a37");
     c.fillStyle = "#b6c9d7";
@@ -474,18 +580,24 @@ function paintButton(c: CanvasRenderingContext2D, row: PanelButton, offset = 0) 
     const fraction = Math.max(0, Math.min(1, value));
     const fillEnd = start + fraction * (end - start);
     fill(c, { x: start, y: y + 57, width: end - start, height: 7 }, 3.5, "#132431");
-    if (fraction > 0) fill(c, { x: start, y: y + 57, width: fillEnd - start, height: 7 }, 3.5, act ? "#68c9b8" : "#66847f");
+    if (fraction > 0)
+      fill(c, { x: start, y: y + 57, width: fillEnd - start, height: 7 }, 3.5, act ? "#68c9b8" : "#66847f");
     fill(c, { x: fillEnd - 6, y: y + 53, width: 12, height: 15 }, 6, act ? "#b3f0df" : "#839e99");
   } else if (act) drawArrow(c, x + width - 38, y + height / 2, kind);
 }
 
 /** Draw the same screen-space rectangles the ray hit test uses. Only visible rows are rendered. */
-export function paintPanel(c: CanvasRenderingContext2D, layout: PanelLayout, offset = 0, thumbHeld = false) {
-  const { title, height, body, plan, corners, rows, footer, track } = layout;
+export function paintPanel(
+  c: CanvasRenderingContext2D,
+  layout: PanelLayout,
+  offset = 0,
+  thumbHeld = false,
+) {
+  const { title, height, body, plan, corners, keyboard, rows, footer, track } = layout;
   c.clearRect(0, 0, PANEL_WIDTH, height);
-  const gradient = c.createLinearGradient(0, 0, PANEL_WIDTH * .8, height);
+  const gradient = c.createLinearGradient(0, 0, PANEL_WIDTH * 0.8, height);
   gradient.addColorStop(0, "#233a4a");
-  gradient.addColorStop(.35, "#172632");
+  gradient.addColorStop(0.35, "#172632");
   gradient.addColorStop(1, "#101a25");
   fill(c, { x: 1, y: 1, width: PANEL_WIDTH - 2, height: height - 2 }, 26, gradient);
   stroke(c, { x: 2, y: 2, width: PANEL_WIDTH - 4, height: height - 4 }, 25, "#546c7e", 2);
@@ -493,7 +605,7 @@ export function paintPanel(c: CanvasRenderingContext2D, layout: PanelLayout, off
   c.fillStyle = "#f6fbff";
   c.font = `700 44px ${FONT}`;
   text(c, title, INSET, 73, PANEL_WIDTH - INSET * 2);
-  fill(c, { x: INSET, y: HEADER - 2, width: PANEL_WIDTH - INSET * 2, height: 1 }, .5, "#3d5262");
+  fill(c, { x: INSET, y: HEADER - 2, width: PANEL_WIDTH - INSET * 2, height: 1 }, 0.5, "#3d5262");
 
   c.save();
   c.beginPath();
@@ -502,14 +614,18 @@ export function paintPanel(c: CanvasRenderingContext2D, layout: PanelLayout, off
   c.font = `430 25px ${FONT}`;
   c.fillStyle = "#c8dae5";
   const infoWidth = plan ? plan.x - INSET - 26 : body.width - 24;
-  layout.lines.forEach((line, index) => text(c, line, INSET + 9, HEADER + 36 + LINE_HEIGHT * index - offset, infoWidth));
+  layout.lines.forEach((line, index) =>
+    text(c, line, INSET + 9, HEADER + 36 + LINE_HEIGHT * index - offset, infoWidth),
+  );
   if (plan && corners) paintPlan(c, { ...plan, y: plan.y - offset }, corners);
+  if (keyboard) paintKeyboardField(c, keyboard, offset);
   for (const row of rows) {
-    if (row.y + row.height - offset > body.y && row.y - offset < body.y + body.height) paintButton(c, row, offset);
+    if (row.y + row.height - offset > body.y && row.y - offset < body.y + body.height)
+      paintButton(c, row, offset);
   }
   c.restore();
 
-  if (layout.maxScroll > .1) {
+  if (layout.maxScroll > 0.1) {
     if (offset > 0) {
       const fade = c.createLinearGradient(0, body.y, 0, body.y + 12);
       fade.addColorStop(0, "#182935cc");
@@ -531,7 +647,7 @@ export function paintPanel(c: CanvasRenderingContext2D, layout: PanelLayout, off
   }
 
   const footerTop = height - FOOTER;
-  fill(c, { x: INSET, y: footerTop + 1, width: PANEL_WIDTH - INSET * 2, height: 1 }, .5, "#3a4a57");
+  fill(c, { x: INSET, y: footerTop + 1, width: PANEL_WIDTH - INSET * 2, height: 1 }, 0.5, "#3a4a57");
   for (const row of footer) paintButton(c, row);
 }
 

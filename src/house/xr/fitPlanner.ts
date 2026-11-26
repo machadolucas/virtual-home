@@ -3,14 +3,14 @@ import type { HouseRuntime } from "../runtime";
 import type { Furnishing, Room } from "../model/types";
 import { fitPresets, type FitDraft, type FitRecord } from "../model/fitProposal";
 import { pointInFootprint, poleOfInaccessibility } from "../model/geometry2d";
-import { equipmentPlacementEnvelope } from "../scene/equipmentPlacement";
+import { equipmentCollisionShape, equipmentPlacementEnvelope } from "../scene/equipmentPlacement";
 import {
   clearFurnishingCollisionCache,
-  furnishingWallCollision,
+  furnishingCollisionShape,
   wallTriangles,
   type PlacementEnvelope,
 } from "../scene/furnishingPlacement";
-import { assessFit, fitBody, fitOpening, type FitCheck } from "./fitGeometry";
+import { assessFit, fitBody, fitClearance, fitOpening, type FitCheck, type FitContact, type FitObject, type FitWall } from "./fitGeometry";
 import type { PanelPage, PanelRow } from "./panel";
 
 const cm = (m: number) => Math.round(m * 100) + " cm";
@@ -20,16 +20,23 @@ const describe = (c: FitCheck) =>
     : !c.openingClear
       ? "Opening obstructed"
       : (c.beyond ? "≥ " : "") + cm(c.gap) + " beyond opening";
-function ghost(color: number, alpha: number) {
+function ghost(color: number, alpha: number, depthTest = true) {
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: alpha, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: alpha, depthTest, depthWrite: false }),
   );
   mesh.add(
-    new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), new THREE.LineBasicMaterial({ color })),
+    new THREE.LineSegments(
+      new THREE.EdgesGeometry(mesh.geometry),
+      new THREE.LineBasicMaterial({ color, depthTest }),
+    ),
   );
   return mesh;
 }
+const contactColor = 0xff7661;
+const openingReadout = (spec: FitDraft["spec"], fraction: number) =>
+  spec.opening === "Drawer" ? `${Math.floor(spec.reach * fraction * 1000) / 10} cm` :
+    `${Math.floor(fraction * 900) / 10}°`;
 function place(mesh: THREE.Mesh, box: PlacementEnvelope) {
   mesh.position.set(box.position[0], box.position[1] + box.heightM / 2, box.position[2]);
   mesh.scale.set(box.widthM, box.heightM, box.depthM);
@@ -43,11 +50,19 @@ export class FitPlanner {
   private readonly leaf = ghost(0xffc47f, 0.34);
   private readonly other = ghost(0x9eb4ef, 0.055);
   private readonly preview = ghost(0xf6f3dd, 0.1);
+  private readonly clearance = ghost(0x7fdbe7, 0.065);
+  private readonly obstacle = new THREE.Group();
+  private readonly marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.025, 12, 8),
+    new THREE.MeshBasicMaterial({ color: contactColor, depthTest: false, depthWrite: false }),
+  );
   private draft: FitDraft;
   private screen: "main" | "size" | "saved" | "replace" = "main";
   private checks: [FitCheck, FitCheck] | null = null;
-  private walls: ReturnType<typeof wallTriangles> = [];
-  private obstacles: PlacementEnvelope[] = [];
+  private walls: FitWall[] = [];
+  private obstacles: FitObject[] = [];
+  private replacementBoxes: PlacementEnvelope[] = [];
+  private contact: FitContact | null = null;
   private proposals: FitRecord[] = [];
   private available: { id: string; kind: "furnishing" | "equipment"; name: string }[] = [];
   private dimension: "width" | "depth" | "height" | "reach" = "width";
@@ -59,6 +74,8 @@ export class FitPlanner {
   private message = "";
   private loadFailed = false;
   private opening = 1;
+  private animationStart: number | null = null;
+  private animating = false;
   private requestId = crypto.randomUUID();
   private readonly abort = new AbortController();
   moving = false;
@@ -80,8 +97,23 @@ export class FitPlanner {
       ],
       preferred: "A",
     };
-    this.group.add(this.body, this.leaf, this.other, this.preview);
+    this.group.name = "vh-fit-planner";
+    this.leaf.name = "vh-fit-opening";
+    this.clearance.name = "vh-fit-clearance";
+    this.obstacle.name = "vh-fit-obstacle";
+    this.marker.name = "vh-fit-first-contact";
+    this.marker.renderOrder = 10;
+    this.group.add(
+      this.body,
+      this.leaf,
+      this.other,
+      this.preview,
+      this.clearance,
+      this.obstacle,
+      this.marker,
+    );
     this.group.matrixAutoUpdate = false;
+    this.group.visible = false;
     this.preview.visible = false;
     this.draw();
     void this.load();
@@ -101,12 +133,32 @@ export class FitPlanner {
       ])) as [{ furnishings: Furnishing[] }, { proposals: FitRecord[] }];
       if (this.disposed) return;
       if (this.runtime.index) {
-        clearFurnishingCollisionCache(this.runtime.index);
+        const index = this.runtime.index;
+        clearFurnishingCollisionCache(index);
         const state = this.runtime.store.getState();
-        this.walls = wallTriangles(
-          this.runtime.index,
-          state.immersiveMode === "mr" ? state.explode : undefined,
-        );
+        this.walls = wallTriangles(index, state.immersiveMode === "mr" ? state.explode : undefined)
+          .filter(
+            (wall) =>
+              wall.bounds.max.y >= this.room.floorElevation &&
+              wall.bounds.min.y <= this.room.floorElevation + (this.room.ceilingHeight ?? 3),
+          )
+          .map((wall, i): FitWall => {
+            const surface = wall.surfaceId ? index.manifest.surfaces.get(wall.surfaceId) : undefined;
+            const element = surface?.elementId ? index.manifest.elements.get(surface.elementId) : undefined;
+            const name = [
+              element?.properties?.name,
+              element?.properties?.label,
+              element?.label,
+              surface?.label,
+            ].find((value): value is string => typeof value === "string" && value.trim().length > 0);
+            const sid = wall.surfaceId ?? `wall-${i + 1}`;
+            return {
+              ...wall,
+              id: sid,
+              kind: "wall",
+              name: name?.trim() || `${element?.kind === "door" ? "Door" : "Wall"} · ${sid}`,
+            };
+          });
       }
       this.available = [
         ...f.furnishings
@@ -122,14 +174,20 @@ export class FitPlanner {
           )
           .map((item) => ({ id: item.id, kind: "equipment" as const, name: item.name })),
       ].sort((a, b) => a.name.localeCompare(b.name));
+      const furnishings = f.furnishings.filter((item) => item.floorId === this.room.floorId);
+      const equipment = this.runtime.store
+        .getState()
+        .placements.filter((item) => item.floorId === this.room.floorId && item.symbol !== "floor_heating");
+      this.replacementBoxes = [...furnishings, ...equipment.map(equipmentPlacementEnvelope)];
       this.obstacles = [
-        ...f.furnishings.filter((item) => item.floorId === this.room.floorId && item.kind !== "rug"),
-        ...this.runtime.store
-          .getState()
-          .placements.filter(
-            (item) => item.floorId === this.room.floorId && item.symbol !== "floor_heating",
-          )
-          .map(equipmentPlacementEnvelope),
+        ...furnishings.flatMap((item): FitObject[] => {
+          const shape = furnishingCollisionShape(item);
+          return shape ? [{ ...shape, name: item.name, kind: "furnishing" }] : [];
+        }),
+        ...equipment.flatMap((item): FitObject[] => {
+          const shape = equipmentCollisionShape(item);
+          return shape ? [{ ...shape, name: item.name, kind: "equipment" }] : [];
+        }),
       ];
       this.proposals = p.proposals;
       this.ready = true;
@@ -145,13 +203,15 @@ export class FitPlanner {
   private get i(): 0 | 1 {
     return this.draft.preferred === "A" ? 0 : 1;
   }
+  private get maxOpening() {
+    const check = this.checks?.[this.i];
+    return check?.bodyClear ? check.openingLimit : 0;
+  }
   private recheck() {
     if (this.ready) {
       const obstacles = this.obstacles.filter((o) => o.id !== this.draft.replaces?.id);
       const check = (index: 0 | 1) =>
-        assessFit(this.draft.arrangements[index], this.draft.spec, this.room, obstacles, (box) =>
-          furnishingWallCollision(box, this.walls),
-        );
+        assessFit(this.draft.arrangements[index], this.draft.spec, this.room, obstacles, this.walls);
       this.checks = [check(0), check(1)];
     }
     this.draw();
@@ -161,6 +221,7 @@ export class FitPlanner {
     if (mark === this.mark) return;
     this.mark = mark;
     this.requestId = crypto.randomUUID();
+    this.animating = false;
     this.message = "";
     this.checks = null;
     this.draw();
@@ -176,17 +237,71 @@ export class FitPlanner {
       y = this.room.floorElevation;
     const p = arrangements[this.i];
     place(this.body, fitBody(p, spec, y));
-    place(this.leaf, fitOpening(p, spec, y, this.opening));
+    const check = this.checks?.[this.i];
+    const opening = this.animating ? this.opening : Math.min(this.opening, this.maxOpening);
+    place(this.leaf, fitOpening(p, spec, y, opening));
     place(this.other, fitBody(arrangements[this.i === 0 ? 1 : 0], spec, y));
-    this.body.material.color.setHex(this.checks?.[this.i].bodyClear === false ? 0xff816e : 0x61f4c4);
-    this.leaf.material.color.setHex(this.checks?.[this.i].openingClear === false ? 0xff816e : 0xffc47f);
+    this.body.material.color.setHex(check?.bodyClear === false ? contactColor : 0x61f4c4);
+    this.leaf.material.color.setHex(
+      check?.openingClear === false && opening >= this.maxOpening ? contactColor : 0xffc47f,
+    );
+    this.leaf.visible = !!check && (spec.opening !== "Drawer" || opening > 0.001);
+    this.clearance.visible = !!check?.clearanceContact && opening >= 0.999 && check.gap > 0.01;
+    if (this.clearance.visible && check) place(this.clearance, fitClearance(p, spec, y, check.gap));
+    this.highlight(check?.bodyContact ?? check?.openingContact ?? check?.clearanceContact ?? null);
+    this.marker.visible = !!this.contact && (!this.animating || opening >= this.maxOpening);
   }
-  transform(modelToWorld: THREE.Matrix4 | null) {
-    this.group.visible = !!modelToWorld;
-    if (modelToWorld) {
-      this.group.matrix.copy(modelToWorld);
-      this.group.updateMatrixWorld(true);
+  private highlight(contact: FitContact | null) {
+    if (contact === this.contact) return;
+    for (const child of this.obstacle.children) this.disposeMesh(child);
+    this.obstacle.clear();
+    this.contact = contact;
+    if (!contact) return;
+    const { obstacle, part, point } = contact;
+    this.marker.position.fromArray(point);
+    if (part) {
+      const shape = ghost(contactColor, 0.17, false);
+      place(shape, part);
+      this.obstacle.add(shape);
+      return;
     }
+    const material = new THREE.LineBasicMaterial({
+      color: contactColor,
+      depthTest: false,
+      depthWrite: false,
+    });
+    if (obstacle.kind === "wall") {
+      const triangles = new THREE.BufferGeometry().setFromPoints([...obstacle.vertices]);
+      this.obstacle.add(new THREE.LineSegments(new THREE.EdgesGeometry(triangles), material));
+      triangles.dispose();
+    } else if (obstacle.kind === "edge") {
+      const { a, b } = obstacle;
+      const positions = [new THREE.Vector3(a[0], point[1], a[1]), new THREE.Vector3(b[0], point[1], b[1])];
+      this.obstacle.add(
+        new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(positions), material),
+      );
+    } else if (obstacle.kind === "ceiling") {
+      const box = fitBody(this.draft.arrangements[this.i], this.draft.spec, obstacle.elevation);
+      const tile = ghost(contactColor, 0.12, false);
+      place(tile, { ...box, heightM: 0.006 });
+      material.dispose();
+      this.obstacle.add(tile);
+    }
+  }
+  transform(modelToWorld: THREE.Matrix4 | null, now = performance.now()) {
+    this.group.visible = !!modelToWorld;
+    if (!modelToWorld) {
+      this.animating = false;
+      return;
+    }
+    if (this.animating) {
+      this.animationStart ??= now;
+      this.opening = Math.min(this.maxOpening, Math.max(0, (now - this.animationStart) / 1500));
+      if (this.opening >= this.maxOpening) this.animating = false;
+      this.draw();
+    }
+    this.group.matrix.copy(modelToWorld);
+    this.group.updateMatrixWorld(true);
   }
   point(ray: THREE.Ray) {
     if (!this.moving || !this.group.visible) return null;
@@ -272,11 +387,19 @@ export class FitPlanner {
     const d = this.draft,
       s = d.spec,
       p = d.arrangements[this.i];
-    const slider = (id: string, label: string, value: number, act: (v: number) => void): PanelRow => ({
+    const check = this.checks?.[this.i];
+    const opening = Math.min(this.opening, this.maxOpening);
+    const slider = (
+      id: string,
+      label: string,
+      value: number,
+      act: (v: number) => void,
+      enabled = true,
+    ): PanelRow => ({
       id,
       label,
       value,
-      act: this.busy ? undefined : act,
+      act: this.busy || !enabled ? undefined : act,
     });
     const lines = this.message ? [this.message] : [];
     if (this.screen === "saved")
@@ -320,7 +443,7 @@ export class FitPlanner {
             active: d.replaces?.id === item.id,
             act: () => {
               d.replaces = { kind: item.kind, id: item.id };
-              const box = this.obstacles.find((o) => o.id === item.id);
+              const box = this.replacementBoxes.find((o) => o.id === item.id);
               if (box && pointInFootprint(box.position[0], box.position[2], this.room.footprint)) {
                 d.arrangements[this.i] = {
                   x: box.position[0],
@@ -403,6 +526,15 @@ export class FitPlanner {
       lines: [
         this.room.name + " · " + s.kind + " · " + cm(s.width) + " × " + cm(s.depth) + " × " + cm(s.height),
         "Model estimates · " + s.opening.toLowerCase() + " · " + cm(s.reach),
+        ...(check?.bodyContact
+          ? [`Body overlaps ${check.bodyContact.obstacle.name}.`]
+          : check?.openingContact
+            ? [`Stops at ${openingReadout(s, check.openingLimit)} · ${check.openingContact.obstacle.name}`]
+            : check?.clearanceContact
+              ? [`${cm(check.gap)} beyond opening · ${check.clearanceContact.obstacle.name}`]
+              : check?.beyond
+                ? ["At least 5 m beyond the fully open front."]
+                : []),
         ...lines,
       ],
       back: this.back,
@@ -439,13 +571,31 @@ export class FitPlanner {
         }),
         slider(
           "opening",
-          "Preview opening · " + Math.round(this.opening * 100) + "%",
-          this.opening,
+          "Preview opening · " + openingReadout(s, opening),
+          opening,
           (v) => {
-            this.opening = v;
+            this.animating = false;
+            this.opening = Math.min(this.maxOpening, Math.max(0, v));
             this.draw();
           },
+          this.maxOpening > 0,
         ),
+        {
+          id: "play-opening",
+          label: this.animating ? "Pause opening preview" : "Play opening preview",
+          act:
+            !this.busy && this.maxOpening > 0
+              ? () => {
+                  if (this.animating) this.animating = false;
+                  else {
+                    this.animating = true;
+                    this.opening = 0;
+                    this.animationStart = null;
+                  }
+                  this.draw();
+                }
+              : undefined,
+        },
         {
           label: "Place as",
           detail: this.available.find((i) => i.id === d.replaces?.id)?.name ?? "New item",
@@ -486,7 +636,10 @@ export class FitPlanner {
     this.disposed = true;
     this.abort.abort();
     this.group.removeFromParent();
-    this.group.traverse((obj) => {
+    this.disposeMesh(this.group);
+  }
+  private disposeMesh(root: THREE.Object3D) {
+    root.traverse((obj) => {
       if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
         obj.geometry.dispose();
         obj.material.dispose();

@@ -3,6 +3,7 @@ import type { HouseRuntime } from "../runtime";
 import type { Room, Route, Vec2 } from "../model/types";
 import { isActivePipeOrDuct } from "../model/routeVisibility";
 import type { WalkWorld } from "./walkWorld";
+import { BlockedLanding } from "./blockedLanding";
 import type { PanelPage } from "./panel";
 
 type MapHit = { point: THREE.Vector3; local: THREE.Vector3; room?: Room; route?: Route; label: string };
@@ -34,7 +35,11 @@ export class Tabletop {
   private trace = false;
   private chosen: Route | null = null;
   private held: { dest: THREE.Vector3; start: THREE.Vector3; heading: number; label: string } | null = null;
-  private hoverText = "";
+  private readonly blocked = [new BlockedLanding(0.012), new BlockedLanding(0.012)];
+  private readonly previews: Array<
+    { point: THREE.Vector3; room?: Room; height: number; checked: number; valid: boolean } | undefined
+  > = [];
+  private outdoor = false;
   private size: number;
   private readonly inverse = new THREE.Matrix4();
   private readonly pick = new THREE.Raycaster();
@@ -45,7 +50,7 @@ export class Tabletop {
     head: THREE.Vector3,
     heading: number,
     floor: string | undefined,
-    private travel: (p: THREE.Vector3, yaw: number) => void,
+    private travel: (p: THREE.Vector3, yaw: number, onArrival?: () => void) => void,
     private back: () => void,
   ) {
     const index = runtime.manifest!;
@@ -108,7 +113,7 @@ export class Tabletop {
       this.ducts.set(line, route);
     }
     this.model.add(this.base);
-    this.group.add(this.model, this.user, this.arrival);
+    this.group.add(this.model, this.user, this.arrival, ...this.blocked);
     const center = bounds.getCenter(new THREE.Vector3()),
       span = bounds.getSize(new THREE.Vector3());
     this.size = 0.73 / Math.max(span.x, span.z, 2);
@@ -123,7 +128,49 @@ export class Tabletop {
     this.refresh();
     this.group.updateMatrixWorld(true);
   }
+  setWalkWorld(world: WalkWorld) {
+    this.world = world;
+    this.previews.length = 0;
+  }
+  clearHover() {
+    for (const marker of this.blocked) marker.visible = false;
+  }
+  private landing(hit: MapHit, height: number) {
+    return hit.room
+      ? this.world.landingAt(hit.local.x, hit.local.z, hit.local.y, height, hit.room)
+      : this.world.outdoorLandingAt(hit.local, height);
+  }
+  /** Hover checks are bounded. Press, release and the dark teleport frame recheck the live world. */
+  preview(slot: number, hit: MapHit, height: number, ray: THREE.Ray, now: number) {
+    if (this.trace || this.held) return "valid";
+    let last = this.previews[slot];
+    const same =
+      last &&
+      last.room === hit.room &&
+      last.point.distanceToSquared(hit.local) < 0.035 ** 2 &&
+      Math.abs(last.height - height) < 0.02;
+    if (!same || !last || now - last.checked > 250) {
+      if (!same && last && now - last.checked < 75) return "pending";
+      last = {
+        point: hit.local.clone(),
+        room: hit.room,
+        height,
+        checked: now,
+        valid: !!this.landing(hit, height),
+      };
+      this.previews[slot] = last;
+    }
+    if (last.valid) return "valid";
+    const marker = this.blocked[slot]!;
+    marker.position.copy(hit.point);
+    this.group.worldToLocal(marker.position);
+    marker.lookAt(ray.origin);
+    marker.visible = true;
+    return "blocked";
+  }
   private refresh() {
+    this.clearHover();
+    this.previews.length = 0;
     for (const [mesh, room] of this.roomMeshes) {
       // All rooms at the selected elevation remain visible, including detached buildings.
       const level = this.runtime.manifest!.floors.get(this.floor)?.elevation ?? 0;
@@ -194,13 +241,11 @@ export class Tabletop {
   }
   begin(hit: MapHit, height: number, heading: number) {
     if (this.trace) return;
-    const dest = hit.room
-      ? this.world.landing(hit.local, height, hit.room)
-      : this.world.outdoorLandingAt(hit.local, height);
-    if (!dest) {
-      this.hoverText = "Choose a clear standing spot";
-      return;
-    }
+    this.cancel();
+    this.previews.length = 0;
+    const dest = this.landing(hit, height);
+    if (!dest) return;
+    this.outdoor = !hit.room;
     this.held = { dest, start: hit.point.clone(), heading, label: hit.label };
     this.arrival.position.copy(dest).multiplyScalar(this.size).add(this.model.position);
     this.arrival.position.y += 0.018;
@@ -221,17 +266,27 @@ export class Tabletop {
     }
     this.arrival.rotation.y = this.held.heading;
   }
-  release(hit: MapHit | null, id?: string) {
+  release(hit: MapHit | null, id?: string, height = 1.7, onArrival?: () => void) {
     if (this.trace) {
       if (hit?.route && id === hit.route.id) {
         this.chosen = this.chosen?.id === id ? null : hit.route;
         this.refresh();
+        return "traced";
       }
-      return;
+      return null;
     }
     const held = this.held;
     this.cancel();
-    if (held) this.travel(held.dest, held.heading);
+    this.previews.length = 0;
+    if (
+      !held ||
+      !(this.outdoor
+        ? this.world.outdoorLandingAt(held.dest, height)
+        : this.world.canStand(held.dest, height))
+    )
+      return null;
+    this.travel(held.dest, held.heading, onArrival);
+    return "travel";
   }
   cancel() {
     this.held = null;
@@ -258,8 +313,7 @@ export class Tabletop {
             : "Point at a duct and click to follow its entire run."
           : this.held
             ? "Release to arrive · " + this.held.label
-            : this.hoverText ||
-              "Hold a spot below. Aim a little beyond it or turn the stick to face that way, then release.",
+            : "Hold a spot below. Aim a little beyond it or turn the stick to face that way, then release.",
       ],
       back: this.back,
       rows: [
@@ -279,7 +333,6 @@ export class Tabletop {
               active: Math.abs(f.elevation - (index.floors.get(this.floor)?.elevation ?? 0)) < 0.45,
               act: () => {
                 this.floor = f.id;
-                this.hoverText = "";
                 this.refresh();
               },
             }))
@@ -288,6 +341,7 @@ export class Tabletop {
     };
   }
   dispose() {
+    for (const marker of this.blocked) marker.dispose();
     this.group.removeFromParent();
     this.group.traverse((o) => {
       if (o instanceof THREE.Mesh || o instanceof THREE.Line) {

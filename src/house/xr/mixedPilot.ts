@@ -62,7 +62,7 @@ export class MixedPilot {
   }
 
   constructor(private runtime: HouseRuntime, private session: XRSession, private space: XRReferenceSpace,
-    private mode: "mr" | "survey" = "mr") {
+    private mode: "mr" | "survey" = "mr", private onAlignmentLost?: () => void) {
     this.rays = new AlignmentRays(session, space);
     this.space.addEventListener("reset", this.invalidateScan);
     this.session.addEventListener("visibilitychange", this.visibilityChanged);
@@ -72,7 +72,7 @@ export class MixedPilot {
       .some(n => n?.toLowerCase().includes("laundry"));
     this.rooms.sort((a, b) => Number(laundry(b)) - Number(laundry(a)) || a.name.localeCompare(b.name));
   }
-  private enter(room: Room) {
+  enter(room: Room) {
     this.clearRoom();
     this.room = room; this.choosingRoom = false; this.filter = "both"; this.selectedRoute = null;
     const state = this.runtime.store.getState();
@@ -92,7 +92,9 @@ export class MixedPilot {
       userId: this.runtime.userId!, floorId: room.floorId, roomId: room.id, fingerprint: state.fingerprint!,
       onState: s => {
         if (s.phase === "ready") return;
+        const previouslyVerified = this.readyTransform !== null;
         this.readyTransform = null;
+        if (previouslyVerified) this.onAlignmentLost?.();
         this.overlay?.applyTransform(null);
         this.selectedRoute = null;
         this.survey?.pause();

@@ -10,6 +10,8 @@ import { HouseSession } from "@/house/xr/session";
 import { createRuntime } from "@/house/runtime";
 import { createHouseStore } from "@/house/store/createHouseStore";
 import { createMemoryDataApi } from "@/house/store/dataApi";
+import { Tabletop } from "@/house/xr/tabletop";
+import { TeleportArc } from "@/house/xr/travel";
 import { MixedPilot } from "@/house/xr/mixedPilot";
 import { WalkHistory } from "@/house/xr/wayfinding";
 import { SolidInterior } from "@/house/xr/solidInterior";
@@ -223,6 +225,193 @@ describe("Quest motion and pointing", () => {
     active.dispose();
   });
 
+  it("restores both fit arrangements and the pinned step only after the original room verifies again", async () => {
+    let verified = true,
+      roomIndex = 0;
+    const registration = new T.Matrix4();
+    vi.spyOn(MixedPilot.prototype, "frame").mockImplementation(function (this: MixedPilot) {
+      this.room = this.rooms[roomIndex]!;
+      this.readyTransform = verified ? registration : null;
+    });
+    vi.spyOn(MixedPilot.prototype, "probePosition").mockReturnValue(null);
+    vi.spyOn(MixedPilot.prototype, "menu").mockImplementation(() => ({
+      title: "Check this room",
+      lines: [],
+      rows: [],
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        Response.json(url.endsWith("/furnishings") ? { furnishings: [] } : { proposals: [] }),
+      ),
+    );
+    const { active, render } = sessionFixture(undefined, "mr");
+    const draw = vi.spyOn(HeadsetPanel.prototype, "draw");
+    const current = () => draw.mock.lastCall![0];
+    render();
+    const room = active["mixed"]!.room!;
+    active["pinStep"]({
+      target: {
+        kind: "equipment",
+        id: "unit",
+        name: "Fixture",
+        assetId: "asset",
+        placementId: "unit",
+        endpointId: null,
+        routeIds: [],
+        roomId: room.id,
+        floorId: room.floorId,
+        position: [2, 1, 2],
+        roomName: room.name,
+        floorName: null,
+        category: null,
+        modelName: null,
+        servedFixtures: [],
+      },
+      title: "Keep this step",
+      taskTitle: "Service",
+      body: "Fixture instructions",
+      index: 0,
+      total: 1,
+    });
+    active["openPlanner"](room);
+    render();
+    const planner = active["planner"]!;
+    await vi.waitFor(() =>
+      expect(planner.menu(() => {}).rows.find((r) => r.id === "A")?.detail).not.toBe("Awaiting records"),
+    );
+    current().rows.find((r) => r.id === "yaw")!.act!(0.75);
+    current().rows.find((r) => r.id === "B")!.act!(0);
+    render(0.25);
+    current().rows.find((r) => r.id === "yaw")!.act!(0.25);
+    render(0.25);
+    expect(current().rows.find((r) => r.id === "yaw")?.label).toContain("-90°");
+
+    verified = false;
+    render();
+    expect(current().title).toBe("Check this room");
+    expect(current().lines.join(" ")).toContain("Fit planner is paused");
+    expect(planner.group.visible).toBe(false);
+    expect(active["pinSpace"].visible).toBe(false);
+    expect(current().rows.some((r) => r.id === "place")).toBe(false);
+    // The recovery footer and even a verified neighbouring room cannot apply this room's work.
+    draw.mock.lastCall![1]();
+    render();
+    roomIndex = 1;
+    verified = true;
+    render();
+    expect(current().title).toBe("Resume your work");
+    expect(planner.group.visible).toBe(false);
+    expect(active["pinSpace"].visible).toBe(false);
+
+    roomIndex = 0;
+    registration.makeTranslation(3, 0, -2);
+    render();
+    expect(current().title).toBe("Fit and clearance");
+    expect(current().rows.find((r) => r.id === "B")?.active).toBe(true);
+    expect(current().rows.find((r) => r.id === "yaw")?.label).toContain("-90°");
+    expect(planner.group.visible).toBe(true);
+    expect(planner.group.matrix.equals(registration)).toBe(true);
+    expect(active["pinSpace"].visible).toBe(true);
+    expect(active["pinSpace"].matrix.equals(registration)).toBe(true);
+    expect(active["pinned"]?.title).toBe("Keep this step");
+    current().rows.find((r) => r.id === "A")!.act!(0);
+    render(0.25);
+    expect(current().rows.find((r) => r.id === "yaw")?.label).toContain("90°");
+
+    // Placing with the menu out of view also resumes with the menu out of view.
+    current().rows.find((r) => r.id === "place")!.act!(0);
+    verified = false;
+    render();
+    expect(planner.point(new T.Ray())).toBeNull();
+    verified = true;
+    render();
+    expect(active["panel"].mesh.visible).toBe(false);
+    expect(planner.moving).toBe(true);
+    active.dispose();
+  });
+
+  it("puts a blocked marker at the tabletop ray and confirms only a completed landing", () => {
+    const { active, inputs, source, frame, render, index } = sessionFixture();
+    const buzz = vi.fn(async () => true);
+    Object.assign(source.gamepad, { hapticActuators: [{ pulse: buzz }] });
+    render();
+    active["openTabletop"]();
+    render();
+    active["panel"].hide();
+    const table = active["map"]!,
+      world = active["world"]!;
+    const destination = new T.Vector3(3, 0, 3);
+    const hit = {
+      point: new T.Vector3(0.12, 1, -0.7),
+      local: destination,
+      room: index.manifest.rooms.values().next().value!,
+      label: "Test room",
+    };
+    vi.spyOn(Tabletop.prototype, "hit").mockReturnValue(hit);
+    const landing = vi.spyOn(world, "landingAt").mockReturnValue(null);
+    const send = (kind: string) =>
+      inputs.dispatchEvent(Object.assign(new Event(kind), { inputSource: source, frame }));
+    const click = () => {
+      send("selectstart");
+      send("select");
+      send("selectend");
+    };
+    render();
+    const marker = table.group.getObjectByName("vh-blocked-landing")!;
+    expect(marker.visible).toBe(true);
+    expect(marker.getWorldPosition(new T.Vector3()).distanceTo(hit.point)).toBeLessThan(1e-6);
+    click();
+    render(0.12);
+    expect(buzz).not.toHaveBeenCalled();
+    expect(active["map"]).toBe(table);
+    landing.mockReturnValue(destination);
+    render(0.3);
+    expect(marker.visible).toBe(false);
+    const stand = vi.spyOn(world, "canStand").mockReturnValue(true);
+    send("selectstart");
+    stand.mockReturnValue(false);
+    send("select");
+    send("selectend");
+    expect(active["map"]).toBe(table);
+    expect(buzz).not.toHaveBeenCalled();
+    stand.mockReturnValue(true);
+    click();
+    expect(buzz).not.toHaveBeenCalled();
+    // Even a previously valid release may be obstructed at the last clearance check during the fade.
+    stand.mockReturnValue(false);
+    render(0.12);
+    render(0.2);
+    expect(buzz).not.toHaveBeenCalled();
+    stand.mockReturnValue(true);
+    active["openTabletop"]();
+    render();
+    active["panel"].hide();
+    click();
+    expect(buzz).not.toHaveBeenCalled();
+    render(0.12);
+    expect(buzz).toHaveBeenCalledTimes(1);
+    active.dispose();
+  });
+
+  it("uses a blocked symbol for a full-size arc intersecting an obstacle", () => {
+    const layout = flat(),
+      world = new WalkWorld(layout.index),
+      arc = new TeleportArc();
+    const ray = new T.Ray(new T.Vector3(0, 1.2, 0), new T.Vector3(0, -0.8, -0.6));
+    const check = vi.spyOn(world, "canStand").mockReturnValue(false);
+    arc.aim(world, ray, 1.7);
+    const blocked = arc.group.getObjectByName("vh-blocked-landing")!;
+    expect(blocked.visible).toBe(true);
+    expect(arc.landing).toBeNull();
+    check.mockReturnValue(true);
+    arc.aim(world, ray, 1.7);
+    expect(blocked.visible).toBe(false);
+    expect(arc.landing).toBeTruthy();
+    arc.dispose();
+    world.dispose();
+  });
+
   it("repeats five stick teleports without panel or trigger, cancels on source change, and cleans up", () => {
     const { active, render, axes, inputs } = sessionFixture();
     render();
@@ -345,6 +534,9 @@ describe("Quest motion and pointing", () => {
     expect(w.yard).not.toBeNull();
     expect(w.step(new T.Vector3(49.9, 0, 0), 0.1, 0, 1.7)).toBeNull();
     expect(w.step(new T.Vector3(1.7, 0, 0), 0.14, 0, 1.7)).toBeNull();
+    // A named destination can pick a nearby clear spot. A tabletop pin must land exactly where aimed.
+    expect(w.landingAt(1.95, 0, 0, 1.7)).toBeNull();
+    expect(w.landing(new T.Vector3(1.95, 0, 0), 1.7)).not.toBeNull();
     expect(w.canStand(new T.Vector3(0, 0, 3), 1.7)).toBe(false);
     expect(w.step(new T.Vector3(-1.82, 0, 0), -0.14, 0, 1.7)?.y).toBeCloseTo(0.2);
   });
@@ -640,6 +832,42 @@ describe("Quest motion and pointing", () => {
     expect(panel.end(source, hit)).toBe(false);
     expect(panel.hit(ray(...center(layout.rows[0]!)))).toBeNull();
     expect(clicked).not.toHaveBeenCalled();
+    panel.dispose();
+  });
+
+  it("hits the painted headset keys without activating a neighbour on release", () => {
+    const typeQ = vi.fn(),
+      typeW = vi.fn();
+    const { panel, ray, layout } = panelFixture({
+      title: "Search equipment",
+      lines: [],
+      rows: [],
+      keyboard: {
+        text: "",
+        placeholder: "Equipment name or model",
+        keys: [
+          [
+            { id: "q", label: "q", act: typeQ },
+            { id: "w", label: "w", act: typeW },
+          ],
+        ],
+      },
+    });
+    const [q, w] = layout.rows;
+    const y = center(q!)[1];
+    const first = panel.hit(ray(q!.x + q!.width - 2, y))!;
+    const second = panel.hit(ray(w!.x + 2, y))!;
+    expect(first.row?.id).toBe("q");
+    expect(second.row?.id).toBe("w");
+    expect(panel.hit(ray((q!.x + q!.width + w!.x) / 2, y))?.row).toBeUndefined();
+    const source = {} as XRInputSource;
+    panel.start(source, first);
+    expect(panel.end(source, second)).toBe(false);
+    expect(typeQ).not.toHaveBeenCalled();
+    expect(typeW).not.toHaveBeenCalled();
+    panel.start(source, second);
+    expect(panel.end(source, second)).toBe(true);
+    expect(typeW).toHaveBeenCalledOnce();
     panel.dispose();
   });
 

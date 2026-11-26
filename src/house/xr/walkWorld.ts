@@ -302,18 +302,22 @@ export class WalkWorld {
     const p = this.support(from.x + dx, from.z + dz, from.y);
     return p && this.canStand(p, height) ? p : null;
   }
+  landingAt(x: number, z: number, floor: number, height: number, room?: Room) {
+    const p = this.support(x, z, floor, 0.45, 0.65);
+    return p && (!room || pointInFootprint(x, z, room.footprint)) && this.canStand(p, height) ? p : null;
+  }
   landing(near: THREE.Vector3, height: number, room?: Room) {
     for (const radius of [0, 0.4, 0.8, 1.2]) {
       for (let i = 0; i < (radius === 0 ? 1 : 12); i++) {
         const angle = (i * Math.PI) / 6;
-        const p = this.support(
+        const p = this.landingAt(
           near.x + radius * Math.cos(angle),
           near.z + radius * Math.sin(angle),
           near.y,
-          0.45,
-          0.65,
+          height,
+          room,
         );
-        if (p && (!room || pointInFootprint(p.x, p.z, room.footprint)) && this.canStand(p, height)) return p;
+        if (p) return p;
       }
     }
     return null;

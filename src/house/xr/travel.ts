@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { BlockedLanding } from "./blockedLanding";
 import type { WalkWorld } from "./walkWorld";
 import type { MarkerLayer } from "../scene/markers";
 import { isVisibleUp } from "../scene/applyVisibility";
@@ -41,6 +42,7 @@ export class TeleportArc {
     ),
     this.ring.material,
   );
+  private readonly blocked = new BlockedLanding(0.14);
   private previous = new THREE.Vector3();
   private current = new THREE.Vector3();
   private segment = new THREE.Ray();
@@ -54,7 +56,7 @@ export class TeleportArc {
     line.frustumCulled = false;
     this.group.name = "vh-teleport-preview";
     this.ring.name = "vh-teleport-landing";
-    this.group.add(line, this.ring);
+    this.group.add(line, this.ring, this.blocked);
     this.ring.add(this.arrow);
     this.arrow.renderOrder = 999;
     this.group.visible = false;
@@ -63,6 +65,7 @@ export class TeleportArc {
   }
   aim(world: WalkWorld, ray: THREE.Ray, height: number, heading = 0) {
     this.landing = null;
+    this.blocked.visible = false;
     this.group.visible = true;
     this.previous.copy(ray.origin);
     this.previous.toArray(this.points, 0);
@@ -79,6 +82,11 @@ export class TeleportArc {
       this.current.toArray(this.points, count++ * 3);
       if (hit) {
         if (hit.walkable && world.canStand(hit.point, height)) this.landing = hit.point;
+        else {
+          this.blocked.position.copy(hit.point);
+          this.blocked.lookAt(ray.origin);
+          this.blocked.visible = true;
+        }
         break;
       }
       this.previous.copy(this.current);
@@ -100,6 +108,7 @@ export class TeleportArc {
   }
   dispose() {
     this.group.removeFromParent();
+    this.blocked.dispose();
     this.geometry.dispose();
     this.ink.dispose();
     this.ring.geometry.dispose();

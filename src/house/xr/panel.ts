@@ -4,7 +4,7 @@ import {
   type PanelButton, type PanelLayout, type PanelPage, type PanelRect,
 } from "./panelLayout";
 
-export type { PanelPage, PanelRow } from "./panelLayout";
+export type { PanelKey, PanelPage, PanelRow } from "./panelLayout";
 
 export interface PanelHit {
   point: THREE.Vector3;
@@ -136,9 +136,10 @@ export class HeadsetPanel {
     this.layout = layout;
     this.setOffset(this.offset);
     const key = JSON.stringify([
-      layout.title, layout.lines, menu.corners,
+      layout.title, layout.lines, menu.corners, layout.keyboard,
       ...[...layout.rows, ...layout.footer].map((row) => [
-        row.key, row.label, row.value, row.active, row.detail, row.style, row.icon, !!row.act,
+        row.key, row.label, row.value, row.active, row.detail, row.style, row.icon, row.keyTone,
+        row.x, row.y, row.width, row.height, !!row.act,
       ]),
     ]);
     if (key !== this.paintKey) {
@@ -209,7 +210,7 @@ export class HeadsetPanel {
     if (!layout) return undefined;
     const footer = layout.footer.find((row) => roundedContains(row, x, y, 13));
     if (footer || !contains(layout.body, x, y)) return footer;
-    const row = layout.rows.find((item) => roundedContains(item, x, y + this.offset, 14));
+    const row = layout.rows.find((item) => roundedContains(item, x, y + this.offset, item.keycap ? 11 : 14));
     return row ? visibleRow(layout, row, this.offset) : undefined;
   }
 
@@ -349,6 +350,7 @@ export class HeadsetPanel {
     if (hold.kind !== "scroll" || performance.now() - this.lastMovedAt > 90) this.velocity = 0;
     this.updateHighlights();
     if (hold.kind !== "press" || !row?.act) return hold.kind === "slider" && !!row?.act;
+    if (row.keycap && this.rowAt(hit.x, hit.y)?.key !== row.key) return false;
     row.act(this.fraction(row, hit.x));
     return true;
   }

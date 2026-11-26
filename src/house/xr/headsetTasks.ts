@@ -1,6 +1,6 @@
 import { formatQty, type MaterialDraft } from "@/features/maintenance/materials";
 import type { HouseRuntime } from "../runtime";
-import type { PanelPage, PanelRow } from "./panel";
+import type { PanelKey, PanelPage, PanelRow } from "./panel";
 import {
   HEADSET_PURPOSES, type HeadsetChecklistField, type HeadsetFindInput, type HeadsetLocateTarget,
   type HeadsetMaintenanceOverview, type HeadsetMaintenanceTask, type HeadsetSearchPage, type HeadsetStepPin,
@@ -16,8 +16,13 @@ interface HeadsetTaskActions {
 
 type Page = "find" | "categories" | "results" | "target" | "maintenance" | "task" | "step" | "checklist" |
   "entry" | "materials" | "part" | "providers" | "review" | "confirm";
-type Entry = { title: string; kind: "text" | "number"; text: string; accept(text: string): void };
+type Entry = { title: string; text: string; symbols: boolean; uppercase: boolean } & (
+  { kind: "text" | "number"; accept(text: string): void } | { kind: "search" }
+);
+type LiveSearch = { query: string; matches?: HeadsetSearchPage; error?: string };
 type Outcome = Extract<HeadsetTaskWrite, { kind: "complete" }>["outcome"];
+const SEARCH_WAIT_MS = 220;
+const QUICK_MATCHES = 3;
 
 const categories = [
   ["appliance", "Appliances"], ["hvac", "Heating and ventilation"], ["plumbing", "Plumbing"],
@@ -43,17 +48,26 @@ class HeadsetTaskError extends Error {
   }
 }
 
-async function request<T>(path: string, write?: HeadsetTaskWrite): Promise<T> {
+async function request<T>(path: string, write?: HeadsetTaskWrite, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {
     cache: "no-store",
-    ...(write ? { method: "PATCH", headers: { "content-type": "application/json", "x-vh-headset-task": "1" },
-      body: JSON.stringify(write) } : {}),
+    ...(signal && { signal }),
+    ...(write
+      ? {
+          method: "PATCH",
+          headers: { "content-type": "application/json", "x-vh-headset-task": "1" },
+          body: JSON.stringify(write),
+        }
+      : {}),
   });
   if (!response.ok) {
-    const value = await response.json().catch(() => null) as { error?: string; details?: HeadsetTaskError["details"] } | null;
+    const value = (await response.json().catch(() => null)) as {
+      error?: string;
+      details?: HeadsetTaskError["details"];
+    } | null;
     throw new HeadsetTaskError(value?.error ?? "", response.status, value?.details);
   }
-  return await response.json() as T;
+  return (await response.json()) as T;
 }
 
 function plain(value: string | null | undefined) {
@@ -86,6 +100,9 @@ export class HeadsetTasks {
   private providerId: string | undefined;
   private outcome: Outcome = "done";
   private entry: Entry | null = null;
+  private liveSearch: LiveSearch | null = null;
+  private liveSearchTimer: ReturnType<typeof setTimeout> | undefined;
+  private liveSearchRequest: AbortController | undefined;
   private photoItem: HeadsetChecklistField | null = null;
 
   constructor(private readonly runtime: HouseRuntime, private readonly actions: HeadsetTaskActions) {}
@@ -110,17 +127,23 @@ export class HeadsetTasks {
 
   back() {
     if (!this.page || this.busy) return false;
-    if (this.photoItem) { this.photoItem = null; return true; }
-    if (this.page === "entry") this.entry = null;
+    if (this.photoItem) {
+      this.photoItem = null;
+      return true;
+    }
+    if (this.page === "entry") this.endEntry();
     this.note = "";
     const previous = this.stack.pop();
-    if (!previous) { this.close(); this.actions.exit(); }
-    else this.page = previous;
+    if (!previous) {
+      this.close();
+      this.actions.exit();
+    } else this.page = previous;
     return true;
   }
 
   /** Closing tools leaves an intentionally pinned card available for hands-free work. */
   close() {
+    this.endEntry();
     this.epoch++;
     this.busy = false;
     this.page = null;
@@ -145,7 +168,6 @@ export class HeadsetTasks {
     this.page = page;
     this.note = "";
     this.photoItem = null;
-    this.entry = null;
   }
 
   private go(page: Page) {
@@ -188,12 +210,56 @@ export class HeadsetTasks {
       this.hits = { items: [], nextOffset: null };
       this.go("results");
     }
+    void this.run(
+      () => this.loadEquipment(this.query, append ? this.hits.nextOffset : 0),
+      (value) => {
+        this.hits = { ...value, items: append ? [...this.hits.items, ...value.items] : value.items };
+      },
+    );
+  }
+
+  private loadEquipment(input: HeadsetFindInput, offset: number | null, signal?: AbortSignal) {
     const params = new URLSearchParams();
-    for (const [key, value] of Object.entries({ ...this.query, offset: append ? this.hits.nextOffset : 0 }))
-      if (value !== undefined && value !== null) params.set(key, typeof value === "boolean" ? value ? "1" : "0" : String(value));
-    void this.run(async () => await request<HeadsetSearchPage>(`${this.runtime.base}/headset/find?${params}`), (value) => {
-      this.hits = { ...value, items: append ? [...this.hits.items, ...value.items] : value.items };
-    });
+    for (const [key, value] of Object.entries({ ...input, offset }))
+      if (value !== undefined && value !== null)
+        params.set(key, typeof value === "boolean" ? (value ? "1" : "0") : String(value));
+    return request<HeadsetSearchPage>(`${this.runtime.base}/headset/find?${params}`, undefined, signal);
+  }
+
+  private cancelLiveSearch() {
+    clearTimeout(this.liveSearchTimer);
+    this.liveSearchTimer = undefined;
+    this.liveSearchRequest?.abort();
+    this.liveSearchRequest = undefined;
+  }
+
+  private endEntry() {
+    this.entry = null;
+    this.liveSearch = null;
+    this.cancelLiveSearch();
+  }
+
+  private queueLiveSearch(query: string) {
+    this.cancelLiveSearch();
+    this.liveSearch = query ? { query } : null;
+    const search = this.liveSearch;
+    if (!search) return;
+    this.liveSearchTimer = setTimeout(() => {
+      this.liveSearchTimer = undefined;
+      const controller = new AbortController();
+      this.liveSearchRequest = controller;
+      void this.loadEquipment({ q: query, roomId: this.roomId ?? undefined }, 0, controller.signal)
+        .then((matches) => {
+          if (this.liveSearch === search) search.matches = matches;
+        })
+        .catch((error: unknown) => {
+          if (this.liveSearch === search && !controller.signal.aborted)
+            search.error = error instanceof Error ? error.message : "Search could not be completed.";
+        })
+        .finally(() => {
+          if (this.liveSearchRequest === controller) this.liveSearchRequest = undefined;
+        });
+    }, SEARCH_WAIT_MS);
   }
 
   private openTask(occurrenceId: string) {
@@ -256,8 +322,13 @@ export class HeadsetTasks {
     if (this.permanentPin) this.pinStep();
   }
 
-  private beginEntry(title: string, kind: Entry["kind"], accept: Entry["accept"], initial = "") {
-    this.entry = { title, kind, accept, text: initial };
+  private beginEntry(title: string, kind: "text" | "number", accept: (text: string) => void, initial = "") {
+    this.entry = { title, kind, accept, text: initial, symbols: false, uppercase: false };
+    this.go("entry");
+  }
+
+  private beginSearch() {
+    this.entry = { title: "Search equipment", kind: "search", text: "", symbols: false, uppercase: false };
     this.go("entry");
   }
 
@@ -282,43 +353,82 @@ export class HeadsetTasks {
 
   menu(): PanelPage {
     switch (this.page) {
-      case "find": return this.panel("Find equipment", ["Choose what you need or browse the documented household equipment."], [
-        ...Object.entries(HEADSET_PURPOSES).map(([purpose, label]) => ({
-          label, act: () => this.findBy({ purpose: purpose as HeadsetFindInput["purpose"] }),
-        })),
-        ...(this.roomId ? [{ label: "Equipment in this room", act: () => this.findBy({ onlyRoom: true }) }] : []),
-        { label: "Browse all equipment", act: () => this.findBy({}) },
-        { label: "Browse by category", act: () => this.go("categories") },
-        { label: "Search by name or model", act: () => this.beginEntry("Search equipment", "text", (q) => this.findBy({ q })) },
-      ]);
-      case "categories": return this.panel("Equipment categories", [], categories.map(([category, label]) => ({
-        label, act: () => this.findBy({ category }),
-      })));
-      case "results": return this.panel(this.query.purpose ? HEADSET_PURPOSES[this.query.purpose] : "Equipment", [
-        this.query.q ? `Search · ${this.query.q}` : "", this.hits.items.length === 0 && !this.busy ? "No matching records in the installed model." : "",
-      ], [
-        ...this.hits.items.map((target) => {
-          const airHandler = target.finding === "air_handler_filter_unrecorded";
-          return { id: target.id, label: airHandler ? `Air handler · ${target.name}` : target.name,
-            detail: airHandler ? "Filter position unrecorded" : target.roomName ?? target.floorName ?? undefined,
-            act: () => { this.target = target; this.go("target"); } };
-        }),
-        ...(this.hits.nextOffset === null ? [] : [{ label: "More results", act: () => this.findBy(this.query, true) }]),
-      ]);
-      case "target": return this.targetMenu();
-      case "maintenance": return this.overviewMenu();
-      case "task": return this.taskMenu();
-      case "step": return this.stepMenu();
-      case "checklist": return this.checklistMenu();
-      case "entry": return this.entryMenu();
-      case "materials": return this.materialsMenu();
-      case "part": return this.partMenu();
-      case "providers": return this.panel("Who performed the work?", [], this.task?.providers.map(({ id, name }) => ({
-        id, label: name, active: id === this.providerId, act: () => { this.providerId = id; this.back(); },
-      })));
-      case "review": return this.reviewMenu();
-      case "confirm": return this.confirmMenu();
-      default: return this.panel("Headset tools", []);
+      case "find":
+        return this.panel(
+          "Find equipment",
+          ["Choose what you need or browse the documented household equipment."],
+          [
+            ...Object.entries(HEADSET_PURPOSES).map(([purpose, label]) => ({
+              label,
+              act: () => this.findBy({ purpose: purpose as HeadsetFindInput["purpose"] }),
+            })),
+            ...(this.roomId
+              ? [{ label: "Equipment in this room", act: () => this.findBy({ onlyRoom: true }) }]
+              : []),
+            { label: "Browse all equipment", act: () => this.findBy({}) },
+            { label: "Browse by category", act: () => this.go("categories") },
+            { label: "Search by name or model", act: () => this.beginSearch() },
+          ],
+        );
+      case "categories":
+        return this.panel(
+          "Equipment categories",
+          [],
+          categories.map(([category, label]) => ({
+            label,
+            act: () => this.findBy({ category }),
+          })),
+        );
+      case "results":
+        return this.panel(
+          this.query.purpose ? HEADSET_PURPOSES[this.query.purpose] : "Equipment",
+          [
+            this.query.q ? `Search · ${this.query.q}` : "",
+            this.hits.items.length === 0 && !this.busy ? "No matching records in the installed model." : "",
+          ],
+          [
+            ...this.hits.items.map((target) => this.equipmentRow(target)),
+            ...(this.hits.nextOffset === null
+              ? []
+              : [{ label: "More results", act: () => this.findBy(this.query, true) }]),
+          ],
+        );
+      case "target":
+        return this.targetMenu();
+      case "maintenance":
+        return this.overviewMenu();
+      case "task":
+        return this.taskMenu();
+      case "step":
+        return this.stepMenu();
+      case "checklist":
+        return this.checklistMenu();
+      case "entry":
+        return this.entryMenu();
+      case "materials":
+        return this.materialsMenu();
+      case "part":
+        return this.partMenu();
+      case "providers":
+        return this.panel(
+          "Who performed the work?",
+          [],
+          this.task?.providers.map(({ id, name }) => ({
+            id,
+            label: name,
+            active: id === this.providerId,
+            act: () => {
+              this.providerId = id;
+              this.back();
+            },
+          })),
+        );
+      case "review":
+        return this.reviewMenu();
+      case "confirm":
+        return this.confirmMenu();
+      default:
+        return this.panel("Headset tools", []);
     }
   }
 
@@ -418,16 +528,196 @@ export class HeadsetTasks {
   private entryMenu() {
     const entry = this.entry;
     if (!entry) return this.panel("Enter value", []);
-    const symbols = entry.kind === "number" ? "1234567890.-" : "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     const text = entry.text.trim();
-    const valid = text !== "" && (entry.kind !== "number" || Number.isFinite(Number(text)));
-    return this.panel(entry.title, [entry.text || "Choose characters below."], [
-      { label: "Use value", act: valid ? () => { const accept = entry.accept; this.back(); accept(text); } : undefined },
-      { label: "Delete last character", act: () => { entry.text = entry.text.slice(0, -1); } },
-      ...(entry.kind === "text" ? [{ label: "Space", act: () => { entry.text = (entry.text + " ").slice(0, 80); } }] : []),
-      ...[...symbols].map((key) => ({ id: key, label: key, style: "secondary" as const,
-        act: () => { entry.text = (entry.text + key).slice(0, 80); } })),
-    ]);
+    const numeric = entry.kind === "number";
+    const valid = text !== "" && (!numeric || Number.isFinite(Number(text)));
+    const apply = (operation: () => void) => () => {
+      if (this.page === "entry" && this.entry === entry) operation();
+    };
+    const change = (value: string) => {
+      entry.text = value.slice(0, entry.kind === "text" ? 500 : 80);
+      if (entry.kind === "search" && (this.liveSearch?.query ?? "") !== entry.text.trim())
+        this.queueLiveSearch(entry.text.trim());
+    };
+    const key = (
+      id: string,
+      label: string,
+      operation: (() => void) | undefined,
+      span = 1,
+      keyTone?: PanelKey["keyTone"],
+      active?: boolean,
+    ): PanelKey => ({
+      id,
+      label,
+      act: operation && apply(operation),
+      span,
+      keyTone,
+      active,
+    });
+    const character = (value: string, span = 1) => {
+      const label = entry.uppercase ? value.toUpperCase() : value;
+      return key(
+        `char-${value}`,
+        label,
+        value === "." && numeric && entry.text.includes(".") ? undefined : () => change(entry.text + label),
+        span,
+      );
+    };
+    const clear = key(
+      "clear",
+      "Clear",
+      entry.text ? () => change("") : undefined,
+      numeric ? 2.8 : 1.65,
+      "utility",
+    );
+    const erase = key(
+      "erase",
+      "Delete",
+      entry.text ? () => change([...entry.text].slice(0, -1).join("")) : undefined,
+      numeric ? 2.8 : 1.35,
+      "utility",
+    );
+    const accept = entry.kind === "search" ? undefined : entry.accept;
+    const submit = (span: number) =>
+      key(
+        "accept",
+        "Use value",
+        accept && valid
+          ? () => {
+              this.back();
+              accept(text);
+            }
+          : undefined,
+        span,
+        "confirm",
+      );
+    const letters = (line: string, span = 1) => [...line].map((value) => character(value, span));
+    const keys = numeric
+      ? [
+          letters("789", 1.8),
+          letters("456", 1.8),
+          letters("123", 1.8),
+          [
+            key(
+              "sign",
+              "±",
+              () => change(entry.text.startsWith("-") ? entry.text.slice(1) : `-${entry.text}`),
+              1.8,
+            ),
+            character("0", 1.8),
+            character(".", 1.8),
+          ],
+          [clear, erase, submit(2.8)],
+        ]
+      : [
+          letters(entry.symbols ? "1234567890" : "qwertyuiop"),
+          letters(entry.symbols ? "äöå@#&-_+" : "asdfghjkl"),
+          [
+            key(
+              "shift",
+              "Shift",
+              () => {
+                entry.uppercase = !entry.uppercase;
+              },
+              1.35,
+              "utility",
+              entry.uppercase,
+            ),
+            ...letters(entry.symbols ? "!?.,/:’" : "zxcvbnm"),
+            erase,
+          ],
+          [
+            key(
+              "symbols",
+              entry.symbols ? "ABC" : "123",
+              () => {
+                entry.symbols = !entry.symbols;
+              },
+              1.35,
+              "utility",
+              entry.symbols,
+            ),
+            key(
+              "space",
+              "Space",
+              () => change(entry.text + " "),
+              entry.kind === "search" ? 5.5 : 4.2,
+              "utility",
+            ),
+            clear,
+            ...(entry.kind === "search" ? [] : [submit(1.9)]),
+          ],
+        ];
+    const search = entry.kind === "search";
+    const page = this.panel(entry.title, [], search ? this.liveEquipmentRows() : []);
+    const status = this.liveSearch;
+    page.keyboard = {
+      keys,
+      text: entry.text,
+      placeholder: search ? "Equipment name or model" : numeric ? "Enter a number" : "Enter text",
+      ...(search && {
+        resultSlots: QUICK_MATCHES + 1,
+        status: !status
+          ? "Matches appear as you type"
+          : (status.error ??
+            (status.matches
+              ? status.matches.items.length
+                ? "Matching equipment"
+                : "No matching equipment"
+              : "Searching…")),
+      }),
+    };
+    return page;
+  }
+
+  private equipmentRow(target: HeadsetLocateTarget, enabled = () => true): PanelRow {
+    const airHandler = target.finding === "air_handler_filter_unrecorded";
+    return {
+      id: target.id,
+      label: airHandler ? `Air handler · ${target.name}` : target.name,
+      detail: airHandler
+        ? "Filter position unrecorded"
+        : (target.roomName ?? target.floorName ?? undefined),
+      act: () => {
+        if (enabled()) {
+          this.target = target;
+          this.go("target");
+        }
+      },
+    };
+  }
+
+  private liveEquipmentRows(): PanelRow[] {
+    const search = this.liveSearch;
+    if (!search) return [];
+    const current = () => this.page === "entry" && this.liveSearch === search;
+    if (search.error)
+      return [
+        {
+          label: "Retry search",
+          act: () => {
+            if (current()) this.queueLiveSearch(search.query);
+          },
+        },
+      ];
+    const data = search.matches;
+    if (!data) return [];
+    return [
+      ...data.items.slice(0, QUICK_MATCHES).map((target) => this.equipmentRow(target, current)),
+      ...(data.items.length > QUICK_MATCHES || data.nextOffset !== null
+        ? [
+            {
+              label: "View all matches",
+              act: () => {
+                if (!current()) return;
+                this.query = { q: search.query, roomId: this.roomId ?? undefined };
+                this.hits = data;
+                this.go("results");
+              },
+            },
+          ]
+        : []),
+    ];
   }
 
   private materialsMenu() {
