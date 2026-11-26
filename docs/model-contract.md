@@ -796,8 +796,11 @@ Open the signed-in HTTPS House page. It checks VR and passthrough separately. **
 starts a life-size walkthrough. Point the left controller at the ground to preview a landing.
 Click its trigger to teleport. To choose your facing, hold the trigger, steer the arrow with
 the left thumbstick, then release the trigger. Between teleports, the left stick walks in the
-direction you face. The right stick snap-turns 30°. Physical walking stays at 1:1 scale.
-Stick walking can be disabled under **Movement and comfort**.
+direction you face. The right stick turns continuously around your current head position.
+Under **Movement and comfort**, choose **Turn speed** (35–125°/s, default 90°/s) or **Snap turning**
+for a 30° turn per flick. These preferences are remembered on the headset. Stick walking eases the
+view between stair treads in both directions. Physical walking stays at 1:1 scale. The same menu
+can disable stick walking.
 
 Point and trigger to inspect equipment or open a distant door. Approaching a virtual door clears
 its leaves once for the session. Frames, tall obstacles and low ceilings keep their clearance
@@ -821,10 +824,19 @@ Choose **Enter mixed reality** or **Survey room** and select the room you are st
 inside your Quest boundary. If the browser shares a scan, House compares its floor, walls and
 available door or window observations with the installed model at fixed scale. Geometry withheld
 from the fit checks the registration. A unique checked match reveals the overlay. In a symmetric
-room House can ask you to identify one wall or doorway by pointing. The headset shows the error
-in centimetres. The pilot threshold is 5 cm.
+room, turn your head toward the suggested door, window, neighbouring room or wall highlighted on
+the plan. While looking at it, click either trigger or pinch once. Your facing direction selects
+between already checked orientations. The headset shows the registration error in centimetres.
+The pilot threshold is 5 cm.
 
-If a room scan is missing, **Open headset room setup** starts Space Setup where supported.
+If the scan is missing or incomplete, **Open headset room setup** refreshes it where supported.
+Alternatively, choose **Trace wall bases** and stay where you are. Hold a trigger or pinch and sweep
+along about a metre of the line where a wall meets the floor, then release. Repeat on different
+sides of the room. The headset draws each accepted stroke and asks for a facing direction if needed.
+**Undo last wall** removes a mistaken stroke. With no shared scan, this uses the headset’s local
+floor height and requires independently observed walls to agree before showing infrastructure.
+Traces are cleared when tracking or the reference space is lost.
+
 **Point to align manually** lets you mark two widely spaced model corners and verify a third from
 where you stand. Aim at the physical corner and confirm. If the browser supplies no surface hit,
 aim at that same corner again after moving your hand sideways as prompted. House triangulates

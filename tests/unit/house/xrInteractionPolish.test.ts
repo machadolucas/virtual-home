@@ -126,7 +126,7 @@ describe("Quest motion and pointing", () => {
     render(.5);
     expect(active.rig.position.toArray()).toEqual(returned.toArray());
     buttons[5]!.pressed = false; render();
-    axes[2] = 1; render(); render(.12); render(.15);
+    axes[2] = 1; for (let i = 0; i < 30; i++) render(.014);
     axes[2] = 0; render();
     expect(Math.abs(active.rig.rotation.y)).toBeGreaterThan(.4);
     buttons[5]!.pressed = true; render(); render(.12); render(.15);
@@ -225,6 +225,29 @@ describe("Quest motion and pointing", () => {
     active.dispose();
   });
 
+  it("finishes a held wall stroke on select and cancels a released or interrupted press", () => {
+    const { active, frame, inputs, source, render } = sessionFixture(undefined, "mr");
+    render();
+    const pilot = active["mixed"]!;
+    vi.spyOn(pilot, "beginWallTrace").mockReturnValue(true);
+    const finish = vi.spyOn(pilot, "finishWallTrace").mockReturnValue(true);
+    const cancel = vi.spyOn(pilot, "cancelWallTrace");
+    active["panel"].hide();
+    const send = (name: string) =>
+      inputs.dispatchEvent(Object.assign(new Event(name), { frame, inputSource: source }));
+    send("selectstart");
+    send("select");
+    send("selectend");
+    expect(finish).toHaveBeenCalledTimes(1);
+    send("selectstart");
+    send("selectend");
+    expect(cancel).toHaveBeenCalled();
+    send("selectstart");
+    send("inputsourceschange");
+    send("select");
+    expect(finish).toHaveBeenCalledTimes(1);
+    active.dispose();
+  });
   it("restores both fit arrangements and the pinned step only after the original room verifies again", async () => {
     let verified = true,
       roomIndex = 0;
@@ -525,6 +548,122 @@ describe("Quest motion and pointing", () => {
     expect(active.rig.position.y).toBeCloseTo(0);
     active.dispose();
   });
+
+  it("smooth-turns at the same speed at 72 and 90 Hz about the tracked head and pauses for the menu", () => {
+    function turnFor(hz: number) {
+      const { active, axes, frame, render, inputs } = sessionFixture();
+      const head = new T.Vector3(0.42, 1.7, -0.28);
+      frame.getViewerPose = () => ({
+        transform: { position: head, orientation: { x: 0, y: 0, z: 0, w: 1 } },
+        views: [],
+      });
+      render(1 / hz);
+      const standing = active.rig.localToWorld(head.clone());
+      axes[2] = 1;
+      for (let i = 0; i < hz / 2; i++) render(1 / hz);
+      expect(active.rig.localToWorld(head.clone()).distanceTo(standing)).toBeLessThan(1e-7);
+      const yaw = active.rig.rotation.y;
+      inputs.dispatchEvent(new Event("squeeze"));
+      render(1 / hz);
+      expect(active.rig.rotation.y).toBe(yaw);
+      inputs.dispatchEvent(new Event("squeeze"));
+      render(1 / hz);
+      expect(active.rig.rotation.y).toBe(yaw);
+      axes[2] = 0;
+      render(1 / hz);
+      axes[2] = -1;
+      render(1 / hz);
+      expect(active.rig.rotation.y).toBeGreaterThan(yaw);
+      active.dispose();
+      return yaw;
+    }
+    expect(turnFor(72)).toBeCloseTo(-Math.PI / 4, 6);
+    expect(turnFor(90)).toBeCloseTo(-Math.PI / 4, 6);
+  });
+
+  it("loads the saved snap mode and saves the turn controls from the comfort menu", () => {
+    const storage = new Map([
+      ["vh.xr.turnMode", "snap"],
+      ["vh.xr.turnSpeed", "50"],
+    ]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => storage.get(key),
+      setItem: (key: string, value: string) => storage.set(key, value),
+    });
+    const { active, render, axes } = sessionFixture();
+    render();
+    axes[2] = 1;
+    render();
+    render(0.12);
+    render(0.15);
+    expect(active.rig.rotation.y).toBeCloseTo(-Math.PI / 6);
+    render(0.12);
+    render(0.15);
+    expect(active.rig.rotation.y).toBeCloseTo(-Math.PI / 6);
+    const menu = () => active["menu"]({ motion: true, rates: { supply: 0, extract: 0 }, fans: "" });
+    menu()
+      .rows.find(({ id }) => id === "comfort")
+      ?.act?.(0.5);
+    expect(menu().rows.find(({ id }) => id === "snap-turn")?.active).toBe(true);
+    menu()
+      .rows.find(({ id }) => id === "smooth-turn")
+      ?.act?.(0.5);
+    const slider = menu().rows.find(({ id }) => id === "smooth-turn-speed");
+    expect(slider?.label).toBe("Turn speed · 50°/s");
+    slider?.act?.(0.5);
+    expect(storage.get("vh.xr.turnMode")).toBe("smooth");
+    expect(storage.get("vh.xr.turnSpeed")).toBe("80");
+    active.dispose();
+  });
+
+  it.each([72, 90])("walks real stepped collision geometry both ways and settles at %i Hz", (hz) => {
+    const { active, render, axes, source } = sessionFixture(({ index, box }) => {
+      const room = index.manifest.rooms.values().next().value!;
+      index.manifest.rooms.clear();
+      index.manifest.rooms.set(room.id, { ...room, kind: "room", floorElevation: 0, footprint: {
+        outer: [[-1, -1], [1, -1], [1, 1], [-1, 1]], holes: [],
+      } });
+      for (let i = 0; i < 4; i++) {
+        const height = .18 * (i + 1), depth = i === 3 ? 1.5 : .32;
+        box(`tread-${i}`, new T.Vector3(1.6, height, depth), new T.Vector3(0, height / 2, -.42 - i * .32 - depth / 2), "step");
+      }
+    });
+    source.handedness = "left";
+    const dt = 1 / hz;
+    render(dt);
+    const elevation = active["elevation"];
+    const origin = active.rig.position.clone();
+    expect(origin.y).toBeCloseTo(0, 8);
+    axes[3] = -1;
+    for (let i = 0; i < hz && elevation.floor < .1; i++) render(dt);
+    expect(elevation.floor).toBeCloseTo(.18);
+    expect(active.rig.position.y).toBeGreaterThan(0);
+    expect(active.rig.position.y).toBeLessThan(.10);
+    axes[3] = 0;
+    const stopped = active.rig.position.z;
+    for (let i = 0; i < hz / 3; i++) render(dt);
+    expect(active.rig.position.z).toBe(stopped);
+    expect(active.rig.position.y).toBe(elevation.floor);
+    axes[3] = -1;
+    for (let i = 0; i < hz; i++) render(dt);
+    expect(elevation.floor).toBeCloseTo(.72);
+    expect(active.rig.position.y).toBe(elevation.floor);
+    axes[3] = 1;
+    for (let i = 0; i < hz && elevation.floor > .55; i++) render(dt);
+    expect(elevation.floor).toBeCloseTo(.54);
+    expect(active.rig.position.y).toBeGreaterThan(.60);
+    for (let i = 0; i < hz; i++) render(dt);
+    axes[3] = 0;
+    for (let i = 0; i < hz / 3; i++) render(dt);
+    expect(elevation.floor).toBeCloseTo(0, 8);
+    expect(active.rig.position.y).toBe(elevation.floor);
+    active["blink"](new T.Vector3(0, .72, -2));
+    render(.12);
+    expect(elevation.floor).toBe(.72);
+    expect(active.rig.position.y).toBe(.72);
+    active.dispose();
+  });
+
   it("keeps landing inside the terrain boundary and reserves headroom and wall clearance", () => {
     const { index, box } = flat();
     box("wall", new T.Vector3(0.1, 2.7, 4), new T.Vector3(2, 1.35, 0), "exterior");

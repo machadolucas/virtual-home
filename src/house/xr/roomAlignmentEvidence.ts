@@ -22,7 +22,8 @@ const planar = (v: Vector3): Point => [v.x, v.z];
 const valid = (p: Vector3): boolean => [p.x, p.y, p.z].every(Number.isFinite);
 const labelOf = (label: string | undefined) => (label ?? "").trim().toLowerCase().replaceAll("_", "-").replaceAll(" ", "-");
 const floorLabel = (label: string) => label === "floor" || label === "ground";
-const wallLabel = (label: string) => label === "wall" || label === "wall-face" || label === "interior-wall";
+const wallLabel = (label: string) => label === "wall" || label === "wall-face" || label === "interior-wall" ||
+  label === "invisible-wall-face";
 function openingLabel(label: string): AlignmentLandmark["kind"] | null {
   if (label === "door" || label === "door-frame" || label === "doorway") return "door";
   if (label === "window" || label === "window-frame") return "window";
@@ -63,7 +64,7 @@ function patch(vertices: Vector3[]): ScanPatch | null {
   return { plane, project, ring: vertices.map(project) };
 }
 
-function wallFromPoints(vertices: Vector3[], minSpan = 0.65): AlignmentWall | null {
+function wallFromPoints(vertices: Vector3[], minSpan = 0.28): AlignmentWall | null {
   if (vertices.length < 3) return null;
   const centre = new Vector3();
   let low = Infinity, high = -Infinity;
@@ -88,22 +89,32 @@ function wallFromPoints(vertices: Vector3[], minSpan = 0.65): AlignmentWall | nu
   return { a: [centre.x + x * start, centre.z + z * start], b: [centre.x + x * end, centre.z + z * end], low, high };
 }
 
-function equivalent(a: AlignmentWall, b: AlignmentWall): boolean {
-  const dx = a.b[0] - a.a[0], dz = a.b[1] - a.a[1];
-  const length = Math.hypot(dx, dz);
-  const [x, z] = [dx / length, dz / length];
+const wallLength = (wall: AlignmentWall) => Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]);
+
+function mergeWalls(first: AlignmentWall, second: AlignmentWall): AlignmentWall | null {
+  const [a, b] = wallLength(first) >= wallLength(second) ? [first, second] : [second, first];
+  const length = wallLength(a);
+  const x = (a.b[0] - a.a[0]) / length, z = (a.b[1] - a.a[1]) / length;
   const bx = b.b[0] - b.a[0], bz = b.b[1] - b.a[1];
-  return Math.abs((x * bx + z * bz) / Math.hypot(bx, bz)) > 0.999 &&
-    [b.a, b.b].every((p) => Math.abs((p[0] - a.a[0]) * z - (p[1] - a.a[1]) * x) < 0.035);
+  if (Math.abs((x * bx + z * bz) / wallLength(b)) < 0.999 ||
+    [b.a, b.b].some((p) => Math.abs((p[0] - a.a[0]) * z - (p[1] - a.a[1]) * x) > 0.024)) return null;
+  const range = [b.a, b.b].map((p) => (p[0] - a.a[0]) * x + (p[1] - a.a[1]) * z);
+  if (Math.max(...range) < -0.24 || Math.min(...range) > length + 0.24 ||
+    Math.max(a.low, b.low) - Math.min(a.high, b.high) > 0.15) return null;
+  const point = (along: number): Point => [a.a[0] + x * along, a.a[1] + z * along];
+  return { a: point(Math.min(0, ...range)), b: point(Math.max(length, ...range)),
+    low: Math.min(a.low, b.low), high: Math.max(a.high, b.high) };
 }
 
 function addWall(walls: AlignmentWall[], candidate: AlignmentWall) {
-  if (candidate.high - candidate.low < 1.65) return;
-  const index = walls.findIndex((wall) => equivalent(wall, candidate));
-  if (index < 0) { walls.push(candidate); return; }
-  const wall = walls[index]!;
-  if (Math.hypot(candidate.b[0] - candidate.a[0], candidate.b[1] - candidate.a[1]) >
-    Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1])) walls[index] = candidate;
+  if (candidate.high - candidate.low < 0.43) return;
+  for (let i = walls.length - 1; i >= 0; i--) {
+    const merged = mergeWalls(walls[i]!, candidate);
+    if (!merged) continue;
+    candidate = merged;
+    walls.splice(i, 1);
+  }
+  if (walls.length < 72) walls.push(candidate);
 }
 
 function addOpening(evidence: AlignmentEvidence, kind: AlignmentLandmark["kind"], wall: AlignmentWall) {
@@ -121,22 +132,31 @@ function floorFromPoints(evidence: AlignmentEvidence, vertices: Vector3[], viewe
   if (!Number.isFinite(height) || Math.abs(height) > 0.2 || vertices.some((v) => Math.abs(v.y - height) > 0.05)) return;
   const outline = polygon ?? hull(vertices.map(planar));
   if (outline.length < 3 || Math.abs(ringSignedArea(outline)) < 0.65 || !pointInRing(viewer.x, viewer.z, outline)) return;
-  if (!evidence.floor || Math.abs(height) < Math.abs(evidence.floor.y)) evidence.floor = { y: height, outline };
+  const previous = evidence.floor;
+  const source = polygon ? "plane" : "mesh";
+  if (!previous || (previous.source !== "plane" && source === "plane") ||
+    (previous.source === source && (Math.abs(height) + 0.025 < Math.abs(previous.y) ||
+      (Math.abs(height - previous.y) < 0.025 && Math.abs(ringSignedArea(outline)) < Math.abs(ringSignedArea(previous.outline)))))) {
+    evidence.floor = { y: height, outline, source };
+  }
 }
 
 /** Reads optional native features in local-floor metres. The retained geometry stays in memory. */
 export function readAlignmentEvidence(frame: XRFrame, reference: XRReferenceSpace, viewer: Vector3): AlignmentEvidence {
   const evidence: AlignmentEvidence = { walls: [], floor: null, landmarks: [], patches: [], triangles: [] };
-  const maxRange = 9;
+  const inRange = ({ x, z }: Vector3) => (x - viewer.x) ** 2 + (z - viewer.z) ** 2 < 9 ** 2;
+  let examinedPlanes = 0;
   for (const native of safe(() => frame.detectedPlanes) ?? []) {
-    if (evidence.patches.length >= 80) break;
+    if (examinedPlanes++ >= 160) break;
     const transform = trackedTransform(frame, native.planeSpace, reference);
     if (!transform || native.polygon.length > 128) continue;
     const points = native.polygon.map((p) => new Vector3(p.x, p.y, p.z).applyMatrix4(transform));
     if (points.length < 3 || !points.every(valid)) continue;
     const feature = patch(points);
     if (!feature) continue;
-    evidence.patches.push(feature);
+    if (evidence.patches.length < 80 && points.some(inRange)) {
+      evidence.patches.push(feature);
+    }
     const label = labelOf(native.semanticLabel);
     const opening = openingLabel(label);
     if (Math.abs(feature.plane.normal.y) >= 0.98 && (!label || floorLabel(label)))
@@ -150,10 +170,23 @@ export function readAlignmentEvidence(frame: XRFrame, reference: XRReferenceSpac
 
   const meshWalls: Array<{ x: number; z: number; offset: number; points: Vector3[] }> = [];
   const meshFloors: Array<{ y: number; points: Vector3[] }> = [];
+  const nativePerimeter = evidence.floor?.source === "plane" && evidence.floor.outline.every((a, i, ring) => {
+    const b = ring[(i + 1) % ring.length]!, edge = { a, b, low: 0, high: 1.7 };
+    const length = wallLength(edge);
+    if (length < 0.42) return true;
+    return evidence.walls.some((wall) => {
+      if (!mergeWalls(wall, edge)) return false;
+      const along = ([x, z]: Point) => ((x - a[0]) * (b[0] - a[0]) + (z - a[1]) * (b[1] - a[1])) / length;
+      const [start, end] = [along(wall.a), along(wall.b)].sort((x, y) => x - y);
+      return Math.min(length, end!) - Math.max(0, start!) >= Math.min(0.65 * length, 1.4);
+    });
+  });
+  const meshBudget = nativePerimeter ? 1_200 : 5_500;
   let examined = 0;
+  let examinedMeshes = 0;
   const normal = new Vector3(), vertical = new Vector3();
   for (const mesh of safe(() => frame.detectedMeshes) ?? []) {
-    if (examined >= 5_500) break;
+    if (examinedMeshes++ >= 40) break;
     const transform = trackedTransform(frame, mesh.meshSpace, reference);
     if (!transform) continue;
     const { vertices, indices } = mesh;
@@ -171,22 +204,24 @@ export function readAlignmentEvidence(frame: XRFrame, reference: XRReferenceSpac
         if (wall) { if (opening) addOpening(evidence, opening, wall); else addWall(evidence.walls, wall); }
       }
     }
-    const stride = 3 * Math.max(1, Math.ceil(indices.length / 3 / 3_000));
-    for (let i = 0; i + 2 < indices.length && examined < 5_500; i += stride) {
+    if (examined >= meshBudget) continue;
+    const stride = 3 * Math.max(1, Math.ceil(indices.length / 3 / Math.min(3_000, meshBudget)));
+    for (let i = 0; i + 2 < indices.length && examined < meshBudget; i += stride) {
       examined++;
       const tri: Triangle = [
         new Vector3().fromArray(vertices, indices[i]! * 3).applyMatrix4(transform),
         new Vector3().fromArray(vertices, indices[i + 1]! * 3).applyMatrix4(transform),
         new Vector3().fromArray(vertices, indices[i + 2]! * 3).applyMatrix4(transform),
       ];
-      if (!tri.every(valid) || !tri.some((p) => Math.hypot(p.x - viewer.x, p.z - viewer.z) < maxRange)) continue;
+      if (!tri.every(valid) || !tri.some(inRange)) continue;
       const [a, b, c] = tri;
       normal.subVectors(b, a).cross(vertical.subVectors(c, a));
       if (normal.lengthSq() < 1e-8) continue;
       normal.normalize();
       // The occlusion/hit sample is bounded independently of the survey snapshot.
       if (evidence.triangles.length < 1_100) evidence.triangles.push(tri);
-      if (label && label !== "global-mesh" && label !== "room" && label !== "room-mesh") continue;
+      if (nativePerimeter || (label && !wallLabel(label) && !floorLabel(label) &&
+        label !== "global-mesh" && label !== "room" && label !== "room-mesh")) continue;
       if (Math.abs(normal.y) > 0.985 && Math.abs(a.y) < 0.21) {
         const group = meshFloors.find((floor) => Math.abs(floor.y - a.y) < 0.035);
         if (group && group.points.length < 750) group.points.push(...tri);
@@ -195,14 +230,14 @@ export function readAlignmentEvidence(frame: XRFrame, reference: XRReferenceSpac
         if (normal.x < -1e-8 || (Math.abs(normal.x) <= 1e-8 && normal.z < 0)) normal.negate();
         const offset = normal.x * a.x + normal.z * a.z;
         const group = meshWalls.find((wall) => wall.x * normal.x + wall.z * normal.z > 0.9975 &&
-          Math.abs(wall.offset - offset) < 0.06);
+          Math.abs(wall.offset - offset) < 0.032);
         if (group && group.points.length < 650) group.points.push(...tri);
         else if (!group && meshWalls.length < 40) meshWalls.push({ x: normal.x, z: normal.z, offset, points: [...tri] });
       }
     }
   }
   if (!evidence.floor) for (const group of meshFloors) floorFromPoints(evidence, group.points, viewer);
-  if (evidence.walls.length < 12) for (const { points } of meshWalls) {
+  if (!nativePerimeter) for (const { points } of meshWalls) {
     const wall = wallFromPoints(points);
     if (wall) addWall(evidence.walls, wall);
   }

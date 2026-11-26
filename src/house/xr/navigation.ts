@@ -39,6 +39,31 @@ export function turnAroundHead(rig: THREE.Group, head: THREE.Vector3, angle: num
   rig.updateMatrixWorld(true);
 }
 
+export const smoothTurnMin = 35;
+export const smoothTurnMax = 125;
+export const smoothTurnDefault = 90;
+
+export function smoothTurnAngle(x: number, y: number, dt: number, degreesPerSecond: number) {
+  const magnitude = Math.min(1, Math.abs(x));
+  if (magnitude <= 0.24 || magnitude <= 1.1 * Math.abs(y)) return 0;
+  return -Math.sign(x) * THREE.MathUtils.degToRad(degreesPerSecond) * ((magnitude - 0.24) / 0.76) ** 1.35 * dt;
+}
+
+/** Collision uses the accepted tread; the tracked view follows it without a vertical snap. */
+export class WalkElevation {
+  floor = 0;
+  rendered = 0;
+
+  arrive(y: number) { this.floor = this.rendered = y; }
+
+  follow(dt: number) {
+    if (this.rendered === this.floor) return this.rendered;
+    const remaining = (this.rendered - this.floor) * Math.exp(-dt / 0.042);
+    this.rendered = Math.abs(remaining) <= 0.002 ? this.floor : this.floor + remaining;
+    return this.rendered;
+  }
+}
+
 /** Yaw of the wearer's gaze in the model. A positive yaw turns model north toward west. */
 export function viewHeading(rig: THREE.Group, headOrientation: THREE.Quaternion): number {
   const forward = new THREE.Vector3(0, 0, -1)

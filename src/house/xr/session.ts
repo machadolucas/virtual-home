@@ -8,7 +8,10 @@ import { captureEye } from "./captureEye";
 import { MixedPilot } from "./mixedPilot";
 import { HeadsetPanel, type PanelPage } from "./panel";
 import { HeadsetEquipment } from "./equipment";
-import { landFacing, roomLanding, teleport, turnAroundHead, viewHeading } from "./navigation";
+import {
+  landFacing, roomLanding, smoothTurnAngle, smoothTurnDefault, smoothTurnMax, smoothTurnMin,
+  teleport, turnAroundHead, viewHeading, WalkElevation,
+} from "./navigation";
 
 import { Tabletop } from "./tabletop";
 import { FitPlanner } from "./fitPlanner";
@@ -39,6 +42,7 @@ type Press = {
     | "wrist"
     | "travel"
     | "landing"
+    | "wallTrace"
     | "mixed"
     | "tabletop"
     | "fit"
@@ -90,6 +94,10 @@ export class HouseSession {
   private sticksNeutral = true;
   private walkEnabled = true;
   private walkNeutral = true;
+  private smoothTurning = false;
+  private turnMode: "smooth" | "snap" = "smooth";
+  private turnSpeed = smoothTurnDefault;
+  private readonly elevation = new WalkElevation();
   private readonly openedDoors = new Set<string>();
   private hoverNames = new Map<string, string>();
   private placements: readonly unknown[] | null = null;
@@ -143,6 +151,10 @@ export class HouseSession {
     if (this.inputHints) this.ui.add(this.inputHints.group);
     try {
       this.walkEnabled = localStorage.getItem("vh.xr.stickWalking") !== "off";
+      this.turnMode = localStorage.getItem("vh.xr.turnMode") === "snap" ? "snap" : "smooth";
+      const savedSpeed = Number(localStorage.getItem("vh.xr.turnSpeed"));
+      if (savedSpeed >= smoothTurnMin && savedSpeed <= smoothTurnMax)
+        this.turnSpeed = Math.round(savedSpeed / 5) * 5;
     } catch {
       /* storage is optional */
     }
@@ -466,8 +478,15 @@ export class HouseSession {
               }
             },
           },
-          { label: "Turn left 30°", act: () => this.turn(1) },
-          { label: "Turn right 30°", act: () => this.turn(-1) },
+          { id: "smooth-turn", label: "Smooth turning", detail: "Hold the right stick", style: "choice",
+            active: this.turnMode === "smooth", act: () => this.setTurnMode("smooth") },
+          { id: "snap-turn", label: "Snap turning", detail: "30° per flick", style: "choice",
+            active: this.turnMode === "snap", act: () => this.setTurnMode("snap") },
+          ...(this.turnMode === "smooth" ? [{ id: "smooth-turn-speed", label: `Turn speed · ${this.turnSpeed}°/s`,
+            value: (this.turnSpeed - smoothTurnMin) / (smoothTurnMax - smoothTurnMin),
+            act: (fraction: number) => this.setTurnSpeed(fraction) }] : []),
+          { label: "Turn left 30°", style: "secondary", act: () => this.turn(1) },
+          { label: "Turn right 30°", style: "secondary", act: () => this.turn(-1) },
           { label: "Try 90 Hz", act: this.budget.canTry90 ? () => this.budget.try90() : undefined },
         ],
       };
@@ -570,6 +589,20 @@ export class HouseSession {
   private turn(sign: number) {
     this.move(() => turnAroundHead(this.rig, this.head, (sign * Math.PI) / 6));
   }
+
+  private setTurnMode(mode: HouseSession["turnMode"]) {
+    this.turnMode = mode;
+    this.smoothTurning = false;
+    this.sticksNeutral = false;
+    try { localStorage.setItem("vh.xr.turnMode", mode); } catch { /* storage is optional */ }
+  }
+
+  private setTurnSpeed(fraction: number) {
+    const speed = Math.round((smoothTurnMin + fraction * (smoothTurnMax - smoothTurnMin)) / 5) * 5;
+    if (speed === this.turnSpeed) return;
+    this.turnSpeed = speed;
+    try { localStorage.setItem("vh.xr.turnSpeed", String(speed)); } catch { /* storage is optional */ }
+  }
   private move(action: () => void) {
     if (this.fadeStart !== null) return;
     this.fadeStart = performance.now();
@@ -624,7 +657,7 @@ export class HouseSession {
         return;
       }
       const feet = this.rig.localToWorld(this.head.clone());
-      feet.y = this.rig.position.y;
+      feet.y = this.elevation.floor;
       if (returning) this.history.returned(returning);
       else if (this.world?.canStand(feet, this.head.y))
         this.history.remember(
@@ -634,6 +667,7 @@ export class HouseSession {
         );
       if (heading === undefined) teleport(this.rig, this.head, dest);
       else landFacing(this.rig, this.head, this.orientation, dest, heading);
+      this.elevation.arrive(dest.y);
       onArrival?.();
       this.locatedAt = 0;
       this.announceDestination = announce;
@@ -661,6 +695,7 @@ export class HouseSession {
 
   private resetInput = () => {
     this.map?.cancel();
+    this.mixed?.cancelWallTrace();
     this.planner?.hover(null);
     this.backButton.reset();
     this.inputHints?.hide();
@@ -672,6 +707,7 @@ export class HouseSession {
     this.arc.clear();
     this.sticksNeutral = false;
     this.walkNeutral = false;
+    this.smoothTurning = false;
     this.moveAtBlack = null;
     this.fadeStart = null;
     this.fade.visible = false;
@@ -718,6 +754,7 @@ export class HouseSession {
       press.kind = "panel";
       this.panel.start(source, hit);
     } else if (hasRay && this.wristHit(source)) press.kind = "wrist";
+    else if (this.mixed?.beginWallTrace(e.frame, source)) press.kind = "wallTrace";
     else if (this.pausedWork && this.mixed) {
       if (!this.mixed.readyTransform) press.kind = "mixed";
     } else if (hasRay && this.map && !this.presses.size) {
@@ -781,6 +818,7 @@ export class HouseSession {
   private end = (e: XRInputSourceEvent) => {
     if (this.panel.owns(e.inputSource)) this.panel.cancel();
     const kind = this.presses.get(e.inputSource)?.kind;
+    if (kind === "wallTrace") this.mixed?.cancelWallTrace();
     if (kind === "tabletop") this.map?.cancel();
     if (kind === "travel" || kind === "landing") this.arc.clear();
     this.presses.delete(e.inputSource);
@@ -791,7 +829,9 @@ export class HouseSession {
     if (!press || !this.alive || this.session.visibilityState !== "visible") return;
     const hasRay = this.rayFrom(e.frame, source);
     this.lastMenu = 0;
-    if (press.kind === "panel") {
+    if (press.kind === "wallTrace") {
+      if (this.mixed?.finishWallTrace(e.frame, source)) pulse(source);
+    } else if (press.kind === "panel") {
       this.panelClickSource = source;
       try {
         if (this.panel.end(source, hasRay ? this.panel.hit(this.ray, true) : null) && this.panelClickSource)
@@ -900,13 +940,23 @@ export class HouseSession {
       }
       this.panel.scroll(scrollY, dt);
       this.sticksNeutral = this.walkNeutral = false;
+      this.smoothTurning = false;
       return;
     }
-    if (this.map || this.planner || !this.world || this.fadeStart !== null) return;
+    if (this.map || this.planner || !this.world) {
+      this.sticksNeutral = this.walkNeutral = false;
+      this.smoothTurning = false;
+      return;
+    }
     const right = sources.find((s) => !s.hand && s.handedness === "right");
     const axis = stickAxes(right?.gamepad),
       intent = stickIntent(axis.x, axis.y);
     const neutral = Math.max(Math.abs(axis.x), Math.abs(axis.y)) < 0.32;
+    if (this.fadeStart !== null) {
+      this.sticksNeutral = neutral;
+      this.smoothTurning = false;
+      return;
+    }
     if (this.stickSource) {
       if (
         right !== this.stickSource ||
@@ -928,9 +978,21 @@ export class HouseSession {
       } else this.arc.aim(this.world, this.ray.ray, this.head.y, viewHeading(this.rig, this.orientation));
       return;
     }
-    if (neutral) this.sticksNeutral = true;
-    if (this.presses.size) return;
-    if (right && this.sticksNeutral && intent) {
+    if (neutral) {
+      this.sticksNeutral = true;
+      this.smoothTurning = false;
+    }
+    if (this.presses.size) {
+      this.sticksNeutral = neutral;
+      this.smoothTurning = false;
+      return;
+    }
+    const angle = this.turnMode === "smooth" && !neutral ? smoothTurnAngle(axis.x, axis.y, dt, this.turnSpeed) : 0;
+    if (right && angle && (this.sticksNeutral || this.smoothTurning)) {
+      this.sticksNeutral = false;
+      this.smoothTurning = this.rayFrom(frame, right);
+      if (this.smoothTurning) turnAroundHead(this.rig, this.head, angle);
+    } else if (right && this.sticksNeutral && (intent === "aim" || (this.turnMode === "snap" && intent))) {
       this.sticksNeutral = false;
       if (intent === "aim" && this.rayFrom(frame, right)) {
         if (!this.panel.hit(this.ray)) {
@@ -956,12 +1018,29 @@ export class HouseSession {
     const dx = (this.forward.x * -left.y - this.forward.z * left.x) * speed;
     const dz = (this.forward.z * -left.y + this.forward.x * left.x) * speed;
     const feet = this.movement.copy(this.worldHead);
-    feet.y = this.rig.position.y;
+    feet.y = this.elevation.floor;
     const next =
       this.world.step(feet, dx, dz, this.head.y) ??
       (dx ? this.world.step(feet, dx, 0, this.head.y) : null) ??
       this.world.step(feet, 0, dz, this.head.y);
-    if (next) teleport(this.rig, this.head, next);
+    if (next) {
+      this.elevation.floor = next.y;
+      this.rig.position.x += next.x - feet.x;
+      this.rig.position.z += next.z - feet.z;
+    }
+  }
+
+  private followWalkElevation(dt: number) {
+    if (!this.world || this.elevation.rendered === this.elevation.floor) return;
+    const y = this.elevation.follow(dt);
+    const offset = y - this.elevation.floor;
+    if (offset > 0) {
+      // A low lintel can allow the lower tread but leave no room for a transitional eye height.
+      const feet = this.rig.localToWorld(this.movement.copy(this.head));
+      feet.y = this.elevation.floor;
+      if (!this.world.canStand(feet, this.head.y + offset)) this.elevation.arrive(feet.y);
+    }
+    this.rig.position.y = this.elevation.rendered;
   }
   private updateWrist(frame: XRFrame, sources: XRInputSource[]) {
     const wrist = this.beams.wrist.mesh;
@@ -1212,7 +1291,7 @@ export class HouseSession {
     }
     if (!this.world || this.firstPose || (this.locatedAt && now - this.locatedAt < 450)) return;
     const feet = this.movement.copy(this.worldHead);
-    feet.y = this.rig.position.y;
+    feet.y = this.elevation.floor;
     const place = walkPlace(this.runtime, feet, this.destinations);
     this.area = place.area;
     // Do not flash a card for every doorway crossed in passing. Named travel is immediate.
@@ -1267,7 +1346,10 @@ export class HouseSession {
       const start = this.destinations.find((d) => d.room.kind === "room") ?? this.destinations[0];
       const landing =
         start && this.world.landing(new THREE.Vector3(...start.position), this.head.y, start.room);
-      if (landing) teleport(this.rig, this.head, landing);
+      if (landing) {
+        teleport(this.rig, this.head, landing);
+        this.elevation.arrive(landing.y);
+      }
       this.firstPose = false;
     }
     this.worldHead.copy(this.head).applyMatrix4(this.rig.matrixWorld);
@@ -1288,6 +1370,7 @@ export class HouseSession {
     }
     this.inputHints?.update(frame, this.space, sources);
     this.locomotion(frame, sources, dt);
+    this.followWalkElevation(dt);
     if (this.placeMenu) {
       this.panel.place(this.head, this.orientation);
       this.placeMenu = false;
@@ -1318,7 +1401,7 @@ export class HouseSession {
       this.pinSpace.updateMatrixWorld(true);
     }
     if (this.map) {
-      this.movement.copy(this.worldHead).y = this.rig.position.y;
+      this.movement.copy(this.worldHead).y = this.elevation.floor;
       this.map.userPose(this.movement, viewHeading(this.rig, this.orientation));
     }
     this.appearance?.sky.position.copy(this.worldHead);
@@ -1401,7 +1484,7 @@ export class HouseSession {
       this.mixed?.room ??
       this.destinations.find(
         ({ room }) =>
-          Math.abs(room.floorElevation - this.rig.position.y) < 0.45 &&
+          Math.abs(room.floorElevation - this.elevation.floor) < 0.45 &&
           pointInFootprint(pos.x, pos.z, room.footprint),
       )?.room;
     const snapshot = snapshotModelFixView(this.runtime, this.mode === "vr" ? "vr" : "mr", camera, {

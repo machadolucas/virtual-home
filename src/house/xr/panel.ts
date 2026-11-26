@@ -136,7 +136,7 @@ export class HeadsetPanel {
     this.layout = layout;
     this.setOffset(this.offset);
     const key = JSON.stringify([
-      layout.title, layout.lines, menu.corners, layout.keyboard,
+      layout.title, layout.lines, menu.corners, menu.planEdge, layout.keyboard,
       ...[...layout.rows, ...layout.footer].map((row) => [
         row.key, row.label, row.value, row.active, row.detail, row.style, row.icon, row.keyTone,
         row.x, row.y, row.width, row.height, !!row.act,

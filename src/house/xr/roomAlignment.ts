@@ -11,6 +11,7 @@ export interface AlignmentWall {
   b: Point;
   low: number;
   high: number;
+  baseOnly?: boolean;
 }
 export interface AlignmentLandmark {
   kind: "door" | "window";
@@ -26,7 +27,7 @@ export interface AlignmentModel {
 }
 export interface RoomEvidence {
   walls: AlignmentWall[];
-  floor: { y: number; outline: Point[] } | null;
+  floor: { y: number; outline: Point[]; source?: "plane" | "mesh" | "bounds" } | null;
   landmarks: AlignmentLandmark[];
 }
 export interface AlignmentCandidate {
@@ -39,7 +40,7 @@ export interface AlignmentCandidate {
 export type AlignmentHint = { kind: "wall"; index: number } | { kind: "landmark"; index: number };
 const LIMIT = MAX_CALIBRATION_ERROR_M + 1e-8;
 const FLOOR_TOLERANCE_M = 0.2;
-const MIN_WALL_M = 0.65;
+const MIN_WALL_M = 0.28;
 const METRE_DEDUP = 0.045;
 const ANGLE_DEDUP = Math.PI / 180;
 const PARALLEL = Math.cos(2.5 * Math.PI / 180);
@@ -87,8 +88,9 @@ export function buildAlignmentModel(
     if (element.kind !== "door" && element.kind !== "window") continue;
     if (element.floorId && element.floorId !== room.floorId) continue;
     const ids = index.manifest.surfacesByElement.get(element.id) ?? [];
-    // A nearby opening can belong to a room on the other side of a partition.
-    if (!element.roomIds?.includes(room.id) && !ids.some((id) => index.manifest.surfaces.get(id)?.roomId === room.id)) continue;
+    // Exterior openings can have a reveal and a wall ID but no room links.
+    if (element.roomIds?.length && !element.roomIds.includes(room.id) &&
+      !ids.some((id) => index.manifest.surfaces.get(id)?.roomId === room.id)) continue;
     const bounds = new Vector3();
     // A reveal is part of the opening. A door leaf may be depicted open.
     const meshes = ids.filter((id) => index.manifest.surfaces.get(id)?.role === "reveal").map((id) => index.surfaceMesh.get(id));
@@ -113,18 +115,22 @@ export function buildAlignmentModel(
     if (box.isEmpty()) continue;
     box.getCenter(bounds);
     if (bounds.y < floor || bounds.y > high) continue;
-    const point: Point = [bounds.x, bounds.z];
-    const wall = walls.find((w) => pointOnWall(point, w, 0.32));
-    if (!wall) continue;
-    let lo = Infinity, hi = -Infinity;
-    for (const point of points) {
-      const station = projection([point.x, point.z], wall);
-      lo = Math.min(lo, station);
-      hi = Math.max(hi, station);
-    }
-    const along = (lo + hi) / 2;
-    const width = hi - lo, height = box.max.y - box.min.y, [x, z] = wallAxis(wall);
-    if (width < 0.3 || height < 0.3) continue;
+    const candidates = walls.flatMap((wall) => {
+      if (!pointOnWall([bounds.x, bounds.z], wall, 0.32)) return [];
+      let lo = Infinity, hi = -Infinity;
+      for (const p of points) {
+        const station = projection([p.x, p.z], wall);
+        lo = Math.min(lo, station);
+        hi = Math.max(hi, station);
+      }
+      const span = length(sub(wall.b, wall.a));
+      return hi - lo >= 0.3 && lo >= -0.12 && hi <= span + 0.12 ? [{ wall, lo, hi }] : [];
+    }).sort((a, b) => (b.hi - b.lo) - (a.hi - a.lo));
+    const found = candidates[0];
+    const height = box.max.y - box.min.y;
+    if (!found || height < 0.3) continue;
+    const { wall, lo, hi } = found;
+    const along = (lo + hi) / 2, width = hi - lo, [x, z] = wallAxis(wall);
     landmarks.push({ kind: element.kind, center: [wall.a[0] + x * along, bounds.y, wall.a[1] + z * along], width, height });
   }
   return { room, walls, corners, landmarks };
@@ -144,46 +150,84 @@ function wallResidual(model: AlignmentWall, measured: AlignmentWall): number {
   const [start, end] = [projection(measured.a, model), projection(measured.b, model)].sort((a, b) => a - b);
   const span = length(sub(model.b, model.a));
   const lo = Math.max(0, start!), hi = Math.min(span, end!);
-  if (hi - lo < Math.min(span * 0.45, 1.2)) return Infinity;
+  if (hi - lo < Math.min(span * 0.45, measured.baseOnly ? 0.65 : 1.2)) return Infinity;
   const [dx, dz] = wallAxis(model);
   const at = (s: number): Point => [model.a[0] + dx * s, model.a[1] + dz * s];
   return Math.max(lineError(at(lo), measured), lineError(at(hi), measured));
+}
+
+function nativeFloorEdges(floor: NonNullable<RoomEvidence["floor"]>, perimeter: AlignmentWall[]): AlignmentWall[] {
+  if (floor.source !== "plane") return [];
+  const edges = floor.outline.flatMap((a, i) => {
+    const b = floor.outline[(i + 1) % floor.outline.length]!;
+    return length(sub(a, b)) >= MIN_WALL_M ? [{ a, b, low: floor.y, high: floor.y }] : [];
+  });
+  // A floor that extends into adjacent spaces, or records only a partial scan, cannot
+  // stand in for hidden room walls. Its outline needs support in both directions.
+  if (edges.length < 3 || edges.some((edge) => !perimeter.some((wall) =>
+    wallResidual(edge, wall) <= LIMIT && pointOnWall(edge.a, wall, LIMIT * 1.5) &&
+    pointOnWall(edge.b, wall, LIMIT * 1.5)))) return [];
+  return edges;
 }
 
 function angleClose(a: number, b: number): boolean {
   return Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))) <= ANGLE_DEDUP;
 }
 
+function wallDistance(point: Point, wall: AlignmentWall): number {
+  const station = projection(point, wall), span = length(sub(wall.b, wall.a));
+  return Math.hypot(lineError(point, wall), Math.max(0, -station, station - span));
+}
+
 function matchesLandmarks(
   matrix: Matrix4, modeled: AlignmentLandmark[], measured: AlignmentLandmark[], perimeter: AlignmentWall[], vertical: number,
 ) {
-  let count = 0, error = 0;
-  for (const landmark of modeled) {
-    const expected = new Vector3(...landmark.center).applyMatrix4(matrix);
-    let nearest = Infinity;
-    for (const seen of measured) {
-      if (seen.kind !== landmark.kind || Math.abs(seen.width - landmark.width) > 0.22 ||
-        Math.abs(seen.height - landmark.height) > 0.22) continue;
-      nearest = Math.min(nearest, expected.distanceTo(new Vector3(...seen.center)));
+  let count = 0, error = 0, conflict = false;
+  const expected = modeled.map((mark) => ({ mark, point: new Vector3(...mark.center).applyMatrix4(matrix) }));
+  const claimed = new Set<AlignmentLandmark>();
+  for (const seen of measured) {
+    if (!perimeter.some((wall) => seen.center[1] >= wall.low + vertical && seen.center[1] <= wall.high + vertical &&
+      pointOnWall(planar(seen.center), wall, 0.10))) continue;
+    const similar = expected.filter(({ mark }) => seen.kind === mark.kind &&
+      Math.abs(seen.width - mark.width) <= 0.22 && Math.abs(seen.height - mark.height) <= 0.22);
+    const point = new Vector3(...seen.center);
+    let best: AlignmentLandmark | null = null, distance = Infinity;
+    for (const entry of similar) {
+      if (claimed.has(entry.mark)) continue;
+      const gap = entry.point.distanceTo(point);
+      if (gap < distance) { best = entry.mark; distance = gap; }
     }
-    if (nearest <= LIMIT) { count++; error = Math.max(error, nearest); }
+    if (best && distance <= LIMIT) {
+      claimed.add(best);
+      count++;
+      error = Math.max(error, distance);
+    } else if (similar.length) conflict = true;
   }
-  const plausible = measured.some((seen) => modeled.some(({ kind }) => seen.kind === kind) &&
-    perimeter.some((wall) => seen.center[1] >= wall.low + vertical && seen.center[1] <= wall.high + vertical &&
-      pointOnWall(planar(seen.center), wall, 0.10)));
-  return { count, error, conflict: plausible && count === 0 };
+  return { count, error, conflict };
 }
 
 export function matchRoomAlignment(model: AlignmentModel, evidence: RoomEvidence, viewer: Vector3): AlignmentCandidate[] {
   const { walls, floor, landmarks } = evidence;
-  if (model.walls.length < 3 || model.walls.length > 20 || walls.length < 3 || !floor ||
+  if (model.walls.length < 3 || model.walls.length > 20 || walls.length < 2 || !floor ||
     !Number.isFinite(floor.y) || Math.abs(floor.y) > FLOOR_TOLERANCE_M ||
-    !pointInFootprint(viewer.x, viewer.z, { outer: floor.outline })) return [];
+    (floor.source !== "bounds" && !pointInFootprint(viewer.x, viewer.z, { outer: floor.outline }))) return [];
   if (viewer.y - floor.y < 0.45 || viewer.y - floor.y > (model.room.ceilingHeight ?? 2.7) + 0.2) return [];
   const vertical = floor.y - model.room.floorElevation;
+  const px = model.room.footprint.outer.map(([x]) => x), pz = model.room.footprint.outer.map(([, z]) => z);
+  const span = Math.hypot(Math.max(...px) - Math.min(...px), Math.max(...pz) - Math.min(...pz));
+  const station: Point = [viewer.x, viewer.z];
+  const modeledHeight = model.room.ceilingHeight ?? 2.7;
+  const lowRoom = modeledHeight < 1.8 && floor.source === "plane";
+  const wallTop = lowRoom ? Math.max(0.52, modeledHeight - 0.15) : 1.65;
+  const wallSpan = lowRoom ? Math.max(0.43, modeledHeight * 0.65) : 1.2;
   const measured = walls
-    .filter((wall) => Math.abs(wall.low - floor.y) <= 0.2 && wall.high - floor.y >= 1.65)
-    .sort((a, b) => length(sub(b.b, b.a)) - length(sub(a.b, a.a))).slice(0, 16);
+    .filter((wall) => Math.abs(wall.low - floor.y) <= (floor.source === "plane" ? 0.45 : 0.2) &&
+      (wall.baseOnly ? floor.source === "bounds" && Math.abs(wall.high - wall.low) < 1e-6
+        : wall.high - floor.y >= wallTop && wall.high - wall.low >= wallSpan))
+    .map((wall) => ({ wall, distance: wallDistance(station, wall), span: length(sub(wall.b, wall.a)) }))
+    .filter(({ distance, span: size }) => Number.isFinite(distance) && distance <= span + 0.35 && size >= 0.28)
+    .sort((a, b) => Math.floor(a.distance * 2) - Math.floor(b.distance * 2) || b.span - a.span)
+    .slice(0, 16).map(({ wall }) => wall);
   const candidates: AlignmentCandidate[] = [];
   const vec = new Vector3();
   for (const [i, a] of model.walls.entries()) for (const [j, b] of model.walls.entries()) {
@@ -195,28 +239,44 @@ export function matchRoomAlignment(model: AlignmentModel, evidence: RoomEvidence
       if (Math.abs(det) < 0.5) continue;
       const da = wallAxis(a), oa = wallAxis(observedA);
       const baseYaw = Math.atan2(da[1], da[0]) - Math.atan2(oa[1], oa[0]);
-      for (const yaw of [baseYaw, baseYaw + Math.PI]) {
-        if (Math.abs(dot(rotate(wallAxis(b), yaw), wallAxis(observedB))) < PARALLEL) continue;
+      for (const initialYaw of [baseYaw, baseYaw + Math.PI]) {
+        const db = rotate(wallAxis(b), initialYaw), ob = wallAxis(observedB);
+        const alignment = dot(db, ob);
+        if (Math.abs(alignment) < PARALLEL) continue;
+        const correction = Math.atan2(cross(db, ob) * -Math.sign(alignment), Math.abs(alignment));
+        const spanA = Math.min(length(sub(a.b, a.a)), length(sub(observedA.b, observedA.a)));
+        const spanB = Math.min(length(sub(b.b, b.a)), length(sub(observedB.b, observedB.a)));
+        const yaw = initialYaw + correction * spanB / (spanA + spanB);
         const c1 = dot(sub(observedA.a, rotate(a.a, yaw)), na);
         const c2 = dot(sub(observedB.a, rotate(b.a, yaw)), nb);
         const shift: Point = [(c1 * nb[1] - c2 * na[1]) / det, (na[0] * c2 - nb[0] * c1) / det];
         const here = rotate([viewer.x - shift[0], viewer.z - shift[1]], -yaw);
         if (!pointInFootprint(here[0], here[1], model.room.footprint)) continue;
-        if (wallResidual(transformed(a, yaw, shift), observedA) > LIMIT ||
-          wallResidual(transformed(b, yaw, shift), observedB) > LIMIT) continue;
+        const trainingError = Math.max(wallResidual(transformed(a, yaw, shift), observedA),
+          wallResidual(transformed(b, yaw, shift), observedB));
+        if (trainingError > LIMIT) continue;
 
         // Only the two training walls set yaw and X/Z. Every other wall is withheld.
         const used = new Set([k, l]);
+        const perimeter = model.walls.map((wall) => transformed(wall, yaw, shift));
+        const floorEdges = nativeFloorEdges(floor, perimeter);
+        if (lowRoom && !floorEdges.length) continue;
         let residual = 0;
-        for (const [m, wall] of model.walls.entries()) {
+        for (let m = 0; m < perimeter.length; m++) {
           if (m === i || m === j) continue;
-          const expected = transformed(wall, yaw, shift);
+          const expected = perimeter[m]!;
+          const floorError = floorEdges.reduce((best, edge) => Math.min(best, wallResidual(expected, edge)), Infinity);
           let best = Infinity, bestIndex = -1;
+          let contradictory = false;
           for (const [n, seen] of measured.entries()) {
             if (used.has(n)) continue;
-            const error = Math.hypot(wallResidual(expected, seen), seen.low - floor.y);
+            const lateral = wallResidual(expected, seen);
+            const verticalError = floorError <= LIMIT ? Math.min(Math.abs(seen.low - floor.y), floorError) : seen.low - floor.y;
+            const error = Math.hypot(lateral, verticalError);
+            if (lateral > LIMIT && lateral < 0.17) contradictory = true;
             if (error < best) { best = error; bestIndex = n; }
           }
+          if (best > LIMIT && !contradictory && floorError <= LIMIT) { best = floorError; bestIndex = -1; }
           residual = Math.max(residual, best);
           used.add(bestIndex);
           if (residual > LIMIT) break;
@@ -228,16 +288,19 @@ export function matchRoomAlignment(model: AlignmentModel, evidence: RoomEvidence
           model.corners.find(({ point }) => lineError(planar(point), a) > 0.3 || lineError(planar(point), b) > 0.3);
         if (!check) continue;
         const matrix = new Matrix4().makeRotationY(yaw).setPosition(shift[0], vertical, shift[1]);
-        const opening = matchesLandmarks(matrix, model.landmarks, landmarks,
-          landmarks.length ? model.walls.map((wall) => transformed(wall, yaw, shift)) : [], vertical);
+        const opening = matchesLandmarks(matrix, model.landmarks, landmarks, perimeter, vertical);
         const fit: CalibrationFit = { matrix, yaw, modelOrigin: check.point, anchorPosition: vec.fromArray(check.point).applyMatrix4(matrix).toArray() };
         const candidate = {
-          fit, check, errorM: Math.max(residual, opening.error), landmarkCount: opening.count, landmarkConflict: opening.conflict,
+          fit, check, errorM: Math.max(residual, opening.error, trainingError),
+          landmarkCount: opening.count, landmarkConflict: opening.conflict,
         };
         const existing = candidates.findIndex((entry) =>
           angleClose(entry.fit.yaw, yaw) && vec.fromArray(check.point).applyMatrix4(entry.fit.matrix)
             .distanceTo(new Vector3(...fit.anchorPosition)) <= METRE_DEDUP);
-        if (existing < 0) candidates.push(candidate);
+        if (existing < 0) {
+          if (candidates.length >= 24) return [];
+          candidates.push(candidate);
+        }
         else if (candidate.landmarkCount > candidates[existing]!.landmarkCount ||
           (candidate.landmarkCount === candidates[existing]!.landmarkCount && candidate.errorM < candidates[existing]!.errorM))
           candidates[existing] = candidate;
@@ -247,9 +310,14 @@ export function matchRoomAlignment(model: AlignmentModel, evidence: RoomEvidence
   return candidates;
 }
 
+export function viableRoomAlignments(candidates: readonly AlignmentCandidate[]): AlignmentCandidate[] {
+  return candidates.filter(({ landmarkConflict }) => !landmarkConflict);
+}
+
 export function uniqueRoomAlignment(candidates: AlignmentCandidate[]): AlignmentCandidate | null {
-  if (candidates.length === 1) return candidates[0]!.landmarkConflict ? null : candidates[0]!;
-  const withOpening = candidates.filter((candidate) => candidate.landmarkCount > 0);
+  // Conflict alone does not certify orientation if a different pose also explained every wall.
+  if (candidates.length === 1) return viableRoomAlignments(candidates)[0] ?? null;
+  const withOpening = viableRoomAlignments(candidates).filter((candidate) => candidate.landmarkCount > 0);
   return withOpening.length === 1 ? withOpening[0]! : null;
 }
 
@@ -259,7 +327,7 @@ export function applyAlignmentHint(
   if (!finite(physical)) return null;
   const local = new Vector3();
   const inverse = new Matrix4();
-  const matching = candidates.filter(({ fit }) => {
+  const matching = viableRoomAlignments(candidates).filter(({ fit }) => {
     local.copy(physical).applyMatrix4(inverse.copy(fit.matrix).invert());
     if (hint.kind === "wall") {
       const wall = model.walls[hint.index];

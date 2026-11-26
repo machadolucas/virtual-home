@@ -326,7 +326,7 @@ export class MixedRealityCalibration {
       return;
     }
     if (!anchor) {
-      this.update({ phase: "select", message: "The saved anchor is unavailable. Align manually using three floor features." });
+      this.update({ phase: "select", message: "The saved anchor is unavailable. Look around to match the room again." });
       return;
     }
     this.anchor = anchor;
@@ -421,7 +421,7 @@ export class MixedRealityCalibration {
       return;
     }
     this.clear();
-    this.update({ ...INITIAL_STATE, message: "The headset reset its tracking origin. Align again using three floor features." });
+    this.update({ ...INITIAL_STATE, message: "The tracking origin changed. Look around to match the room again." });
   };
 
   private visibilityChanged = (): void => {

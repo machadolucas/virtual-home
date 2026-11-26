@@ -13,6 +13,7 @@ export interface PanelPage {
   lines: string[];
   rows: PanelRow[];
   corners?: readonly (readonly number[])[];
+  planEdge?: number;
   keyboard?: {
     text: string;
     placeholder: string;
@@ -53,6 +54,7 @@ export interface PanelLayout {
   lines: string[];
   plan: PanelRect | null;
   corners: PanelPage["corners"];
+  planEdge?: number;
   keyboard: {
     field: PanelRect;
     text: string;
@@ -224,6 +226,7 @@ export function layoutPanel(
     lines,
     plan,
     corners: page.corners,
+    planEdge: page.planEdge,
     keyboard,
     rows,
     footer,
@@ -278,7 +281,7 @@ function text(context: CanvasRenderingContext2D, value: string, x: number, y: nu
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
-function paintPlan(c: CanvasRenderingContext2D, box: PanelRect, points: NonNullable<PanelPage["corners"]>) {
+function paintPlan(c: CanvasRenderingContext2D, box: PanelRect, points: NonNullable<PanelPage["corners"]>, edge?: number) {
   const xs = points.map((p) => p[0]!);
   const zs = points.map((p) => p[2]!);
   const minX = Math.min(...xs), minZ = Math.min(...zs);
@@ -299,6 +302,13 @@ function paintPlan(c: CanvasRenderingContext2D, box: PanelRect, points: NonNulla
   c.closePath();
   c.fill();
   c.stroke();
+  if (edge !== undefined && plot[edge]) {
+    const a = plot[edge]!, b = plot[(edge+1)%plot.length]!;
+    c.strokeStyle = "#ffcc81";
+    c.lineWidth = 8;
+    c.beginPath(); c.moveTo(a[0],a[1]); c.lineTo(b[0],b[1]); c.stroke();
+    return;
+  }
   c.font = `650 16px ${FONT}`;
   c.textAlign = "center";
   c.textBaseline = "middle";
@@ -617,7 +627,7 @@ export function paintPanel(
   layout.lines.forEach((line, index) =>
     text(c, line, INSET + 9, HEADER + 36 + LINE_HEIGHT * index - offset, infoWidth),
   );
-  if (plan && corners) paintPlan(c, { ...plan, y: plan.y - offset }, corners);
+  if (plan && corners) paintPlan(c, { ...plan, y: plan.y - offset }, corners, layout.planEdge);
   if (keyboard) paintKeyboardField(c, keyboard, offset);
   for (const row of rows) {
     if (row.y + row.height - offset > body.y && row.y - offset < body.y + body.height)

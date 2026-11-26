@@ -1,10 +1,12 @@
-import { BoxGeometry, Group, Matrix4, Mesh, MeshStandardMaterial, Ray, Vector3 } from "three";
+import { BoxGeometry, Group, Matrix4, Mesh, MeshStandardMaterial, Quaternion, Ray, Vector3 } from "three";
 import { describe, expect, it, vi } from "vitest";
 import type { Room, Vec3 } from "@/house/model/types";
 import {
   applyAlignmentHint, buildAlignmentModel, matchRoomAlignment, uniqueRoomAlignment, type RoomEvidence,
 } from "@/house/xr/roomAlignment";
 import { intersectAlignmentEvidence, readAlignmentEvidence, snapScannedCorner } from "@/house/xr/roomAlignmentEvidence";
+import { chooseFacing } from "@/house/xr/roomFacing";
+import { fitWallTrace, floorAim, WallTrace } from "@/house/xr/wallTrace";
 import { AlignmentRays } from "@/house/xr/roomAlignmentRay";
 import { calibrationFeatures } from "@/house/xr/mixedCalibration";
 import { MixedRealityCalibration } from "@/house/xr/mixed";
@@ -216,8 +218,9 @@ function pilotFixture(roomSetup?: XRSession["initiateRoomCapture"], anchor?: XRA
     restorePersistentAnchor: anchor ? vi.fn().mockResolvedValue(anchor) : undefined,
   }) as unknown as XRSession;
   const matrix = new Matrix4();
+  const orientation = new Quaternion();
   const frame = frameWith({ session,
-    getViewerPose: () => ({ emulatedPosition: false, transform: { position: viewer } }),
+    getViewerPose: () => ({ emulatedPosition: false, transform: { position: viewer, orientation } }),
     getPose: (space: XRSpace) => space === anchor?.anchorSpace
       ? anchorPose && { emulatedPosition: false, transform: { matrix: anchorPose.toArray() } }
       : { emulatedPosition: false, transform: { matrix: matrix.toArray() } },
@@ -236,8 +239,112 @@ function pilotFixture(roomSetup?: XRSession["initiateRoomCapture"], anchor?: XRA
   };
   const roomRow = menu().rows[0]!;
   click(roomRow.label);
-  return { pilot, ref, session, click, menu, tick, confirm, frame, roomRow };
+  const trace = (a: Vec3, b: Vec3) => {
+    const origin = viewer.clone().add(new Vector3(0.2, -0.35, 0));
+    const sight = (fraction: number) => matrix.lookAt(origin, tracking(a).lerp(tracking(b), fraction),
+      new Vector3(0, 1, 0)).setPosition(origin);
+    sight(0);
+    expect(pilot.beginWallTrace(frame, source)).toBe(true);
+    for (let i = 0; i <= 24; i++) { sight(i / 24); tick(); }
+    pilot.finishWallTrace(frame, source);
+    tick();
+  };
+  const face = (p: Vec3) => {
+    orientation.setFromRotationMatrix(new Matrix4().lookAt(viewer, tracking(p), new Vector3(0, 1, 0)));
+    pilot.select(frame, source, null);
+    tick();
+  };
+  return { pilot, ref, session, click, menu, tick, confirm, frame, roomRow, trace, face };
 }
+
+it("checks hand-traced walls when a scan supplies a partial floor, and rejects bent or duplicate strokes", () => {
+  const trace = new WallTrace();
+  const source = {} as XRInputSource;
+  try {
+    const stroke = (a: Vec3, b: Vec3) => {
+      expect(trace.begin(source)).toBe(true);
+      for (let i = 0; i <= 24; i++) {
+        const pt = tracking(a).lerp(tracking(b), i / 24);
+        pt.x += Math.sin(i) * 0.008;
+        trace.sample(pt);
+      }
+      return trace.finish(source);
+    };
+    expect(stroke([0.7, 3, 0], [3.1, 3, 0])).toBe(true);
+    expect(stroke([1.2, 3, 0], [2.4, 3, 0])).toBe(false);
+    expect(stroke([4, 3, 0.5], [4, 3, 2.5])).toBe(true);
+    const partialFloor: RoomEvidence = {
+      walls: [],
+      landmarks: [],
+      floor: {
+        y: 0,
+        source: "plane",
+        outline: [
+          [1, 1],
+          [1, 1.2],
+          [1.2, 1.2],
+          [1.2, 1],
+        ],
+      },
+    };
+    expect(matchRoomAlignment(model, trace.evidence(0, partialFloor), viewer)).toHaveLength(0);
+    expect(stroke([3.3, 3, 3], [0.7, 3, 3])).toBe(true);
+    expect(stroke([0, 3, 2.6], [0, 3, 0.5])).toBe(true);
+    const candidates = matchRoomAlignment(model, trace.evidence(0, partialFloor), viewer);
+    expect(candidates).toHaveLength(2);
+    const mark = { label: "wall", point: [2, 3, 0] as Vec3 };
+    expect(chooseFacing(candidates, mark, viewer, new Vector3(0, 1, 0))).toBeNull();
+    expect(
+      chooseFacing(candidates, mark, viewer, tracking(mark.point).sub(viewer).setY(0).normalize())?.errorM,
+    ).toBeLessThan(0.02);
+    expect(floorAim(new Ray(viewer, new Vector3(1, -0.01, 0).normalize()), 0, new Vector3())).toBeNull();
+    const bent = Array.from({ length: 21 }, (_, i) => new Vector3(i / 10, 0, Math.min(i, 20 - i) / 10));
+    expect(fitWallTrace(bent)).toBeNull();
+  } finally {
+    trace.dispose();
+  }
+});
+
+it("aligns from a stationary position by tracing broad wall sections with no native scene or point pairing", () => {
+  const { pilot, click, menu, tick, trace, face } = pilotFixture();
+  try {
+    tick();
+    click("Trace wall bases");
+    trace([0.7, 3, 0], [3.1, 3, 0]);
+    trace([4, 3, 0.5], [4, 3, 2.5]);
+    expect(pilot.readyTransform).toBeNull();
+    trace([3.3, 3, 3], [0.7, 3, 3]);
+    if (!menu().title.startsWith("Look toward")) trace([0, 3, 2.6], [0, 3, 0.5]);
+    expect(pilot.readyTransform).toBeNull();
+    expect(menu()).toMatchObject({ title: "Look toward the highlighted wall", planEdge: 0 });
+    // Both ends of this sight line are far from any corner. The trigger passes no target ray.
+    face([2, 4.5, 0]);
+    assertMapsToTracking(pilot.readyTransform!);
+    expect(pilot.scene.getObjectByName("vh-wall-base-traces")).toBeUndefined();
+  } finally {
+    pilot.dispose();
+  }
+});
+
+it("drops wall strokes at a tracking-origin reset and lets the wearer undo without losing earlier walls", () => {
+  const { pilot, ref, click, menu, tick, trace } = pilotFixture();
+  try {
+    tick();
+    click("Trace wall bases");
+    trace([0.7, 3, 0], [3.1, 3, 0]);
+    trace([4, 3, 0.5], [4, 3, 2.5]);
+    click("Undo last wall");
+    expect(menu().title).toContain("1 marked");
+    ref.dispatchEvent(new Event("reset"));
+    tick();
+    expect(pilot.readyTransform).toBeNull();
+    expect(pilot.scene.getObjectByName("vh-wall-base-traces")).toBeUndefined();
+    click("Trace wall bases");
+    expect(menu().title).toBe("Trace a wall");
+  } finally {
+    pilot.dispose();
+  }
+});
 
 it("starts with a simple menu and aligns from the same standing point even when no sensor data is exposed", () => {
   const { pilot, click, menu, tick, confirm, roomRow } = pilotFixture();
