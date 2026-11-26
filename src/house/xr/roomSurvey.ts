@@ -16,8 +16,9 @@ import {
 import type { PanelPage, PanelRow } from "./panel";
 import { canOpenHeadsetRoomSetup, openHeadsetRoomSetup, QUEST_ROOM_SETUP_GUIDE } from "./headsetRoomSetup";
 import { SurveyDisplay } from "./surveyDisplay";
+import { SurveyAimInput } from "./surveyInput";
 import {
-  fitsSurveyUpload, localToSurveyPoint, measurementLength, readFullRoomSurfaces, readRoomSurfaces, readSurveyHit, surveyBounds,
+  fitsSurveyUpload, localToSurveyPoint, measurementLength, readFullRoomSurfaces, readRoomSurfaces, surveyBounds,
   surveyExtent, surveyHeading,
 } from "./surveyGeometry";
 
@@ -28,6 +29,7 @@ type Target =
 type MeasureKind = RoomSurveyMeasurement["kind"];
 type ObservationKind = RoomSurveyObservationInput["kind"];
 type SensorScope = "full" | "bounded";
+type PointMode = "aim" | "touch";
 type Sample =
   | { kind: "point" }
   | { kind: "measurement"; measure: MeasureKind; a?: Vec3 }
@@ -48,6 +50,8 @@ export class RoomSurveyPilot {
   readonly display: SurveyDisplay;
   private readonly bounds: THREE.Box3;
   private readonly inverse = new THREE.Matrix4();
+  private readonly trackingFromModel = new THREE.Matrix4();
+  private readonly aim: SurveyAimInput;
   private geometry = emptyGeometry();
   private extent: ReturnType<typeof surveyExtent>;
   private page: Page = "main";
@@ -58,9 +62,8 @@ export class RoomSurveyPilot {
   private plannedPreview: SensorScope | null = null;
   private missingSensorGeometry = false;
   private openingRoomSetup = false;
-  private hitSource: XRHitTestSource | null = null;
-  private lastHit: { point: Vec3; at: number } | null = null;
-  private useHit = false;
+  private pointMode: PointMode = "touch";
+  private preferredPointMode: PointMode | null = null;
   private sample: Sample | null = null;
   private readonly fingerprint: string;
   private saved: RoomSurveySummary | null = null;
@@ -70,12 +73,13 @@ export class RoomSurveyPilot {
   private targets: Target[] = [];
   private chosen: Target | null = null;
   private draft: RoomSurveyMoveInput | null = null;
+  private draftPointSource: "manual" | "hit-test" = "manual";
   private move: RoomSurveyMove | null = null;
   private reopenedMoves: RoomSurveyMove[] = [];
   private observationRequest: (RoomSurveyObservationInput & { surveyId: string }) | null = null;
 
   get sampling() { return this.sample !== null; }
-  get samplingWithHit() { return this.sampling && this.useHit; }
+  get aiming() { return this.sampling && this.pointMode === "aim"; }
 
   constructor(
     private readonly runtime: HouseRuntime,
@@ -85,23 +89,9 @@ export class RoomSurveyPilot {
   ) {
     this.display = new SurveyDisplay(room);
     this.bounds = surveyBounds(room);
+    this.aim = new SurveyAimInput(session, reference);
     this.extent = surveyExtent(this.geometry, room);
     this.fingerprint = runtime.store.getState().fingerprint!;
-    void this.initHitTest();
-  }
-
-  private async initHitTest() {
-    if (!this.session.requestHitTestSource) return;
-    try {
-      const viewer = await this.session.requestReferenceSpace("viewer");
-      const hit = await this.session.requestHitTestSource({ space: viewer, entityTypes: ["plane", "mesh"] })
-        ?.catch(() => this.session.requestHitTestSource?.({ space: viewer }));
-      if (!hit) return;
-      if (this.alive) this.hitSource = hit;
-      else hit.cancel();
-    } catch {
-      // Tracked points remain available on browsers that deny or omit hit testing.
-    }
   }
 
   frame(frame: XRFrame, matrix: THREE.Matrix4 | null, errorM: number | null): void {
@@ -113,11 +103,9 @@ export class RoomSurveyPilot {
     }
     this.display.apply(matrix);
     this.errorM = errorM;
+    this.trackingFromModel.copy(matrix);
     this.inverse.copy(matrix).invert();
-    const raw = this.useHit ? readSurveyHit(frame, this.hitSource, this.reference) : null;
-    const hit = raw && localToSurveyPoint(raw, this.inverse, this.bounds);
-    this.lastHit = hit ? { point: hit, at: performance.now() } : null;
-    this.display.showHit(hit);
+    this.aim.frame(frame, this.aiming);
     const scope = this.plannedPreview;
     if (!scope) return;
     this.plannedPreview = null;
@@ -174,38 +162,61 @@ export class RoomSurveyPilot {
   }
 
   pause(): void {
+    if (this.sample) this.notice = "Tracking stopped. Recheck alignment before starting a new measurement.";
     this.errorM = null;
-    this.sample = null;
-    this.useHit = false;
-    this.lastHit = null;
+    this.clearSample();
     this.plannedPreview = null;
     this.display.apply(null);
   }
 
   /** The event is deliberate. The supplied point comes from the controller or the separately confirmed index finger. */
   capture(local: THREE.Vector3 | null): void {
-    const sample = this.sample;
-    if (!sample || !this.aligned()) return;
-    const hit = this.lastHit;
-    const position = this.useHit
-      ? hit && performance.now() - hit.at < 160 ? hit.point : null
-      : local && localToSurveyPoint(local, this.inverse, this.bounds);
+    if (!this.sampling || this.aiming || !this.aligned()) return;
+    const position = local && localToSurveyPoint(local, this.inverse, this.bounds);
     if (!position) {
-      this.notice = this.useHit ? "No recent headset hit inside the survey extent." : "Touch a tracked point inside the survey extent.";
+      this.notice = "Touch a tracked point inside the survey extent.";
       return;
     }
-    if (sample.kind === "measurement" && !sample.a) {
-      this.sample = { ...sample, a: position };
-      this.notice = "Marked A. Confirm point B.";
-      return;
-    }
-    this.applySample(sample, position);
+    this.capturePoint(position, "manual");
   }
 
-  private applySample(sample: Sample, position: Vec3) {
+  previewAim(frame: XRFrame, source: XRInputSource, target: THREE.Vector3): THREE.Vector3 | null {
+    if (!this.aiming || !this.aligned()) return null;
+    return this.aim.preview(frame, source, this.trackingFromModel, target, (hit) => {
+      const point = localToSurveyPoint(hit, this.inverse, this.bounds);
+      if (!point || (this.sample?.kind === "move_position" && !pointInFootprint(point[0], point[2], this.room.footprint)))
+        return null;
+      return point;
+    });
+  }
+
+  hideAimPreview(source: XRInputSource): void { this.aim.hide(source); }
+
+  captureAim(frame: XRFrame, source: XRInputSource): void {
+    if (!this.aiming || !this.aligned()) return;
+    const point = this.aim.take(frame, source, this.trackingFromModel);
+    if (!point) {
+      this.notice = "Aim until the orange point is steady, then confirm. Choose touch if a surface is unavailable.";
+      return;
+    }
+    this.capturePoint(point, "hit-test");
+  }
+
+  private capturePoint(position: Vec3, source: "manual" | "hit-test") {
+    const sample = this.sample!;
+    if (sample.kind === "measurement" && !sample.a) {
+      this.sample = { ...sample, a: position };
+      this.display.showHit(position);
+      this.notice = "Point A marked in blue. Confirm point B.";
+      return;
+    }
+    this.applySample(sample, position, source);
+  }
+
+  private applySample(sample: Sample, position: Vec3, source: "manual" | "hit-test") {
     switch (sample.kind) {
       case "point":
-        if (!this.recordPoint(position)) return;
+        if (!this.recordPoint(position, source)) return;
         this.notice = "Point included in the room reference.";
         break;
       case "measurement": {
@@ -223,10 +234,12 @@ export class RoomSurveyPilot {
           return;
         }
         const { kind, item } = this.chosen;
+        const yawDeg = this.draft?.sample.yawDeg;
+        this.draftPointSource = source;
         this.draft = {
           requestId: crypto.randomUUID(), target: { kind, id: item.id },
           before: { position: item.position, yawDeg: item.rotationYDeg },
-          sample: { position }, registrationErrorM: this.errorM!,
+          sample: { position, ...(yawDeg === undefined ? {} : { yawDeg }) }, registrationErrorM: this.errorM!,
         };
         this.showDraft();
         this.notice = "Compare the original amber pose with the proposed green pose.";
@@ -254,12 +267,10 @@ export class RoomSurveyPilot {
         break;
       }
     }
-    this.sample = null;
-    this.useHit = false;
+    this.clearSample();
   }
 
-  private recordPoint(position: Vec3): boolean {
-    const source = this.useHit ? "hit-test" : "manual";
+  private recordPoint(position: Vec3, source: "manual" | "hit-test" = "manual"): boolean {
     if (this.geometry.surfaces.length >= 120) { this.notice = "This reference already has the maximum number of sample groups."; return false; }
     this.updateGeometry({ ...this.geometry, surfaces: [...this.geometry.surfaces, { source, points: [position] }] });
     return true;
@@ -270,13 +281,30 @@ export class RoomSurveyPilot {
       this.runtime.store.getState().fingerprint === this.fingerprint;
   }
 
-  private begin(sample: Sample, useHit = false) {
+  private begin(sample: Sample) {
     if (!this.aligned()) return;
-    this.useHit = useHit;
     this.sample = sample;
-    this.notice = useHit ? "Look at the first surface. Confirm the blue headset hit."
-      : "Touch the physical reference with the tracked point and confirm away from the menu.";
+    this.pointMode = this.preferredPointMode ?? (this.aim.available ? "aim" : "touch");
+    this.describeSampling();
   }
+
+  private describeSampling() {
+    const point = this.sample?.kind === "measurement" ? this.sample.a ? "point B" : "point A"
+      : this.sample?.kind === "move_position" ? "the object's placement point on its support"
+        : this.sample?.kind === "move_heading" ? "a point at least 15 cm in the object's forward direction" : "the physical reference";
+    this.notice = this.aiming ? `Aim at ${point} from where you stand. Confirm the orange point.`
+      : `Touch ${point} with the tracked probe or fingertip, then confirm.`;
+  }
+
+  private clearSample(): void {
+    this.sample = null;
+    this.aim.reset();
+    this.display.showHit(null);
+  }
+  private cancelSample = (): void => {
+    this.clearSample();
+    this.notice = "";
+  };
 
   private updateGeometry(geometry: RoomSurveyGeometry) {
     this.geometry = geometry;
@@ -457,16 +485,23 @@ export class RoomSurveyPilot {
     if (this.busy) return { title: `Survey · ${room.name}`, lines, rows: [] };
     if (sample) return {
       title: sample.kind === "measurement" ? MEASURE_KINDS[sample.measure] : `Survey · ${room.name}`,
-      lines, rows: [{ label: "Cancel point capture", act: () => { this.sample = null; this.notice = ""; this.useHit = false; } }],
+      lines, back: this.cancelSample, rows: [
+        ...(this.aiming || this.aim.available ? [{
+          label: this.aiming ? "Use touch instead" : "Aim from here",
+          act: () => {
+            this.pointMode = this.aiming ? "touch" : "aim";
+            this.preferredPointMode = this.pointMode;
+            this.aim.reset();
+            this.describeSampling();
+          },
+        }] : []),
+        { label: "Cancel point capture", act: this.cancelSample },
+      ],
     };
     if (this.page === "measure") return {
       title: "Measure the room", lines, rows: [
         ...Object.entries(MEASURE_KINDS).map(([kind, label]) => ({ label, act: () => this.begin({ kind: "measurement", measure: kind as MeasureKind }) })),
         { label: "Mark a physical point", act: () => this.begin({ kind: "point" }) },
-        ...(this.hitSource ? [
-          { label: "Mark the headset hit", act: () => this.begin({ kind: "point" }, true) },
-          { label: "Measure with two headset hits", act: () => this.begin({ kind: "measurement", measure: "distance" }, true) },
-        ] : []),
         home,
       ],
     };
@@ -524,8 +559,7 @@ export class RoomSurveyPilot {
   home() {
     if (this.busy) return;
     this.page = "main";
-    this.sample = null;
-    this.useHit = false;
+    this.clearSample();
     this.display.compare(null);
     this.notice = "";
   }
@@ -578,7 +612,8 @@ export class RoomSurveyPilot {
           ...(this.saved ? [
             { label: "Save as pending move", act: () => void this.saveMove() },
           ] : [{ label: "Mark and save a room reference first", act: () => {
-            if (!this.geometry.surfaces.length && !this.geometry.measurements.length) this.recordPoint(draft.sample.position);
+            if (!this.geometry.surfaces.length && !this.geometry.measurements.length)
+              this.recordPoint(draft.sample.position, this.draftPointSource);
             void this.saveReference();
           } }]),
         ] : []),
@@ -589,7 +624,7 @@ export class RoomSurveyPilot {
 
   dispose() {
     this.alive = false;
-    this.hitSource?.cancel();
+    this.clearSample();
     this.display.dispose();
   }
 }

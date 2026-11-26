@@ -225,23 +225,6 @@ export function readRoomSurfaces(
   return surfaces;
 }
 
-export function readSurveyHit(
-  frame: XRFrame,
-  source: XRHitTestSource | null,
-  reference: XRReferenceSpace,
-): Vector3 | null {
-  if (!source) return null;
-  const results = safelyRead(() => frame.getHitTestResults(source));
-  for (const hit of results ?? []) {
-    const pose = safelyRead(() => hit.getPose(reference) ?? undefined);
-    if (!pose || pose.emulatedPosition) continue;
-    const p = pose.transform.position;
-    const position = new Vector3(p.x, p.y, p.z);
-    if (finite(position)) return position;
-  }
-  return null;
-}
-
 /** Yaw is the Three.js rotation of an object's forward (-Z) axis toward the heading point. */
 export function surveyHeading(origin: Vec3, toward: Vec3): number | null {
   const dx = toward[0] - origin[0];

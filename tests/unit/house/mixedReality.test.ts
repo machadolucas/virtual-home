@@ -275,6 +275,109 @@ describe("mixed reality runs", () => {
     overlay.dispose();
   });
 
+  it("isolates every on-floor span of a picked route and restores the current overlay on repeat or empty selection", () => {
+    const other: Route = { ...route, id: "other", name: "Other pipe",
+      points: route.points.map(([x, y, z]) => [x, y, z + 1]),
+    };
+    const read = (x: number, z: number) => new Ray(new Vector3(x, 2, z), new Vector3(0, -1, 0));
+    const overlay = buildMixedRealityOverlay(manifest, [route, other], "f-lower");
+    expect(overlay.toggleFocus("pipe")).toBeNull();
+    overlay.applyTransform(new Matrix4());
+    expect(overlay.count).toBe(2);
+    expect(overlay.toggleFocus(overlay.pick(read(0.5, 0))?.id ?? null)).toBe("pipe");
+    expect(overlay.focusedId).toBe("pipe");
+    expect(overlay.count).toBe(1);
+    expect(overlay.pick(read(0.5, 1))).toBeNull();
+    expect(overlay.pick(read(1.5, 0))).toBeNull();
+    expect(overlay.pick(read(2.5, 0))).toMatchObject({ id: "pipe", approximate: true, certainty: "inferred" });
+    expect(overlay.toggleFocus("pipe")).toBeNull();
+    expect(overlay.pick(read(0.5, 1))?.id).toBe("other");
+    overlay.toggleFocus("pipe");
+    expect(overlay.toggleFocus(overlay.pick(read(0.5, 1))?.id ?? null)).toBeNull();
+    expect(overlay.count).toBe(2);
+    expect(route.points).toEqual([[0, 0, 0], [1, 0, 0], [1, 3, 0], [2, 3, 0], [2, 0, 0], [3, 0, 0]]);
+    overlay.dispose();
+  });
+
+  it("clears tracing on filter choice, lost verification and disappearance of the focused route", () => {
+    const duct: Route = { ...route, id: "duct", kind: "duct" };
+    const overlay = buildMixedRealityOverlay(manifest, [route, duct], "f-lower");
+    overlay.applyTransform(new Matrix4());
+    overlay.toggleFocus("pipe");
+    overlay.setFilter("both");
+    expect(overlay.focusedId).toBeNull();
+    expect(overlay.count).toBe(2);
+    overlay.toggleFocus("pipe");
+    overlay.setFilter("ducts");
+    expect(overlay.focusedId).toBeNull();
+    expect(overlay.toggleFocus("pipe")).toBeNull();
+    overlay.toggleFocus("duct");
+    overlay.applyTransform(null);
+    expect(overlay.focusedId).toBeNull();
+    expect(overlay.group.visible).toBe(false);
+    overlay.applyTransform(new Matrix4());
+    overlay.toggleFocus("duct");
+    overlay.setRoutes([route, { ...duct, flowState: "inactive" }]);
+    expect(overlay.focusedId).toBeNull();
+    expect(overlay.count).toBe(0);
+    overlay.dispose();
+  });
+
+  it("switches tracing visibility without rebuilding full geometry and keeps only one cached trace", () => {
+    const other: Route = { ...route, id: "other", kind: "duct" };
+    const overlay = buildMixedRealityOverlay(manifest, [route, other], "f-lower");
+    overlay.applyTransform(new Matrix4());
+    const floor = overlay.group.getObjectByName("vh-mr-floor-routes")!;
+    const geometryIn = (root: { getObjectsByProperty(name: string, value: unknown): unknown[] }) =>
+      (root.getObjectsByProperty("isMesh", true)[0] as Mesh).geometry;
+    const geometry = geometryIn(floor);
+    const disposeFloor = vi.spyOn(geometry, "dispose");
+
+    overlay.toggleFocus("pipe");
+    const trace = overlay.group.getObjectByName("vh-mr-focused-route")!;
+    const traceGeometry = geometryIn(trace);
+    const disposeTrace = vi.spyOn(traceGeometry, "dispose");
+    expect(floor.visible).toBe(false);
+    expect(trace.visible).toBe(true);
+    overlay.clearFocus();
+    expect(floor.visible).toBe(true);
+    expect(trace.visible).toBe(false);
+    expect(geometryIn(floor)).toBe(geometry);
+    expect(disposeFloor).not.toHaveBeenCalled();
+    expect(disposeTrace).not.toHaveBeenCalled();
+
+    overlay.toggleFocus("pipe");
+    expect(overlay.group.getObjectByName(trace.name)).toBe(trace);
+    expect(geometryIn(trace)).toBe(traceGeometry);
+    overlay.clearFocus();
+    overlay.toggleFocus("other");
+    expect(disposeTrace).toHaveBeenCalledOnce();
+    expect(trace.parent).toBeNull();
+    const replacement = overlay.group.getObjectByName(trace.name)!;
+    const disposeReplacement = vi.spyOn(geometryIn(replacement), "dispose");
+    expect(overlay.group.children).toHaveLength(2);
+
+    overlay.setRoutes([{ ...route }, other]);
+    expect(disposeReplacement).toHaveBeenCalledOnce();
+    expect(disposeFloor).toHaveBeenCalledOnce();
+    expect(overlay.focusedId).toBeNull();
+    expect(overlay.group.children).toHaveLength(1);
+    overlay.toggleFocus("pipe");
+    const beforeFilter = overlay.group.getObjectByName(trace.name)!;
+    const disposeBeforeFilter = vi.spyOn(geometryIn(beforeFilter), "dispose");
+    overlay.setFilter("ducts");
+    expect(disposeBeforeFilter).toHaveBeenCalledOnce();
+    expect(overlay.group.children).toHaveLength(1);
+
+    overlay.toggleFocus("other");
+    const disposeLastTrace = vi.spyOn(geometryIn(overlay.group.getObjectByName(trace.name)!), "dispose");
+    const disposeLastFloor = vi.spyOn(geometryIn(floor), "dispose");
+    overlay.dispose();
+    expect(disposeLastTrace).toHaveBeenCalledOnce();
+    expect(disposeLastFloor).toHaveBeenCalledOnce();
+    expect(overlay.group.children).toHaveLength(0);
+  });
+
   it("represents observed-but-estimated routes as approximate only in the mixed reality overlay", () => {
     const observed: Route = { ...route, certainty: "observed", isEstimated: true };
     const overlay = buildMixedRealityOverlay(manifest, [observed], "f-lower");
@@ -334,6 +437,14 @@ describe("mixed reality runs", () => {
     expect(supplyBand.vhRoutePhase?.value).toBeCloseTo(0.035);
     expect(extractBand.vhRoutePhase?.value).toBeCloseTo(0.02);
     expect(extractBand.vhRouteMotion?.value).toBe(0);
+    overlay.toggleFocus("supply");
+    overlay.tick(0.025, true, { supply: 1, extract: 1 });
+    expect(supplyBand.vhRoutePhase?.value).toBeCloseTo(0.06);
+    expect(extractBand.vhRoutePhase?.value).toBeCloseTo(0.02);
+    overlay.clearFocus();
+    overlay.tick(0.025, true, { supply: 0, extract: 0.4 });
+    expect(supplyBand.vhRoutePhase?.value).toBeCloseTo(0.06);
+    expect(extractBand.vhRoutePhase?.value).toBeCloseTo(0.03);
     overlay.dispose();
   });
 });

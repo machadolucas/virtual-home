@@ -50,8 +50,9 @@ export class MixedPilot {
 
   get aimingAtRoom(): boolean {
     const state = this.calibration?.state;
-    return !this.setupOpen && !!state && state.phase !== "ready" &&
-      !!(this.hint || (this.manual && state.selected && this.remotePoints()));
+    return !this.setupOpen && !!state && (state.phase === "ready"
+      ? this.survey?.aiming === true
+      : !!(this.hint || (this.manual && state.selected && this.remotePoints())));
   }
 
   constructor(private runtime: HouseRuntime, private session: XRSession, private space: XRReferenceSpace,
@@ -85,6 +86,7 @@ export class MixedPilot {
         if (s.phase === "ready") return;
         this.readyTransform = null;
         this.overlay?.applyTransform(null);
+        this.selectedRoute = null;
         this.survey?.pause();
         if (s.phase === "tracking-lost") this.clearScan();
       } });
@@ -112,7 +114,7 @@ export class MixedPilot {
     const features = this.roomFeatures(room);
     const error = state.errorM === null ? "" : `Alignment error: ${(100 * state.errorM).toFixed(1)} cm`;
     const reset = { label: "Realign the room", act: () => {
-      this.selectedRoute = null;
+      this.clearRouteFocus();
       this.hand.clear();
       this.manual = false;
       this.pointMode = "auto";
@@ -178,15 +180,22 @@ export class MixedPilot {
     }
     if (this.survey) {
       const menu = this.survey.menu();
-      if (this.survey.sampling || this.hand.aiming) menu.lines.unshift(handNotice);
+      if (this.survey.sampling && !this.survey.aiming) menu.lines.unshift(handNotice);
       menu.rows.push(reset, change);
       return menu;
     }
+    const focused = this.overlay?.focusedId != null;
     return { title: room.name, lines: [error + (state.persistence === "saved" ? " · Anchor saved" : " · Session alignment"),
-      fans, this.selectedRoute?.label ?? "Dashed paths: approximate concealed route."],
-      rows: [...(["pipes", "ducts", "both"] as const).map(filter => ({ label: (filter === this.filter ? "✓ " : "") + filter[0]!.toUpperCase() + filter.slice(1),
-        act: () => { this.filter = filter; this.selectedRoute = null; this.overlay?.setFilter(filter); } })),
+      fans, focused ? this.selectedRoute?.label ?? "Tracing one route" : "Trigger a route to trace it. Dashed paths are approximate."],
+      rows: [
+        ...(focused ? [{ label: "Show all routes", act: () => this.clearRouteFocus() }] : []),
+        ...(["pipes", "ducts", "both"] as const).map(filter => ({ label: (filter === this.filter ? "✓ " : "") + filter[0]!.toUpperCase() + filter.slice(1),
+          act: () => { this.filter = filter; this.selectedRoute = null; this.overlay?.setFilter(filter); } })),
         { label: "Capture model fix · overlay only", act: capture }, reset, change] };
+  }
+  clearRouteFocus(): void {
+    this.overlay?.clearFocus();
+    this.selectedRoute = null;
   }
   frame(frame: XRFrame, delta: number, motion: boolean, fanRates: { supply: number; extract: number }) {
     if (!this.calibration) return;
@@ -204,22 +213,31 @@ export class MixedPilot {
     this.readyTransform = matrix;
     this.survey?.frame(frame, matrix, this.calibration.state.errorM);
     this.overlay?.applyTransform(matrix);
-    if (!matrix || !this.overlay) return;
+    if (!matrix || !this.overlay) {
+      this.selectedRoute = null;
+      return;
+    }
     this.overlay.setRoutes(this.runtime.store.getState().routes);
+    if (this.selectedRoute?.id !== this.overlay.focusedId) this.selectedRoute = null;
     this.overlay.tick(delta, motion, fanRates);
   }
   probePosition(frame: XRFrame, source: XRInputSource, target: THREE.Vector3): THREE.Vector3 | null {
     if (!this.calibration) return null;
+    if (this.survey?.aiming && this.calibration.state.phase === "ready") return this.survey.previewAim(frame, source, target);
     if (this.aimingAtRoom) return this.pointAtScan(frame, source, target);
     return source.hand ? trackedIndexTip(frame, this.space, source, target)
       : this.calibration.pointerPosition(frame, source.gripSpace, target);
   }
+  hideAimPreview(source: XRInputSource): void { this.survey?.hideAimPreview(source); }
   select(frame: XRFrame, source: XRInputSource, ray: THREE.Ray | null) {
     const calibration = this.calibration;
     if (!calibration || this.setupOpen) return;
     const { phase, selected } = calibration.state;
     if (phase === "ready" && this.overlay) {
-      this.selectedRoute = ray ? this.overlay.pick(ray) : null;
+      if (!ray || !this.overlay.group.visible) return;
+      const hit = this.overlay.pick(ray);
+      const focused = this.overlay.toggleFocus(hit?.id ?? null);
+      this.selectedRoute = focused && hit?.id === focused ? hit : null;
       return;
     }
     if (this.hint && this.alignmentModel && (phase === "select" || phase === "verify")) {
@@ -237,8 +255,8 @@ export class MixedPilot {
     }
     if (!(phase === "ready" ? this.survey?.sampling : selected)) return;
     if (phase !== "ready" && !this.manual) return;
-    if (this.survey?.samplingWithHit && phase === "ready") {
-      this.survey.capture(null);
+    if (this.survey?.aiming && phase === "ready") {
+      this.survey.captureAim(frame, source);
       return;
     }
     if (phase !== "ready" && this.remotePoints()) {
@@ -385,6 +403,7 @@ export class MixedPilot {
   private clearRoom() {
     this.calibration?.dispose(); this.calibration = null;
     this.overlay?.dispose(); this.overlay = null;
+    this.selectedRoute = null;
     this.survey?.dispose(); this.survey = null;
     this.readyTransform = null;
     this.hand.clear();

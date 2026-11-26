@@ -10,6 +10,9 @@ import { HouseSession } from "@/house/xr/session";
 import { createRuntime } from "@/house/runtime";
 import { createHouseStore } from "@/house/store/createHouseStore";
 import { createMemoryDataApi } from "@/house/store/dataApi";
+import { MixedPilot } from "@/house/xr/mixedPilot";
+import { WalkHistory } from "@/house/xr/wayfinding";
+import { SolidInterior } from "@/house/xr/solidInterior";
 import { buildScene } from "./sceneFromGlb";
 import { FIXTURE_DIR } from "./glb";
 import type { Surface } from "@/house/model/types";
@@ -29,6 +32,7 @@ function canvas() {
     clip: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
+    quadraticCurveTo: vi.fn(),
     closePath: vi.fn(),
     arc: vi.fn(),
     createLinearGradient: () => ({ addColorStop: vi.fn() }),
@@ -55,7 +59,7 @@ function flat() {
   const floor = box("paved-test", new T.Vector3(100, 0.1, 100), new T.Vector3(0, -0.05, 0), "paving");
   return { index, scene, box, floor };
 }
-function sessionFixture(configure?: (layout: ReturnType<typeof flat>) => void) {
+function sessionFixture(configure?: (layout: ReturnType<typeof flat>) => void, mode: "vr" | "mr" | "survey" = "vr") {
   canvas();
   const layout = flat();
   configure?.(layout);
@@ -80,7 +84,7 @@ function sessionFixture(configure?: (layout: ReturnType<typeof flat>) => void) {
   const active = new HouseSession(
     runtime,
     inputs as unknown as XRSession,
-    "vr",
+    mode,
     new EventTarget() as XRReferenceSpace,
   );
   let time = 2000;
@@ -100,6 +104,125 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("Quest motion and pointing", () => {
+  it("undoes completed teleports one at a time with right B and preserves the original heading", () => {
+    const { active, source, render, axes, inputs, frame } = sessionFixture();
+    const buttons = Array.from({length: 6}, () => ({pressed: false}));
+    Object.assign(source, {profiles: ["meta-quest-touch-plus"]});
+    Object.assign(source.gamepad, {mapping: "xr-standard", buttons});
+    render();
+    const origin = active.rig.position.clone();
+    for (let i = 0; i < 2; i++) {
+      axes[3] = -1; render(); render();
+      axes[3] = 0; render(); render(.12); render(.15);
+    }
+    const after = active.rig.position.clone();
+    buttons[5]!.pressed = true;
+    render(); render(.12); render(.15);
+    const returned = active.rig.position.clone();
+    expect(returned.z).toBeGreaterThan(after.z + .5);
+    expect(returned.z).toBeLessThan(origin.z - .5);
+    render(.5);
+    expect(active.rig.position.toArray()).toEqual(returned.toArray());
+    buttons[5]!.pressed = false; render();
+    axes[2] = 1; render(); render(.12); render(.15);
+    axes[2] = 0; render();
+    expect(Math.abs(active.rig.rotation.y)).toBeGreaterThan(.4);
+    buttons[5]!.pressed = true; render(); render(.12); render(.15);
+    expect(active.rig.position.distanceTo(origin)).toBeLessThan(.0001);
+    expect(active.rig.rotation.y).toBeCloseTo(0);
+    buttons[5]!.pressed = false; render();
+    inputs.dispatchEvent(Object.assign(new Event("squeeze"), {inputSource: source, frame}));
+    render();
+    const panel = active.rig.getObjectByName("vh-headset-menu")!;
+    expect(panel.visible).toBe(true);
+    buttons[5]!.pressed = true; render(); render(.1); // closing the menu does not travel
+    expect(panel.visible).toBe(false);
+    expect(active.rig.position.distanceTo(origin)).toBeLessThan(.0001);
+    active.dispose();
+  });
+
+  it("keeps eight distinct return points in model space and copies the tracked position", () => {
+    const history = new WalkHistory(), feet = new T.Vector3();
+    const place = {id: "outside", name: "Yard", area: "Yard" as const};
+    for (let i = 0; i < 10; i++) history.remember(feet.set(i, 0, 0), 0, place);
+    history.remember(feet, 0, place);
+    feet.set(30, 0, 0);
+    const saved = []; while (history.previous) {
+      const stop = history.previous; saved.push(stop.feet.x); history.returned(stop);
+    }
+    expect(saved).toEqual([9, 8, 7, 6, 5, 4, 3, 2]);
+  });
+
+  it("rechecks a return point after the scene changes, and ignores B held while connecting", () => {
+    let geometry!: ReturnType<typeof flat>;
+    const {active, source, axes, render} = sessionFixture(layout => { geometry = layout; });
+    const buttons = Array.from({length: 6}, () => ({pressed: false}));
+    Object.assign(source.gamepad, {mapping: "xr-standard", buttons});
+    render();
+    const original = active.rig.position.clone();
+    axes[3] = -1; render(); render(); axes[3] = 0; render(); render(.12); render(.15);
+    const landed = active.rig.position.clone();
+    expect(landed.distanceTo(original)).toBeGreaterThan(.6);
+    buttons[5]!.pressed = true; render();
+    Object.assign(source, {profiles: ["oculus-touch-v3"]});
+    render(); render(.25);
+    expect(active.rig.position.distanceTo(landed)).toBeLessThan(.001);
+    buttons[5]!.pressed = false; render();
+    geometry.box("new-obstacle", new T.Vector3(.35, 2, .35), original.clone().add(new T.Vector3(0, 1, 0)), "wall");
+    geometry.index.pickables = [...geometry.index.pickables];
+    render();
+    buttons[5]!.pressed = true; render(); render(.12); render(.15);
+    expect(active.rig.position.distanceTo(landed)).toBeLessThan(.001);
+    expect(active.rig.getObjectByName("vh-xr-notice")?.visible).toBe(true);
+    active.dispose();
+  });
+
+  it("respects open shells and hollow space within a closed collider", () => {
+    const faces = (size: number) => {
+      const geometry = new T.BoxGeometry(size, size, size).toNonIndexed();
+      const positions = geometry.getAttribute("position");
+      const triangles: T.Triangle[] = [];
+      const vertex = (i: number) => new T.Vector3().fromBufferAttribute(positions, i);
+      for (let i = 0; i < positions.count; i += 3)
+        triangles.push(new T.Triangle(vertex(i), vertex(i + 1), vertex(i + 2)));
+      geometry.dispose();
+      return triangles;
+    };
+    const bounds = new T.Box3(new T.Vector3(-2,-2,-2), new T.Vector3(2,2,2));
+    const body = new T.Box3(new T.Vector3(-.16,-.5,-.16), new T.Vector3(.16,.7,.16));
+    const outer = faces(4);
+    expect(new SolidInterior(bounds, outer).containsBody(body)).toBe(true);
+    expect(new SolidInterior(bounds, outer.slice(2)).containsBody(body)).toBe(false);
+    expect(new SolidInterior(bounds, [...outer, ...faces(2)]).containsBody(body)).toBe(false);
+  });
+
+  it.each(["mr", "survey"] as const)("handles the transition to verified %s and reopens setup when registration drops", mode => {
+    let ready = true;
+    vi.spyOn(MixedPilot.prototype, "frame").mockImplementation(function (this: MixedPilot) {
+      this.room = this.rooms[0]!;
+      this.readyTransform = ready ? new T.Matrix4() : null;
+      Object.assign(this, {calibration: {state: {phase: ready ? "ready" : "verify", errorM: .024}, dispose() {}}});
+    });
+    vi.spyOn(MixedPilot.prototype, "menu").mockReturnValue({title: "Room", lines: [], rows: []});
+    vi.spyOn(MixedPilot.prototype, "probePosition").mockReturnValue(null);
+    const { active, render, inputs } = sessionFixture(undefined, mode);
+    render();
+    const panel = active.rig.getObjectByName("vh-headset-menu")!;
+    const notice = active.rig.getObjectByName("vh-xr-notice")!;
+    expect(panel.visible).toBe(mode === "survey");
+    expect(notice.visible).toBe(mode === "mr");
+    if (mode === "mr") {
+      inputs.dispatchEvent(new Event("squeeze")); render();
+      expect(panel.visible).toBe(true); // tools can stay open while already aligned
+    }
+    inputs.dispatchEvent(new Event("squeeze")); render();
+    expect(panel.visible).toBe(false);
+    ready = false; render();
+    expect(panel.visible).toBe(true);
+    expect(notice.visible).toBe(false);
+    active.dispose();
+  });
+
   it("repeats five stick teleports without panel or trigger, cancels on source change, and cleans up", () => {
     const { active, render, axes, inputs } = sessionFixture();
     render();

@@ -16,6 +16,8 @@ import { FrameBudget, WalkAppearance } from "./visuals";
 import { type FrameArea } from "./frameLog";
 import { HandHints } from "./handHints";
 import { InputBeams, pulse } from "./pointers";
+import { HeadsetNotice } from "./headsetNotice";
+import { QuestBackButton, WalkHistory, walkPlace, type WalkStop } from "./wayfinding";
 
 interface FrameOptions {
   motion: boolean;
@@ -40,6 +42,9 @@ export class HouseSession {
   private readonly poseMatrix = new THREE.Matrix4();
   private readonly ray = new THREE.Raycaster();
   private readonly panel = new HeadsetPanel();
+  private readonly statusCard = new HeadsetNotice();
+  private readonly history = new WalkHistory();
+  private readonly backButton = new QuestBackButton();
   private readonly ui = new THREE.Group();
   private readonly beams = new InputBeams();
   private readonly inputHints: HandHints | null;
@@ -55,9 +60,14 @@ export class HouseSession {
   private low = false;
   private area: FrameArea = "House";
   private locatedAt = 0;
+  private placeId?: string;
+  private pendingPlaceId?: string;
+  private announceDestination = false;
+  private alignedRoom: string | null = null;
   private presses = new Map<XRInputSource, Press>();
   private stickSource: XRInputSource | null = null;
   private nextSample: XRInputSource | null = null;
+  private routeAtPress: string | null | undefined;
   private sticksNeutral = true;
   private walkEnabled = true;
   private walkNeutral = true;
@@ -117,7 +127,7 @@ export class HouseSession {
       return position ? [{ room, position }] : [];
     });
     this.rig.add(this.camera, this.ui);
-    this.ui.add(this.panel.mesh, this.beams.group, this.fade);
+    this.ui.add(this.panel.mesh, this.beams.group, this.fade, this.statusCard.mesh);
     this.fade.renderOrder = 10000;
     this.fade.visible = false;
     this.scene.add(this.rig, this.arc.group);
@@ -135,6 +145,7 @@ export class HouseSession {
   }
 
   private recall = () => {
+    this.statusCard.hide();
     this.placeMenu = true;
     this.panel.mesh.visible = true;
     this.lastMenu = 0;
@@ -216,6 +227,7 @@ export class HouseSession {
           d.room.kind === "room" &&
           /garage/i.test(this.runtime.manifest!.buildings.get(d.room.buildingId ?? "")?.name ?? ""),
       );
+      const previous = this.history.previous;
       menu = {
         title: "Virtual Home",
         close: () => this.panel.hide(),
@@ -264,6 +276,10 @@ export class HouseSession {
             icon: "camera",
             act: this.capture,
           },
+          ...(previous ? [{
+            id: "return", label: "Return to " + previous.place.name, detail: previous.place.floor,
+            act: () => this.returnToPrevious(),
+          }] : []),
         ],
       };
     }
@@ -301,17 +317,50 @@ export class HouseSession {
     }
     this.home();
     this.panel.hide();
+    this.blink(dest, heading, true);
+  }
+
+  private blink(dest: THREE.Vector3, heading?: number, announce = false, returning?: WalkStop) {
     this.move(() => {
+      // Scene assets and the wearer's height can change between the preview and the dark frame.
+      if (!this.world?.canStand(dest, this.head.y)) {
+        if (returning) this.history.returned(returning);
+        this.statusCard.show({title: "Landing is blocked", detail: "Choose another spot.", tone: "warning"}, this.head, this.orientation);
+        return;
+      }
+      const feet = this.rig.localToWorld(this.head.clone());
+      feet.y = this.rig.position.y;
+      if (returning) this.history.returned(returning);
+      else if (this.world?.canStand(feet, this.head.y))
+        this.history.remember(feet, viewHeading(this.rig, this.orientation), walkPlace(this.runtime, feet, this.destinations));
       if (heading === undefined) teleport(this.rig, this.head, dest);
       else landFacing(this.rig, this.head, this.orientation, dest, heading);
+      this.locatedAt = 0;
+      this.announceDestination = announce;
     });
   }
 
+  private returnToPrevious() {
+    const stop = this.history.previous;
+    if (!stop || !this.world || this.fadeStart !== null) return;
+    if (!this.world.canStand(stop.feet, this.head.y)) {
+      this.history.returned(stop);
+      this.statusCard.show({title: "Return point is blocked", detail: "Choose another landing.", tone: "warning"}, this.head, this.orientation);
+      this.lastMenu = 0;
+      return;
+    }
+    this.home();
+    this.panel.hide();
+    this.blink(stop.feet, stop.heading, true, stop);
+  }
+
   private resetInput = () => {
+    this.backButton.reset();
     this.inputHints?.hide();
     this.panel.cancel();
     this.presses.clear();
     this.nextSample = null;
+    this.routeAtPress = undefined;
     this.stickSource = null;
     this.arc.clear();
     this.sticksNeutral = false;
@@ -404,7 +453,7 @@ export class HouseSession {
       const p = this.arc.landing,
         heading = press.heading!;
       if (p) {
-        this.move(() => landFacing(this.rig, this.head, this.orientation, p, heading));
+        this.blink(p, heading);
         pulse(source);
       }
       this.walkNeutral = false;
@@ -416,7 +465,7 @@ export class HouseSession {
       }
     } else if (press.kind === "travel" && hasRay && performance.now() - press.since >= HAND_AIM_MS) {
       const p = this.arc.landing;
-      if (p && this.arc.group.visible) this.move(() => teleport(this.rig, this.head, p));
+      if (p && this.arc.group.visible) this.blink(p);
       this.arc.clear();
     } else if (press.kind === "equipment" && this.world && hasRay) {
       const hit = this.picker.target(this.world, this.ray, this.runtime.markers);
@@ -431,8 +480,11 @@ export class HouseSession {
         pulse(source);
       }
     } else if (press.kind === "mixed" && this.mixed) {
-      if (!press.id || (hasRay && this.mixed.overlay?.pick(this.ray.ray)?.id === press.id))
+      const choosingRoute = this.mode === "mr" && !!this.mixed.readyTransform;
+      if (!choosingRoute || (hasRay && this.mixed.overlay?.pick(this.ray.ray)?.id === press.id)) {
         this.nextSample = source;
+        this.routeAtPress = choosingRoute ? press.id ?? null : undefined;
+      }
     }
     this.presses.delete(source);
   };
@@ -484,7 +536,7 @@ export class HouseSession {
       } else if (neutral) {
         const p = this.arc.landing;
         if (p) {
-          this.move(() => teleport(this.rig, this.head, p));
+          this.blink(p);
           pulse(right);
         }
         this.stickSource = null;
@@ -567,7 +619,10 @@ export class HouseSession {
       const { line, dot, label } = slot;
       this.poseMatrix.fromArray(pose.transform.matrix).decompose(line.position, line.quaternion, line.scale);
       const hit = this.panel.hit(this.ray);
-      if (hit) slot.probe.visible = false;
+      if (hit) {
+        slot.probe.visible = false;
+        this.mixed?.hideAimPreview(source);
+      }
       this.panel.cursor(i, hit);
       if (this.panel.owns(source)) this.panel.drag(source, this.panel.hit(this.ray, true));
       const press = this.presses.get(source);
@@ -589,6 +644,8 @@ export class HouseSession {
         if (wrist) {
           point = wrist.point;
           active = true;
+          slot.probe.visible = false;
+          this.mixed?.hideAimPreview(source);
         } else if (this.world) {
           const target = this.picker.target(this.world, this.ray, this.runtime.markers);
           point = target?.point;
@@ -646,11 +703,52 @@ export class HouseSession {
       }
     }
   }
+  private updatePlace(now: number) {
+    if (this.mixed) {
+      this.area = this.mode === "survey" ? "Room survey" : "Mixed reality";
+      const room = this.mixed.room;
+      const verified = room && this.mixed.readyTransform;
+      if (!verified) {
+        if (this.alignedRoom) this.recall();
+        this.alignedRoom = null;
+      } else if (room.id !== this.alignedRoom && this.presses.size === 0) {
+        this.alignedRoom = room.id;
+        if (this.mode === "mr") {
+          this.panel.hide();
+          const error = this.mixed.calibration?.state.errorM;
+          const name = this.runtime.store.getState().labelPreferences.names[room.id] ?? room.name;
+          const detail = [error == null ? "" : `${(100 * error).toFixed(1)} cm`, "Select a route to trace"].filter(Boolean).join(" · ");
+          this.statusCard.show({title: name + " aligned", detail, tone: "success", durationMs: 4800}, this.head, this.orientation, now);
+        }
+      }
+      return;
+    }
+    if (!this.world || this.firstPose || (this.locatedAt && now - this.locatedAt < 450)) return;
+    const feet = this.movement.copy(this.worldHead);
+    feet.y = this.rig.position.y;
+    const place = walkPlace(this.runtime, feet, this.destinations);
+    this.area = place.area;
+    // Do not flash a card for every doorway crossed in passing. Named travel is immediate.
+    if (this.announceDestination || !this.placeId || (place.id !== this.placeId && this.pendingPlaceId === place.id)) {
+      const first = !this.placeId;
+      this.placeId = place.id;
+      if (!this.panel.mesh.visible) {
+        const usingHands = Array.from(this.session.inputSources).some(input => input.hand);
+        const detail = [place.floor, first ? (usingHands ? "Pinch the wrist menu" : "Grip for menu") : ""].filter(Boolean).join(" · ");
+        this.statusCard.show({title: place.name, detail, tone: "arrival"}, this.head, this.orientation, now);
+      }
+    }
+    this.pendingPlaceId = place.id;
+    this.announceDestination = false;
+    this.locatedAt = now;
+  }
+
   frame(gl: THREE.WebGLRenderer, frame: XRFrame, delta: number, options: FrameOptions) {
     this.mixed?.frame(frame, delta, options.motion, options.rates);
     const viewer = frame.getViewerPose(this.space);
     if (!viewer || this.session.visibilityState !== "visible" || viewer.emulatedPosition) {
       this.resetInput();
+      this.statusCard.hide();
       this.beams.clear();
       if (this.mixed) gl.clear();
       return;
@@ -678,6 +776,13 @@ export class HouseSession {
     const sources = Array.from(this.session.inputSources).filter(
       (s) => s.targetRayMode === "tracked-pointer",
     );
+    if (this.backButton.pressed(sources)) {
+      if (this.presses.size || this.stickSource) this.resetInput();
+      else if (this.panel.mesh.visible) {
+        this.panel.backOrClose();
+        this.lastMenu = 0;
+      } else this.returnToPrevious();
+    }
     this.inputHints?.update(frame, this.space, sources);
     this.locomotion(frame, sources, dt);
     if (this.placeMenu) {
@@ -701,22 +806,8 @@ export class HouseSession {
     this.worldHead.copy(this.head).applyMatrix4(this.rig.matrixWorld);
     this.appearance?.sky.position.copy(this.worldHead);
     this.appearance?.updateSky(this.scene, now);
-    if (!this.locatedAt || now - this.locatedAt > 500) {
-      if (this.mixed) this.area = this.mode === "survey" ? "Room survey" : "Mixed reality";
-      else {
-        const room = this.destinations.find(
-          (d) =>
-            Math.abs(d.room.floorElevation - this.rig.position.y) < 0.6 &&
-            pointInFootprint(this.worldHead.x, this.worldHead.z, d.room.footprint),
-        );
-        this.area = room
-          ? /garage/i.test(this.runtime.manifest!.buildings.get(room.room.buildingId ?? "")?.name ?? "")
-            ? "Garage"
-            : "House"
-          : "Yard";
-      }
-      this.locatedAt = now;
-    }
+    this.updatePlace(now);
+    this.statusCard.tick(now);
     this.budget.tick(now, this.area);
     if (this.panel.mesh.visible && (!this.lastMenu || now - this.lastMenu > 200)) {
       this.panel.draw(this.menu(options), this.home, () => {
@@ -726,9 +817,25 @@ export class HouseSession {
     }
     if (this.nextSample && this.mixed) {
       const source = this.nextSample;
+      const expected = this.routeAtPress;
       this.nextSample = null;
-      if (sources.includes(source))
-        this.mixed.select(frame, source, this.rayFrom(frame, source) ? this.ray.ray : null);
+      this.routeAtPress = undefined;
+      if (sources.includes(source)) {
+        const ray = this.rayFrom(frame, source) ? this.ray.ray : null;
+        const overlay = this.mixed.overlay;
+        if (expected === undefined) this.mixed.select(frame, source, ray);
+        else if (ray && overlay?.group.visible && (overlay.pick(ray)?.id ?? null) === expected) {
+          const previous = overlay.focusedId;
+          this.mixed.select(frame, source, ray);
+          if (previous !== overlay.focusedId) {
+            const route = this.mixed.selectedRoute;
+            this.statusCard.show(overlay.focusedId && route
+              ? {title: route.name, detail: route.approximate ? "Approximate · Select again for all" : "Tracing · Select again for all"}
+              : {title: "Showing all routes", detail: "Point at one and click to trace it."},
+              this.head, this.orientation, now);
+          }
+        }
+      }
     }
     if (this.panel.mesh.visible) this.panel.tick(dt);
     this.pointers(frame, sources, now);
@@ -822,6 +929,7 @@ export class HouseSession {
     this.rig.removeFromParent();
     this.scene.background = this.previousBackground;
     this.panel.dispose();
+    this.statusCard.dispose();
     this.fade.geometry.dispose();
     this.fade.material.dispose();
     this.runtime.store.setState({ immersiveMode: null, immersiveLowDetail: false });

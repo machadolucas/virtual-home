@@ -8,7 +8,7 @@ import * as api from "@/house/roomSurveyApi";
 import { reviewRoomSurveyMove } from "@/house/roomSurveyReview";
 import { requestHouseSession } from "@/house/xr/presentation";
 import { RoomSurveyPilot } from "@/house/xr/roomSurvey";
-import { measurementLength, readFullRoomSurfaces, readRoomSurfaces, readSurveyHit, surveyBounds, surveyExtent } from "@/house/xr/surveyGeometry";
+import { measurementLength, readFullRoomSurfaces, readRoomSurfaces, surveyBounds, surveyExtent } from "@/house/xr/surveyGeometry";
 import { HandConfirmation, trackedIndexTip } from "@/house/xr/surveyInput";
 import { FIXTURE_DIR, loadManifest } from "./glb";
 
@@ -50,6 +50,39 @@ function buildSurvey(initiateRoomCapture?: XRSession["initiateRoomCapture"]) {
   const survey = new RoomSurveyPilot(runtime, session, reference, room);
   survey.frame(frame, localFromModel, 0.025);
   return { survey, frame };
+}
+
+function buildAimedSurvey(kind: "native" | "mesh") {
+  const state = { fingerprint, placements: [] };
+  const runtime = { base: "/house", store: { getState: () => state } } as unknown as HouseRuntime;
+  const source = { targetRayMode: "tracked-pointer", targetRaySpace: {}, handedness: "right" } as XRInputSource;
+  const hitSource = { cancel: vi.fn() };
+  const requestHitTestSource = kind === "native" ? vi.fn().mockResolvedValue(hitSource) : undefined;
+  const viewer = tracked(2, 6.65, 0.5);
+  const origin = tracked(2, 6.35, 1);
+  const pointing = new Matrix4();
+  let hit = tracked(1, 5, 1);
+  const aim = (point: Vector3) => pointing.lookAt(origin, point, new Vector3(0, 1, 0)).setPosition(origin);
+  aim(hit);
+  const session = { visibilityState: "visible", requestHitTestSource, inputSources: [source] } as unknown as XRSession;
+  const frame = {
+    session,
+    ...(kind === "mesh" ? { detectedMeshes: new Set([{ meshSpace: {},
+      vertices: Float32Array.from([[0, 5, 0], [4, 5, 0], [4, 5, 3], [0, 5, 3]]
+        .flatMap(([x, y, z]) => tracked(x!, y!, z!).toArray())),
+      indices: Uint32Array.from([0, 1, 2, 0, 2, 3]),
+    }]) } : {}),
+    getViewerPose: () => ({ emulatedPosition: false, transform: { position: viewer } }),
+    getPose: (spatial: XRSpace) => ({
+      emulatedPosition: false, transform: { matrix: (spatial === source.targetRaySpace ? pointing : new Matrix4()).toArray() },
+    }),
+    getHitTestResults: () => [{ getPose: () => ({ emulatedPosition: false, transform: { position: hit } }) }],
+  } as unknown as XRFrame;
+  const survey = new RoomSurveyPilot(runtime, session, reference, room);
+  const tick = () => survey.frame(frame, localFromModel, 0.025);
+  tick();
+  return { survey, frame, source, requestHitTestSource, tick, aim,
+    setHit: (point: Vector3) => { hit = point; } };
 }
 
 function click(survey: RoomSurveyPilot, label: string | RegExp) {
@@ -221,15 +254,68 @@ describe("survey room WebXR", () => {
     expect(getJointPose).toHaveBeenCalledWith(joint, reference);
   });
 
-  it("selects a tracked headset hit and tolerates unavailable hit tests", () => {
-    const source = {} as XRHitTestSource;
-    const getPose = (emulatedPosition: boolean) => () => ({
-      emulatedPosition, transform: { position: { x: 2, y: 1, z: 3 } },
-    });
-    const frame = { getHitTestResults: () => [{ getPose: getPose(true) }, { getPose: getPose(false) }] } as unknown as XRFrame;
-    expect(readSurveyHit(frame, source, reference)?.toArray()).toEqual([2, 1, 3]);
-    expect(readSurveyHit({} as XRFrame, source, reference)).toBeNull();
-    expect(readSurveyHit(frame, null, reference)).toBeNull();
+  it("captures the exact controller preview, then keeps point A while switching to touch for point B", async () => {
+    const { survey, frame, source, requestHitTestSource, tick, setHit } = buildAimedSurvey("native");
+    vi.mocked(api.saveRoomSurvey).mockResolvedValue(summary);
+    click(survey, "Measure or mark points");
+    click(survey, "Ceiling height");
+    expect(survey.aiming).toBe(true);
+    tick();
+    const preview = new Vector3();
+    await vi.waitFor(() => expect(survey.previewAim(frame, source, preview)).toBe(preview));
+    expect(requestHitTestSource).toHaveBeenCalledWith(expect.objectContaining({ space: source.targetRaySpace }));
+    expect(preview.distanceTo(tracked(1, 5, 1))).toBeCloseTo(0);
+    // A newer platform hit must not silently replace the point the wearer saw.
+    setHit(tracked(2, 5.3, 1));
+    survey.captureAim(frame, source);
+    expect(survey.menu().lines.join(" ")).toContain("Point A marked");
+    click(survey, "Use touch instead");
+    expect(survey.menu().lines.join(" ")).toContain("point B");
+    survey.capture(tracked(1, 7.5, 1));
+    click(survey, "Survey tools");
+    click(survey, "Save the preview as a room reference");
+    await vi.waitFor(() => expect(api.saveRoomSurvey).toHaveBeenCalledWith("/house", expect.objectContaining({
+      geometry: { scope: "manual", surfaces: [], measurements: [{ kind: "ceiling_height", a: [1, 5, 1], b: [1, 7.5, 1] }] },
+    })));
+    survey.dispose();
+  });
+
+  it("aims at measured mesh without native hit tests, and discards an occluded or lost preview", async () => {
+    const { survey, frame, source, tick, aim } = buildAimedSurvey("mesh");
+    vi.mocked(api.saveRoomSurvey).mockResolvedValue(summary);
+    click(survey, "Measure or mark points");
+    click(survey, "Mark a physical point");
+    tick();
+    expect(survey.previewAim(frame, source, new Vector3())?.distanceTo(tracked(1, 5, 1))).toBeCloseTo(0);
+    survey.hideAimPreview(source);
+    survey.captureAim(frame, source);
+    expect(survey.menu().lines.join(" ")).toContain("orange point is steady");
+    expect(survey.previewAim(frame, source, new Vector3())).not.toBeNull();
+    expect(survey.menu().back).toBeTypeOf("function");
+    survey.menu().back!();
+    survey.captureAim(frame, source);
+    expect(survey.sampling).toBe(false);
+    click(survey, "Mark a physical point");
+    tick();
+    expect(survey.previewAim(frame, source, new Vector3())).not.toBeNull();
+    aim(tracked(2, 5, 2));
+    survey.captureAim(frame, source);
+    expect(survey.menu().lines.join(" ")).toContain("orange point is steady");
+    expect(survey.previewAim(frame, source, new Vector3())).not.toBeNull();
+    survey.frame(frame, null, null);
+    survey.captureAim(frame, source);
+    expect(survey.sampling).toBe(false);
+    tick();
+    click(survey, "Mark a physical point");
+    tick();
+    expect(survey.previewAim(frame, source, new Vector3())).not.toBeNull();
+    survey.captureAim(frame, source);
+    click(survey, "Survey tools");
+    click(survey, "Save the preview as a room reference");
+    await vi.waitFor(() => expect(api.saveRoomSurvey).toHaveBeenCalledWith("/house", expect.objectContaining({
+      geometry: { scope: "manual", measurements: [], surfaces: [{ source: "hit-test", points: [[2, 5, 2]] }] },
+    })));
+    survey.dispose();
   });
 
   it("samples floor-to-ceiling in physical coordinates, drops unfinished touches on lost alignment, and reopens stored evidence", async () => {
@@ -268,8 +354,17 @@ describe("survey room WebXR", () => {
     survey.dispose();
   });
 
-  it("keeps the measured furniture pose pending until a separate Apply action and supports explicit Undo", async () => {
-    const { survey } = buildSurvey();
+  it.each(["touch", "aim"] as const)("keeps a %s furniture correction pending until explicit Apply and supports Undo", async (mode) => {
+    const aimed = mode === "aim" ? buildAimedSurvey("native") : null;
+    const { survey } = aimed ?? buildSurvey();
+    const capture = async (point: Vector3) => {
+      if (!aimed) { survey.capture(point); return; }
+      aimed.aim(point);
+      aimed.setHit(point);
+      aimed.tick();
+      await vi.waitFor(() => expect(survey.previewAim(aimed.frame, aimed.source, new Vector3())?.distanceTo(point)).toBeCloseTo(0));
+      survey.captureAim(aimed.frame, aimed.source);
+    };
     const furniture: Furnishing = {
       id: "chair", modelId: "model", name: "Chair", kind: "chair", floorId: room.floorId, roomId: room.id,
       position: [1, 5, 1], rotationYDeg: 0, widthM: 0.5, heightM: 0.9, depthM: 0.5,
@@ -289,9 +384,11 @@ describe("survey room WebXR", () => {
     await vi.waitFor(() => expect(survey.menu().title).toBe("Choose an existing object"));
     click(survey, "Chair");
     click(survey, "Mark the physical position");
-    survey.capture(tracked(2, 5, 1));
+    await capture(tracked(2, 5, 1));
     click(survey, "Mark optional heading");
-    survey.capture(tracked(1, 5, 1));
+    await capture(tracked(1, 5, 1));
+    click(survey, "Mark position again");
+    await capture(tracked(2, 5, 1));
     click(survey, "Mark and save a room reference first");
     await vi.waitFor(() => expect(survey.menu().rows.some((r) => r.label === "Save as pending move")).toBe(true));
     click(survey, "Save as pending move");

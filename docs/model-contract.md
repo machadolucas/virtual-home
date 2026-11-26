@@ -803,6 +803,10 @@ Point and trigger to inspect equipment or open a distant door. Approaching a vir
 its leaves once for the session. Frames, tall obstacles and low ceilings keep their clearance
 checks. **Yard** lands on open ground outside the buildings, facing back towards the nearest
 building. **Garage** and **Rooms and floors** use the selected room’s footprint.
+A brief card identifies the room and floor when you arrive. On Quest Touch controllers, press
+the right **B** button to retrace a teleport, including your previous facing. The menu also
+offers **Return to** the previous location. Up to eight completed teleports are available in
+the current walkthrough. In a menu, **B** goes back or closes it.
 
 Squeeze a grip to open or recall the menu. Aim at a list and move either thumbstick up or down,
 grab and drag its content, or drag the scrollbar. Navigation and exit stay in reach. With hands,
@@ -827,7 +831,10 @@ aim at that same corner again after moving your hand sideways as prompted. House
 the point from the two rays. Touch with the orange probe or use a tracked fingertip when preferred.
 
 Choose **Pipes**, **Ducts** or **Both**. Supply and extract animate from their independent
-feedback channels. Concealed routes retain their own certainty labels. **Realign the room**
+feedback channels. When alignment passes, the setup menu clears and a brief card shows the
+room and error. Select a pipe or duct to trace it alone on this floor. Select it again, select
+empty space, or choose **Show all routes** to restore the current filter. Concealed routes
+retain their own certainty labels. **Realign the room**
 restarts registration. Lost or emulated tracking hides the overlay. A recovered anchor must
 agree with a fresh scan or a new check before the overlay returns.
 
@@ -840,6 +847,11 @@ mesh topology and refuses data above the displayed limits. **Preview bounded, si
 room** clips to the room’s bounding box and samples geometry. If the browser supplies
 no scene geometry, **Measure or mark points** collects tracked measurements. Saving a room
 reference stores private evidence in model metres in the household installation.
+
+Aim with a tracked controller or hand at a physical surface and confirm the orange point to
+measure or mark a placement. For a two-point measurement the first point stays visible in blue.
+**Use touch instead** lets you change methods partway through a measurement. Touch is also
+available when the headset supplies no surface data. The survey tools stay open after alignment.
 
 Choose **Correct an existing object**, mark its physical position and optionally its heading,
 and save the pending move. Review the before and after positions and choose **Apply measured

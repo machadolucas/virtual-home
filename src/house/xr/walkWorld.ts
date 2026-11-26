@@ -4,6 +4,7 @@ import { pointInFootprint } from "../model/geometry2d";
 import type { Room, Vec3 } from "../model/types";
 import { DoorPassage } from "./doorPassage";
 import { walkable } from "./navigation";
+import { SolidInterior } from "./solidInterior";
 
 const CELL = 2;
 const STEP = 0.27;
@@ -44,6 +45,7 @@ export class WalkWorld {
   private intersection = new THREE.Vector3();
   private normal = new THREE.Vector3();
   private body = new THREE.Box3();
+  private solids: SolidInterior[] = [];
   yard: Vec3 | null = null;
   yardHeading = 0;
 
@@ -83,11 +85,17 @@ export class WalkWorld {
         if (this.openedDoors.has(sid)) door.clear(true);
       }
       const inds = geometry.index;
+      const physicalSolid = element?.kind === "wall" || surface?.kind === "wall" || surface?.role === "wall" ||
+        !!object.userData.vhPlacementId;
+      const shell = physicalSolid ? new THREE.Box3().setFromPoints(vertices) : null;
+      const solidFaces = shell && shell.max.x - shell.min.x > 2 * RADIUS &&
+        shell.max.z - shell.min.z > 2 * RADIUS && shell.max.y - shell.min.y > .75 ? [] as THREE.Triangle[] : null;
       for (let i = 0; i + 2 < (inds?.count ?? position.count); i += 3) {
         const a = vertices[inds ? inds.getX(i) : i]!,
           b = vertices[inds ? inds.getX(i + 1) : i + 1]!,
           c = vertices[inds ? inds.getX(i + 2) : i + 2]!;
         const shape = new THREE.Triangle(a, b, c);
+        solidFaces?.push(shape);
         const normal = shape.getNormal(this.normal);
         const yard = surface?.role === "paving" || surface?.role === "ground";
         // Some authored terrain and two-sided floors have downward winding.
@@ -125,6 +133,7 @@ export class WalkWorld {
           }
         }
       }
+      if (shell && solidFaces) this.solids.push(new SolidInterior(shell, solidFaces));
     }
     const scored = yardCandidates
       .map((p) => {
@@ -281,7 +290,7 @@ export class WalkWorld {
     for (let x = Math.floor(b.min.x / CELL); x <= Math.floor(b.max.x / CELL); x++)
       for (let z = Math.floor(b.min.z / CELL); z <= Math.floor(b.max.z / CELL); z++)
         if (this.cells.get(x)?.get(z)?.some(obstacle)) return false;
-    return true;
+    return !this.solids.some(solid => solid.containsBody(b));
   }
   step(from: THREE.Vector3, dx: number, dz: number, height: number) {
     const p = this.support(from.x + dx, from.z + dz, from.y);

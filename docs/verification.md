@@ -356,6 +356,14 @@ around the room, interrupt tracking, relaunch and check restored or manual align
 both fan channels, and compare a headset screenshot with the saved overlay. Reopening a
 desktop capture and resuming desktop controls after system exit are part of this check.
 
+Check the room and floor card while crossing a doorway. Turn, teleport, then press the right
+**B** button and verify both your original position and facing. Hold **B** across the return
+and check that it takes only one step. In MR, inspect the alignment error as the setup menu
+closes. Trace a single duct and restore the other routes with a second selection. In Survey,
+confirm a distant surface point and switch to touch for the second point of a measurement.
+The fixture suites cover these transitions, source changes, blocked return points, and stale
+survey previews. Comfort and the physical accuracy of an aimed point require a headset.
+
 For Quest interaction changes, run `xrInteractionPolish`, `handHints`, `roomSurveyXr` and
 the room-surveys integration suite. The Chromium `house-surveys` spec exercises private
 review on desktop and phone with an isolated model. On Quest, aim left, repeat five trigger teleports

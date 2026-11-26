@@ -100,6 +100,7 @@ export class HeadsetPanel {
         map: this.texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
       }),
     );
+    this.mesh.name = "vh-headset-menu";
     this.backing.scale.set(1.014, 1.015, 1);
     this.backing.position.set(.004, -.009, -.012);
     this.backing.renderOrder = 998;
@@ -363,6 +364,12 @@ export class HeadsetPanel {
   hide() {
     this.mesh.visible = false;
     this.cancel();
+  }
+
+  backOrClose() {
+    const back = this.layout?.footer.find(row => row.kind === "back")?.act;
+    if (back) { this.cancel(); back(0); }
+    else this.hide();
   }
 
   dispose() {

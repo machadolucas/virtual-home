@@ -66,6 +66,12 @@ type SolidMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 const MOTION_CHANNELS = ["supply", "extract", "illustrativeAir", "pipe"] as const;
 const motionUniforms = (): MotionUniforms => ({ phase: { value: 0 }, enabled: { value: 0 } });
 
+export type RouteFlowState = Record<MotionChannel, MotionUniforms>;
+
+export function createRouteFlowState(): RouteFlowState {
+  return { supply: motionUniforms(), extract: motionUniforms(), illustrativeAir: motionUniforms(), pipe: motionUniforms() };
+}
+
 type SolidBucket = {
   group: ExplodeGroup;
   color: THREE.Color;
@@ -105,15 +111,13 @@ export class RouteSolids {
   private readonly moving: Record<MotionChannel, SolidMesh[]> = {
     supply: [], extract: [], illustrativeAir: [], pipe: [],
   };
-  private readonly motion: Record<MotionChannel, MotionUniforms> = {
-    supply: motionUniforms(), extract: motionUniforms(), illustrativeAir: motionUniforms(), pipe: motionUniforms(),
-  };
   private readonly bounds = new THREE.Box3();
   private readonly corner = new THREE.Vector3();
 
   constructor(
     private readonly index: SceneIndex,
     private readonly clip: ClipGroups,
+    private readonly motion: RouteFlowState = createRouteFlowState(),
   ) {}
 
   /** Use metre-scaled gaps for stereo viewing. Flow phase still follows the whole route arc. */

@@ -5,6 +5,7 @@ import { isActivePipeOrDuct } from "@/house/model/routeVisibility";
 import type { Route } from "@/house/model/types";
 import { ClipGroups } from "@/house/scene/clipGroups";
 import { RouteLayer } from "@/house/scene/routes";
+import { createRouteFlowState } from "@/house/scene/routeSolids";
 import { createSceneIndex } from "@/house/scene/SceneIndex";
 
 export type MixedRealityRouteFilter = "pipes" | "ducts" | "both";
@@ -60,15 +61,25 @@ export function buildMixedRealityOverlay(
   routes: readonly Route[],
   floorId: string,
 ) {
-  const index = createSceneIndex(manifest);
-  const group = index.overlay.root;
+  const group = new THREE.Group();
   group.name = "vh-mixed-reality-routes";
   group.visible = false;
   group.matrixAutoUpdate = false;
-  const layer = new RouteLayer(index, new ClipGroups([floorId]));
+  const flow = createRouteFlowState();
+  const clip = new ClipGroups([floorId]);
+  function createLayer(name: string) {
+    const index = createSceneIndex(manifest);
+    const root = index.overlay.root;
+    root.name = name;
+    group.add(root);
+    return { root, layer: new RouteLayer(index, clip, flow) };
+  }
+  const floor = createLayer("vh-mr-floor-routes");
+  let trace: (ReturnType<typeof createLayer> & { id: string; runs: Route[] }) | null = null;
+  const activeTrace = () => trace?.root.visible ? trace : null;
   let filter: MixedRealityRouteFilter = "both";
   let source = routes;
-  let runs: Route[] = [];
+  let eligible: Route[] = [];
   let count = 0;
   const localRay = new THREE.Ray();
   const inverse = new THREE.Matrix4();
@@ -77,11 +88,9 @@ export function buildMixedRealityOverlay(
   const rayPoint = new THREE.Vector3();
   const styled = new WeakSet<THREE.Material>();
 
-  function rebuild(): void {
-    runs = mixedRealityRuns(source, floorId, filter).filter((r) => r.modelId === manifest.modelId);
-    count = new Set(runs.map(({ id }) => id)).size;
+  function draw({ layer, root }: ReturnType<typeof createLayer>, runs: Route[]): void {
     layer.set(runs, { tubes: true, approximatePaths: isApproximate });
-    group.traverse((object) => {
+    root.traverse((object) => {
       const material = (object as THREE.Mesh<THREE.BufferGeometry, THREE.Material>).material;
       if (!material || styled.has(material)) return;
       styled.add(material);
@@ -96,18 +105,65 @@ export function buildMixedRealityOverlay(
     });
   }
 
+  function disposeTrace() {
+    if (!trace) return;
+    trace.layer.dispose();
+    trace.root.removeFromParent();
+    trace = null;
+    floor.root.visible = true;
+  }
+
+  function rebuild(): void {
+    disposeTrace();
+    eligible = mixedRealityRuns(source, floorId, filter).filter((r) => r.modelId === manifest.modelId);
+    count = new Set(eligible.map(({ id }) => id)).size;
+    draw(floor, eligible);
+  }
+
+  function clearFocus() {
+    const current = activeTrace();
+    if (!current) return;
+    current.root.visible = false;
+    floor.root.visible = true;
+  }
+
   rebuild();
   return {
     group,
-    get count() { return count; },
+    get count() { return activeTrace() ? 1 : count; },
+    get focusedId() { return activeTrace()?.id ?? null; },
+    clearFocus,
+    toggleFocus(routeId: string | null) {
+      const current = activeTrace();
+      if (!group.visible) return current?.id ?? null;
+      if (routeId === null || routeId === current?.id) clearFocus();
+      else if (!current) {
+        if (trace?.id !== routeId) {
+          const runs = eligible.filter(({ id }) => id === routeId);
+          if (!runs.length) return null;
+          disposeTrace();
+          trace = { ...createLayer("vh-mr-focused-route"), id: routeId, runs };
+          draw(trace, runs);
+        }
+        floor.root.visible = false;
+        trace.root.visible = true;
+      }
+      return activeTrace()?.id ?? null;
+    },
     applyTransform(matrix: THREE.Matrix4 | null) {
       group.visible = matrix !== null;
-      if (!matrix) return;
+      if (!matrix) {
+        clearFocus();
+        return;
+      }
       group.matrix.copy(matrix);
       group.matrixWorldNeedsUpdate = true;
     },
     setFilter(next: MixedRealityRouteFilter) {
-      if (filter === next) return;
+      if (filter === next) {
+        clearFocus();
+        return;
+      }
       filter = next;
       rebuild();
     },
@@ -117,7 +173,7 @@ export function buildMixedRealityOverlay(
       rebuild();
     },
     tick(delta: number, enabled: boolean, fanRates: Readonly<Record<VentilationFan, number>>) {
-      return layer.tick(delta, enabled, fanRates);
+      return (activeTrace() ?? floor).layer.tick(delta, enabled, fanRates);
     },
     pick(ray: THREE.Ray): MixedRealityRoutePick | null {
       if (!group.visible) return null;
@@ -126,7 +182,7 @@ export function buildMixedRealityOverlay(
       let route: Route | undefined;
       let bestDistance = Infinity;
       let segmentEnd = 0;
-      for (const span of runs) {
+      for (const span of activeTrace()?.runs ?? eligible) {
         for (let i = 1; i < span.points.length; i++) {
           a.fromArray(span.points[i - 1]!);
           b.fromArray(span.points[i]!);
@@ -153,10 +209,11 @@ export function buildMixedRealityOverlay(
       };
     },
     dispose() {
-      layer.dispose();
+      disposeTrace();
+      floor.layer.dispose();
       group.removeFromParent();
       group.clear();
-      runs = [];
+      eligible = [];
       count = 0;
     },
   };

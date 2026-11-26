@@ -12,7 +12,7 @@ import type {
   Vec3,
 } from "@/house/model/types";
 import type { VentilationFan } from "@/domain/ventilationFeedback";
-import { hasSolidRoute, routeMediumColor, RouteSolids } from "./routeSolids";
+import { hasSolidRoute, routeMediumColor, RouteSolids, type RouteFlowState } from "./routeSolids";
 import type { ClipGroups } from "./clipGroups";
 import { getViewerPalette } from "./palette";
 import { overlayGroup, type SceneIndex } from "./SceneIndex";
@@ -86,8 +86,9 @@ export class RouteLayer {
   constructor(
     private readonly index: SceneIndex,
     private readonly clip: ClipGroups,
+    flow?: RouteFlowState,
   ) {
-    this.solids = new RouteSolids(index, clip);
+    this.solids = new RouteSolids(index, clip, flow);
   }
 
   /**
