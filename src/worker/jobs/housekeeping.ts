@@ -18,7 +18,9 @@
  *  - `PRAGMA wal_checkpoint(PASSIVE)` — PASSIVE, not TRUNCATE: it never blocks the web process's
  *    readers, and a checkpoint that cannot run right now runs on the next pass.
  */
-import { and, inArray, lt } from "drizzle-orm";
+import { and, inArray, lt, lte } from "drizzle-orm";
+import { alignmentAttempt } from "@/db/schema/alignmentAttempts";
+import { ALIGNMENT_ATTEMPT_RETENTION_MS } from "@/server/alignment-attempts/retention";
 import { writeTx, type DbHandle } from "@/db/client";
 import { haControlCommand } from "@/db/schema/ha";
 import { idempotencyKey } from "@/db/schema/system";
@@ -49,6 +51,7 @@ export interface HousekeepingResult {
   outboxDeleted: number;
   idempotencyDeleted: number;
   haControlsDeleted: number;
+  alignmentAttemptsDeleted: number;
   sessionsDeleted: number;
   verificationsDeleted: number;
   /** `true` when the checkpoint ran without error. */
@@ -77,6 +80,8 @@ export function runHousekeeping(input: HousekeepingInput): HousekeepingResult {
   });
 
   const sessionsDeleted = writeTx(handle.db, (tx) => deleteExpiredSessions(tx, now));
+  const alignmentAttemptsDeleted = writeTx(handle.db, tx => tx.delete(alignmentAttempt)
+    .where(lte(alignmentAttempt.startedAtMs, now - ALIGNMENT_ATTEMPT_RETENTION_MS)).run().changes);
 
   const verificationsDeleted = writeTx(handle.db, (tx) => deleteExpiredVerifications(tx, now));
 
@@ -105,6 +110,7 @@ export function runHousekeeping(input: HousekeepingInput): HousekeepingResult {
   }
 
   return {
+    alignmentAttemptsDeleted,
     outboxDeleted,
     idempotencyDeleted,
     haControlsDeleted,
@@ -130,6 +136,7 @@ export function startHousekeepingJob(options: HousekeepingJobOptions): Job {
       const result = runHousekeeping(options);
       if (
         result.outboxDeleted +
+          result.alignmentAttemptsDeleted +
           result.idempotencyDeleted +
           result.haControlsDeleted +
           result.sessionsDeleted +

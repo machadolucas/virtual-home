@@ -10,6 +10,7 @@ import { fitWallTrace, floorAim, WallTrace } from "@/house/xr/wallTrace";
 import { AlignmentRays } from "@/house/xr/roomAlignmentRay";
 import { calibrationFeatures } from "@/house/xr/mixedCalibration";
 import { MixedRealityCalibration } from "@/house/xr/mixed";
+import { alignmentAttemptInput, type AlignmentAttempt } from "@/house/alignmentAttemptTypes";
 import { MixedPilot } from "@/house/xr/mixedPilot";
 import { triangulateFloorCorner } from "@/house/xr/roomAlignmentTriangulation";
 import type { HouseRuntime } from "@/house/runtime";
@@ -208,10 +209,10 @@ it("triangulates a fixed floor corner from distinct tracked rays and rejects jit
   expect(triangulateFloorCorner(aim(first, offFloor), aim(second, offFloor)).point).toBeUndefined();
 });
 
-function pilotFixture(roomSetup?: XRSession["initiateRoomCapture"], anchor?: XRAnchor, anchorPose?: Matrix4) {
+function pilotFixture(roomSetup?: XRSession["initiateRoomCapture"], anchor?: XRAnchor, anchorPose?: Matrix4, fingerprint = "fixture") {
   const runtime = {
     userId: "fixture", index: null, manifest: buildManifestIndex(roomManifest),
-    store: { getState: () => ({ labelPreferences: { names: { [room.id]: "Household room label" } }, fingerprint: "fixture", routes: [],
+    store: { getState: () => ({ labelPreferences: { names: { [room.id]: "Household room label" } }, fingerprint, routes: [],
       explode: { enabled: false, gap: 0 } }) }, base: "/fixture",
   } as unknown as HouseRuntime;
   const ref = new EventTarget() as XRReferenceSpace;
@@ -264,6 +265,34 @@ function pilotFixture(roomSetup?: XRSession["initiateRoomCapture"], anchor?: XRA
   };
   return { pilot, ref, session, click, menu, tick, confirm, frame, roomRow, trace, face, lookAt };
 }
+
+it("automatically saves native labels and the selected room even when no independent check is possible", async () => {
+  const reports: AlignmentAttempt[] = [];
+  vi.stubGlobal("window", new EventTarget());
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+    const report = alignmentAttemptInput.parse(JSON.parse(init.body as string));
+    reports.push(report);
+    return Response.json({id:report.id, revision:report.revision});
+  }));
+  const {pilot, tick, frame} = pilotFixture(undefined,undefined,undefined,"abc12345");
+  try {
+    const polygon = [{x:0,y:0,z:0},{x:1,y:0,z:0},{x:1,y:2,z:0},{x:0,y:2,z:0}];
+    Object.assign(frame, {detectedPlanes: new Set(["door-frame","shelf"].map(semanticLabel => ({planeSpace:{},polygon,semanticLabel})))});
+    tick();
+    expect(pilot.calibration?.state.phase).toBe("select");
+  } finally {
+    pilot.dispose();
+    vi.unstubAllGlobals();
+  }
+  const last = reports.at(-1)!;
+  expect(last.status).toBe("ended");
+  expect(last.roomId).toBe(room.id);
+  const sample = last.snapshots.at(-1)!;
+  expect(sample.detections?.labels).toMatchObject({door:1,object:1,wall:0});
+  expect(sample.landmarks.map(mark=>mark.kind)).toEqual(["door"]);
+  expect(sample.walls).toHaveLength(0);
+  expect(sample.diagnosis?.bestCheckM).toBeNull();
+});
 
 it("checks hand-traced walls when a scan supplies a partial floor, and rejects bent or duplicate strokes", () => {
   const trace = new WallTrace();

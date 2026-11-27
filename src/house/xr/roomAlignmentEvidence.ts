@@ -1,6 +1,7 @@
 import { Box3, Matrix4, Plane, Ray, Vector3 } from "three";
 import { pointInRing, ringSignedArea } from "@/house/model/geometry2d";
 import { trackedFloorHeightAllowed, type AlignmentLandmark, type AlignmentWall, type RoomEvidence } from "./roomAlignment";
+import type { AlignmentAttemptSnapshot } from "../alignmentAttemptTypes";
 import { outlinesAgree } from "./roomOutline";
 
 type Point = [number, number];
@@ -16,6 +17,7 @@ interface ScanPatch {
   project: (p: Vector3) => Point;
 }
 export interface AlignmentEvidence extends RoomEvidence {
+  detections?: AlignmentAttemptSnapshot["detections"];
   patches: ScanPatch[];
   triangles: Triangle[];
   // A sampled furniture mesh can miss the exact triangle under the pointer.
@@ -199,22 +201,31 @@ function corroborateGenericWalls(evidence: AlignmentEvidence, generic: Alignment
   }
 }
 
-/** Reads optional native features in local-floor metres. The retained geometry stays in memory. */
+/** Reads optional native features in local-floor metres. Meshes and occlusion data are transient. */
 export function readAlignmentEvidence(frame: XRFrame, reference: XRReferenceSpace, viewer: Vector3): AlignmentEvidence {
   const evidence: AlignmentEvidence = { walls: [], floor: null, landmarks: [], patches: [], triangles: [],
     partialObjects: [], incompleteDepth: false };
   const genericWalls: AlignmentWall[] = [];
   const partitions: AlignmentWall[] = [];
   const inRange = ({ x, z }: Vector3) => (x - viewer.x) ** 2 + (z - viewer.z) ** 2 < 9 ** 2;
+  const planes = safe(() => frame.detectedPlanes), meshes = safe(() => frame.detectedMeshes);
+  const labels = {wall:0, door:0, window:0, floor:0, object:0, other:0};
+  evidence.detections = {planes:planes?.size ?? null, meshes:meshes?.size ?? null, labels};
+  const countLabel = (label: string) => {
+    const kind = openingLabel(label) ?? (wallLabel(label) ? "wall" : floorLabel(label) ? "floor" :
+      !partitionLabel(label) && surfaceRole(label,0) === "object" ? "object" : "other");
+    labels[kind]++;
+  };
   let examinedPlanes = 0;
-  for (const native of safe(() => frame.detectedPlanes) ?? []) {
+  for (const native of planes ?? []) {
     if (examinedPlanes++ >= 160) { evidence.incompleteDepth = true; break; }
+    const label = labelOf(native.semanticLabel);
+    countLabel(label);
     const transform = trackedTransform(frame, native.planeSpace, reference);
     if (!transform) continue;
     if (native.polygon.length > 128) { evidence.incompleteDepth = true; continue; }
     const points = native.polygon.map((p) => new Vector3(p.x, p.y, p.z).applyMatrix4(transform));
     if (points.length < 3 || !points.every(valid)) continue;
-    const label = labelOf(native.semanticLabel);
     if (partitionLabel(label)) {
       const partition = wallFromPoints(points);
       if (partition) partitions.push(partition);
@@ -255,12 +266,13 @@ export function readAlignmentEvidence(frame: XRFrame, reference: XRReferenceSpac
   let examinedMeshes = 0;
   let objectVertexBudget = 24_000;
   const normal = new Vector3(), vertical = new Vector3();
-  for (const mesh of safe(() => frame.detectedMeshes) ?? []) {
+  for (const mesh of meshes ?? []) {
     if (examinedMeshes++ >= 40) { evidence.incompleteDepth = true; break; }
+    const label = labelOf(mesh.semanticLabel), opening = openingLabel(label);
+    countLabel(label);
     const transform = trackedTransform(frame, mesh.meshSpace, reference);
     if (!transform) continue;
     const { vertices, indices } = mesh;
-    const label = labelOf(mesh.semanticLabel), opening = openingLabel(label);
     if (opening || wallLabel(label) || floorLabel(label) || partitionLabel(label)) {
       const points: Vector3[] = [];
       const stride = 3 * Math.max(1, Math.ceil(vertices.length / 3 / 500));

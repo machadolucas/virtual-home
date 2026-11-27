@@ -3,6 +3,8 @@ import type { HouseRuntime } from "../runtime";
 import type { Room } from "../model/types";
 import { signedClearance } from "../model/geometry2d";
 import { MAX_CALIBRATION_ERROR_M } from "./mixedCalibration";
+import { AlignmentRecorder } from "./alignmentRecorder";
+import { alignmentSnapshot } from "./alignmentSnapshot";
 import { RoomDiscovery, type RoomDiscoveryState } from "./roomDiscovery";
 import { checkedFloorOutline } from "./distinctiveRoom";
 import { MixedRealityCalibration, calibrationFeatures, type CalibrationFeature } from "./mixed";
@@ -12,7 +14,7 @@ import { RoomSurveyPilot } from "./roomSurvey";
 import { HandConfirmation, trackedIndexTip } from "./surveyInput";
 import {
   applyAlignmentHint, buildAlignmentModel, checkAnchoredCorner, roomPoseDrift, matchRoomAlignment, reviewTraceOutlier, uniqueRoomAlignment, viableRoomAlignments,
-  type AlignmentCandidate, type AlignmentHint, type AlignmentModel,
+  newAlignmentSearchDiagnostics, type AlignmentSearchDiagnostics, type AlignmentCandidate, type AlignmentHint, type AlignmentModel,
 } from "./roomAlignment";
 import { furnitureBeforePoint, readAlignmentEvidence, snapScannedCorner, type AlignmentEvidence } from "./roomAlignmentEvidence";
 import { ScanFeedback } from "./scanFeedback";
@@ -40,6 +42,33 @@ export class MixedPilot {
   filter: MixedRealityRouteFilter = "both";
   selectedRoute: MixedRealityRoutePick | null = null;
   private discovering = true;
+  private readonly recorder?: AlignmentRecorder;
+  private search?: AlignmentSearchDiagnostics;
+  private chosenRoom = false;
+  private recordedStructure = {floor:false, walls:false, door:false, window:false};
+  private latestPairing?: {trace:number; wall:number}[];
+  private reportScan(evidence = this.evidence, force = false, verifiedPose?: THREE.Matrix4) {
+    if (!this.recorder || !evidence) return;
+    // A shared scene can arrive after an initially empty frame, even just before an interruption.
+    const structure = {floor:!!evidence.floor, walls:evidence.walls.length > 0,
+      door:evidence.landmarks.some(mark => mark.kind === "door"),
+      window:evidence.landmarks.some(mark => mark.kind === "window")};
+    const newlyVisible = (Object.keys(structure) as (keyof typeof structure)[]).some(key =>
+      structure[key] && !this.recordedStructure[key]);
+    this.recordedStructure = structure;
+    this.recorder.observe(() => {
+      const sample = alignmentSnapshot(this.alignmentModel, evidence, this.viewerPoint,
+        this.pairs?.matches ?? this.candidates, this.trace?.walls ?? [], this.search, verifiedPose, this.calibration?.state.errorM);
+      if (!verifiedPose && this.pairs?.correspondenceConflict && sample.diagnosis) {
+        sample.diagnosis.reason = "marked-plan-correspondence-conflict";
+        sample.diagnosis.stage = "fit";
+        sample.diagnosis.bestCheckM = null;
+      }
+      return {...sample, selectedRoom:this.chosenRoom,
+        traceFloor:this.trace ? {y:this.floorHeight, measured:this.measuredFloor !== null} : undefined,
+        wallPairs:this.pairs ? this.latestPairing : undefined};
+    }, force || newlyVisible);
+  }
   private readonly sceneUnavailable: boolean;
   private readonly discovery: RoomDiscovery;
   private readonly floorAnchors = new Map<string, MixedRealityCalibration>();
@@ -118,6 +147,9 @@ export class MixedPilot {
     private mode: "mr" | "survey" = "mr", private onAlignmentLost?: () => void) {
     this.sceneUnavailable = !!session.enabledFeatures && !session.enabledFeatures.some(
       feature => feature === "plane-detection" || feature === "mesh-detection");
+    const fingerprint = runtime.store.getState().fingerprint;
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function" && runtime.base && runtime.userId && fingerprint)
+      this.recorder = new AlignmentRecorder(runtime.base, runtime.userId, fingerprint, mode, session.enabledFeatures ?? []);
     this.rays = new AlignmentRays(session, space);
     this.space.addEventListener("reset", this.invalidateScan);
     this.session.addEventListener("visibilitychange", this.visibilityChanged);
@@ -138,8 +170,11 @@ export class MixedPilot {
       }
     }
   }
-  enter(room: Room) {
+  enter(room: Room, chosen = true) {
+    this.reportScan(this.evidence,true);
     this.clearRoom();
+    this.chosenRoom = chosen;
+    this.recorder?.selectRoom(room.id);
     this.discovering = false;
     this.resetDiscovery();
     this.room = room; this.filter = "both"; this.selectedRoute = null;
@@ -194,9 +229,15 @@ export class MixedPilot {
       floorId,
       roomId,
       fingerprint: this.runtime.store.getState().fingerprint!,
-      onState: (s) => {
+      onState: (s, verifiedPose) => {
         if (this.calibration !== cal) return;
-        if (s.phase === "ready") { this.preview?.reset(); return; }
+        if (s.phase === "ready") {
+          this.reportScan(this.evidence,true,verifiedPose);
+          this.recorder?.aligned(s.message + (s.errorM === null ? "" : ` Check: ${(100 * s.errorM).toFixed(1)} cm.`));
+          this.preview?.reset(); return;
+        }
+        this.recorder?.event("calibration", s.message);
+        if (s.phase === "tracking-lost") this.recorder?.interrupt("tracking-lost");
         const previouslyVerified = this.readyTransform !== null;
         this.readyTransform = null;
         if (previouslyVerified) this.onAlignmentLost?.();
@@ -284,12 +325,18 @@ export class MixedPilot {
     };
   }
   menu(fans: string, capture: () => void): PanelPage {
+    const page = this.contentMenu(fans, capture);
+    if (!this.recorder || this.calibration?.state.phase === "ready") return page;
+    return {...page, lines:[...page.lines, this.recorder.notice]};
+  }
+  private contentMenu(fans: string, capture: () => void): PanelPage {
     if (!this.room || !this.calibration) return this.discoveryMenu();
     const room = this.room, cal = this.calibration, state = cal.state;
     const features = this.roomFeatures(room);
     const error = state.errorM === null ? "" : `Alignment error: ${(100 * state.errorM).toFixed(1)} cm`;
     const reset = { label: "Realign the room", act: () => {
       if (room.floorId !== this.calibrationFloorId) { this.enter(room); return; }
+      this.recorder?.selectRoom(room.id);
       this.clearRouteFocus();
       this.hand.clear();
       this.manual = false;
@@ -300,6 +347,9 @@ export class MixedPilot {
       cal.reset();
     } };
     const change = { label: "Choose another room", act: () => {
+      this.reportScan(this.evidence,true);
+      this.recorder?.selectRoom(null);
+      this.chosenRoom = false;
       this.clearRoom();
       this.room = null; this.discovering = false; this.resetDiscovery(); this.selectedRoute = null;
     } };
@@ -330,6 +380,7 @@ export class MixedPilot {
         label: "Match saved lines on plan", detail: "Use the lines you already marked", act: () => {
           if (!this.trace || !this.alignmentModel) return;
           this.setFacing(null);
+          this.latestPairing = undefined;
           this.pairs = new PairedTraces(this.alignmentModel,this.trace.walls);
           this.trace.highlight(this.pairs.current);
         },
@@ -508,7 +559,12 @@ export class MixedPilot {
     const model = pairs.model;
     const pick = (index: number) => {
       if (this.pairs !== pairs || !this.evidence) return;
+      const line = pairs.current;
+      this.latestPairing = [...pairs.pairs, {trace:line, wall:index}];
       pairs.select(index, this.viewerPoint, this.traceEvidence(), this.candidates);
+      this.search = pairs.search;
+      this.recorder?.event("paired-wall", `Marked line ${line+1} → model wall ${index+1}. ${pairs.message}`);
+      this.reportScan(this.evidence,true);
       trace.highlight(pairs.candidate ? null : pairs.current);
       this.nextScan = -Infinity;
     };
@@ -524,7 +580,7 @@ export class MixedPilot {
       },
       rows: [
         ...(pairs.hasAlternative ? [{label:"Use another marked line", act:() => { pairs.nextStroke(); trace.highlight(pairs.current); }}] : []),
-        ...(pairs.pairs.length ? [{label:"Back one match", act:() => { pairs.back(); trace.highlight(pairs.current); }}] : []),
+        ...(pairs.pairs.length ? [{label:"Back one match", act:() => { pairs.back(); this.latestPairing = [...pairs.pairs]; this.search = undefined; this.reportScan(this.evidence,true); trace.highlight(pairs.current); }}] : []),
         {label:"Check floor height",act:() => this.startFloorCheck()},
         {label:"Back to marked lines",act:() => { this.pairs=null; trace.highlight(this.reviewLine); this.extraWall=true; }},
       ],
@@ -605,7 +661,7 @@ export class MixedPilot {
       this.roaming.reset();
       // A fresh registration on another floor must use that floor's persistent anchor key.
       if (this.room && this.room.floorId !== this.calibrationFloorId) {
-        this.enter(this.room);
+        this.enter(this.room, false);
         return;
       }
     }
@@ -631,6 +687,7 @@ export class MixedPilot {
         if (step.done) {
           this.reviewLine = step.value; this.review=null;
           this.trace?.highlight(this.reviewLine);
+          if (this.reviewLine !== null) this.recorder?.event("trace-review", `Marked line ${this.reviewLine + 1} conflicts with the other lines.`);
         }
       }
       if (this.confirmBearing) { this.confirmBearing = false; this.resolveFacing(frame); }
@@ -806,6 +863,9 @@ export class MixedPilot {
     if (!this.trace || this.trace.source !== source) return false;
     this.trace.sample(this.tracePoint(frame, source, this.samplePoint),this.aimingRay);
     const marked = this.trace.finish(source);
+    this.search = undefined;
+    this.recorder?.event(marked ? "marked-wall" : "mark-rejected", this.trace.message || `${this.trace.walls.length} marked walls.`);
+    this.reportScan(this.evidence,true);
     if (marked) {
       this.extraWall=false; this.reviewPending=true; this.review=null; this.reviewLine=null; this.trace.highlight(null);
     }
@@ -818,11 +878,13 @@ export class MixedPilot {
     if (this.implicitTrace) this.stopTracing();
   }
   private removeTrace(index: number) {
+    this.recorder?.event("removed-mark", `Removed marked line ${index+1}.`);
     this.trace?.remove(index); this.reviewLine=null; this.review=null; this.reviewPending=true;
     this.candidates=[]; this.extraWall=false; this.nextScan=-Infinity;
   }
   private stopTracing() {
     this.trace?.dispose(); this.trace=null; this.implicitTrace=false; this.traceFloor=null;
+    this.latestPairing = undefined;
     this.pairs=null; this.extraWall=false; this.review=null; this.reviewLine=null; this.reviewPending=false;
   }
 
@@ -1034,6 +1096,7 @@ export class MixedPilot {
     if (frame.session !== this.session) return;
     const viewer = frame.getViewerPose(this.space);
     if (!viewer || viewer.emulatedPosition || this.session.visibilityState !== "visible") {
+      this.recorder?.interrupt("tracking-lost");
       this.resetDiscovery();
       return;
     }
@@ -1046,6 +1109,7 @@ export class MixedPilot {
     if (now >= this.nextScan && this.discovery.state.phase !== "checking") {
       this.nextScan = now + 500;
       const evidence = readAlignmentEvidence(frame, this.space, this.viewerPoint);
+      this.reportScan(evidence);
       this.scanFeedback.observe(evidence, now);
       if (this.locateFromAnchors(frame, evidence, now)) return;
       this.discovery.submit(evidence, this.viewerPoint, now);
@@ -1054,6 +1118,7 @@ export class MixedPilot {
     if (result.phase !== "checking") {
       this.suggested = result.options.map((choice) => choice.room);
       this.discoveryPhase = result.phase;
+      this.recorder?.event("discovery", `${result.phase} · ${result.options.length} candidate rooms`);
     }
     if (result.match) {
       // Room comparisons span several frames. Confirm the current observation before leaving the chooser.
@@ -1072,7 +1137,7 @@ export class MixedPilot {
         this.resetDiscovery();
         return;
       }
-      this.enter(result.match.room);
+      this.enter(result.match.room, false);
     }
   }
 
@@ -1127,7 +1192,8 @@ export class MixedPilot {
       roomPoseDrift(model.room, previous.matrix, matrix) + checked.errorM > MAX_CALIBRATION_ERROR_M
     )
       return false;
-    this.enter(room);
+    this.enter(room, false);
+    this.evidence = evidence;
     calibration.verifyScanned(frame, checked.fit, checked.errorM, model.corners, checked.check);
     return true;
   }
@@ -1141,6 +1207,7 @@ export class MixedPilot {
     const model = this.alignmentModel, calibration = this.calibration;
     if (!model || !calibration) return;
     if (!calibration.tracking) {
+      this.recorder?.interrupt("tracking-lost");
       this.clearScan();
       return;
     }
@@ -1155,13 +1222,14 @@ export class MixedPilot {
     this.scanFeedback.observe(this.evidence, now);
     if (!this.manual && !this.hint) this.preview?.observe(this.evidence, this.viewerPoint);
     const { phase, sampleCount, selected } = calibration.state;
-    if (this.measuringFloor || this.trace?.source) return;
+    if (this.measuringFloor || this.trace?.source) { this.reportScan(); return; }
     if (this.pairs) {
+      this.reportScan();
       if (!this.replacementNeeded && this.pairs.candidate && this.useCandidate(frame,this.pairs.candidate)) this.clearScan();
       return;
     }
     if ((this.manual && !(this.usingFrames && !selected && !sampleCount)) || (phase !== "verify" && phase !== "restoring" && phase !== "tracking-lost" &&
-      (phase !== "select" || sampleCount > 0 || selected))) return;
+      (phase !== "select" || sampleCount > 0 || selected))) { this.search = undefined; this.reportScan(); return; }
     const nativeFloor=this.evidence.floor;
     if (this.trace?.walls.length && this.measuredFloor === null && nativeFloor?.semanticFloor &&
       this.traceFloor !== nativeFloor.y && this.trace.reprojectFloor(nativeFloor.y)) {
@@ -1171,13 +1239,17 @@ export class MixedPilot {
     }
     const evidence = this.trace?.walls.length ? this.traceEvidence() : this.evidence;
     const marked = this.trace?.walls;
+    const options = {selectedRoom:this.chosenRoom, diagnostics:this.recorder ? newAlignmentSearchDiagnostics() : undefined};
     const lateScan = marked?.length && ((nativeFloor && this.evidence.walls.length >= 2) || this.evidence.landmarks.length >= 2)
-      ? matchRoomAlignment(model, this.evidence, this.viewerPoint).filter(pose => scanFitsMarkedWalls(pose, model, marked))
+      ? matchRoomAlignment(model, this.evidence, this.viewerPoint, options).filter(pose => scanFitsMarkedWalls(pose, model, marked))
       : [];
-    this.candidates = lateScan.length ? lateScan : matchRoomAlignment(model, evidence, this.viewerPoint);
+    if (!lateScan.length && marked?.length && this.recorder) options.diagnostics = newAlignmentSearchDiagnostics();
+    this.search = options.diagnostics;
+    this.candidates = lateScan.length ? lateScan : matchRoomAlignment(model, evidence, this.viewerPoint, options);
     const checkedOutline = !this.candidates.length && checkedFloorOutline(model, this.evidence, this.viewerPoint);
     const usingOutline = !!checkedOutline && (!marked?.length || scanFitsMarkedWalls(checkedOutline, model, marked));
     if (usingOutline) this.candidates = [checkedOutline];
+    this.reportScan(this.evidence,this.reviewPending);
     const architecture = this.candidates.filter(pose => pose.evidenceKind === "architecture");
     const prior = this.previousArchitecture;
     this.previousArchitecture = architecture.length ? { at: now, poses: architecture } : null;
@@ -1264,6 +1336,8 @@ export class MixedPilot {
     return false;
   }
   private clearScan() {
+    this.search = undefined;
+    this.recordedStructure = {floor:false, walls:false, door:false, window:false};
     this.previousArchitecture = null;
     this.preview?.reset();
     this.measuringFloor=null; this.measuredFloor=null;
@@ -1295,9 +1369,9 @@ export class MixedPilot {
     this.setupNotice = opened ? "" : `Room setup did not open. ${QUEST_ROOM_SETUP_GUIDE} You can trace the walls from here.`;
     this.clearScan();
   }
-  private invalidateScan = (): void => { this.clearScan(); this.resetDiscovery(); };
+  private invalidateScan = (): void => { this.recorder?.interrupt("reference-reset"); this.clearScan(); this.resetDiscovery(); };
   private visibilityChanged = (): void => {
-    if (this.session.visibilityState !== "visible") this.invalidateScan();
+    if (this.session.visibilityState !== "visible") { this.recorder?.interrupt("session-hidden"); this.clearScan(); this.resetDiscovery(); }
   };
   private clearRoom() {
     this.preview?.dispose(); this.preview = null;
@@ -1321,6 +1395,8 @@ export class MixedPilot {
     this.pointMode = "auto";
   }
   dispose() {
+    this.reportScan(this.evidence,true);
+    this.recorder?.finish();
     this.space.removeEventListener("reset", this.invalidateScan);
     this.session.removeEventListener("visibilitychange", this.visibilityChanged);
     this.clearRoom();

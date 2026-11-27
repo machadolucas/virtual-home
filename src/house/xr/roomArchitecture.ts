@@ -5,6 +5,9 @@ import { MAX_CALIBRATION_ERROR_M, MIN_CALIBRATION_BASELINE_M, type CalibrationFe
 import type { AlignmentCandidate, AlignmentLandmark, AlignmentModel, AlignmentWall, RoomEvidence } from "./roomAlignment";
 import { outlinesAgree } from "./floorBoundary";
 
+import { localizedPerimeterDifference } from "./perimeterDifference";
+import { recordIndependentCheck, type AlignmentSearchDiagnostics, type AlignmentSearchOptions } from "./alignmentSearchDiagnostics";
+
 const limit = MAX_CALIBRATION_ERROR_M + 1e-8;
 const maxModelOpenings = 32;
 const maxLocalOpenings = 40;
@@ -57,19 +60,10 @@ function checkedCandidate(
 export function checkOpeningGeometry(
   model: AlignmentModel, evidence: RoomEvidence, matrix: Matrix4,
   training?: { modeled: AlignmentLandmark; observed: AlignmentLandmark }, awayFrom?: Vec2,
+  options: AlignmentSearchOptions = {}, trainingFaces: readonly AlignmentWall[] = [],
 ): AlignmentCandidate | null {
   if (!model.landmarks.length || model.landmarks.length > maxModelOpenings || !evidence.landmarks.length) return null;
   const local = new Vector3(), inverse = matrix.clone().invert();
-  for (const face of evidence.walls) {
-    if (!face.semanticWall || face.baseOnly) continue;
-    // A substantial labeled wall cutting through this proposed room contradicts the pose.
-    const x = (face.a[0] + face.b[0]) / 2, z = (face.a[1] + face.b[1]) / 2;
-    local.set(x, (face.low + face.high) / 2, z).applyMatrix4(inverse);
-    const floor = model.room.floorElevation;
-    if (local.y > floor + 0.3 && local.y < floor + (model.room.ceilingHeight ?? 2.7) &&
-        signedClearance(local.x, local.z, model.room.footprint) > limit &&
-        Math.hypot(face.a[0] - face.b[0], face.a[1] - face.b[1]) >= 0.8) return null;
-  }
   const used = new Set<AlignmentLandmark>();
   if (training) used.add(training.modeled);
   let count = training ? 1 : 0, errorM = 0, check: CalibrationFeature | null = null;
@@ -86,21 +80,68 @@ export function checkOpeningGeometry(
       const gap = Math.hypot(local.x - mark.rawCenter[0], local.y - mark.rawCenter[1], local.z - mark.rawCenter[2]);
       if (gap < best) { best = gap; nearest = i; }
     }
+    const separation = training ? Math.hypot(seen.rawCenter[0] - training.observed.rawCenter![0],
+      seen.rawCenter[2] - training.observed.rawCenter![2])
+      : awayFrom ? Math.hypot(seen.rawCenter[0] - awayFrom[0], seen.rawCenter[2] - awayFrom[1]) : Infinity;
+    if (nearest >= 0 && separation >= MIN_CALIBRATION_BASELINE_M) recordIndependentCheck(options.diagnostics, best);
     // All observed openings of the room must agree; a single fortunate match cannot mask a contradiction.
-    if (nearest < 0 || best > limit) return null;
+    if (nearest < 0 || best > limit) {
+      if (options.diagnostics) options.diagnostics.contradictedOpening = true;
+      return null;
+    }
     const matched = model.landmarks[nearest]!;
     used.add(matched);
     count++;
     errorM = Math.max(errorM, best);
-    const separation = training ? Math.hypot(seen.rawCenter[0] - training.observed.rawCenter![0],
-      seen.rawCenter[2] - training.observed.rawCenter![2])
-      : awayFrom ? Math.hypot(seen.rawCenter[0] - awayFrom[0], seen.rawCenter[2] - awayFrom[1]) : Infinity;
     if (separation >= MIN_CALIBRATION_BASELINE_M && separation > longest) {
       longest = separation;
       check = openingCalibrationFeature(model, nearest);
     }
   }
   if (!check) return null;
+  let difference: ReturnType<typeof localizedPerimeterDifference> | undefined;
+  for (const face of evidence.walls) {
+    if (!face.semanticWall || face.baseOnly) continue;
+    // A substantial labeled wall cutting through this proposed room contradicts the pose.
+    const x = (face.a[0] + face.b[0]) / 2, z = (face.a[1] + face.b[1]) / 2;
+    local.set(x, (face.low + face.high) / 2, z).applyMatrix4(inverse);
+    const floor = model.room.floorElevation;
+    if (local.y > floor + 0.3 && local.y < floor + (model.room.ceilingHeight ?? 2.7) &&
+        signedClearance(local.x, local.z, model.room.footprint) > limit &&
+        Math.hypot(face.a[0] - face.b[0], face.a[1] - face.b[1]) >= 0.8) {
+      // Only a named room may use independent evidence outside a local shape discrepancy.
+      // The same labeled floor must show the replacement segment, with the remaining perimeter intact.
+      if (options.selectedRoom && difference === undefined) difference = localizedPerimeterDifference(model.room, evidence.floor, matrix);
+      const held = new Vector3(...check.point).applyMatrix4(matrix);
+      const trained = training?.observed.rawCenter;
+      if (!difference || !difference.explains(face) || difference.nearEdit([held.x, held.z]) ||
+          (trained && difference.nearEdit([trained[0], trained[2]])) || trainingFaces.some(f => difference!.explains(f))) {
+        if (options.diagnostics) options.diagnostics.contradictedWall = true;
+        return null;
+      }
+    }
+  }
+  if (difference) {
+    // A long neighboring face can have its midpoint outside the room while crossing it elsewhere.
+    // Every interior portion must belong to the same localized map discrepancy.
+    for (const face of evidence.walls) {
+      const height = (face.low + face.high) / 2 - matrix.elements[13]! - model.room.floorElevation;
+      if (!face.semanticWall || face.baseOnly || height <= 0.3 || height >= (model.room.ceilingHeight ?? 2.7)) continue;
+      const dx = face.b[0] - face.a[0], dz = face.b[1] - face.a[1], span = Math.hypot(dx, dz);
+      if (span < 0.8) continue;
+      const samples = Math.min(64, Math.ceil(span / 0.15));
+      for (let i = 0; i <= samples; i++) {
+        const x = face.a[0] + dx * i / samples, z = face.a[1] + dz * i / samples;
+        local.set(x, 0, z).applyMatrix4(inverse);
+        if (signedClearance(local.x, local.z, model.room.footprint) <= limit) continue;
+        if (!difference.explains(face)) {
+          if (options.diagnostics) options.diagnostics.contradictedWall = true;
+          return null;
+        }
+        break;
+      }
+    }
+  }
   const candidate = checkedCandidate(matrix, check, errorM, count);
   const matched = [...used];
   candidate.separatedOpenings = matched.some((a, i) => matched.slice(i + 1).some(b =>
@@ -110,7 +151,9 @@ export function checkOpeningGeometry(
 
 /** Two separated measured openings carry elevation as well as position. Only the first center
  * and its horizontal axis set the pose. The other center, measured independently, checks it. */
-export function architectureFromOpenings(model: AlignmentModel, evidence: RoomEvidence, eye: Vector3): AlignmentCandidate[] {
+export function architectureFromOpenings(
+  model: AlignmentModel, evidence: RoomEvidence, eye: Vector3, options: AlignmentSearchOptions = {},
+): AlignmentCandidate[] {
   if (evidence.floor?.source === "bounds" || model.landmarks.length < 2 || evidence.landmarks.length < 2 ||
       model.landmarks.length > maxModelOpenings) return [];
   const bounds = ringBBox(model.room.footprint.outer);
@@ -136,7 +179,7 @@ export function architectureFromOpenings(model: AlignmentModel, evidence: RoomEv
       matrix.setPosition(offset);
       local.copy(eye).applyMatrix4(matrix.clone().invert());
       if (!pointInFootprint(local.x, local.z, model.room.footprint)) continue;
-      const candidate = checkOpeningGeometry(model, nearbyEvidence, matrix, { modeled: mark, observed: observation });
+      const candidate = checkOpeningGeometry(model, nearbyEvidence, matrix, { modeled: mark, observed: observation }, undefined, options);
       if (!candidate) continue;
       const duplicate = candidates.findIndex(old => model.corners.every(({ point }) =>
         local.fromArray(point).applyMatrix4(matrix).distanceTo(new Vector3(...point).applyMatrix4(old.fit.matrix)) <= limit));
@@ -159,7 +202,7 @@ export function architectureFromOpenings(model: AlignmentModel, evidence: RoomEv
  * The full labeled floor perimeter and a real, withheld floor vertex can then check all three axes. */
 export function checkVisibleFloorCorner(
   model: AlignmentModel, floor: NonNullable<RoomEvidence["floor"]>, perimeter: AlignmentWall[],
-  check: CalibrationFeature, matrix: Matrix4, first: AlignmentWall, second: AlignmentWall,
+  check: CalibrationFeature, matrix: Matrix4, first: AlignmentWall, second: AlignmentWall, diagnostics?: AlignmentSearchDiagnostics,
 ): AlignmentCandidate | null {
   const height = model.room.ceilingHeight;
   if (!height || floor.source !== "plane" || !floor.semanticFloor || model.room.footprint.holes?.length ||
@@ -171,6 +214,7 @@ export function checkVisibleFloorCorner(
   expected.y = floorY;
   const errorM = floor.outline.reduce((best, [x, z]) =>
     Math.min(best, Math.hypot(expected.x - x, expected.y - floor.y, expected.z - z)), Infinity);
+  recordIndependentCheck(diagnostics, errorM);
   if (errorM > limit || !outlinesAgree(perimeter.map(wall => wall.a), floor.outline, limit)) return null;
   const pose = matrix.clone();
   pose.elements[13] = floorY - model.room.floorElevation;

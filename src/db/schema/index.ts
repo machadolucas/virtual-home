@@ -28,3 +28,4 @@ export * from "./haReview";
 export * from "./modelFixes";
 export * from "./roomSurveys";
 export * from "./fitProposals";
+export * from "./alignmentAttempts";

@@ -1,6 +1,6 @@
 import { Vector3 } from "three";
 import { MAX_CALIBRATION_ERROR_M } from "./mixedCalibration";
-import { matchRoomAlignment, viableRoomAlignments, type AlignmentCandidate, type AlignmentModel, type AlignmentWall, type RoomEvidence } from "./roomAlignment";
+import { newAlignmentSearchDiagnostics, type AlignmentSearchDiagnostics, matchRoomAlignment, viableRoomAlignments, type AlignmentCandidate, type AlignmentModel, type AlignmentWall, type RoomEvidence } from "./roomAlignment";
 
 const span = (w: AlignmentWall) => Math.hypot(w.b[0]-w.a[0],w.b[1]-w.a[1]);
 
@@ -21,10 +21,25 @@ export function scanFitsMarkedWalls(candidate: AlignmentCandidate, model: Alignm
   return strokes.every(stroke => model.walls.some(face => fitsFace(candidate, face, stroke)));
 }
 
+/** Apply the wearer's pairings only to poses already checked independently. */
+export function filterPairedTraces(
+  model: AlignmentModel, strokes: readonly AlignmentWall[], pairs: readonly { trace: number; wall: number }[],
+  candidates: readonly AlignmentCandidate[],
+) {
+  if (new Set(pairs.map(p => p.trace)).size !== pairs.length || new Set(pairs.map(p => p.wall)).size !== pairs.length) return [];
+  return viableRoomAlignments(candidates).filter(candidate => pairs.every(({ wall, trace }) => {
+    const face = model.walls[wall], stroke = strokes[trace];
+    return !!face && !!stroke && fitsFace(candidate, face, stroke);
+  }));
+}
+
 export class PairedTraces {
   readonly pairs: {trace: number; wall: number}[] = [];
   current = 0;
   message = "";
+  search?: AlignmentSearchDiagnostics;
+  matches?: AlignmentCandidate[];
+  correspondenceConflict = false;
   candidate: AlignmentCandidate | null = null;
   constructor(readonly model: AlignmentModel, readonly strokes: readonly AlignmentWall[]) {}
 
@@ -37,6 +52,9 @@ export class PairedTraces {
   }
   back() {
     this.candidate = null;
+    this.search = undefined;
+    this.matches = undefined;
+    this.correspondenceConflict = false;
     this.current = this.pairs.pop()?.trace ?? this.current;
     this.message = "";
   }
@@ -47,13 +65,15 @@ export class PairedTraces {
   }
   select(wall: number, viewer: Vector3, evidence: RoomEvidence, candidates: AlignmentCandidate[]) {
     if (!this.availableWall(wall)) return;
+    this.search = undefined;
     this.pairs.push({ trace: this.current, wall });
     let verified = candidates;
     // The wearer explicitly chooses these four lines. A misplaced fifth stroke can stay in the draft.
     if (this.pairs.length === 4) verified = matchRoomAlignment(this.model,
-      { ...evidence, walls: this.pairs.map(p => this.strokes[p.trace]!) },viewer);
-    const matches = viableRoomAlignments(verified).filter(pose => this.pairs.every(p =>
-      fitsFace(pose,this.model.walls[p.wall]!,this.strokes[p.trace]!)));
+      { ...evidence, walls: this.pairs.map(p => this.strokes[p.trace]!) },viewer, {selectedRoom:true, diagnostics:this.search = newAlignmentSearchDiagnostics()});
+    const matches = filterPairedTraces(this.model, this.strokes, this.pairs, verified);
+    this.matches = matches;
+    this.correspondenceConflict = verified.length > 0 && !matches.length;
     if (matches.length === 1) {
       this.candidate = matches[0]!;
       return;
@@ -61,7 +81,9 @@ export class PairedTraces {
     if (this.pairs.length === 4) {
       this.pairs.pop();
       this.message = matches.length ? "Two positions still fit. Choose a different marked line."
-        : "These four lines did not pass the 5 cm check. Try two walls that meet and two on the other sides, or check the floor height.";
+        : this.search?.bestCheckM != null && this.search.bestCheckM > MAX_CALIBRATION_ERROR_M
+          ? `Closest independent check: ${(this.search.bestCheckM * 100).toFixed(1)} cm. Try another marked wall.`
+          : "These four lines could not verify one position. Check their wall numbers or choose a different marked line.";
       return;
     }
     this.current = this.available()[0]!;

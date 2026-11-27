@@ -839,6 +839,21 @@ The matcher can use a labeled floor on an adjacent split level and small recesse
 the measured floor outline. If several rooms still fit, select yours from the shortlist. **Choose room myself**
 opens the full room list immediately.
 
+During setup, House automatically saves a private **Alignment report** to the signed-in account.
+Open **House → View → Alignment reports** to review an attempt, including one that ended before
+registration. Select an observation to see the headset floor outline, measured wall sections,
+door and window centers, and marked lines. The model footprint has its own heading. The timeline
+shows room selection, wall pairings, independent checks and tracking interruptions. Each tracking
+origin has its own coordinates. A perimeter discrepancy can describe a provisional heading, and a
+reported check distance requires an actual measured comparison. A blue scan alone does not establish
+a registration. For a room you explicitly choose, a locally simplified perimeter can be accepted
+when independent architectural evidence elsewhere in the room verifies the pose.
+
+Each report keeps up to four geometry checkpoints and 48 events with the model fingerprint.
+The headset retries interrupted uploads for the same account. The household installation keeps up
+to 60 attempts per account for 30 days. Camera images, mesh triangles and controller motion are
+excluded. Account-bound MCP read tools can retrieve the observations and solver diagnostics for replay.
+
 In a furnished room, look across exposed wall faces above the furniture, then toward a
 doorway or window. Two nonparallel measured wall sections, a measured floor height and
 an independently observed opening can register the room even when its wall bases are

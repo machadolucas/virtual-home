@@ -38,7 +38,7 @@ interface MixedRealityCalibrationOptions {
   fingerprint: string;
   floorId: string;
   roomId?: string;
-  onState: (state: MixedRealityState) => void;
+  onState: (state: MixedRealityState, verifiedPose?: Matrix4) => void;
   storage?: Pick<Storage, "getItem" | "setItem" | "removeItem">;
   probeOffset?: Readonly<Vec3>;
 }
@@ -145,7 +145,7 @@ export class MixedRealityCalibration {
     this.update({
       phase: "ready", sampleCount: 3, errorM, selected: null, persistence: "session",
       message: "Alignment checked against independent room geometry.",
-    });
+    }, fit.matrix);
     return true;
   }
 
@@ -167,7 +167,7 @@ export class MixedRealityCalibration {
     const disagreement = errorM + drift;
     if (!Number.isFinite(disagreement) || disagreement > MAX_CALIBRATION_ERROR_M) return false;
     if (check && features.some(({ id }) => id === check.id) && this.isLocalFeature(check)) this.check = check;
-    this.update({ phase: "ready", errorM: disagreement, selected: null, message: "Alignment rechecked against room geometry." });
+    this.update({ phase: "ready", errorM: disagreement, selected: null, message: "Alignment rechecked against room geometry." }, matrix);
     return true;
   }
 
@@ -248,7 +248,7 @@ export class MixedRealityCalibration {
         return;
       }
       if (!this.checkPoint(matrix, pair)) return;
-      this.update({ phase: "ready", message: "Alignment checked. The overlay shows approximate documented paths." });
+      this.update({ phase: "ready", message: "Alignment checked. The overlay shows approximate documented paths." }, matrix);
       return true;
     }
 
@@ -276,7 +276,7 @@ export class MixedRealityCalibration {
     if (!this.checkPoint(this.fit.matrix, pair)) return;
     this.check = selected;
     this.createPending = true;
-    this.update({ phase: "ready", sampleCount: 3, message: "Alignment checked. The overlay shows approximate documented paths." });
+    this.update({ phase: "ready", sampleCount: 3, message: "Alignment checked. The overlay shows approximate documented paths." }, this.fit.matrix);
     return true;
   }
 
@@ -461,8 +461,8 @@ export class MixedRealityCalibration {
     this.loseTracking();
   };
 
-  private update(changes: Partial<MixedRealityState>): void {
+  private update(changes: Partial<MixedRealityState>, verifiedPose?: Matrix4): void {
     this.current = { ...this.current, ...changes };
-    this.options.onState(this.current);
+    this.options.onState(this.current, verifiedPose);
   }
 }

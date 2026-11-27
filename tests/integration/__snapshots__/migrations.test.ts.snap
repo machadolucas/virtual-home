@@ -18,6 +18,16 @@ exports[`migrations > produces the expected schema 1`] = `
     "type": "index",
   },
   {
+    "name": "ix_alignment_attempt_expiry",
+    "sql": "CREATE INDEX \`ix_alignment_attempt_expiry\` ON \`alignment_attempt\` (\`started_at_ms\`)",
+    "type": "index",
+  },
+  {
+    "name": "ix_alignment_attempt_user_time",
+    "sql": "CREATE INDEX \`ix_alignment_attempt_user_time\` ON \`alignment_attempt\` (\`user_id\`,\`started_at_ms\`,\`id\`)",
+    "type": "index",
+  },
+  {
     "name": "ix_annotation_node",
     "sql": "CREATE INDEX \`ix_annotation_node\` ON \`annotation\` (\`model_revision_id\`,\`model_node_id\`)",
     "type": "index",
@@ -984,6 +994,27 @@ exports[`migrations > produces the expected schema 1`] = `
 	\`createdAt\` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	\`updatedAt\` integer NOT NULL,
 	FOREIGN KEY (\`userId\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE cascade
+)",
+    "type": "table",
+  },
+  {
+    "name": "alignment_attempt",
+    "sql": "CREATE TABLE \`alignment_attempt\` (
+	\`user_id\` text NOT NULL,
+	\`id\` text NOT NULL,
+	\`model_revision_id\` text NOT NULL,
+	\`revision\` integer NOT NULL,
+	\`started_at_ms\` integer NOT NULL,
+	\`received_at_ms\` integer NOT NULL,
+	\`elapsed_ms\` integer NOT NULL,
+	\`mode\` text NOT NULL,
+	\`status\` text NOT NULL,
+	\`room_id\` text,
+	\`evidence_json\` text NOT NULL,
+	PRIMARY KEY(\`user_id\`, \`id\`),
+	FOREIGN KEY (\`user_id\`) REFERENCES \`user\`(\`id\`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (\`model_revision_id\`) REFERENCES \`model_revision\`(\`id\`) ON UPDATE no action ON DELETE restrict,
+	CONSTRAINT "ck_alignment_attempt_revision" CHECK(revision >= 1)
 )",
     "type": "table",
   },

@@ -6,6 +6,8 @@ import { explodeTargets, offsetsFor, type ExplodeState } from "@/house/scene/exp
 import { MAX_CALIBRATION_ERROR_M, type CalibrationFeature, type CalibrationFit } from "./mixedCalibration";
 import { architectureFromOpenings, checkOpeningGeometry, checkVisibleFloorCorner } from "./roomArchitecture";
 
+import { recordIndependentCheck, type AlignmentSearchDiagnostics, type AlignmentSearchOptions } from "./alignmentSearchDiagnostics";
+export { newAlignmentSearchDiagnostics, type AlignmentSearchDiagnostics, type AlignmentSearchOptions } from "./alignmentSearchDiagnostics";
 export { openingCalibrationFeature } from "./roomArchitecture";
 
 type Point = [number, number];
@@ -240,14 +242,14 @@ interface WallValidation {
 
 function checkTraces(
   model: AlignmentModel, perimeter: AlignmentWall[], strokes: AlignmentWall[], floorY: number,
-  i: number, j: number, k: number, l: number, yaw: number, shift: Point,
+  i: number, j: number, k: number, l: number, yaw: number, shift: Point, trainingError: number, diagnostics?: AlignmentSearchDiagnostics,
 ): WallValidation | null {
   const claimed = new Set([i, j]);
   const assignment = new Array<number>(strokes.length);
   assignment[k] = i;
   assignment[l] = j;
   const withheld: { observed: AlignmentWall; expected: AlignmentWall }[] = [];
-  let residual = 0;
+  let residual = trainingError;
   for (const [n, observed] of strokes.entries()) {
     if (n === k || n === l) continue;
     // Unlike an automatic room search, the wearer has explicitly identified the room.
@@ -259,12 +261,17 @@ function checkTraces(
       if (distance < error) { error = distance; index = m; }
     }
     residual = Math.max(residual, Math.hypot(error, observed.low - floorY));
-    if (residual > LIMIT) return null;
+    if (index < 0 || (residual > LIMIT && (!diagnostics || diagnostics.traceComparisons >= 128))) return null;
     claimed.add(index);
     assignment[n] = index;
     withheld.push({ observed, expected: model.walls[index]! });
   }
 
+  if (diagnostics && Number.isFinite(residual)) {
+    diagnostics.traceComparisons++;
+    diagnostics.bestTraceGapM = Math.min(diagnostics.bestTraceGapM ?? Infinity, residual);
+  }
+  if (residual > LIMIT) return null;
   // Intersect two held-out wall lines and check their shared model corner in full 3D.
   // A repeated or parallel stroke alone cannot certify the translation along a wall.
   let best: WallValidation | null = null;
@@ -278,8 +285,10 @@ function checkTraces(
     const t = cross(sub(b.observed.a, a.observed.a), second) / det;
     const point: Point = [a.observed.a[0] + t * axis[0], a.observed.a[1] + t * axis[1]];
     const expected = rotate(planar(check.point), yaw);
-    const error = Math.max(residual, Math.hypot(point[0] - expected[0] - shift[0],
-      point[1] - expected[1] - shift[1], (a.observed.low + b.observed.low) / 2 - floorY));
+    const pointGap = Math.hypot(point[0] - expected[0] - shift[0], point[1] - expected[1] - shift[1],
+      (a.observed.low + b.observed.low) / 2 - floorY);
+    recordIndependentCheck(diagnostics, pointGap);
+    const error = Math.max(residual, pointGap);
     if (error <= LIMIT && (!best || error < best.residual)) best = { check, residual: error };
   }
   return best && { ...best, assignment: assignment.join(",") };
@@ -321,16 +330,18 @@ function checkPerimeter(
   return check && { check, residual };
 }
 
-export function matchRoomAlignment(model: AlignmentModel, evidence: RoomEvidence, viewer: Vector3): AlignmentCandidate[] {
+export function matchRoomAlignment(
+  model: AlignmentModel, evidence: RoomEvidence, viewer: Vector3, options: AlignmentSearchOptions = {},
+): AlignmentCandidate[] {
   // Foreground recognition has its own incremental per-room budget. Only the optional
   // outlier diagnostic yields part way through an individual room.
-  const result = alignmentSearch(model, evidence, viewer, false).next();
+  const result = alignmentSearch(model, evidence, viewer, false, options).next();
   if (result.done && result.value.length) return result.value;
-  return architectureFromOpenings(model, evidence, viewer);
+  return architectureFromOpenings(model, evidence, viewer, options);
 }
 
 function* alignmentSearch(
-  model: AlignmentModel, evidence: RoomEvidence, viewer: Vector3, incremental: boolean,
+  model: AlignmentModel, evidence: RoomEvidence, viewer: Vector3, incremental: boolean, options: AlignmentSearchOptions = {},
 ): Generator<void, AlignmentCandidate[]> {
   const { walls, floor, landmarks } = evidence;
   const confirmed = floor?.source === "bounds" && floor.confirmedHeight && walls.some(wall => wall.baseOnly);
@@ -410,12 +421,13 @@ function* alignmentSearch(
         const trainingError = Math.max(residualFor(transformed(a, yaw, shift), observedA),
           residualFor(transformed(b, yaw, shift), observedB));
         if (trainingError > LIMIT) continue;
+        if (options.diagnostics) options.diagnostics.fittedPairs++;
 
         // Only the two training walls set yaw and X/Z. Every other wall is withheld.
         const perimeter = model.walls.map((wall) => transformed(wall, yaw, shift));
         const matrix = new Matrix4().makeRotationY(yaw).setPosition(shift[0], vertical, shift[1]);
         const validation: WallValidation | null | undefined = traces
-          ? checkTraces(model, perimeter, measured, floor.y, i, j, k, l, yaw, shift)
+          ? checkTraces(model, perimeter, measured, floor.y, i, j, k, l, yaw, shift, trainingError, options.diagnostics)
           : elevated ? null : checkPerimeter(model, perimeter, perimeterFaces, floor, lowRoom,
             i, j, traditional[k]!, traditional[l]!);
         let candidate: AlignmentCandidate;
@@ -433,12 +445,12 @@ function* alignmentSearch(
             const first = wallAxis(observedA), second = wallAxis(observedB);
             const t = cross(sub(observedB.a, observedA.a), second) / cross(first, second);
             const intersection: Point = [observedA.a[0] + t * first[0], observedA.a[1] + t * first[1]];
-            architectural = checkOpeningGeometry(model, evidence, matrix, undefined, intersection);
+            architectural = checkOpeningGeometry(model, evidence, matrix, undefined, intersection, options, [observedA, observedB]);
           }
           if (!architectural && !landmarks.length && floor.source === "plane" && floor.semanticFloor) {
             const check = model.corners.find(({ point }) =>
               lineError(planar(point), a) > 0.5 && lineError(planar(point), b) > 0.5);
-            if (check) architectural = checkVisibleFloorCorner(model, floor, perimeter, check, matrix, observedA, observedB);
+            if (check) architectural = checkVisibleFloorCorner(model, floor, perimeter, check, matrix, observedA, observedB, options.diagnostics);
           }
           if (!architectural) continue;
           candidate = architectural;

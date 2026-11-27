@@ -185,6 +185,26 @@ show the virtual overlay. A separately attached Quest screenshot can include the
 The registry supplies evidence for corrections through the existing private model or
 infrastructure editing workflow.
 
+### MR alignment diagnostics
+
+`list_alignment_attempts` lists the signed-in connection owner's recent headset alignment
+attempts, including interrupted sessions. Use `modelId`, `roomId`, `limit` and `cursor`
+to narrow the results. `get_alignment_attempt` takes an attempt `id` and returns its event
+timeline, model fingerprint and snapshot index. Pass `snapshotIndex` to inspect the detected
+floor outline, wall segments, openings, traced endpoints and solver diagnosis. For a compact
+read, add `section` with `floor`, `walls`, `landmarks`, `traces` or `diagnosis`.
+
+Both tools require a read-scoped credential. Coordinates use metres in the headset's local
+tracking space. Compare samples only within the same attempt and space segment. Event and
+sample times are milliseconds since session start. A solver hypothesis records a candidate
+for debugging. The separate check residual and verification stage indicate alignment quality.
+
+The live private database keeps up to 60 attempts per account for 30 days. Existing household
+backups follow their own retention schedule. The browser can retry an
+offline capture against a previously active package. Its original fingerprint remains attached,
+and `modelStatus` identifies a superseded revision. Diagnostics contain bounded numeric
+geometry and setup events. Capturing them leaves installed model and infrastructure records intact.
+
 ### Room surveys
 
 Read-scoped clients can list saved references with `list_room_surveys` and page through the

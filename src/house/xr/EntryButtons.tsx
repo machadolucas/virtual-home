@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { retryAlignmentAttempts } from "../alignmentAttemptApi";
 import { FrameTiming } from "./FrameTiming";
 import { Button } from "@/ui";
 import { useHouseRuntime, useHouseStore } from "../hooks/useHouseStore";
@@ -18,6 +19,14 @@ export function EntryButtons() {
     check(); xr?.addEventListener("devicechange", check);
     return () => { live = false; xr?.removeEventListener("devicechange", check); };
   }, []);
+  useEffect(() => {
+    if (!runtime.userId) return;
+    const userId = runtime.userId;
+    const retry = () => { void retryAlignmentAttempts(runtime.base, userId); };
+    retry();
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [runtime.base, runtime.userId]);
   const enter = async (mode: ImmersiveMode) => {
     setError(""); setStarting(true);
     try {
