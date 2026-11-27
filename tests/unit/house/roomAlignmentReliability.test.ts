@@ -1,4 +1,4 @@
-import { BoxGeometry, Group, Matrix4, Mesh, MeshStandardMaterial, Vector3 } from "three";
+import { BoxGeometry, Group, Matrix4, Mesh, MeshStandardMaterial, Ray, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { buildManifestIndex } from "@/house/model/manifestIndex";
 import type { Room, Vec3 } from "@/house/model/types";
@@ -7,10 +7,13 @@ import { calibrationFeatures } from "@/house/xr/mixedCalibration";
 import {
   buildAlignmentModel,
   matchRoomAlignment,
+  roomPoseDrift,
+  reviewTraceOutlier,
   uniqueRoomAlignment,
   viableRoomAlignments,
   type RoomEvidence,
 } from "@/house/xr/roomAlignment";
+import { floorAim, WallTrace } from "@/house/xr/wallTrace";
 import { readAlignmentEvidence } from "@/house/xr/roomAlignmentEvidence";
 import { FIXTURE_DIR, loadManifest } from "./glb";
 
@@ -112,6 +115,94 @@ describe("room matching with incomplete headset evidence", () => {
     const matches = matchRoomAlignment(model, { ...evidence, walls: strokes }, viewer);
     expect(matches).toHaveLength(2);
     expect(uniqueRoomAlignment(matches)).toBeNull();
+    const lowered: RoomEvidence = { ...evidence,
+      walls: strokes.map(stroke => ({ ...stroke, low: -.32, high: -.32 })),
+      floor: { y: -.32, outline: [], source: "bounds" } };
+    const lowerEye = viewer.clone().add(new Vector3(0, -.32, 0));
+    expect(matchRoomAlignment(model, lowered, lowerEye)).toEqual([]);
+    lowered.floor!.confirmedHeight = true;
+    expect(matchRoomAlignment(model, lowered, lowerEye)).toHaveLength(2);
+  });
+
+  it("checks noisy partial strokes in a recessed room and identifies a single mistaken line", () => {
+    const recessed: Room = { ...room, footprint: {
+      outer: [[0,0],[7,0],[7,5],[5,5],[5,2.8],[4,2.8],[4,4],[0,4]], holes: [],
+    } };
+    const corners = calibrationFeatures({ ...manifest, rooms: [recessed] }, recessed.floorId, recessed.id);
+    const model = buildAlignmentModel(recessed, corners);
+    const trace = new WallTrace(), source = {} as XRInputSource;
+    const supplied = {y: 0, outline: [], source: "bounds" as const};
+    const current = () => trace.evidence(0, {floor:supplied, walls:[], landmarks:[]});
+    function record(index: number) {
+      const wall = model.walls[index]!;
+      const a = physical([wall.a[0], 3, wall.a[1]]), b = physical([wall.b[0], 3, wall.b[1]]);
+      const mid = a.clone().lerp(b, .47), axis = b.clone().sub(a).normalize();
+      const normal = new Vector3(-axis.z, 0, axis.x);
+      expect(trace.begin(source)).toBe(true);
+      for (let n = 0; n <= 28; n++) {
+        const station = n / 28 - .5;
+        trace.sample(mid.clone().addScaledVector(axis, station)
+          .addScaledVector(normal, .010 * Math.sin(n * 1.6) + .009 * Math.cos(index + station)));
+      }
+      expect(trace.finish(source)).toBe(true);
+    }
+    try {
+      // Six one-metre strokes cover parts of six of the eight faces.
+      for (const line of [0, 1, 2, 3, 6, 7]) record(line);
+      const resolved = uniqueRoomAlignment(matchRoomAlignment(model, current(), viewer));
+      expect(resolved?.errorM).toBeLessThan(.05);
+      expect(roomPoseDrift(recessed, resolved!.fit.matrix, transform)).toBeLessThan(.05);
+      expect(resolved!.fit.matrix.determinant()).toBeCloseTo(1);
+      // A seventh stroke lies on the floor well inside the room. It cannot silently
+      // disappear from verification, and the operator can remove it out of order.
+      const bad = {a: plan([1,1]), b: plan([2.1,1]), low:0, high:0, baseOnly:true};
+      trace.walls.splice(2, 0, bad);
+      expect(matchRoomAlignment(model, current(), viewer)).toEqual([]);
+      const review = reviewTraceOutlier(model, trace.walls, viewer, 0);
+      let result = review.next();
+      expect(result.done).toBe(false);
+      while (!result.done) result = review.next();
+      expect(result.value).toBe(2);
+      trace.highlight(2);
+      trace.remove(2);
+      expect(uniqueRoomAlignment(matchRoomAlignment(model, current(), viewer))).not.toBeNull();
+    } finally {
+      trace.dispose();
+    }
+  });
+
+  it("reprojects stored laser samples to a measured lower floor and rejects collapsed or unrecorded strokes atomically", () => {
+    const source = {} as XRInputSource;
+    const recorded = (trace: WallTrace, from: Vector3, z: number, storeRay = true) => {
+      expect(trace.begin(source)).toBe(true);
+      for (let i = 0; i <= 30; i++) {
+        const target = new Vector3(-.9 + i * .06, -.32, z);
+        const ray = new Ray(from, target.sub(from).normalize());
+        trace.sample(floorAim(ray, 0, new Vector3()), storeRay ? ray : undefined);
+      }
+      expect(trace.finish(source)).toBe(true);
+    };
+    const trace = new WallTrace();
+    try {
+      recorded(trace, new Vector3(.4, 1.3, 2), 0);
+      recorded(trace, new Vector3(-.3, 1.05, 1.5), -1.7);
+      expect(trace.reprojectFloor(-.32)).toBe(true);
+      for (const wall of trace.walls) expect(wall.low).toBeCloseTo(-.32);
+      expect(trace.walls[0]!.a[1]).toBeCloseTo(0);
+      expect(trace.walls[1]!.b[1]).toBeCloseTo(-1.7);
+      expect(trace.evidence(-.32, {walls:[],floor:null,landmarks:[]},true).floor)
+        .toMatchObject({semanticFloor: false, confirmedHeight: true});
+    } finally { trace.dispose(); }
+    for (const retain of [true, false]) {
+      const conflict = new WallTrace();
+      try {
+        recorded(conflict, new Vector3(.4, 1.2, 2.2), 0);
+        recorded(conflict, new Vector3(-.3, 1.2, 1.1), 0, retain);
+        const original = [...conflict.walls];
+        expect(conflict.reprojectFloor(-.32)).toBe(false);
+        expect(conflict.walls).toEqual(original);
+      } finally { conflict.dispose(); }
+    }
   });
 
   it("rejects an orientation that matches one measured opening but contradicts another comparable measured opening", () => {

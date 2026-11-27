@@ -1,16 +1,19 @@
 import { Vector3 } from "three";
-import { pointInFootprint, ringSignedArea } from "../model/geometry2d";
+import { pointInFootprint } from "../model/geometry2d";
 import type { Room, Vec2 } from "../model/types";
 import {
   matchRoomAlignment,
   roomPoseDrift,
+  trackedFloorHeightAllowed,
   uniqueRoomAlignment,
   type AlignmentCandidate,
   type AlignmentModel,
   type AlignmentWall,
   type RoomEvidence,
 } from "./roomAlignment";
+import { floorEdges, outlinesAgree, type Edge } from "./roomOutline";
 import { MAX_CALIBRATION_ERROR_M } from "./mixedCalibration";
+import { confirmsRecessedFloor } from "./distinctiveRoom";
 
 export interface RoomDiscoveryChoice {
   room: Room;
@@ -25,7 +28,7 @@ export interface RoomDiscoveryState {
   match: RoomDiscoveryChoice | null;
 }
 
-type Edge = readonly [Vec2, Vec2];
+
 type Extent = "same" | "different" | "unknown";
 type NativeEvidence = RoomEvidence & { floor: NonNullable<RoomEvidence["floor"]> };
 interface Pass {
@@ -44,49 +47,12 @@ interface Corroboration {
   capturedAtMs: number;
 }
 
-const FLOOR_LIMIT_M = 0.2;
 const EXTENT_LIMIT_M = MAX_CALIBRATION_ERROR_M + 1e-8;
 const MIN_PASS_GAP_MS = 350;
 const MAX_PASS_GAP_MS = 6_000;
 const MAX_ROOMS_PER_STEP = 2;
 const SOFT_STEP_BUDGET_MS = 2.5;
 const WALL_ALIGN = Math.cos((3 * Math.PI) / 180);
-
-function floorEdges(points: readonly Vec2[]): Edge[] {
-  return points.flatMap((a, i) => {
-    const b = points[(i + 1) % points.length]!;
-    return Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.002 ? [] : [[a, b] as const];
-  });
-}
-
-function edgeDistance([x, z]: Vec2, [a, b]: Edge): number {
-  const dx = b[0] - a[0],
-    dz = b[1] - a[1];
-  const n = dx * dx + dz * dz;
-  const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / n));
-  return Math.hypot(x - a[0] - t * dx, z - a[1] - t * dz);
-}
-
-/** Both directions matter: a tiny room or a scan spanning multiple rooms can share several walls. */
-function outlinesAgree(a: readonly Vec2[], b: readonly Vec2[]): boolean {
-  if (a.length < 3 || b.length < 3 || a.length > 128 || b.length > 128) return false;
-  const areaA = Math.abs(ringSignedArea(a)),
-    areaB = Math.abs(ringSignedArea(b));
-  if (Math.min(areaA, areaB) < 0.65 || Math.abs(areaB - areaA) > Math.max(areaA, areaB) * 0.15)
-    return false;
-  const edgesA = floorEdges(a),
-    edgesB = floorEdges(b);
-  const supported = (edges: Edge[], supports: Edge[]) =>
-    edges.every(([a, b]) => {
-      const samples = Math.min(32, Math.max(2, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.25)));
-      for (let i = 0; i <= samples; i++) {
-        const at: Vec2 = [a[0] + ((b[0] - a[0]) * i) / samples, a[1] + ((b[1] - a[1]) * i) / samples];
-        if (!supports.some((edge) => edgeDistance(at, edge) <= EXTENT_LIMIT_M)) return false;
-      }
-      return true;
-    });
-  return supported(edgesA, edgesB) && supported(edgesB, edgesA);
-}
 
 function enclosingWall([a, b]: Edge, observed: readonly AlignmentWall[], nativeOutline: boolean): boolean {
   const dx = b[0] - a[0],
@@ -145,9 +111,17 @@ function extentOf(model: AlignmentModel, evidence: NativeEvidence, candidate: Al
       Math.abs(wall.low - evidence.floor.y) <= (nativeOutline ? 0.35 : EXTENT_LIMIT_M),
   );
   const perimeter = floorEdges(transformed).filter(([a, b]) => Math.hypot(b[0] - a[0], b[1] - a[1]) >= 0.1);
-  return perimeter.length >= 3 && perimeter.every((edge) => enclosingWall(edge, observed, nativeOutline))
-    ? "same"
-    : "unknown";
+  let checked = 0, perimeterM = 0, unmeasuredM = 0;
+  for (const edge of perimeter) {
+    const [a, b] = edge, length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    perimeterM += length;
+    if (enclosingWall(edge, observed, nativeOutline)) { checked++; continue; }
+    // Door reveals and short returns can be present in the measured floor outline but
+    // too narrow to be classified as separate wall faces (minimum wall span 28 cm).
+    if (!nativeOutline || length >= .28) return "unknown";
+    unmeasuredM += length;
+  }
+  return checked >= 3 && unmeasuredM <= Math.min(1, perimeterM * .08) ? "same" : "unknown";
 }
 
 function posesAgree(room: Room, a: AlignmentCandidate, b: AlignmentCandidate): boolean {
@@ -158,8 +132,7 @@ function isNative(evidence: RoomEvidence, viewer: Vector3): evidence is NativeEv
   const { floor } = evidence;
   return (
     (floor?.source === "plane" || floor?.source === "mesh") &&
-    Number.isFinite(floor.y) &&
-    Math.abs(floor.y) <= FLOOR_LIMIT_M &&
+    trackedFloorHeightAllowed(floor.y, floor.semanticFloor) &&
     floor.outline.length >= 3 &&
     floor.outline.length <= 128 &&
     [viewer.x, viewer.y, viewer.z].every(Number.isFinite) &&
@@ -255,6 +228,8 @@ export class RoomDiscovery {
         const proofs = plausible
           .filter(({ extent }) => extent === "same")
           .map(({ candidate }) => candidate);
+        if (!proofs.length && shaped.length === 1 && confirmsRecessedFloor(model, pass.evidence, pass.viewer, candidates[0]!))
+          proofs.push(candidates[0]!);
         pass.proofs.set(room.id, proofs);
         pass.options.push({
           room,

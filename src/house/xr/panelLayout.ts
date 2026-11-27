@@ -14,6 +14,11 @@ export interface PanelPage {
   rows: PanelRow[];
   corners?: readonly (readonly number[])[];
   planEdge?: number;
+  wallPicker?: {
+    walls: { index: number; x: number; z: number; picked: boolean; enabled: boolean }[];
+    openings: { x: number; z: number; kind: "door" | "window" }[];
+    choose: (index: number) => void;
+  };
   keyboard?: {
     text: string;
     placeholder: string;
@@ -55,6 +60,8 @@ export interface PanelLayout {
   plan: PanelRect | null;
   corners: PanelPage["corners"];
   planEdge?: number;
+  wallTargets: PanelButton[];
+  openings: { x: number; y: number; kind: "door" | "window" }[];
   keyboard: {
     field: PanelRect;
     text: string;
@@ -113,12 +120,14 @@ export function layoutPanel(
   const back = page.back ?? promoted?.act;
   const items = page.rows.filter((item) => item !== promoted);
   const arrangeBody = (rowWidth: number) => {
-    const plan = page.corners?.length
+    let plan = page.corners?.length
       ? { x: INSET + rowWidth - 218, y: HEADER + 13, width: 218, height: 146 }
       : null;
-    const infoWidth = plan ? plan.x - INSET - 24 : rowWidth;
+    const infoWidth = plan && !page.wallPicker ? plan.x - INSET - 24 : rowWidth;
     const lines = page.lines.flatMap((line) => wrap(line, infoWidth - 24, measure));
-    const intro = Math.max(plan ? plan.height + 24 : 0, lines.length ? lines.length * LINE_HEIGHT + 24 : 0);
+    const textHeight = lines.length ? lines.length * LINE_HEIGHT + 24 : 0;
+    if (page.wallPicker) plan = { x: INSET, y: HEADER + textHeight + 8, width: rowWidth, height: 350 };
+    const intro = page.wallPicker ? textHeight + 366 : Math.max(plan ? plan.height + 24 : 0, textHeight);
     let cursor = HEADER + intro + 8;
     const rows: PanelButton[] = [];
     let keyboard: PanelLayout["keyboard"] = null;
@@ -194,6 +203,22 @@ export function layoutPanel(
       ? arrangeBody(fullWidth - SCROLL_GUTTER)
       : fullBody;
   const height = Math.min(MAX_HEIGHT, HEADER + contentHeight + FOOTER);
+  const project = plan && page.wallPicker && page.corners?.length ? planProjection(plan, page.corners) : null;
+  const wallTargets: PanelButton[] = [];
+  const openings: PanelLayout["openings"] = [];
+  if (project && page.wallPicker) {
+    const picker = page.wallPicker;
+    for (const wall of picker.walls) {
+      const [x,y] = project(wall.x,wall.z);
+      wallTargets.push({ kind: "row", key: page.title + "/wall/" + wall.index, label: String(wall.index+1),
+        act: wall.enabled ? () => picker.choose(wall.index) : undefined, active: wall.picked, keycap: true,
+        x:x-19, y:y-19, width:38, height:38 });
+    }
+    for (const opening of picker.openings) {
+      const [x,y] = project(opening.x,opening.z);
+      openings.push({x,y,kind:opening.kind});
+    }
+  }
   const body: PanelRect = { x: INSET, y: HEADER, width: rowWidth, height: height - FOOTER - HEADER };
   const track: PanelRect = {
     x: PANEL_WIDTH - INSET - 23,
@@ -227,6 +252,7 @@ export function layoutPanel(
     plan,
     corners: page.corners,
     planEdge: page.planEdge,
+    wallTargets, openings,
     keyboard,
     rows,
     footer,
@@ -281,17 +307,21 @@ function text(context: CanvasRenderingContext2D, value: string, x: number, y: nu
 
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
-function paintPlan(c: CanvasRenderingContext2D, box: PanelRect, points: NonNullable<PanelPage["corners"]>, edge?: number) {
+function planProjection(box: PanelRect, points: NonNullable<PanelPage["corners"]>) {
   const xs = points.map((p) => p[0]!);
   const zs = points.map((p) => p[2]!);
   const minX = Math.min(...xs), minZ = Math.min(...zs);
   const width = Math.max(.01, Math.max(...xs) - minX);
   const height = Math.max(.01, Math.max(...zs) - minZ);
   const scale = Math.min((box.width - 43) / width, (box.height - 45) / height);
-  const plot = points.map((p) => [
-    box.x + (box.width - width * scale) / 2 + (p[0]! - minX) * scale,
-    box.y + (box.height - height * scale) / 2 + (p[2]! - minZ) * scale,
-  ] as const);
+  return (x: number, z: number) => [
+    box.x + (box.width - width * scale) / 2 + (x - minX) * scale,
+    box.y + (box.height - height * scale) / 2 + (z - minZ) * scale,
+  ] as const;
+}
+function paintPlan(c: CanvasRenderingContext2D, box: PanelRect, points: NonNullable<PanelPage["corners"]>, edge?: number, plain = false) {
+  const project = planProjection(box, points);
+  const plot = points.map(p => project(p[0]!, p[2]!));
   fill(c, box, 15, "#101c27");
   stroke(c, box, 15, "#364854", 1.3);
   c.strokeStyle = "#76d8c4";
@@ -302,6 +332,7 @@ function paintPlan(c: CanvasRenderingContext2D, box: PanelRect, points: NonNulla
   c.closePath();
   c.fill();
   c.stroke();
+  if (plain) return;
   if (edge !== undefined && plot[edge]) {
     const a = plot[edge]!, b = plot[(edge+1)%plot.length]!;
     c.strokeStyle = "#ffcc81";
@@ -623,11 +654,28 @@ export function paintPanel(
   c.clip();
   c.font = `430 25px ${FONT}`;
   c.fillStyle = "#c8dae5";
-  const infoWidth = plan ? plan.x - INSET - 26 : body.width - 24;
+  const largePlan = !!plan && plan.width === body.width;
+  const infoWidth = plan && !largePlan ? plan.x - INSET - 26 : body.width - 24;
   layout.lines.forEach((line, index) =>
     text(c, line, INSET + 9, HEADER + 36 + LINE_HEIGHT * index - offset, infoWidth),
   );
-  if (plan && corners) paintPlan(c, { ...plan, y: plan.y - offset }, corners, layout.planEdge);
+  if (plan && corners) paintPlan(c, { ...plan, y: plan.y - offset }, corners, layout.planEdge, largePlan);
+  if (largePlan) {
+    for (const o of layout.openings) {
+      c.fillStyle = o.kind === "window" ? "#87caff" : "#ffcf81";
+      c.fillRect(o.x - 4, o.y - offset - 4, 8, 8);
+    }
+    for (const target of layout.wallTargets) {
+      const box = { ...target, y: target.y - offset };
+      fill(c, box, 17, target.active ? "#317f77" : target.act ? "#21485c" : "#20313b");
+      stroke(c, box, 17, target.act ? "#a4e6dc" : "#4d666e", 2);
+      c.fillStyle = target.act || target.active ? "#ecfff9" : "#8d9da5";
+      c.font = `650 19px ${FONT}`;
+      c.textAlign = "center";
+      c.fillText(target.label, box.x + box.width/2, box.y + box.height/2 + 6);
+    }
+    c.textAlign = "left";
+  }
   if (keyboard) paintKeyboardField(c, keyboard, offset);
   for (const row of rows) {
     if (row.y + row.height - offset > body.y && row.y - offset < body.y + body.height)

@@ -27,7 +27,7 @@ export interface AlignmentModel {
 }
 export interface RoomEvidence {
   walls: AlignmentWall[];
-  floor: { y: number; outline: Point[]; source?: "plane" | "mesh" | "bounds" } | null;
+  floor: { y: number; outline: Point[]; source?: "plane" | "mesh" | "bounds"; semanticFloor?: boolean; confirmedHeight?: boolean } | null;
   landmarks: AlignmentLandmark[];
 }
 export interface AlignmentCandidate {
@@ -39,7 +39,10 @@ export interface AlignmentCandidate {
 }
 export type AlignmentHint = { kind: "wall"; index: number } | { kind: "landmark"; index: number };
 const LIMIT = MAX_CALIBRATION_ERROR_M + 1e-8;
-const FLOOR_TOLERANCE_M = 0.2;
+/** A labeled room floor may be on the next split level from the local-floor reference origin. */
+export function trackedFloorHeightAllowed(y: number, semanticFloor = false): boolean {
+  return Number.isFinite(y) && Math.abs(y) <= (semanticFloor ? 0.60 : 0.20);
+}
 const MIN_WALL_M = 0.28;
 const METRE_DEDUP = 0.045;
 const ANGLE_DEDUP = Math.PI / 180;
@@ -206,10 +209,118 @@ function matchesLandmarks(
   return { count, error, conflict };
 }
 
+const TRACE_PARALLEL = Math.cos(6 * Math.PI / 180);
+const midpoint = (w: AlignmentWall): Point => [(w.a[0] + w.b[0]) / 2, (w.a[1] + w.b[1]) / 2];
+
+function strokeResidual(face: AlignmentWall, stroke: AlignmentWall) {
+  // Both ends must actually lie on this finite face. Collinear walls in separate parts
+  // of a concave footprint and a stroke across a doorway cannot trade places.
+  return Math.max(wallDistance(stroke.a, face), wallDistance(stroke.b, face));
+}
+
+interface WallValidation {
+  check: CalibrationFeature;
+  residual: number;
+  assignment?: string;
+}
+
+function checkTraces(
+  model: AlignmentModel, perimeter: AlignmentWall[], strokes: AlignmentWall[], floorY: number,
+  i: number, j: number, k: number, l: number, yaw: number, shift: Point,
+): WallValidation | null {
+  const claimed = new Set([i, j]);
+  const assignment = new Array<number>(strokes.length);
+  assignment[k] = i;
+  assignment[l] = j;
+  const withheld: { observed: AlignmentWall; expected: AlignmentWall }[] = [];
+  let residual = 0;
+  for (const [n, observed] of strokes.entries()) {
+    if (n === k || n === l) continue;
+    // Unlike an automatic room search, the wearer has explicitly identified the room.
+    // Explain every recorded stroke; unseen wall returns are not missing observations.
+    let index = -1, error = Infinity;
+    for (const [m, face] of perimeter.entries()) {
+      if (claimed.has(m)) continue;
+      const distance = strokeResidual(face, observed);
+      if (distance < error) { error = distance; index = m; }
+    }
+    residual = Math.max(residual, Math.hypot(error, observed.low - floorY));
+    if (residual > LIMIT) return null;
+    claimed.add(index);
+    assignment[n] = index;
+    withheld.push({ observed, expected: model.walls[index]! });
+  }
+
+  // Intersect two held-out wall lines and check their shared model corner in full 3D.
+  // A repeated or parallel stroke alone cannot certify the translation along a wall.
+  let best: WallValidation | null = null;
+  for (const [n, a] of withheld.entries()) for (const b of withheld.slice(n + 1)) {
+    const axis = wallAxis(a.observed), second = wallAxis(b.observed), det = cross(axis, second);
+    if (Math.abs(det) < 0.5) continue;
+    const check = model.corners.find(({ point }) =>
+      wallDistance(planar(point), a.expected) < 0.015 && wallDistance(planar(point), b.expected) < 0.015 &&
+      (lineError(planar(point), model.walls[i]!) > 0.3 || lineError(planar(point), model.walls[j]!) > 0.3));
+    if (!check) continue;
+    const t = cross(sub(b.observed.a, a.observed.a), second) / det;
+    const point: Point = [a.observed.a[0] + t * axis[0], a.observed.a[1] + t * axis[1]];
+    const expected = rotate(planar(check.point), yaw);
+    const error = Math.max(residual, Math.hypot(point[0] - expected[0] - shift[0],
+      point[1] - expected[1] - shift[1], (a.observed.low + b.observed.low) / 2 - floorY));
+    if (error <= LIMIT && (!best || error < best.residual)) best = { check, residual: error };
+  }
+  return best && { ...best, assignment: assignment.join(",") };
+}
+
+function checkPerimeter(
+  model: AlignmentModel, perimeter: AlignmentWall[], measured: AlignmentWall[],
+  floor: NonNullable<RoomEvidence["floor"]>, lowRoom: boolean, i: number, j: number, k: number, l: number,
+) {
+  const a = model.walls[i]!, b = model.walls[j]!;
+  const used = new Set([k, l]);
+  const floorEdges = nativeFloorEdges(floor, perimeter);
+  if (lowRoom && !floorEdges.length) return null;
+  let residual = 0;
+  for (let m = 0; m < perimeter.length; m++) {
+    if (m === i || m === j) continue;
+    const expected = perimeter[m]!;
+    const floorError = floorEdges.reduce((best, edge) => Math.min(best, wallResidual(expected, edge)), Infinity);
+    let best = Infinity, bestIndex = -1;
+    let contradictory = false;
+    for (const [n, seen] of measured.entries()) {
+      if (used.has(n)) continue;
+      const lateral = wallResidual(expected, seen);
+      const verticalError = floorError <= LIMIT ? Math.min(Math.abs(seen.low - floor.y), floorError) : seen.low - floor.y;
+      const error = Math.hypot(lateral, verticalError);
+      if (lateral > LIMIT && lateral < 0.17) contradictory = true;
+      if (error < best) { best = error; bestIndex = n; }
+    }
+    if (best > LIMIT && !contradictory && floorError <= LIMIT) { best = floorError; bestIndex = -1; }
+    residual = Math.max(residual, best);
+    used.add(bestIndex);
+    if (residual > LIMIT) break;
+  }
+  if (residual > LIMIT) return null;
+  // Withhold a corner outside the intersection of the two training walls for later rechecks.
+  const check = model.corners.find(({ point }) =>
+    lineError(planar(point), a) > 0.3 && lineError(planar(point), b) > 0.3) ??
+    model.corners.find(({ point }) => lineError(planar(point), a) > 0.3 || lineError(planar(point), b) > 0.3);
+  return check && { check, residual };
+}
+
 export function matchRoomAlignment(model: AlignmentModel, evidence: RoomEvidence, viewer: Vector3): AlignmentCandidate[] {
+  // Foreground recognition has its own incremental per-room budget. Only the optional
+  // outlier diagnostic yields part way through an individual room.
+  const result = alignmentSearch(model, evidence, viewer, false).next();
+  return result.done ? result.value : [];
+}
+
+function* alignmentSearch(
+  model: AlignmentModel, evidence: RoomEvidence, viewer: Vector3, incremental: boolean,
+): Generator<void, AlignmentCandidate[]> {
   const { walls, floor, landmarks } = evidence;
+  const confirmed = floor?.source === "bounds" && floor.confirmedHeight && walls.some(wall => wall.baseOnly);
   if (model.walls.length < 3 || model.walls.length > 20 || walls.length < 2 || !floor ||
-    !Number.isFinite(floor.y) || Math.abs(floor.y) > FLOOR_TOLERANCE_M ||
+    !trackedFloorHeightAllowed(floor.y, floor.semanticFloor || confirmed) ||
     (floor.source !== "bounds" && !pointInFootprint(viewer.x, viewer.z, { outer: floor.outline }))) return [];
   if (viewer.y - floor.y < 0.45 || viewer.y - floor.y > (model.room.ceilingHeight ?? 2.7) + 0.2) return [];
   const vertical = floor.y - model.room.floorElevation;
@@ -220,73 +331,64 @@ export function matchRoomAlignment(model: AlignmentModel, evidence: RoomEvidence
   const lowRoom = modeledHeight < 1.8 && floor.source === "plane";
   const wallTop = lowRoom ? Math.max(0.52, modeledHeight - 0.15) : 1.65;
   const wallSpan = lowRoom ? Math.max(0.43, modeledHeight * 0.65) : 1.2;
-  const measured = walls
+  const handwritten = walls.filter(wall => wall.baseOnly);
+  const traces = floor.source === "bounds" && handwritten.length >= 4;
+  const measured = (traces ? handwritten : walls)
     .filter((wall) => Math.abs(wall.low - floor.y) <= (floor.source === "plane" ? 0.45 : 0.2) &&
       (wall.baseOnly ? floor.source === "bounds" && Math.abs(wall.high - wall.low) < 1e-6
         : wall.high - floor.y >= wallTop && wall.high - wall.low >= wallSpan))
     .map((wall) => ({ wall, distance: wallDistance(station, wall), span: length(sub(wall.b, wall.a)) }))
     .filter(({ distance, span: size }) => Number.isFinite(distance) && distance <= span + 0.35 && size >= 0.28)
     .sort((a, b) => Math.floor(a.distance * 2) - Math.floor(b.distance * 2) || b.span - a.span)
-    .slice(0, 16).map(({ wall }) => wall);
+    .slice(0, traces ? 20 : 16).map(({ wall }) => wall);
+  if (traces && (measured.length > model.walls.length || measured.length !== handwritten.length ||
+    measured.some(stroke => Math.abs(stroke.low - floor.y) > LIMIT))) return [];
   const candidates: AlignmentCandidate[] = [];
+  const traceAssignments = new Map<string, number>();
   const vec = new Vector3();
+  let deadline = incremental ? performance.now() + 2 : Infinity;
   for (const [i, a] of model.walls.entries()) for (const [j, b] of model.walls.entries()) {
     if (i >= j || Math.abs(cross(wallAxis(a), wallAxis(b))) < 0.5) continue;
     for (const [k, observedA] of measured.entries()) for (const [l, observedB] of measured.entries()) {
+      if (incremental && l === 0 && performance.now() >= deadline) {
+        yield;
+        deadline = performance.now() + 2;
+      }
       if (k === l) continue;
-      const na = wallNormal(observedA), nb = wallNormal(observedB);
-      const det = cross(na, nb);
-      if (Math.abs(det) < 0.5) continue;
+      const observedNa = wallNormal(observedA), observedNb = wallNormal(observedB);
+      if (Math.abs(cross(observedNa, observedNb)) < 0.5) continue;
       const da = wallAxis(a), oa = wallAxis(observedA);
       const baseYaw = Math.atan2(da[1], da[0]) - Math.atan2(oa[1], oa[0]);
       for (const initialYaw of [baseYaw, baseYaw + Math.PI]) {
         const db = rotate(wallAxis(b), initialYaw), ob = wallAxis(observedB);
         const alignment = dot(db, ob);
-        if (Math.abs(alignment) < PARALLEL) continue;
+        if (Math.abs(alignment) < (traces ? TRACE_PARALLEL : PARALLEL)) continue;
         const correction = Math.atan2(cross(db, ob) * -Math.sign(alignment), Math.abs(alignment));
         const spanA = Math.min(length(sub(a.b, a.a)), length(sub(observedA.b, observedA.a)));
         const spanB = Math.min(length(sub(b.b, b.a)), length(sub(observedB.b, observedB.a)));
         const yaw = initialYaw + correction * spanB / (spanA + spanB);
-        const c1 = dot(sub(observedA.a, rotate(a.a, yaw)), na);
-        const c2 = dot(sub(observedB.a, rotate(b.a, yaw)), nb);
+        // A short stroke represents a local piece of a long face. Fit its midpoint to
+        // the rotated modeled line, avoiding extrapolation of a shaky heading to a distant corner.
+        const na = traces ? rotate(wallNormal(a), yaw) : observedNa;
+        const nb = traces ? rotate(wallNormal(b), yaw) : observedNb;
+        const det = cross(na, nb);
+        const c1 = dot(sub(traces ? midpoint(observedA) : observedA.a, rotate(a.a, yaw)), na);
+        const c2 = dot(sub(traces ? midpoint(observedB) : observedB.a, rotate(b.a, yaw)), nb);
         const shift: Point = [(c1 * nb[1] - c2 * na[1]) / det, (na[0] * c2 - nb[0] * c1) / det];
         const here = rotate([viewer.x - shift[0], viewer.z - shift[1]], -yaw);
         if (!pointInFootprint(here[0], here[1], model.room.footprint)) continue;
-        const trainingError = Math.max(wallResidual(transformed(a, yaw, shift), observedA),
-          wallResidual(transformed(b, yaw, shift), observedB));
+        const residualFor = traces ? strokeResidual : wallResidual;
+        const trainingError = Math.max(residualFor(transformed(a, yaw, shift), observedA),
+          residualFor(transformed(b, yaw, shift), observedB));
         if (trainingError > LIMIT) continue;
 
         // Only the two training walls set yaw and X/Z. Every other wall is withheld.
-        const used = new Set([k, l]);
         const perimeter = model.walls.map((wall) => transformed(wall, yaw, shift));
-        const floorEdges = nativeFloorEdges(floor, perimeter);
-        if (lowRoom && !floorEdges.length) continue;
-        let residual = 0;
-        for (let m = 0; m < perimeter.length; m++) {
-          if (m === i || m === j) continue;
-          const expected = perimeter[m]!;
-          const floorError = floorEdges.reduce((best, edge) => Math.min(best, wallResidual(expected, edge)), Infinity);
-          let best = Infinity, bestIndex = -1;
-          let contradictory = false;
-          for (const [n, seen] of measured.entries()) {
-            if (used.has(n)) continue;
-            const lateral = wallResidual(expected, seen);
-            const verticalError = floorError <= LIMIT ? Math.min(Math.abs(seen.low - floor.y), floorError) : seen.low - floor.y;
-            const error = Math.hypot(lateral, verticalError);
-            if (lateral > LIMIT && lateral < 0.17) contradictory = true;
-            if (error < best) { best = error; bestIndex = n; }
-          }
-          if (best > LIMIT && !contradictory && floorError <= LIMIT) { best = floorError; bestIndex = -1; }
-          residual = Math.max(residual, best);
-          used.add(bestIndex);
-          if (residual > LIMIT) break;
-        }
-        if (residual > LIMIT) continue;
-        // Withhold a corner outside the intersection of the two training walls for later rechecks.
-        const check = model.corners.find(({ point }) =>
-          lineError(planar(point), a) > 0.3 && lineError(planar(point), b) > 0.3) ??
-          model.corners.find(({ point }) => lineError(planar(point), a) > 0.3 || lineError(planar(point), b) > 0.3);
-        if (!check) continue;
+        const validation: WallValidation | null | undefined = traces
+          ? checkTraces(model, perimeter, measured, floor.y, i, j, k, l, yaw, shift)
+          : checkPerimeter(model, perimeter, measured, floor, lowRoom, i, j, k, l);
+        if (!validation) continue;
+        const { check, residual, assignment } = validation;
         const matrix = new Matrix4().makeRotationY(yaw).setPosition(shift[0], vertical, shift[1]);
         const opening = matchesLandmarks(matrix, model.landmarks, landmarks, perimeter, vertical);
         const fit: CalibrationFit = { matrix, yaw, modelOrigin: check.point, anchorPosition: vec.fromArray(check.point).applyMatrix4(matrix).toArray() };
@@ -294,7 +396,9 @@ export function matchRoomAlignment(model: AlignmentModel, evidence: RoomEvidence
           fit, check, errorM: Math.max(residual, opening.error, trainingError),
           landmarkCount: opening.count, landmarkConflict: opening.conflict,
         };
-        const existing = candidates.findIndex((entry) =>
+        // Different training pairs can return slightly different noisy fits for exactly
+        // the same observed-to-modeled wall assignment. They describe one orientation.
+        const existing = (assignment ? traceAssignments.get(assignment) : undefined) ?? candidates.findIndex((entry) =>
           angleClose(entry.fit.yaw, yaw) && vec.fromArray(check.point).applyMatrix4(entry.fit.matrix)
             .distanceTo(new Vector3(...fit.anchorPosition)) <= METRE_DEDUP);
         if (existing < 0) {
@@ -304,10 +408,32 @@ export function matchRoomAlignment(model: AlignmentModel, evidence: RoomEvidence
         else if (candidate.landmarkCount > candidates[existing]!.landmarkCount ||
           (candidate.landmarkCount === candidates[existing]!.landmarkCount && candidate.errorM < candidates[existing]!.errorM))
           candidates[existing] = candidate;
+        if (assignment) traceAssignments.set(assignment, existing < 0 ? candidates.length - 1 : existing);
       }
     }
   }
   return candidates;
+}
+
+/** Identify one suspect stroke only when dropping it alone recovers a checked pose. */
+export function* reviewTraceOutlier(
+  model: AlignmentModel, walls: readonly AlignmentWall[], viewer: Vector3, floorY: number,
+  semanticFloor = false, confirmedHeight = false,
+): Generator<void, number | null> {
+  if (walls.length < 5 || walls.length > 20 || walls.length - 1 > model.walls.length) return null;
+  const strokes = [...walls], eye = viewer.clone();
+  let suspect: number | null = null;
+  for (let i = 0; i < strokes.length; i++) {
+    const evidence: RoomEvidence = { floor: { y: floorY, outline: [], source: "bounds", semanticFloor, confirmedHeight },
+      walls: strokes.filter((_, n) => n !== i), landmarks: [] };
+    const candidates = yield* alignmentSearch(model, evidence, eye, true);
+    if (viableRoomAlignments(candidates).length) {
+      if (suspect !== null) return null;
+      suspect = i;
+    }
+    if (i + 1 < strokes.length) yield;
+  }
+  return suspect;
 }
 
 export function viableRoomAlignments(candidates: readonly AlignmentCandidate[]): AlignmentCandidate[] {
@@ -372,7 +498,7 @@ export function checkAnchoredCorner(
   if (
     !floor ||
     (floor.source !== "plane" && floor.source !== "mesh") ||
-    Math.abs(floor.y) > FLOOR_TOLERANCE_M ||
+    !trackedFloorHeightAllowed(floor.y, floor.semanticFloor) ||
     !pointInFootprint(viewer.x, viewer.z, { outer: floor.outline })
   )
     return null;

@@ -1,11 +1,12 @@
 import { Matrix4, Plane, Ray, Vector3 } from "three";
 import { pointInRing, ringSignedArea } from "@/house/model/geometry2d";
-import type { AlignmentLandmark, AlignmentWall, RoomEvidence } from "./roomAlignment";
+import { trackedFloorHeightAllowed, type AlignmentLandmark, type AlignmentWall, type RoomEvidence } from "./roomAlignment";
 
 type Point = [number, number];
 type Triangle = [Vector3, Vector3, Vector3];
 
 interface ScanPatch {
+  boundary: Vector3[];
   plane: Plane;
   ring: Point[];
   project: (p: Vector3) => Point;
@@ -61,7 +62,7 @@ function patch(vertices: Vector3[]): ScanPatch | null {
   const [x, y, z] = plane.normal.toArray().map(Math.abs);
   const project = y! > x! && y! > z! ? planar : x! > z!
     ? (v: Vector3): Point => [v.y, v.z] : (v: Vector3): Point => [v.x, v.y];
-  return { plane, project, ring: vertices.map(project) };
+  return { plane, project, ring: vertices.map(project), boundary: vertices };
 }
 
 function wallFromPoints(vertices: Vector3[], minSpan = 0.28): AlignmentWall | null {
@@ -127,17 +128,18 @@ function addOpening(evidence: AlignmentEvidence, kind: AlignmentLandmark["kind"]
     evidence.landmarks.push({ kind, center, width, height });
 }
 
-function floorFromPoints(evidence: AlignmentEvidence, vertices: Vector3[], viewer: Vector3, polygon?: Point[]) {
+function floorFromPoints(evidence: AlignmentEvidence, vertices: Vector3[], viewer: Vector3, semanticFloor: boolean, polygon?: Point[]) {
   const height = vertices.reduce((sum, v) => sum + v.y, 0) / vertices.length;
-  if (!Number.isFinite(height) || Math.abs(height) > 0.2 || vertices.some((v) => Math.abs(v.y - height) > 0.05)) return;
+  if (!trackedFloorHeightAllowed(height, semanticFloor) || vertices.some((v) => Math.abs(v.y - height) > 0.05)) return;
   const outline = polygon ?? hull(vertices.map(planar));
   if (outline.length < 3 || Math.abs(ringSignedArea(outline)) < 0.65 || !pointInRing(viewer.x, viewer.z, outline)) return;
   const previous = evidence.floor;
   const source = polygon ? "plane" : "mesh";
-  if (!previous || (previous.source !== "plane" && source === "plane") ||
+  if (previous?.semanticFloor && !semanticFloor) return;
+  if (!previous || (semanticFloor && !previous.semanticFloor) || (previous.source !== "plane" && source === "plane") ||
     (previous.source === source && (Math.abs(height) + 0.025 < Math.abs(previous.y) ||
       (Math.abs(height - previous.y) < 0.025 && Math.abs(ringSignedArea(outline)) < Math.abs(ringSignedArea(previous.outline)))))) {
-    evidence.floor = { y: height, outline, source };
+    evidence.floor = { y: height, outline, source, semanticFloor };
   }
 }
 
@@ -160,7 +162,7 @@ export function readAlignmentEvidence(frame: XRFrame, reference: XRReferenceSpac
     const label = labelOf(native.semanticLabel);
     const opening = openingLabel(label);
     if (Math.abs(feature.plane.normal.y) >= 0.98 && (!label || floorLabel(label)))
-      floorFromPoints(evidence, points, viewer, points.map(planar));
+      floorFromPoints(evidence, points, viewer, floorLabel(label), points.map(planar));
     if (Math.abs(feature.plane.normal.y) > 0.10 || (label && !wallLabel(label) && !opening)) continue;
     const wall = wallFromPoints(points, opening ? 0.3 : undefined);
     if (!wall) continue;
@@ -198,7 +200,7 @@ export function readAlignmentEvidence(frame: XRFrame, reference: XRReferenceSpac
         const p = new Vector3().fromArray(vertices, i).applyMatrix4(transform);
         if (valid(p)) points.push(p);
       }
-      if (floorLabel(label)) floorFromPoints(evidence, points, viewer);
+      if (floorLabel(label)) floorFromPoints(evidence, points, viewer, true);
       else {
         const wall = wallFromPoints(points, opening ? 0.3 : undefined);
         if (wall) { if (opening) addOpening(evidence, opening, wall); else addWall(evidence.walls, wall); }
@@ -236,7 +238,7 @@ export function readAlignmentEvidence(frame: XRFrame, reference: XRReferenceSpac
       }
     }
   }
-  if (!evidence.floor) for (const group of meshFloors) floorFromPoints(evidence, group.points, viewer);
+  if (!evidence.floor) for (const group of meshFloors) floorFromPoints(evidence, group.points, viewer, false);
   if (!nativePerimeter) for (const { points } of meshWalls) {
     const wall = wallFromPoints(points);
     if (wall) addWall(evidence.walls, wall);

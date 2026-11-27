@@ -1,4 +1,4 @@
-import { Matrix4 } from "three";
+import { Matrix4, Vector3 } from "three";
 import { afterEach, expect, it, vi } from "vitest";
 import { buildManifestIndex } from "@/house/model/manifestIndex";
 import type { Room, Vec2 } from "@/house/model/types";
@@ -180,6 +180,36 @@ it("enters a distinct room and reveals a verified unit-scale overlay with no con
     pilot.dispose();
   }
 });
+it("finishes from a late native scan after a single wall stroke without asking for more marks", () => {
+  const { pilot, data, tick, pass, click, menu } = fixture([room]);
+  try {
+    pilot.enter(room);
+    tick();
+    click("Trace wall bases");
+    const hand = { targetRayMode: "tracked-pointer", targetRaySpace: {} } as XRInputSource;
+    Object.assign(data.session, { inputSources: [hand] });
+    const frame = data as unknown as XRFrame;
+    const ray = new Matrix4();
+    const initialPose = data.getPose;
+    data.getPose = space => space === hand.targetRaySpace
+      ? { emulatedPosition: false, transform: { matrix: ray.toArray() } } : initialPose(space);
+    const from = new Vector3(1.1, 1.2, 1.1), up = new Vector3(0, 1, 0);
+    const aim = (x: number) => ray.lookAt(from, new Vector3(x, 0, 0), up).setPosition(from);
+    aim(0.45);
+    expect(pilot.beginWallTrace(frame, hand)).toBe(true);
+    for (let i = 1; i <= 12; i++) { aim(0.45 + i / 10); tick(); }
+    expect(pilot.finishWallTrace(frame, hand)).toBe(true);
+    pass();
+    expect(menu().title).toContain("1 marked");
+    expect(pilot.readyTransform).toBeNull();
+    data.detectedPlanes = new Set(full());
+    pass();
+    expect(pilot.readyTransform).not.toBeNull();
+    expect(pilot.overlay?.group.visible).toBe(true);
+  } finally {
+    pilot.dispose();
+  }
+});
 it("keeps identical floors in the chooser and respects a manual room selection", () => {
   const { pilot, data, pass, click, menu } = fixture([room, upstairs]);
   try {
@@ -264,6 +294,54 @@ it("waits for a second independent native fit before replacing a stale anchor in
     pass();
     expect(pilot.calibration?.state.phase).toBe("ready");
     expect(pilot.readyTransform?.elements[12]).toBeCloseTo(0);
+  } finally {
+    pilot.dispose();
+  }
+});
+
+it("keeps registration through a doorway and stairs, even after leaving the original room scan", () => {
+  const next: Room = { ...room, id: "workbench", name: "Workroom", footprint: {
+    outer: [[4,0], [7,0], [7,2], [4,2]], holes: [] } };
+  const upper = { ...next, floorId: "floor-b", id: "gallery", name: "Gallery", floorElevation: 3 };
+  const { pilot, data, pass, tick, menu } = fixture([room, next, upper]);
+  const walk = (x: number, y: number, frames = 8) => {
+    data.viewer = {x, y, z: 1.1};
+    for (let i = 0; i < frames; i++) tick(110);
+  };
+  try {
+    pilot.enter(room);
+    data.detectedPlanes = new Set(full());
+    pass(); pass();
+    const transform = pilot.readyTransform, calibration = pilot.calibration, downstairs = pilot.overlay;
+    expect(transform).toBeTruthy();
+    data.detectedPlanes.clear();
+    walk(4.06, 1.65);
+    expect(pilot.room).toBe(room);
+    walk(4.65, 1.65, 2);
+    expect(pilot.room).toBe(room);
+    walk(4.65, 1.65);
+    expect(pilot.room).toBe(next);
+    expect(pilot.calibration).toBe(calibration);
+    expect(pilot.readyTransform).toBe(transform);
+    expect(pilot.overlay).toBe(downstairs);
+    expect(menu().lines.join(" ")).toContain("Alignment checked in Workshop");
+    walk(4.65, .7);
+    expect(pilot.room).toBe(next);
+    walk(4.65, 3.2, 12);
+    expect(pilot.betweenRooms).toBe(true);
+    expect(pilot.overlay?.group.visible).toBe(false);
+    walk(4.65, 4.69);
+    expect(pilot.room).toBe(upper);
+    expect(pilot.betweenRooms).toBe(false);
+    expect(pilot.overlay).not.toBe(downstairs);
+    expect(pilot.overlay?.group.visible).toBe(true);
+    expect(pilot.readyTransform).toBe(transform);
+    expect(pilot.calibration).toBe(calibration);
+    data.tracked = false;
+    tick(110);
+    expect(pilot.readyTransform).toBeNull();
+    expect(pilot.overlay?.group.visible).toBe(false);
+    expect(pilot.room).toBe(upper);
   } finally {
     pilot.dispose();
   }

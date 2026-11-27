@@ -389,6 +389,17 @@ describe("Quest motion and pointing", () => {
     render();
     expect(active["panel"].mesh.visible).toBe(false);
     expect(planner.moving).toBe(true);
+    // A physical doorway does not trigger a new calibration or move this draft to another room.
+    const enter = vi.spyOn(active["mixed"]!, "enter");
+    roomIndex = 1; render();
+    expect(current().lines.join(" ")).toContain("Walk back into that room");
+    expect(current().rows.some(row => row.label.startsWith("Return to"))).toBe(false);
+    expect(planner.group.visible).toBe(false);
+    roomIndex = 0; render();
+    expect(planner.group.visible).toBe(true);
+    expect(planner.moving).toBe(true);
+    expect(active["pinSpace"].visible).toBe(true);
+    expect(enter).not.toHaveBeenCalled();
     active.dispose();
   });
 
@@ -1013,6 +1024,28 @@ describe("Quest motion and pointing", () => {
     expect(second).not.toHaveBeenCalled();
     expect(panel.hit(ray(row.x + 1, row.y + 1))?.row).toBeUndefined();
     expect(panel.hit(ray(2, initial.y))?.row).toBeUndefined();
+    panel.dispose();
+  });
+
+  it("targets the numbered walls on the room plan and cancels a release over a different wall", () => {
+    const choose = vi.fn();
+    const { panel, ray, layout } = panelFixture({
+      title: "Match line 1", lines: ["Tap the wall"], rows: [],
+      corners: [[0,0,0],[4,0,0],[4,0,3],[0,0,3]],
+      wallPicker: { choose, openings: [], walls: [
+        {index:0, x:2, z:0, enabled:true, picked:false},
+        {index:1, x:4, z:1.5, enabled:true, picked:false},
+      ] },
+    });
+    const source = {} as XRInputSource;
+    const [first,second] = layout.wallTargets.map(t => panel.hit(ray(...center(t)))!);
+    expect(first?.row?.label).toBe("1");
+    expect(second?.row?.label).toBe("2");
+    panel.start(source,first!);
+    expect(panel.end(source,second!)).toBe(false);
+    panel.start(source,second!);
+    expect(panel.end(source,second!)).toBe(true);
+    expect(choose).toHaveBeenCalledExactlyOnceWith(1);
     panel.dispose();
   });
 

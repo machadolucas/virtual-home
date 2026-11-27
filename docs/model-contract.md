@@ -832,8 +832,19 @@ The House page shows frame timing from the last session on that browser.
 Choose **Enter mixed reality** or **Survey room** and look around from where you are. House
 compares the shared scan with the modeled rooms and floors. Two fresh scans must agree on
 one room before it is selected automatically. A checked, unique orientation reveals the
-overlay. If several rooms still fit, select yours from the shortlist. **Choose room myself**
+overlay. Blue outlines follow surfaces the headset has shared. A badge stays in view as
+you turn and reports the floor and wall count, or that no surfaces have arrived.
+The matcher can use a labeled floor on an adjacent split level and small recesses in
+the measured floor outline. If several rooms still fit, select yours from the shortlist. **Choose room myself**
 opens the full room list immediately.
+
+An amber dashed outline shows an early, life-size estimate when the shared floor has a distinctive
+shape. You can also choose **Preview room outline**, pick a wall on the plan, face it squarely
+and aim at the middle of its base. Continue looking around. The app can finish automatically
+when the measured floor and wall geometry agree, even if you have already started tracing.
+In a symmetric room, the same wall tap can also resolve the heading once the geometry passes.
+The estimated outline supports repositioning or hiding. Routes, equipment and recording tools
+open after the independent 5 cm registration check.
 
 On return visits, House also tries the headset’s saved floor anchors for the current
 account and model. It can verify a saved check corner from the observed floor and two
@@ -849,9 +860,19 @@ scale stays 1:1 and the pilot registration threshold stays at 5 cm.
 If there is too little scan data, **Open headset room setup** refreshes it where supported.
 Alternatively, choose your room and hold a trigger or pinch while sweeping along about a metre
 of a wall base. Release when the line turns green. **Trace wall bases** also opens this tool
-explicitly. Repeat on different sides of the room. **Undo last wall** removes a mistaken
-stroke. The tracked floor height and independent wall observations check the result. A
-tracking interruption clears the traces.
+explicitly. Mark two walls that meet, then two on other sides of the room. The badge counts
+saved lines. The app tries to align after each stroke, using the other walls to check its
+position. A single conflicting line can be highlighted and removed on its own.
+
+If the lines are on the wrong level, choose **Check floor height**. Aim at a nearby spot
+such as a tile joint and click. If prompted, move your hand sideways about 30 cm and aim
+at the same spot again. You can also touch the floor with the tracked probe. The app
+recalculates the saved lines at the measured height and checks them again.
+
+**Match saved lines on plan** lets you identify the gold line by tapping its wall on a
+room plan. It can finish on the first tap if that resolves the heading. Otherwise you can
+select up to four lines for a fresh check. This keeps the 5 cm limit. Tracking loss clears
+the lines because their positions belong to the interrupted tracking space.
 
 **Point to align manually** lets you mark two widely spaced model corners and verify a third from
 where you stand. Aim at the physical corner and confirm. If the browser supplies no surface hit,
@@ -865,6 +886,13 @@ empty space, or choose **Show all routes** to restore the current filter. Concea
 retain their own certainty labels. **Realign the room**
 restarts registration. Lost or emulated tracking hides the overlay. A recovered anchor must
 agree with a fresh scan or a new check before the overlay returns.
+
+After the first room is aligned, walk through a doorway to continue in the next modeled room.
+The app follows your tracked head, changes the equipment context and switches to the current
+floor's routes when you reach another level. The menu names the room where alignment was
+checked. Doorways allow a short transition, and routes hide if the app cannot place you in a
+modeled room. You can walk back to resume a room-specific placement draft or pinned step.
+**Survey room** records measurements in the room you selected.
 
 If tracking drops while you compare placements or follow a pinned maintenance step, leave the
 session open. Recheck the original room to resume with both placements, the selected alternative

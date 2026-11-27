@@ -9,6 +9,7 @@ import {
   type RoomEvidence,
 } from "@/house/xr/roomAlignment";
 import { RoomDiscovery } from "@/house/xr/roomDiscovery";
+import { checkedFloorOutline } from "@/house/xr/distinctiveRoom";
 import { FIXTURE_DIR, loadManifest } from "./glb";
 
 const manifest = loadManifest(FIXTURE_DIR);
@@ -150,6 +151,31 @@ describe("cross-room recognition", () => {
       expect(state.match).toBeNull();
       expect(state.options[0]?.sameExtent).toBe(false);
     }
+  });
+
+  it("recognizes a distinctive native floor with two measured walls at its recess", () => {
+    const room = model("recessed", 5, 4).room;
+    room.footprint.outer = [[0, 0], [5, 0], [5, 2], [3, 2], [3, 4], [0, 4]];
+    const m = buildAlignmentModel(room, calibrationFeatures({ ...manifest, rooms: [room] }, room.floorId, room.id));
+    const discovery = new RoomDiscovery([room], () => m);
+    const partial = (start: number) => {
+      const snapshot = sample(m);
+      snapshot.evidence.floor!.semanticFloor = true;
+      snapshot.evidence.walls = snapshot.evidence.walls.slice(start, start + 2);
+      return snapshot;
+    };
+    expect(run(discovery, partial(2), 0).phase).toBe("confirming");
+    expect(run(discovery, partial(2), 500).match?.room.id).toBe(room.id);
+    discovery.reset();
+    expect(run(discovery, partial(0), 1000).match).toBeNull();
+    expect(run(discovery, partial(0), 1500).match).toBeNull();
+    // Once the wearer names the room, a different independently measured corner is sufficient.
+    const selected = partial(0);
+    expect(checkedFloorOutline(m, selected.evidence, selected.viewer)?.errorM).toBeLessThan(.05);
+    selected.evidence.walls.pop();
+    expect(checkedFloorOutline(m, selected.evidence, selected.viewer)).toBeNull();
+    selected.evidence.walls.length = 0;
+    expect(checkedFloorOutline(m, selected.evidence, selected.viewer)).toBeNull();
   });
 
   it("can use enclosing walls on a mesh with a floor hull covering adjoining areas", () => {

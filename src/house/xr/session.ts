@@ -94,7 +94,7 @@ export class HouseSession {
   private pendingPlaceId?: string;
   private announceDestination = false;
   private alignedRoom: string | null = null;
-  private pausedWork: { room: Room; menuVisible: boolean; label: string } | null = null;
+  private pausedWork: { room: Room; menuVisible: boolean; label: string; walking: boolean } | null = null;
   private needsFreshPanel = false;
   private presses = new Map<XRInputSource, Press>();
   private stickSource: XRInputSource | null = null;
@@ -384,14 +384,16 @@ export class HouseSession {
   private menu(options: FrameOptions): PanelPage {
     if (this.pausedWork && this.mixed) {
       const { room, label } = this.pausedWork;
-      if (this.mixed.readyTransform && this.mixed.room && this.mixed.room.id !== room.id) {
+      if (this.mixed.readyTransform && this.mixed.room && (this.mixed.room.id !== room.id || this.mixed.betweenRooms)) {
+        const walking = this.pausedWork.walking;
         return {
           title: "Resume your work",
-          lines: [label + " is paused in " + room.name + "."],
+          lines: [label + " is paused in " + room.name + ".",
+            ...(walking ? ["Walk back into that room to resume."] : [])],
           rows: [
-            { label: "Return to " + room.name, style: "primary", act: () => this.mixed!.enter(room) },
+            ...(walking ? [] : [{label: "Return to " + room.name, style: "primary" as const, act: () => this.mixed!.enter(room)}]),
             {
-              label: "Leave paused work and use " + this.mixed.room.name,
+              label: this.mixed.betweenRooms ? "Leave paused work" : "Leave paused work and use " + this.mixed.room.name,
               act: () => {
                 this.pausedWork = null;
                 this.tasks.clearPin();
@@ -1235,12 +1237,17 @@ export class HouseSession {
       }
     }
   }
-  private suspendAlignment() {
+  private suspendAlignment(walking = false) {
     this.planner?.transform(null);
     this.pinSpace.visible = false;
     this.guide.group.visible = false;
     this.queuedCapture = false;
     if (!this.alignedRoom) return;
+    if (walking && !this.pausedWork && !this.planner && !this.pinned && !this.tasks.active) {
+      this.equipment?.dispose();
+      this.equipment = null;
+      this.guide.set(null);
+    }
     const room = this.runtime.manifest?.rooms.get(this.alignedRoom);
     const label = this.planner
       ? "Fit planner"
@@ -1254,13 +1261,13 @@ export class HouseSession {
               ? "Equipment location"
               : null;
     if (room && label && !this.pausedWork) {
-      this.pausedWork = { room, label, menuVisible: this.panel.mesh.visible };
+      this.pausedWork = { room, label, menuVisible: this.panel.mesh.visible, walking };
     }
     this.alignedRoom = null;
     // A trigger pressed on the old menu must never activate a recovery control or place a draft.
     this.resetInput();
     this.needsFreshPanel = true;
-    this.recall();
+    if (!walking || this.pausedWork) this.recall();
   }
 
   private updatePlace(now: number) {
@@ -1268,6 +1275,9 @@ export class HouseSession {
       this.area = this.mode === "survey" ? "Room survey" : "Mixed reality";
       const room = this.mixed.room;
       const verified = room && this.mixed.readyTransform;
+      const walked = !!(verified && this.alignedRoom && room.id !== this.alignedRoom);
+      if (verified && (walked || this.mixed.betweenRooms)) this.suspendAlignment(true);
+      if (this.mixed.betweenRooms) return;
       if (!verified) {
         this.suspendAlignment();
       } else if (room.id !== this.alignedRoom && this.presses.size === 0) {
@@ -1300,11 +1310,14 @@ export class HouseSession {
           this.panel.hide();
           const error = this.mixed.calibration?.state.errorM;
           const name = this.runtime.store.getState().labelPreferences.names[room.id] ?? room.name;
+          const inAnotherRoom = walked || (this.mixed.checkedRoom && this.mixed.checkedRoom.id !== room.id);
           const detail = [error == null ? "" : `${(100 * error).toFixed(1)} cm`, "Select a route to trace"]
             .filter(Boolean)
             .join(" · ");
           this.statusCard.show(
-            { title: name + " aligned", detail, tone: "success", durationMs: 4800 },
+            { title: inAnotherRoom ? name : name + " aligned",
+              detail: inAnotherRoom ? this.runtime.manifest?.floors.get(room.floorId)?.name : detail,
+              tone: inAnotherRoom ? "arrival" : "success", durationMs: inAnotherRoom ? 2200 : 4800 },
             this.head,
             this.orientation,
             now,
@@ -1426,7 +1439,7 @@ export class HouseSession {
     this.rig.updateMatrixWorld(true);
     this.worldHead.copy(this.head).applyMatrix4(this.rig.matrixWorld);
     this.updatePlace(now);
-    const modelToWorld = this.pausedWork ? null : this.mixed ? this.mixed.readyTransform : this.identity;
+    const modelToWorld = this.pausedWork || this.mixed?.betweenRooms ? null : this.mixed ? this.mixed.readyTransform : this.identity;
     this.planner?.transform(modelToWorld);
     this.guide.update(modelToWorld, this.mixed?.room?.id ?? null, this.worldHead);
     this.pinSpace.visible =
@@ -1518,8 +1531,7 @@ export class HouseSession {
       quaternion: quat.toArray(),
     };
     const room =
-      this.mixed?.room ??
-      this.destinations.find(
+      this.mixed ? (this.mixed.betweenRooms ? null : this.mixed.room) : this.destinations.find(
         ({ room }) =>
           Math.abs(room.floorElevation - this.elevation.floor) < 0.45 &&
           pointInFootprint(pos.x, pos.z, room.footprint),

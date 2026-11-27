@@ -136,7 +136,8 @@ export class HeadsetPanel {
     this.layout = layout;
     this.setOffset(this.offset);
     const key = JSON.stringify([
-      layout.title, layout.lines, menu.corners, menu.planEdge, layout.keyboard,
+      layout.title, layout.lines, menu.corners, menu.planEdge, layout.keyboard, layout.openings,
+      layout.wallTargets.map(t => [t.key,t.x,t.y,t.active,!!t.act]),
       ...[...layout.rows, ...layout.footer].map((row) => [
         row.key, row.label, row.value, row.active, row.detail, row.style, row.icon, row.keyTone,
         row.x, row.y, row.width, row.height, !!row.act,
@@ -210,7 +211,10 @@ export class HeadsetPanel {
     if (!layout) return undefined;
     const footer = layout.footer.find((row) => roundedContains(row, x, y, 13));
     if (footer || !contains(layout.body, x, y)) return footer;
-    const row = layout.rows.find((item) => roundedContains(item, x, y + this.offset, item.keycap ? 11 : 14));
+    const row = layout.rows.find((item) => roundedContains(item, x, y + this.offset, item.keycap ? 11 : 14))
+      ?? layout.wallTargets.filter(item => item.act && contains(item, x, y + this.offset, 3))
+        .sort((a,b) => Math.hypot(a.x+a.width/2-x,a.y+a.height/2-y-this.offset) -
+          Math.hypot(b.x+b.width/2-x,b.y+b.height/2-y-this.offset))[0];
     return row ? visibleRow(layout, row, this.offset) : undefined;
   }
 
@@ -238,7 +242,8 @@ export class HeadsetPanel {
 
   private visible(key: string | undefined) {
     if (!key || !this.layout) return undefined;
-    const row = this.layout.rows.find((button) => button.key === key) ?? this.layout.footer.find((button) => button.key === key);
+    const row = this.layout.rows.find((button) => button.key === key) ?? this.layout.footer.find((button) => button.key === key)
+      ?? this.layout.wallTargets.find(button => button.key === key);
     return row ? visibleRow(this.layout, row, this.offset) : undefined;
   }
 

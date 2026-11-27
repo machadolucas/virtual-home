@@ -331,6 +331,51 @@ it("aligns from a stationary position by tracing broad wall sections with no nat
   }
 });
 
+it("uses a marked wall on the plan to resolve a checked heading without another physical action", () => {
+  const {pilot,click,menu,tick,trace} = pilotFixture();
+  try {
+    tick(); click("Trace wall bases");
+    trace([0.5,3,0], [3,3,0]);
+    trace([4,3,0.4], [4,3,2.6]);
+    trace([3.4,3,3], [0.6,3,3]);
+    if (menu().title.startsWith("Look toward")) click("Mark another wall");
+    trace([0,3,2.6], [0,3,0.4]);
+    click("Match saved lines on plan");
+    const page = menu();
+    expect(page.title).toContain("Match line 1");
+    expect(page.wallPicker?.walls.some(w => w.index === 0 && w.enabled)).toBe(true);
+    expect(pilot.readyTransform).toBeNull();
+    page.wallPicker!.choose(0);
+    tick(); tick();
+    assertMapsToTracking(pilot.readyTransform!);
+    expect(pilot.overlay?.group.visible).toBe(true);
+  } finally { pilot.dispose(); }
+});
+
+it("reprojects existing strokes after measuring a split floor from one standing position", () => {
+  const {pilot,click,menu,tick,trace,confirm,face} = pilotFixture();
+  const floor = 2.68;
+  try {
+    tick(); click("Trace wall bases");
+    trace([0.5,floor,0],[3,floor,0]);
+    trace([4,floor,0.4],[4,floor,2.6]);
+    trace([3.4,floor,3],[0.6,floor,3]);
+    trace([0,floor,2.6],[0,floor,0.4]);
+    expect(menu().title).toContain("4 marked");
+    expect(pilot.readyTransform).toBeNull();
+    click("Check floor height");
+    const spot=tracking([1.1,floor,1.0]);
+    confirm(viewer.clone().add(new Vector3(-.23,-.35,.2)),spot);
+    expect(menu().lines.join(" ")).toContain("First aim");
+    confirm(viewer.clone().add(new Vector3(.23,-.35,.2)),spot);
+    tick(); tick();
+    if (menu().title.startsWith("Look toward")) face([2,floor+1.5,0]);
+    expect(pilot.readyTransform).toBeTruthy();
+    const actual = new Vector3(0,3,0).applyMatrix4(pilot.readyTransform!);
+    expect(actual.distanceTo(tracking([0,floor,0]))).toBeLessThan(.05);
+  } finally { pilot.dispose(); }
+});
+
 it("does not accept an idle head or menu gaze, and re-arms a deliberate hold after hiding the prompt", () => {
   let now = 1_000;
   const time = vi.spyOn(performance, "now").mockImplementation(() => now);

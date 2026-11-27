@@ -4,16 +4,20 @@ import type { Room } from "../model/types";
 import { signedClearance } from "../model/geometry2d";
 import { MAX_CALIBRATION_ERROR_M } from "./mixedCalibration";
 import { RoomDiscovery, type RoomDiscoveryState } from "./roomDiscovery";
+import { checkedFloorOutline } from "./distinctiveRoom";
 import { MixedRealityCalibration, calibrationFeatures, type CalibrationFeature } from "./mixed";
 import { buildMixedRealityOverlay, type MixedRealityRouteFilter, type MixedRealityRoutePick } from "./mixedOverlay";
 import type { PanelPage } from "./panel";
 import { RoomSurveyPilot } from "./roomSurvey";
 import { HandConfirmation, trackedIndexTip } from "./surveyInput";
 import {
-  applyAlignmentHint, buildAlignmentModel, checkAnchoredCorner, roomPoseDrift, matchRoomAlignment, uniqueRoomAlignment, viableRoomAlignments,
+  applyAlignmentHint, buildAlignmentModel, checkAnchoredCorner, roomPoseDrift, matchRoomAlignment, reviewTraceOutlier, uniqueRoomAlignment, viableRoomAlignments,
   type AlignmentCandidate, type AlignmentHint, type AlignmentModel,
 } from "./roomAlignment";
 import { readAlignmentEvidence, snapScannedCorner, type AlignmentEvidence } from "./roomAlignmentEvidence";
+import { ScanFeedback } from "./scanFeedback";
+import { RoomPreview } from "./roomPreview";
+import { RoomRoaming } from "./roomRoaming";
 import { AlignmentRays } from "./roomAlignmentRay";
 import { triangulateFloorCorner } from "./roomAlignmentTriangulation";
 import { canOpenHeadsetRoomSetup, openHeadsetRoomSetup, QUEST_ROOM_SETUP_GUIDE } from "./headsetRoomSetup";
@@ -21,6 +25,7 @@ import { WallInspector } from "./wallInspector";
 
 import { chooseFacing, FACING_HOLD_ANGLE, FacingHold, FacingProgress, facingTargets, sameFacing, type FacingTarget } from "./roomFacing";
 import { floorAim, WallTrace } from "./wallTrace";
+import { PairedTraces, scanFitsMarkedWalls } from "./pairedTraces";
 
 const ROOM_SETUP_GRACE_MS = 3_000;
 
@@ -52,6 +57,10 @@ export class MixedPilot {
   private readonly rays: AlignmentRays;
   private alignmentModel: AlignmentModel | null = null;
   private evidence: AlignmentEvidence | null = null;
+  private preview: RoomPreview | null = null;
+  private readonly scanFeedback = new ScanFeedback();
+  private readonly roaming = new RoomRoaming();
+  private calibrationFloorId: string | null = null;
   private candidates: AlignmentCandidate[] = [];
   private nextScan = -Infinity;
   private hint: AlignmentHint | null = null;
@@ -63,6 +72,14 @@ export class MixedPilot {
   private setupOpen = false;
   private setupNotice = "";
   private trace: WallTrace | null = null;
+  private pairs: PairedTraces | null = null;
+  private extraWall = false;
+  private reviewLine: number | null = null;
+  private reviewPending = false;
+  private review: ReturnType<typeof reviewTraceOutlier> | null = null;
+  private measuringFloor: "aim" | "touch" | null = null;
+  private measuredFloor: number | null = null;
+  private traceFloor: number | null = null;
   private implicitTrace = false;
   private facing: FacingTarget | null = null;
   private facingOptions: FacingTarget[] = [];
@@ -83,11 +100,14 @@ export class MixedPilot {
     const state = this.calibration?.state;
     return !this.setupOpen && !!state && (state.phase === "ready"
       ? this.survey?.aiming === true || this.inspectingWall
-      : !!(this.hint || this.tracingWalls || (this.manual && state.selected && this.remotePoints())));
+      : !!(this.preview?.placing === "aim" || this.hint || this.measuringFloor === "aim" || this.tracingWalls || (this.manual && state.selected && this.remotePoints())));
   }
   get inspectingWall(): boolean { return this.wallInspector?.aiming === true; }
+  get betweenRooms() { return this.roaming.betweenRooms; }
+  get checkedRoom() { return this.roaming.origin; }
+  get scanSummary(): string { return this.scanFeedback.summary(performance.now(), this.sceneUnavailable); }
   get showHouseTools(): boolean {
-    return this.mode === "mr" && this.calibration?.state.phase === "ready" && !this.wallInspector?.active;
+    return this.mode === "mr" && this.calibration?.state.phase === "ready" && !this.betweenRooms && !this.wallInspector?.active;
   }
 
   constructor(private runtime: HouseRuntime, private session: XRSession, private space: XRReferenceSpace,
@@ -98,6 +118,7 @@ export class MixedPilot {
     this.space.addEventListener("reset", this.invalidateScan);
     this.session.addEventListener("visibilitychange", this.visibilityChanged);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8896a3, 2));
+    this.scene.add(this.scanFeedback.group);
     this.rooms = [...runtime.manifest!.rooms.values()].filter(r => r.kind !== "void" && r.kind !== "attic");
     const laundry = (r: Room) => [r.name, ...(r.aliases ?? []), runtime.store.getState().labelPreferences.names[r.id]]
       .some(n => n?.toLowerCase().includes("laundry"));
@@ -127,12 +148,15 @@ export class MixedPilot {
       this.survey = new RoomSurveyPilot(this.runtime, this.session, this.space, room);
       this.scene.add(this.survey.display.group);
     } else {
+      this.preview = new RoomPreview(this.alignmentModel);
+      this.scene.add(this.preview.group);
       this.overlay = buildMixedRealityOverlay(this.runtime.manifest!, state.routes, room.floorId);
       this.scene.add(this.overlay.group);
       this.wallInspector = new WallInspector(room, this.alignmentModel.walls, this.overlay);
       this.scene.add(this.wallInspector.group);
     }
     this.calibration = this.floorAnchors.get(room.floorId) ?? this.newCalibration(room.floorId, room.id);
+    this.calibrationFloorId = room.floorId;
     this.floorAnchors.delete(room.floorId);
     this.calibration.bindRoom(room.id);
     this.disposeProbes();
@@ -158,7 +182,8 @@ export class MixedPilot {
       roomId,
       fingerprint: this.runtime.store.getState().fingerprint!,
       onState: (s) => {
-        if (this.calibration !== cal || s.phase === "ready") return;
+        if (this.calibration !== cal) return;
+        if (s.phase === "ready") { this.preview?.reset(); return; }
         const previouslyVerified = this.readyTransform !== null;
         this.readyTransform = null;
         if (previouslyVerified) this.onAlignmentLost?.();
@@ -177,6 +202,7 @@ export class MixedPilot {
   }
   private resetDiscovery() {
     this.discovery.reset();
+    this.scanFeedback.clear();
     this.previousAnchorRoom = null;
     this.suggested = [];
     this.discoveryPhase = "waiting";
@@ -218,7 +244,7 @@ export class MixedPilot {
           : "Look around to keep searching, or choose your room.";
       return {
         title: "Which room are you in?",
-        lines: [this.setupNotice || instruction],
+        lines: [this.setupNotice || instruction, ...(this.discovering ? [this.scanSummary] : [])],
         rows: [
           ...(this.discovering && waited && canOpenHeadsetRoomSetup(this.session)
             ? [{ label: "Open headset room setup", act: () => void this.openRoomSetup() }]
@@ -239,6 +265,7 @@ export class MixedPilot {
         this.discoveryPhase === "confirming"
           ? "Checking the room’s position and orientation…"
           : "Look around from where you are. House checks the walls and openings.",
+        this.scanSummary,
       ],
       rows: [{ label: "Choose room myself", act: allRooms }],
     };
@@ -249,6 +276,7 @@ export class MixedPilot {
     const features = this.roomFeatures(room);
     const error = state.errorM === null ? "" : `Alignment error: ${(100 * state.errorM).toFixed(1)} cm`;
     const reset = { label: "Realign the room", act: () => {
+      if (room.floorId !== this.calibrationFloorId) { this.enter(room); return; }
       this.clearRouteFocus();
       this.hand.clear();
       this.manual = false;
@@ -275,6 +303,24 @@ export class MixedPilot {
       const remote = this.remotePoints();
       const title = verify ? `Recheck · ${room.name}` : `Align · ${room.name}`;
       if (this.setupOpen) return { title, lines: ["Complete headset room setup, then return here."], rows: [] };
+      if (this.preview?.placing) return this.preview.menu();
+      if (this.measuringFloor) return {
+        title: "Check floor height",
+        lines: [this.scanStatus || (this.measuringFloor === "touch" ? "Touch a clear patch of floor with the controller probe or fingertip, then confirm."
+          : "Aim at a recognizable spot on the floor near your feet and click. A tile joint works well.")],
+        rows: [{ label: this.measuringFloor === "aim" ? "Touch the floor instead" : "Aim from here instead", act: () => {
+          this.measuringFloor = this.measuringFloor === "aim" ? "touch" : "aim"; this.firstRay = null; this.scanStatus = "";
+        } }, { label: "Back to marked lines", act: () => { this.measuringFloor=null; this.firstRay=null; this.scanStatus=""; } }],
+      };
+      if (this.pairs && !this.replacementNeeded) return this.pairMenu(this.pairs);
+      const pairRow = this.trace && this.trace.walls.length >= 4 ? [{
+        label: "Match saved lines on plan", detail: "Use the lines you already marked", act: () => {
+          if (!this.trace || !this.alignmentModel) return;
+          this.setFacing(null);
+          this.pairs = new PairedTraces(this.alignmentModel,this.trace.walls);
+          this.trace.highlight(this.pairs.current);
+        },
+      }] : [];
       if (this.facing && !this.replacementNeeded) {
         const target = this.facing;
         this.facingPrompted = target;
@@ -291,6 +337,10 @@ export class MixedPilot {
               if (this.facing !== target) return;
               this.setFacing(null); this.chooseDirection = true; this.scanStatus = "";
             } },
+            ...pairRow,
+            ...(this.trace ? [{ label: "Mark another wall", act: () => {
+              this.setFacing(null); this.extraWall = true;
+            } }] : []),
           ],
         };
       }
@@ -306,21 +356,32 @@ export class MixedPilot {
         corners: features.map(f => f.point),
         rows: [{ label: "Choose another feature", act: () => { this.hint = null; this.scanStatus = ""; } }, change] };
       if (!this.manual || !mayChoose) {
-        const needsHint = !this.manual && mayChoose && this.needsBearing;
+        const needsHint = !this.manual && mayChoose && this.needsBearing && !this.extraWall;
         const maySetup = !needsHint && !this.trace && performance.now() - this.scanStarted >= ROOM_SETUP_GRACE_MS;
         const manualEntry = { label: localCheck ? "Point to recheck" : "Point to align manually", act: () => {
+          this.preview?.hide();
           this.stopTracing(); this.manual = true; this.pointMode = "aim"; this.scanStatus = ""; this.hint = null; this.firstRay = null;
           if ((verify && !localCheck) || canReplace) cal.startManualHere();
         } };
         if (this.trace && !needsHint) {
           const count = this.trace.walls.length;
+          const review = this.reviewLine;
+          const instruction = review !== null
+            ? `Line ${review + 1} disagrees with the other marks. Check the highlighted line.`
+            : count >= 4 ? "These lines have not verified a single alignment. Match them on the plan, or correct a mark."
+            : count === 3 ? "Mark a fourth wall across the room to check your position."
+            : count === 2 ? "Now mark walls on the other sides of the room."
+            : count === 1 ? "Mark a wall that runs in a different direction." : "Stay in one spot. Aim at the base of any wall.";
           return { title: count ? `Trace walls · ${count} marked` : "Trace a wall",
-            lines: [this.trace.message || (count >= 3 && !this.candidates.length
-              ? "Still checking the room. Add a different side, or undo a misplaced stroke."
-              : count ? "Choose a different wall." : "Stay in one spot. Aim at the base of any wall."),
-              "Hold the trigger or pinch and trace where the wall meets the floor. Release when the line turns green (about a metre)."],
+            lines: [this.trace.message || instruction,
+              ...(count < 4 ? ["Hold the trigger or pinch and trace where the wall meets the floor. Release when the line turns green (about a metre)."] : [])],
             rows: [
-              ...(count ? [{ label: "Undo last wall", act: () => { this.trace?.undo(); this.candidates = []; this.nextScan = -Infinity; } }] : []),
+              ...(review !== null ? [{ label: `Remove line ${review+1} and recheck`, act: () => this.removeTrace(review) }] : []),
+              ...pairRow,
+              ...(this.preview?.actions() ?? []),
+              { label: "Check floor height", detail: "Keep your marked lines", act: () => this.startFloorCheck() },
+              ...(count ? [{ label: "Undo last wall", act: () => this.removeTrace(count-1) }] : []),
+              manualEntry,
               { label: "Back to room scan", act: () => { this.stopTracing(); this.clearScan(); } }, change,
             ] };
         }
@@ -328,7 +389,7 @@ export class MixedPilot {
           : localCheck ? this.scanStatus || "Look around while the headset rechecks this room."
             : verify ? this.scanStatus || state.message
               : mayChoose ? this.scanStatus || "Looking for room geometry. Stay inside the selected room." : state.message;
-        return { title, lines: [this.setupNotice || status].filter(Boolean),
+        return { title, lines: [this.setupNotice || status, this.preview?.group.visible ? "Amber outline · estimated" : ""].filter(Boolean),
           rows: [
             ...(maySetup && mayChoose && canOpenHeadsetRoomSetup(this.session)
               ? [{ label: "Open headset room setup", act: () => void this.openRoomSetup() }] : []),
@@ -337,15 +398,19 @@ export class MixedPilot {
               act: () => { this.setFacing(target); this.scanStatus = ""; },
             })) : []),
             ...(needsHint && this.remoteAvailable() ? this.hintChoices() : []),
+            ...(needsHint ? pairRow : []),
             ...(needsHint && this.trace?.walls.length ? [{ label: "Undo last wall", act: () => {
-              this.trace?.undo(); this.candidates = []; this.nextScan = -Infinity;
+              if (this.trace) this.removeTrace(this.trace.walls.length-1);
             } }] : []),
+            ...(mayChoose && !needsHint && this.preview ? this.preview.actions() : []),
             ...(!this.trace && mayChoose ? [{
               label: "Trace wall bases", detail: "From where you stand", style: "choice" as const, act: () => {
                 this.trace = new WallTrace(); this.scene.add(this.trace.group); this.scanStatus = "";
                 this.nextScan = -Infinity;
               },
             }] : []),
+            ...(!this.trace && mayChoose && !needsHint && (maySetup || this.sceneUnavailable)
+              ? [{ label: "Check floor height", detail:"Point at a nearby spot on your floor", act: () => this.startFloorCheck() }] : []),
             ...(mayChoose ? [manualEntry] : []),
             ...(verify || state.phase === "restoring" ? [reset] : []), change,
           ],
@@ -373,8 +438,12 @@ export class MixedPilot {
     }
     if (this.wallInspector?.active && state.errorM !== null)
       return this.wallInspector.menu(state.errorM, () => this.closeWallInspector());
+    if (this.betweenRooms)
+      return {title: "Between rooms", lines: ["Walk into a modeled room to see its equipment and routes."], rows: [change]};
     const focused = this.overlay?.focusedId != null;
-    return { title: room.name, lines: [error + (state.persistence === "saved" ? " · Anchor saved" : " · Session alignment"),
+    const registration = this.checkedRoom && this.checkedRoom.id !== room.id
+      ? "Alignment checked in " + this.checkedRoom.name : error;
+    return { title: room.name, lines: [registration + (state.persistence === "saved" ? " · Anchor saved" : " · Session alignment"),
       fans, focused ? this.selectedRoute?.label ?? "Tracing one route" : "Trigger a route to trace it. Dashed paths are approximate."],
       rows: [
         ...(focused ? [{ label: "Show all routes", act: () => this.clearRouteFocus() }] : []),
@@ -390,16 +459,105 @@ export class MixedPilot {
     this.overlay?.clearFocus();
     this.selectedRoute = null;
   }
+  private pairMenu(pairs: PairedTraces): PanelPage {
+    const trace = this.trace!;
+    const model = pairs.model;
+    const pick = (index: number) => {
+      if (this.pairs !== pairs || !this.evidence) return;
+      pairs.select(index, this.viewerPoint, this.traceEvidence(), this.candidates);
+      trace.highlight(pairs.candidate ? null : pairs.current);
+      this.nextScan = -Infinity;
+    };
+    return {
+      title: pairs.candidate ? "Checking matched walls" : `Match line ${pairs.current+1} · ${pairs.pairs.length+1} of 4`,
+      lines: [pairs.message || "Find the gold line in your room. Tap the number on the same wall on this plan."],
+      corners: model.corners.map(p => p.point),
+      wallPicker: { choose: pick,
+        walls: model.walls.map((wall,index) => ({ index, x:(wall.a[0]+wall.b[0])/2, z:(wall.a[1]+wall.b[1])/2,
+          picked:pairs.pairs.some(p => p.wall === index), enabled:pairs.availableWall(index) }))
+          .filter(wall => wall.enabled || wall.picked),
+        openings:model.landmarks.map(mark => ({x:mark.center[0],z:mark.center[2],kind:mark.kind})),
+      },
+      rows: [
+        ...(pairs.hasAlternative ? [{label:"Use another marked line", act:() => { pairs.nextStroke(); trace.highlight(pairs.current); }}] : []),
+        ...(pairs.pairs.length ? [{label:"Back one match", act:() => { pairs.back(); trace.highlight(pairs.current); }}] : []),
+        {label:"Check floor height",act:() => this.startFloorCheck()},
+        {label:"Back to marked lines",act:() => { this.pairs=null; trace.highlight(this.reviewLine); this.extraWall=true; }},
+      ],
+    };
+  }
+  private get floorHeight() { return this.measuredFloor ?? this.traceFloor ?? this.evidence?.floor?.y ?? 0; }
+  private traceEvidence() { return this.trace!.evidence(this.floorHeight,this.evidence!,this.measuredFloor !== null); }
+  private startFloorCheck() {
+    this.measuringFloor="aim";
+    this.pairs=null; this.trace?.cancel(); this.trace?.highlight(null);
+    this.setFacing(null); this.firstRay=null; this.scanStatus="";
+  }
+  private checkFloor(frame: XRFrame, source: XRInputSource) {
+    const cal = this.calibration;
+    if (!cal?.tracking || this.session.visibilityState !== "visible") return false;
+    let observed: THREE.Vector3 | null;
+    if (this.measuringFloor === "touch") {
+      observed = source.hand ? trackedIndexTip(frame,this.space,source,this.samplePoint) :
+        cal.pointerPosition(frame,source.gripSpace,this.samplePoint);
+    } else {
+      // A surface hit measures depth. Intersecting a ray with local Y=0 would just repeat our assumption.
+      observed = this.firstRay ? null : this.rays.hit(frame,source,this.evidence,this.samplePoint);
+      if (!observed) {
+        const ray = this.rays.trackedRay(frame,source,this.aimingRay);
+        if (!ray) { this.scanStatus="Bring your controller into view and aim at the floor."; return false; }
+        if (!this.firstRay) {
+          this.firstRay=ray.clone();
+          this.scanStatus="First aim saved. Move your hand sideways about 30 cm and aim at the same spot again.";
+          return true;
+        }
+        const result=triangulateFloorCorner(this.firstRay,ray,0.60);
+        if (!result.point) { this.scanStatus=result.message; return false; }
+        observed=result.point;
+      }
+    }
+    this.firstRay=null;
+    if (!observed || !Number.isFinite(observed.y) || Math.abs(observed.y)>0.60 || this.viewerPoint.y-observed.y<0.45) {
+      this.scanStatus="That point is outside the expected floor range. Try a clear spot by your feet."; return false;
+    }
+    if (this.trace?.walls.length && !this.trace.reprojectFloor(observed.y)) {
+      this.scanStatus="That height would invalidate a marked line. Check the floor again or go back and remove the line."; return false;
+    }
+    this.preview?.reset();
+    this.measuredFloor=observed.y;
+    this.traceFloor=observed.y;
+    this.measuringFloor=null; this.candidates=[]; this.reviewLine=null; this.review=null; this.reviewPending=true;
+    this.scanStatus="Floor height measured. Checking the room again.";
+    if (this.trace) this.trace.message = "";
+    this.nextScan=-Infinity;
+    return true;
+  }
   frame(frame: XRFrame, delta: number, motion: boolean, fanRates: { supply: number; extract: number },
     lookingAtPanel?: (gaze: THREE.Ray) => boolean, promptAvailable = true) {
     if (!this.calibration) {
       if (this.discovering && !this.setupOpen) this.findRoom(frame);
+      this.drawScanFeedback(frame, delta);
       return;
     }
     const inputs = Array.from(this.session.inputSources);
     if (this.hand.aiming && !inputs.includes(this.hand.aiming)) this.hand.clear();
     const matrix = this.calibration.frame(frame);
+    if (matrix && this.mode === "mr" && this.room) {
+      const viewer = frame.getViewerPose(this.space);
+      if (viewer && !viewer.emulatedPosition) {
+        const next = this.roaming.observe(this.rooms, this.room, matrix, viewer.transform.position, performance.now());
+        if (next) this.walkInto(next);
+      }
+    } else if (this.roaming.origin && !matrix) {
+      this.roaming.reset();
+      // A fresh registration on another floor must use that floor's persistent anchor key.
+      if (this.room && this.room.floorId !== this.calibrationFloorId) {
+        this.enter(this.room);
+        return;
+      }
+    }
     if (this.calibration.state.phase === "ready") {
+      if (this.preview?.group.visible || this.preview?.placing) this.preview.reset();
       this.rays.clear();
       if (this.evidence) this.clearScan();
     }
@@ -407,17 +565,29 @@ export class MixedPilot {
       this.rays.sync(inputs);
       if (this.trace?.source) {
         if (this.calibration.tracking && inputs.includes(this.trace.source))
-          this.trace.sample(this.tracePoint(frame, this.trace.source, this.samplePoint));
+          this.trace.sample(this.tracePoint(frame, this.trace.source, this.samplePoint),this.aimingRay);
         else this.trace.cancel();
       }
       this.updateScan(frame);
+      if (this.preview && this.calibration.tracking) {
+        const position = frame.getViewerPose(this.space)?.transform.position;
+        if (position) this.preview.track(this.samplePoint.set(position.x, position.y, position.z));
+      }
+      if (this.review && !this.pairs && !this.measuringFloor && !this.trace?.source) {
+        const step = this.review.next();
+        if (step.done) {
+          this.reviewLine = step.value; this.review=null;
+          this.trace?.highlight(this.reviewLine);
+        }
+      }
       if (this.confirmBearing) { this.confirmBearing = false; this.resolveFacing(frame); }
       this.updateFacingHold(frame, lookingAtPanel, promptAvailable);
     }
     this.readyTransform = matrix;
+    this.drawScanFeedback(frame, delta);
     this.survey?.frame(frame, matrix, this.calibration.state.errorM);
-    this.overlay?.applyTransform(matrix);
-    if (!matrix || !this.overlay) {
+    this.overlay?.applyTransform(this.betweenRooms ? null : matrix);
+    if (!matrix || !this.overlay || this.betweenRooms) {
       this.wallInspector?.frame(null);
       this.selectedRoute = null;
       return;
@@ -427,6 +597,28 @@ export class MixedPilot {
     if (this.selectedRoute?.id !== this.overlay.focusedId) this.selectedRoute = null;
     this.overlay.tick(delta, motion, fanRates);
   }
+  private walkInto(room: Room) {
+    if (!this.calibration || !this.room || !this.overlay) return;
+    this.wallInspector?.dispose();
+    // Keep a whole-floor route followed through a doorway. A wall patch belongs to its room.
+    this.selectedRoute = null;
+    const state = this.runtime.store.getState();
+    if (room.floorId !== this.room.floorId) {
+      this.overlay.dispose();
+      this.overlay = buildMixedRealityOverlay(this.runtime.manifest!, state.routes, room.floorId);
+      this.overlay.setFilter(this.filter);
+      this.scene.add(this.overlay.group);
+    }
+    this.preview?.dispose();
+    this.preview = new RoomPreview(this.modelFor(room));
+    this.scene.add(this.preview.group);
+    this.room = room;
+    this.calibration.bindRoom(room.id);
+    this.alignmentModel = this.modelFor(room);
+    this.facingOptions = facingTargets(this.alignmentModel, this.rooms, state.labelPreferences.names);
+    this.wallInspector = new WallInspector(room, this.alignmentModel.walls, this.overlay);
+    this.scene.add(this.wallInspector.group);
+  }
   probePosition(frame: XRFrame, source: XRInputSource, target: THREE.Vector3): THREE.Vector3 | null {
     if (!this.calibration) return null;
     if (this.survey?.aiming && this.calibration.state.phase === "ready") return this.survey.previewAim(frame, source, target);
@@ -434,7 +626,7 @@ export class MixedPilot {
       const ray = this.rays.trackedRay(frame, source, this.aimingRay);
       return ray ? this.wallInspector!.probe(ray, this.readyTransform, target) : null;
     }
-    if (this.tracingWalls) return this.tracePoint(frame, source, target);
+    if (this.preview?.placing === "aim" || this.tracingWalls) return this.tracePoint(frame, source, target);
     if (this.aimingAtRoom) return this.pointAtScan(frame, source, target);
     return source.hand ? trackedIndexTip(frame, this.space, source, target)
       : this.calibration.pointerPosition(frame, source.gripSpace, target);
@@ -443,6 +635,15 @@ export class MixedPilot {
   select(frame: XRFrame, source: XRInputSource, ray: THREE.Ray | null) {
     const calibration = this.calibration;
     if (!calibration || this.setupOpen) return;
+    if (this.preview?.placing) {
+      if (!calibration.tracking || this.session.visibilityState !== "visible") return false;
+      const viewer = frame.getViewerPose(this.space);
+      if (!viewer || viewer.emulatedPosition) return false;
+      const { x, y, z } = viewer.transform.position;
+      return this.preview.aim(this.tracePoint(frame, source, this.samplePoint), this.viewerPoint.set(x, y, z), this.evidence?.walls ?? []);
+    }
+    if (this.measuringFloor) return this.checkFloor(frame,source);
+    if (this.pairs) return;
     const { phase, selected } = calibration.state;
     if (this.facing && phase !== "ready") {
       this.resolveFacing(frame);
@@ -509,15 +710,15 @@ export class MixedPilot {
     return this.candidates.length > 1 && this.candidates.some(candidate => !candidate.landmarkConflict);
   }
   private get tracingWalls() {
-    return !!this.trace && !this.facing && !this.hint && !this.replacementNeeded &&
-      !this.needsBearing && this.calibration?.state.phase !== "ready";
+    return !!this.trace && !this.pairs && !this.measuringFloor && !this.facing && !this.hint && !this.replacementNeeded &&
+      (!this.needsBearing || this.extraWall) && this.calibration?.state.phase !== "ready";
   }
   private tracePoint(frame: XRFrame, source: XRInputSource, target: THREE.Vector3) {
     const ray = this.rays.trackedRay(frame, source, this.aimingRay);
-    return ray ? floorAim(ray, this.evidence?.floor?.y ?? 0, target) : null;
+    return ray ? floorAim(ray, this.floorHeight, target) : null;
   }
   beginWallTrace(frame: XRFrame, source: XRInputSource) {
-    if (!this.calibration?.tracking) return false;
+    if (!this.calibration?.tracking || this.preview?.placing || this.pairs || this.measuringFloor) return false;
     if (!this.trace && !this.manual && !this.setupOpen && !this.facing && !this.hint && !this.replacementNeeded &&
       !this.candidates.length && (this.calibration.state.phase === "select" || this.calibration.state.phase === "verify") &&
       (this.sceneUnavailable || performance.now() - this.scanStarted >= ROOM_SETUP_GRACE_MS) && this.tracePoint(frame, source, this.samplePoint)) {
@@ -526,15 +727,20 @@ export class MixedPilot {
       this.scene.add(this.trace.group);
     }
     if (!this.tracingWalls || !this.trace?.begin(source)) return false;
-    this.trace.sample(this.tracePoint(frame, source, this.samplePoint));
+    this.traceFloor ??= this.floorHeight;
+    if (this.evidence?.floor?.semanticFloor && this.traceFloor === this.evidence.floor.y)
+      this.measuredFloor ??= this.traceFloor;
+    this.trace.sample(this.tracePoint(frame, source, this.samplePoint),this.aimingRay);
     return true;
   }
   finishWallTrace(frame: XRFrame, source: XRInputSource) {
     if (!this.trace || this.trace.source !== source) return false;
-    this.trace.sample(this.tracePoint(frame, source, this.samplePoint));
+    this.trace.sample(this.tracePoint(frame, source, this.samplePoint),this.aimingRay);
     const marked = this.trace.finish(source);
-    if (marked) this.implicitTrace = false;
-    else if (this.implicitTrace) this.stopTracing();
+    if (marked) {
+      this.extraWall=false; this.reviewPending=true; this.review=null; this.reviewLine=null; this.trace.highlight(null);
+    }
+    this.implicitTrace = false;
     this.nextScan = -Infinity;
     return marked;
   }
@@ -542,7 +748,14 @@ export class MixedPilot {
     this.trace?.cancel();
     if (this.implicitTrace) this.stopTracing();
   }
-  private stopTracing() { this.trace?.dispose(); this.trace = null; this.implicitTrace = false; }
+  private removeTrace(index: number) {
+    this.trace?.remove(index); this.reviewLine=null; this.review=null; this.reviewPending=true;
+    this.candidates=[]; this.extraWall=false; this.nextScan=-Infinity;
+  }
+  private stopTracing() {
+    this.trace?.dispose(); this.trace=null; this.implicitTrace=false; this.traceFloor=null;
+    this.pairs=null; this.extraWall=false; this.review=null; this.reviewLine=null; this.reviewPending=false;
+  }
 
   private resetFacingHold() {
     this.facingHold.reset();
@@ -675,6 +888,37 @@ export class MixedPilot {
       this.scanStatus = "Aim at that feature in the real room and confirm away from the menu.";
     } }));
   }
+  private drawScanFeedback(frame: XRFrame, delta: number) {
+    if (frame.session !== this.session || this.session.visibilityState !== "visible" || this.setupOpen ||
+        (!this.room && !this.discovering) || this.manual || this.hint || this.calibration?.state.phase === "ready") {
+      this.scanFeedback.group.visible = false;
+      return;
+    }
+    const now = performance.now();
+    const fallback = this.sceneUnavailable || now - this.scanStarted >= ROOM_SETUP_GRACE_MS
+      ? this.room ? "Use an alignment option in the menu" : "Choose your room in the menu"
+      : "Waiting for the headset to share a scan";
+    let progress: { title: string; instruction: string } | undefined;
+    if (this.preview?.placing) progress = this.preview.placing === "aim"
+      ? { title: "Estimate room outline", instruction: "Face the wall and aim at the middle of its base" }
+      : { title: "Estimate room outline", instruction: "Choose the wall you are facing on the plan" };
+    else if (this.measuringFloor) progress = {title:"Check floor height",instruction:this.firstRay ? "Aim again from the side" : "Measure a clear spot near your feet"};
+    else if (this.pairs) progress = {title:`Match marked line ${this.pairs.current+1}`,instruction:"Select its wall on the room plan"};
+    else if (this.facing) progress = {title:"Look toward " + this.facing.label,instruction:"Hold your view, or confirm with the trigger"};
+    else if (this.trace) {
+      const count = this.trace.walls.length;
+      progress = { title: this.trace.source ? "Tracing wall" : `${count} wall ${count===1 ? "line" : "lines"} saved`,
+        instruction: this.trace.source ? "Release when your line turns green" : this.trace.message ||
+          (this.reviewLine !== null ? `Review line ${this.reviewLine+1} in the menu` :
+            count>=4 ? "Open the menu to match saved lines" : count ? "Trace another side of the room" : "Hold the trigger and sweep along the wall base") };
+    }
+    if (this.preview?.group.visible && !this.preview.placing) {
+      progress = { title: "Estimated room outline", instruction: progress?.instruction ?? "Scan or trace walls to check alignment" };
+    }
+    this.scanFeedback.frame(frame.getViewerPose(this.space) ?? null, now, delta, this.sceneUnavailable,
+      this.discovery.state.phase === "checking" || this.discoveryPhase === "confirming", fallback, progress);
+  }
+
   private findRoom(frame: XRFrame) {
     if (frame.session !== this.session) return;
     const viewer = frame.getViewerPose(this.space);
@@ -694,6 +938,7 @@ export class MixedPilot {
     if (now >= this.nextScan && this.discovery.state.phase !== "checking") {
       this.nextScan = now + 500;
       const evidence = readAlignmentEvidence(frame, this.space, this.viewerPoint);
+      this.scanFeedback.observe(evidence, now);
       if (this.locateFromAnchors(frame, evidence, now)) return;
       this.discovery.submit(evidence, this.viewerPoint, now);
     }
@@ -794,12 +1039,39 @@ export class MixedPilot {
     const { x, y, z } = viewer.transform.position;
     this.viewerPoint.set(x, y, z);
     this.evidence = readAlignmentEvidence(frame, this.space, this.viewerPoint);
+    this.scanFeedback.observe(this.evidence, now);
+    if (!this.manual && !this.hint) this.preview?.observe(this.evidence, this.viewerPoint);
     const { phase, sampleCount, selected } = calibration.state;
+    if (this.measuringFloor || this.trace?.source) return;
+    if (this.pairs) {
+      if (!this.replacementNeeded && this.pairs.candidate && this.useCandidate(frame,this.pairs.candidate)) this.clearScan();
+      return;
+    }
     if (this.manual || (phase !== "verify" && phase !== "restoring" && phase !== "tracking-lost" &&
       (phase !== "select" || sampleCount > 0 || selected))) return;
-    const evidence = this.trace?.walls.length
-      ? this.trace.evidence(this.evidence.floor?.y ?? 0, this.evidence) : this.evidence;
-    this.candidates = matchRoomAlignment(model, evidence, this.viewerPoint);
+    const nativeFloor=this.evidence.floor;
+    if (this.trace?.walls.length && this.measuredFloor === null && nativeFloor?.semanticFloor &&
+      this.traceFloor !== nativeFloor.y && this.trace.reprojectFloor(nativeFloor.y)) {
+      this.measuredFloor=nativeFloor.y;
+      this.traceFloor=nativeFloor.y;
+      this.reviewPending=true; this.review=null; this.reviewLine=null;
+    }
+    const evidence = this.trace?.walls.length ? this.traceEvidence() : this.evidence;
+    const marked = this.trace?.walls;
+    const lateScan = marked?.length && nativeFloor && this.evidence.walls.length >= 2
+      ? matchRoomAlignment(model, this.evidence, this.viewerPoint).filter(pose => scanFitsMarkedWalls(pose, model, marked))
+      : [];
+    this.candidates = lateScan.length ? lateScan : matchRoomAlignment(model, evidence, this.viewerPoint);
+    const checkedOutline = !this.candidates.length && checkedFloorOutline(model, this.evidence, this.viewerPoint);
+    const usingOutline = !!checkedOutline && (!marked?.length || scanFitsMarkedWalls(checkedOutline, model, marked));
+    if (usingOutline) this.candidates = [checkedOutline];
+    if (this.candidates.length) {
+      this.review=null; this.reviewLine=null; this.trace?.highlight(null);
+    } else if (this.reviewPending && this.trace && this.trace.walls.length >= 5) {
+      this.review=reviewTraceOutlier(model,this.trace.walls,this.viewerPoint,this.floorHeight,
+        !!evidence.floor?.semanticFloor,this.measuredFloor !== null);
+    }
+    this.reviewPending=false;
     this.facingScan++;
     if (phase === "verify" && viableRoomAlignments(this.candidates).some(candidate =>
       calibration.verifyScanned(frame, candidate.fit, candidate.errorM, model.corners, candidate.check))) {
@@ -816,9 +1088,11 @@ export class MixedPilot {
       }
     }
     if (this.facing && !viableRoomAlignments(this.candidates).length) this.setFacing(null);
-    const match = uniqueRoomAlignment(this.candidates);
+    const measured = uniqueRoomAlignment(this.candidates);
+    const identified = !measured && this.preview?.resolveWallHeading(this.candidates);
+    const match = measured || identified;
     const previous = this.previousMeasurement;
-    const nativeFit = match && !this.trace && this.evidence.floor &&
+    const nativeFit = match && (!this.trace || lateScan.length > 0 || usingOutline) && this.evidence.floor &&
       (this.evidence.floor.source === "plane" || this.evidence.floor.source === "mesh");
     const repeated = nativeFit && previous && now - previous.at >= 350 && now - previous.at <= 2000 &&
       roomPoseDrift(model.room, previous.matrix, match.fit.matrix) + match.errorM <= MAX_CALIBRATION_ERROR_M;
@@ -827,10 +1101,12 @@ export class MixedPilot {
       calibration.startManualHere();
       this.replacementNeeded = false;
     }
-    if ((!this.facing || repeated) && match && this.useCandidate(frame, match)) {
+    if (usingOutline && !repeated) {
+      this.scanStatus = "The floor and a wall corner agree. Checking once more…";
+    } else if ((!this.facing || repeated || identified) && match && this.useCandidate(frame, match)) {
       this.hint = null;
       this.scanStatus = "";
-    } else if (!this.chooseDirection && !this.hint && !this.facing && !this.replacementNeeded && this.needsBearing && this.facingOptions.length) {
+    } else if (!this.extraWall && !this.chooseDirection && !this.hint && !this.facing && !this.replacementNeeded && this.needsBearing && this.facingOptions.length) {
       this.setFacing(this.facingOptions[0]!);
       this.scanStatus = "";
     } else if (!this.hint && !this.facing) {
@@ -860,6 +1136,9 @@ export class MixedPilot {
     return false;
   }
   private clearScan() {
+    this.preview?.reset();
+    this.measuringFloor=null; this.measuredFloor=null;
+    this.scanFeedback.clear();
     this.previousMeasurement = null;
     this.nextScan = -Infinity;
     this.evidence = null;
@@ -892,6 +1171,8 @@ export class MixedPilot {
     if (this.session.visibilityState !== "visible") this.invalidateScan();
   };
   private clearRoom() {
+    this.preview?.dispose(); this.preview = null;
+    this.roaming.reset();
     this.calibration?.dispose(); this.calibration = null;
     this.wallInspector?.dispose(); this.wallInspector = null;
     this.overlay?.dispose(); this.overlay = null;
@@ -914,6 +1195,7 @@ export class MixedPilot {
     this.clearRoom();
     this.disposeProbes();
     this.facingProgress?.dispose();
+    this.scanFeedback.dispose();
     this.scene.clear();
   }
 }
