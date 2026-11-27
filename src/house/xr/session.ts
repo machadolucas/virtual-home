@@ -24,9 +24,10 @@ import { EquipmentPicker, HAND_AIM_MS, stickAxes, stickIntent, TeleportArc } fro
 import { FrameBudget, WalkAppearance } from "./visuals";
 import { type FrameArea } from "./frameLog";
 import { HandHints } from "./handHints";
-import { InputBeams, pulse } from "./pointers";
+import { InputBeams } from "./pointers";
+import { ControllerHaptics } from "./haptics";
 import { HeadsetNotice } from "./headsetNotice";
-import { QuestBackButton, WalkHistory, walkPlace, type WalkStop } from "./wayfinding";
+import { QuestBackButton, WalkHistory, walkPlace, walkthroughStart, type WalkStop } from "./wayfinding";
 
 interface FrameOptions {
   motion: boolean;
@@ -75,6 +76,7 @@ export class HouseSession {
   private readonly backButton = new QuestBackButton();
   private readonly ui = new THREE.Group();
   private readonly beams = new InputBeams();
+  private readonly haptics = new ControllerHaptics();
   private readonly inputHints: HandHints | null;
   private readonly arc = new TeleportArc();
   private readonly picker = new EquipmentPicker();
@@ -405,6 +407,12 @@ export class HouseSession {
       return alignment;
     }
     let menu: PanelPage;
+    const hapticsRow = {
+      id: "controller-haptics",
+      label: "Controller vibration · " + this.haptics.level,
+      detail: "Cycle standard, light and off",
+      act: () => this.haptics.cycle(),
+    };
     const toolRows = [
       {
         id: "find",
@@ -456,7 +464,7 @@ export class HouseSession {
       );
     } else if (this.mixed) {
       menu = this.mixed.menu(options.fans, this.capture);
-      if (this.mixed.showHouseTools) menu.rows.push(...toolRows);
+      if (this.mixed.showHouseTools) menu.rows.push(...toolRows, hapticsRow);
       if (this.mixed.readyTransform) menu.close = () => this.panel.hide();
     } else if (this.page === "destinations")
       menu = {
@@ -494,6 +502,7 @@ export class HouseSession {
             act: (fraction: number) => this.setTurnSpeed(fraction) }] : []),
           { label: "Turn left 30°", style: "secondary", act: () => this.turn(1) },
           { label: "Turn right 30°", style: "secondary", act: () => this.turn(-1) },
+          hapticsRow,
           { label: "Try 90 Hz", act: this.budget.canTry90 ? () => this.budget.try90() : undefined },
         ],
       };
@@ -633,7 +642,7 @@ export class HouseSession {
   private takeLandingFeedback() {
     const source = this.panelClickSource;
     this.panelClickSource = null;
-    return source ? () => pulse(source) : undefined;
+    return source ? () => this.haptics.play(source, "land") : undefined;
   }
   private go(dest?: THREE.Vector3 | null, heading?: number, onArrival = this.takeLandingFeedback()) {
     if (!dest) {
@@ -681,8 +690,7 @@ export class HouseSession {
     });
   }
 
-  private returnToPrevious() {
-    const onArrival = this.takeLandingFeedback();
+  private returnToPrevious(onArrival = this.takeLandingFeedback()) {
     const stop = this.history.previous;
     if (!stop || !this.world || this.fadeStart !== null) return;
     if (!this.world.canStand(stop.feet, this.head.y)) {
@@ -707,6 +715,7 @@ export class HouseSession {
     this.backButton.reset();
     this.inputHints?.hide();
     this.panel.cancel();
+    this.haptics.reset();
     this.presses.clear();
     this.nextSample = null;
     this.routeAtPress = undefined;
@@ -720,7 +729,7 @@ export class HouseSession {
     this.fade.visible = false;
     this.budget.resetClock();
   };
-  private toggleMenu = () => {
+  private toggleMenu = (event?: XRInputSourceEvent) => {
     if (this.session.visibilityState !== "visible") return;
     this.resetInput();
     const toMenu = this.movement.subVectors(this.panel.mesh.position, this.head);
@@ -729,6 +738,7 @@ export class HouseSession {
       this.forward.set(0, 0, -1).applyQuaternion(this.orientation).dot(toMenu.normalize()) > 0.65;
     if (this.panel.mesh.visible && nearby && inView) this.panel.hide();
     else this.recall();
+    if (event?.inputSource) this.haptics.play(event.inputSource, "select");
   };
   private wristHit(source: XRInputSource) {
     return (
@@ -817,6 +827,7 @@ export class HouseSession {
           press.kind = "landing";
           press.initialHeading = press.heading = viewHeading(this.rig, this.orientation);
           this.arc.aim(this.world, this.ray.ray, this.head.y, press.heading);
+          if (this.arc.landing) this.haptics.play(source, "aim");
         }
       }
     }
@@ -837,12 +848,12 @@ export class HouseSession {
     const hasRay = this.rayFrom(e.frame, source);
     this.lastMenu = 0;
     if (press.kind === "wallTrace") {
-      if (this.mixed?.finishWallTrace(e.frame, source)) pulse(source);
+      if (this.mixed?.finishWallTrace(e.frame, source)) this.haptics.play(source, "select");
     } else if (press.kind === "panel") {
       this.panelClickSource = source;
       try {
         if (this.panel.end(source, hasRay ? this.panel.hit(this.ray, true) : null) && this.panelClickSource)
-          pulse(source);
+          this.haptics.play(source, "select");
       } finally {
         this.panelClickSource = null;
       }
@@ -854,14 +865,14 @@ export class HouseSession {
     } else if (press.kind === "tabletop" && this.map && hasRay) {
       this.map.orient(this.ray.ray, stickAxes(source.gamepad), viewHeading(this.rig, this.orientation));
       const result = this.map.release(this.map.hit(this.ray.ray), press.id, this.head.y, () =>
-        pulse(source),
+        this.haptics.play(source, "land"),
       );
-      if (result === "traced") pulse(source);
+      if (result === "traced") this.haptics.play(source, "select");
     } else if (press.kind === "fit" && this.planner && hasRay) {
       const p = this.planner.point(this.ray.ray);
       if (p) {
         this.planner.commit(p);
-        pulse(source);
+        this.haptics.play(source, "select");
       }
     } else if (
       press.kind === "marker" &&
@@ -871,24 +882,24 @@ export class HouseSession {
       this.guide.hit(this.ray.ray)
     ) {
       this.equipmentCard(press.id);
-      pulse(source);
+      this.haptics.play(source, "select");
     } else if (press.kind === "landing" && hasRay && this.world) {
       this.aimLeft(source, press);
       const p = this.arc.landing,
         heading = press.heading!;
       if (p) {
-        this.blink(p, heading, false, undefined, () => pulse(source));
+        this.blink(p, heading, false, undefined, () => this.haptics.play(source, "land"));
       }
       this.walkNeutral = false;
       this.arc.clear();
     } else if (press.kind === "door" && hasRay && this.world && press.id) {
       if (this.picker.target(this.world, this.ray, this.runtime.markers)?.doorId === press.id) {
         this.world.openDoor(press.id);
-        pulse(source);
+        this.haptics.play(source, "select");
       }
     } else if (press.kind === "travel" && hasRay && performance.now() - press.since >= HAND_AIM_MS) {
       const p = this.arc.landing;
-      if (p && this.arc.group.visible) this.blink(p, undefined, false, undefined, () => pulse(source));
+      if (p && this.arc.group.visible) this.blink(p, undefined, false, undefined, () => this.haptics.play(source, "land"));
       this.arc.clear();
     } else if (
       press.kind === "equipment" &&
@@ -899,14 +910,14 @@ export class HouseSession {
       !this.mixed.overlay?.pick(this.ray.ray)
     ) {
       this.equipmentCard(press.id);
-      pulse(source);
+      this.haptics.play(source, "select");
     } else if (press.kind === "equipment" && this.world && hasRay) {
       const hit = this.picker.target(this.world, this.ray, this.runtime.markers);
       const item =
         hit?.id === press.id && this.runtime.store.getState().placements.find((p) => p.id === hit?.id);
       if (item) {
         this.equipmentCard(item.id);
-        pulse(source);
+        this.haptics.play(source, "select");
       }
     } else if (press.kind === "mixed" && this.mixed) {
       const choosingRoute = this.mode === "mr" && !!this.mixed.readyTransform && !this.mixed.inspectingWall;
@@ -977,7 +988,7 @@ export class HouseSession {
       } else if (neutral) {
         const p = this.arc.landing;
         if (p) {
-          this.blink(p, undefined, false, undefined, () => pulse(right));
+          this.blink(p, undefined, false, undefined, () => this.haptics.play(right, "land"));
         }
         this.stickSource = null;
         this.arc.clear();
@@ -1005,8 +1016,12 @@ export class HouseSession {
         if (!this.panel.hit(this.ray)) {
           this.stickSource = right;
           this.arc.aim(this.world, this.ray.ray, this.head.y, viewHeading(this.rig, this.orientation));
+          if (this.arc.landing) this.haptics.play(right, "aim");
         }
-      } else if (intent !== "aim") this.turn(intent === "left" ? 1 : -1);
+      } else if (intent !== "aim") {
+        this.turn(intent === "left" ? 1 : -1);
+        this.haptics.play(right, "select");
+      }
       return;
     }
     if (!this.walkEnabled) return;
@@ -1027,9 +1042,9 @@ export class HouseSession {
     const feet = this.movement.copy(this.worldHead);
     feet.y = this.elevation.floor;
     const next =
-      this.world.step(feet, dx, dz, this.head.y) ??
-      (dx ? this.world.step(feet, dx, 0, this.head.y) : null) ??
-      this.world.step(feet, 0, dz, this.head.y);
+      this.world.step(feet, dx, dz, this.head.y, this.elevation.rendered) ??
+      (dx ? this.world.step(feet, dx, 0, this.head.y, this.elevation.rendered) : null) ??
+      this.world.step(feet, 0, dz, this.head.y, this.elevation.rendered);
     if (next) {
       this.elevation.floor = next.y;
       this.rig.position.x += next.x - feet.x;
@@ -1038,16 +1053,7 @@ export class HouseSession {
   }
 
   private followWalkElevation(dt: number) {
-    if (!this.world || this.elevation.rendered === this.elevation.floor) return;
-    const y = this.elevation.follow(dt);
-    const offset = y - this.elevation.floor;
-    if (offset > 0) {
-      // A low lintel can allow the lower tread but leave no room for a transitional eye height.
-      const feet = this.rig.localToWorld(this.movement.copy(this.head));
-      feet.y = this.elevation.floor;
-      if (!this.world.canStand(feet, this.head.y + offset)) this.elevation.arrive(feet.y);
-    }
-    this.rig.position.y = this.elevation.rendered;
+    if (this.world) this.rig.position.y = this.elevation.follow(dt);
   }
   private updateWrist(frame: XRFrame, sources: XRInputSource[]) {
     const wrist = this.beams.wrist.mesh;
@@ -1089,6 +1095,7 @@ export class HouseSession {
         this.panel.cursor(i, null);
         if (source && this.panel.owns(source)) this.panel.cancel();
         if (source) {
+          this.haptics.hover(source, null, now);
           if (this.presses.get(source)?.kind === "tabletop") this.map?.cancel();
           this.presses.delete(source);
         }
@@ -1107,6 +1114,7 @@ export class HouseSession {
       this.panel.cursor(i, hit);
       if (this.panel.owns(source)) this.panel.drag(source, this.panel.hit(this.ray, true));
       const press = this.presses.get(source);
+      if (press || this.stickSource === source) this.haptics.hover(source, null, now);
       if (press?.kind === "landing" && this.world) {
         if (!hit) this.aimLeft(source, press);
         continue;
@@ -1120,6 +1128,7 @@ export class HouseSession {
       let point = hit?.point,
         text = "",
         active = !!hit?.row?.act || !!hit?.scrollbar;
+      let hoverTarget = hit?.row?.act ? hit.row.key : null;
       if (!hit) {
         const wrist = this.wristHit(source);
         if (wrist) {
@@ -1139,6 +1148,7 @@ export class HouseSession {
           const preview = spot && this.map.preview(i, spot, this.head.y, this.ray.ray, now);
           text = preview === "blocked" ? "Landing blocked" : (spot?.label ?? "");
           active = preview === "valid";
+          if (spot?.route) hoverTarget = "route/" + spot.route.id;
         } else if (this.planner && !this.pausedWork) {
           const p = this.planner.point(this.ray.ray);
           if (p) {
@@ -1154,16 +1164,19 @@ export class HouseSession {
           point = this.guide.hit(this.ray.ray) ?? undefined;
           active = !!this.guide.target?.placementId;
           text = this.guide.target?.name ?? "";
+          if (active) hoverTarget = "marker/" + this.guide.target!.placementId;
         } else if (this.world) {
           const target = this.picker.target(this.world, this.ray, this.runtime.markers);
           point = target?.point;
           if (target?.id) {
             slot.highlight.equipment(target.mesh, target.instanceId);
             text = this.hoverNames.get(target.id) ?? "Equipment";
+            hoverTarget = "equipment/" + target.id;
             active = true;
           } else if (target?.doorId) {
             slot.highlight.equipment(target.mesh);
             text = "Open door";
+            hoverTarget = "door/" + target.doorId;
             active = true;
           } else if (
             !source.hand &&
@@ -1174,6 +1187,7 @@ export class HouseSession {
             this.fadeStart === null &&
             (target?.floor || (!target && this.ray.ray.direction.y < -0.06))
           ) {
+            this.haptics.hover(source, null, now);
             this.arc.aim(this.world, this.ray.ray, this.head.y, viewHeading(this.rig, this.orientation));
             continue;
           } else if (source.hand && target?.floor) active = true;
@@ -1183,6 +1197,7 @@ export class HouseSession {
             point = this.ray.ray.at(route.distance, new THREE.Vector3());
             slot.highlight.route(this.mixed.overlay.group, route.segment, route.approximate);
             text = route.label;
+            hoverTarget = "route/" + route.id;
             active = true;
           } else {
             const item = this.roomEquipment();
@@ -1190,10 +1205,12 @@ export class HouseSession {
               point = item.point;
               active = true;
               text = this.hoverNames.get(item.id) ?? "Equipment";
+              hoverTarget = "equipment/" + item.id;
             }
           }
         }
       }
+      if (!press && this.fadeStart === null) this.haptics.hover(source, hoverTarget, now);
       line.visible = true;
       if (point) line.scale.z = this.ray.ray.origin.distanceTo(point);
       else if (this.mixed?.aimingAtRoom) {
@@ -1349,13 +1366,22 @@ export class HouseSession {
       this.appearance?.detail(!this.low);
       this.runtime.store.setState({ immersiveLowDetail: this.low });
     }
+    if (this.firstPose && !this.mixed && this.runtime.store.getState().phase === "loading") {
+      gl.clear();
+      return;
+    }
     if (this.firstPose && this.world && this.pickables?.length) {
-      const start = this.destinations.find((d) => d.room.kind === "room") ?? this.destinations[0];
-      const landing =
-        start && this.world.landing(new THREE.Vector3(...start.position), this.head.y, start.room);
+      const landing = walkthroughStart(
+        this.destinations, this.runtime.store.getState().labelPreferences.names, this.world, this.head.y,
+      ) ?? this.world.landingAt(this.head.x, this.head.z, 0, this.head.y)
+        ?? this.world.yardLanding(this.head.y);
       if (landing) {
         teleport(this.rig, this.head, landing);
         this.elevation.arrive(landing.y);
+      } else {
+        this.page = "destinations";
+        this.notice = "Choose a room to find a clear starting spot.";
+        this.recall();
       }
       this.firstPose = false;
     }
@@ -1365,15 +1391,17 @@ export class HouseSession {
       (s) => s.targetRayMode === "tracked-pointer",
     );
     if (this.backButton.pressed(sources)) {
+      const right = sources.find(source => source.handedness === "right" && !source.hand)!;
       if (this.pausedWork) this.recall();
       else if (this.presses.size || this.stickSource) this.resetInput();
       else if (this.panel.mesh.visible) {
         this.panel.backOrClose();
+        this.haptics.play(right, "select");
         this.lastMenu = 0;
       } else if (this.map || this.planner || this.tasks.active) {
         if (this.planner?.moving) this.planner.back();
         else this.recall();
-      } else this.returnToPrevious();
+      } else this.returnToPrevious(() => this.haptics.play(right, "land"));
     }
     this.inputHints?.update(frame, this.space, sources);
     this.locomotion(frame, sources, dt);
@@ -1430,11 +1458,13 @@ export class HouseSession {
       if (sources.includes(source)) {
         const ray = this.rayFrom(frame, source) ? this.ray.ray : null;
         const overlay = this.mixed.overlay;
-        if (expected === undefined) this.mixed.select(frame, source, ray);
-        else if (ray && overlay?.group.visible && (overlay.pick(ray)?.id ?? null) === expected) {
+        if (expected === undefined) {
+          if (this.mixed.select(frame, source, ray)) this.haptics.play(source, "select");
+        } else if (ray && overlay?.group.visible && (overlay.pick(ray)?.id ?? null) === expected) {
           const previous = overlay.focusedId;
           this.mixed.select(frame, source, ray);
           if (previous !== overlay.focusedId) {
+            this.haptics.play(source, "select");
             const route = this.mixed.selectedRoute;
             this.statusCard.show(
               overlay.focusedId && route
@@ -1527,6 +1557,7 @@ export class HouseSession {
   dispose() {
     if (!this.alive) return;
     this.alive = false;
+    this.haptics.reset();
     this.session.removeEventListener("select", this.select);
     this.session.removeEventListener("selectstart", this.start);
     this.session.removeEventListener("selectend", this.end);

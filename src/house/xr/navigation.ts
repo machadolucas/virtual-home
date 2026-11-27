@@ -53,13 +53,25 @@ export function smoothTurnAngle(x: number, y: number, dt: number, degreesPerSeco
 export class WalkElevation {
   floor = 0;
   rendered = 0;
+  private velocity = 0;
 
-  arrive(y: number) { this.floor = this.rendered = y; }
+  arrive(y: number) {
+    this.floor = this.rendered = y;
+    this.velocity = 0;
+  }
 
   follow(dt: number) {
-    if (this.rendered === this.floor) return this.rendered;
-    const remaining = (this.rendered - this.floor) * Math.exp(-dt / 0.042);
-    this.rendered = Math.abs(remaining) <= 0.002 ? this.floor : this.floor + remaining;
+    const offset = this.rendered - this.floor;
+    if (offset === 0 && this.velocity === 0) return this.rendered;
+    // Exact critically damped spring for a stationary tread. Starting from rest gives
+    // each step a gentle onset; the next tread inherits velocity, even on a reversal.
+    const rate = 24;
+    const decay = Math.exp(-rate * dt);
+    const impulse = (this.velocity + rate * offset) * dt;
+    this.rendered = this.floor + (offset + impulse) * decay;
+    this.velocity = (this.velocity - rate * impulse) * decay;
+    if (Math.abs(this.rendered - this.floor) < 0.001 && Math.abs(this.velocity) < 0.025)
+      this.arrive(this.floor);
     return this.rendered;
   }
 }

@@ -4,7 +4,7 @@ import { TargetHighlight } from "@/house/xr/pointers";
 import { HeadsetPanel, type PanelPage } from "@/house/xr/panel";
 import { layoutPanel, PANEL_WIDTH, scrollThumb } from "@/house/xr/panelLayout";
 import { WalkWorld } from "@/house/xr/walkWorld";
-import { landFacing } from "@/house/xr/navigation";
+import { landFacing, WalkElevation } from "@/house/xr/navigation";
 import { FrameBudget, WalkAppearance } from "@/house/xr/visuals";
 import { HouseSession } from "@/house/xr/session";
 import { createRuntime } from "@/house/runtime";
@@ -225,8 +225,45 @@ describe("Quest motion and pointing", () => {
     active.dispose();
   });
 
+  it("ticks an actionable menu row once, confirms a click, and restores the vibration preference", () => {
+    const prefs = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => prefs.get(key),
+      setItem: (key: string, value: string) => prefs.set(key, value),
+    });
+    const { active, frame, inputs, source, render } = sessionFixture();
+    const pulse = vi.fn();
+    Object.assign(source.gamepad, { hapticActuators: [{ pulse }] });
+    const send = (type: string) => inputs.dispatchEvent(Object.assign(new Event(type), { frame, inputSource: source }));
+    render();
+    send("squeeze");
+    expect(pulse).toHaveBeenCalledExactlyOnceWith(0.7, 38);
+    render();
+    const panel = active["panel"];
+    const layout = panel["layout"]!;
+    const row = layout.rows.find(r => r.id === "rooms")!;
+    const hit = { point: new T.Vector3(), x: row.x + row.width / 2, y: row.y + row.height / 2, row, scrollbar: false };
+    const panelHit = vi.spyOn(panel, "hit").mockReturnValue(hit);
+    for (let i = 0; i < 24; i++) render();
+    expect(pulse.mock.calls).toEqual([[0.7, 38], [0.24, 16]]);
+    send("selectstart");
+    send("select");
+    send("selectend");
+    expect(active["page"]).toBe("destinations");
+    expect(pulse.mock.calls.at(-1)).toEqual([0.7, 38]);
+    panelHit.mockRestore();
+    active["page"] = "comfort";
+    const setting = active["menu"]({ motion: true, rates: { supply: 0, extract: 0 }, fans: "" })
+      .rows.find(r => r.id === "controller-haptics")!;
+    setting.act!(0);
+    expect(prefs.get("vh.xr.haptics")).toBe("light");
+    active.dispose();
+  });
+
   it("finishes a held wall stroke on select and cancels a released or interrupted press", () => {
     const { active, frame, inputs, source, render } = sessionFixture(undefined, "mr");
+    const pulse = vi.fn();
+    Object.assign(source.gamepad, { hapticActuators: [{ pulse }] });
     render();
     const pilot = active["mixed"]!;
     vi.spyOn(pilot, "beginWallTrace").mockReturnValue(true);
@@ -246,6 +283,7 @@ describe("Quest motion and pointing", () => {
     send("inputsourceschange");
     send("select");
     expect(finish).toHaveBeenCalledTimes(1);
+    expect(pulse).toHaveBeenCalledExactlyOnceWith(0.7, 38);
     active.dispose();
   });
   it("restores both fit arrangements and the pinned step only after the original room verifies again", async () => {
@@ -616,7 +654,7 @@ describe("Quest motion and pointing", () => {
     active.dispose();
   });
 
-  it.each([72, 90])("walks real stepped collision geometry both ways and settles at %i Hz", (hz) => {
+  it.each([72, 90, 120])("walks real stepped collision geometry both ways and settles at %i Hz", (hz) => {
     const { active, render, axes, source } = sessionFixture(({ index, box }) => {
       const room = index.manifest.rooms.values().next().value!;
       index.manifest.rooms.clear();
@@ -638,9 +676,13 @@ describe("Quest motion and pointing", () => {
     for (let i = 0; i < hz && elevation.floor < .1; i++) render(dt);
     expect(elevation.floor).toBeCloseTo(.18);
     expect(active.rig.position.y).toBeGreaterThan(0);
-    expect(active.rig.position.y).toBeLessThan(.10);
+    // A full-sized riser starts gently, accelerates, then settles even if the stick is released.
+    const onset = active.rig.position.y;
+    expect(onset).toBeLessThan(.012);
     axes[3] = 0;
     const stopped = active.rig.position.z;
+    render(dt);
+    expect(active.rig.position.y - onset).toBeGreaterThan(onset);
     for (let i = 0; i < hz / 3; i++) render(dt);
     expect(active.rig.position.z).toBe(stopped);
     expect(active.rig.position.y).toBe(elevation.floor);
@@ -651,7 +693,7 @@ describe("Quest motion and pointing", () => {
     axes[3] = 1;
     for (let i = 0; i < hz && elevation.floor > .55; i++) render(dt);
     expect(elevation.floor).toBeCloseTo(.54);
-    expect(active.rig.position.y).toBeGreaterThan(.60);
+    expect(.72 - active.rig.position.y).toBeLessThan(.012);
     for (let i = 0; i < hz; i++) render(dt);
     axes[3] = 0;
     for (let i = 0; i < hz / 3; i++) render(dt);
@@ -662,6 +704,32 @@ describe("Quest motion and pointing", () => {
     expect(elevation.floor).toBe(.72);
     expect(active.rig.position.y).toBe(.72);
     active.dispose();
+  });
+
+  it("brakes gradually on a mid-step reversal, then cancels that motion on teleport", () => {
+    const elevation = new WalkElevation();
+    const dt = 1 / 90;
+    elevation.floor = .20;
+    for (let i = 0; i < 4; i++) elevation.follow(dt);
+    const atReversal = elevation.rendered;
+    elevation.floor = 0;
+    // Momentum carries over from the ascent, then eases into the new direction.
+    expect(elevation.follow(dt)).toBeGreaterThan(atReversal);
+    for (let i = 0; i < 10; i++) elevation.follow(dt);
+    expect(elevation.rendered).toBeLessThan(atReversal);
+    expect(elevation.rendered).toBeGreaterThan(0);
+    elevation.arrive(2.5);
+    expect(elevation.follow(dt)).toBe(2.5);
+  });
+
+  it("checks transitional eye height before descending under a low lintel", () => {
+    const { index, box } = flat();
+    box("lower-step", new T.Vector3(.8, .18, 1), new T.Vector3(-.4, .09, 0), "step");
+    box("low-lintel", new T.Vector3(.4, .1, 1), new T.Vector3(.4, 1.9, 0), "roof");
+    const world = new WalkWorld(index);
+    const edge = new T.Vector3(.09, 0, 0);
+    expect(world.step(edge, .04, 0, 1.7, .14)).toBeNull();
+    expect(world.step(edge, .04, 0, 1.7, 0)?.y).toBeCloseTo(0);
   });
 
   it("keeps landing inside the terrain boundary and reserves headroom and wall clearance", () => {

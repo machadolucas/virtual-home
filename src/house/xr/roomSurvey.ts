@@ -178,14 +178,14 @@ export class RoomSurveyPilot {
   }
 
   /** The event is deliberate. The supplied point comes from the controller or the separately confirmed index finger. */
-  capture(local: THREE.Vector3 | null): void {
+  capture(local: THREE.Vector3 | null) {
     if (!this.sampling || this.aiming || !this.aligned()) return;
     const position = local && localToSurveyPoint(local, this.inverse, this.bounds);
     if (!position) {
       this.notice = "Touch a tracked point inside the survey extent.";
       return;
     }
-    this.capturePoint(position, "manual");
+    return this.capturePoint(position, "manual");
   }
 
   previewAim(frame: XRFrame, source: XRInputSource, target: THREE.Vector3): THREE.Vector3 | null {
@@ -200,14 +200,14 @@ export class RoomSurveyPilot {
 
   hideAimPreview(source: XRInputSource): void { this.aim.hide(source); }
 
-  captureAim(frame: XRFrame, source: XRInputSource): void {
+  captureAim(frame: XRFrame, source: XRInputSource) {
     if (!this.aiming || !this.aligned()) return;
     const point = this.aim.take(frame, source, this.trackingFromModel);
     if (!point) {
       this.notice = "Aim until the orange point is steady, then confirm. Choose touch if a surface is unavailable.";
       return;
     }
-    this.capturePoint(point, "hit-test");
+    return this.capturePoint(point, "hit-test");
   }
 
   private capturePoint(position: Vec3, source: "manual" | "hit-test") {
@@ -216,9 +216,9 @@ export class RoomSurveyPilot {
       this.sample = { ...sample, a: position };
       this.display.showHit(position);
       this.notice = "Point A marked in blue. Confirm point B.";
-      return;
+      return true;
     }
-    this.applySample(sample, position, source);
+    return this.applySample(sample, position, source);
   }
 
   private applySample(sample: Sample, position: Vec3, source: "manual" | "hit-test") {
@@ -276,6 +276,7 @@ export class RoomSurveyPilot {
       }
     }
     this.clearSample();
+    return true;
   }
 
   private recordPoint(position: Vec3, source: "manual" | "hit-test" = "manual"): boolean {

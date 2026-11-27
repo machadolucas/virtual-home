@@ -10,8 +10,10 @@ import { presentedHouse, probeModes, requestHouseSession } from "@/house/xr/pres
 import { captureEye } from "@/house/xr/captureEye";
 import { HouseSession } from "@/house/xr/session";
 import { HeadsetEquipment } from "@/house/xr/equipment";
+import { HeadsetNotice } from "@/house/xr/headsetNotice";
 import { haStore } from "@/house/store/haStore";
-import type { Placement } from "@/house/model/types";
+import type { Placement, Room } from "@/house/model/types";
+import { walkthroughStart } from "@/house/xr/wayfinding";
 import { buildScene } from "./sceneFromGlb";
 import { FIXTURE_DIR } from "./glb";
 
@@ -84,6 +86,62 @@ describe("immersive walkthrough", () => {
     active.dispose(); active.dispose();
     expect(store.getState()).toEqual(before);
     expect(runtime.scene.children).toHaveLength(0);
+  });
+
+  it("waits for the shell and starts the tracked head in the living room at its own floor height", () => {
+    const arrival = vi.spyOn(HeadsetNotice.prototype, "show").mockImplementation(() => {});
+    vi.stubGlobal("document", { createElement: () => ({ getContext: () =>
+      ({ measureText: () => ({ width: 40 }), fillRect() {}, fillText() {} }) }) });
+    const { index, manifest } = buildScene(FIXTURE_DIR);
+    const living = manifest.rooms[1]!;
+    living.nameFi = "Olohuone";
+    const store = createHouseStore();
+    const runtime = createRuntime({ store, base: "", dataApi: createMemoryDataApi() });
+    runtime.index = index; runtime.manifest = index.manifest; runtime.scene = new THREE.Scene();
+    const [x, y, z] = roomLanding(living)!;
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), new THREE.MeshBasicMaterial());
+    floor.rotation.x = -Math.PI / 2; floor.position.set(x, y, z);
+    index.meshSurfaceId.set(floor, manifest.surfaces.find(s => s.kind === "floor")!.id);
+    index.pickables = [floor];
+    const session = Object.assign(new EventTarget(), {inputSources: [], visibilityState: "visible"}) as unknown as XRSession;
+    const active = new HouseSession(runtime, session, "vr", {} as XRReferenceSpace);
+    const position = new THREE.Vector3(.4, 1.72, -.6);
+    const frame = { session, getViewerPose: () => ({transform: {position, orientation: new THREE.Quaternion()}}) } as unknown as XRFrame;
+    const gl = { clear: vi.fn(), render: vi.fn() } as unknown as THREE.WebGLRenderer;
+    const options = {motion: true, rates: {supply: 0, extract: 0}, fans: ""};
+    try {
+      store.getState().setPhase("loading");
+      active.frame(gl, frame, 1/90, options);
+      expect(gl.render).not.toHaveBeenCalled();
+      store.getState().setPhase("interactive");
+      active.frame(gl, frame, 1/90, options);
+      const head = active.rig.localToWorld(position.clone());
+      expect(head.distanceTo(new THREE.Vector3(x, y + position.y, z))).toBeLessThan(.001);
+      expect(arrival.mock.calls.at(-1)?.[0].title).toBe(living.name);
+      position.x += .34;
+      active.frame(gl, frame, 1/90, options);
+      expect(active.rig.localToWorld(position.clone()).x).toBeCloseTo(x + .34);
+    } finally {
+      arrival.mockRestore(); active.dispose(); floor.geometry.dispose(); floor.material.dispose();
+    }
+  });
+
+  it("searches the rest of a named living room before falling back to another clear room", () => {
+    const { manifest } = buildScene(FIXTURE_DIR);
+    const rooms = manifest.rooms.slice(0, 2).map(room => ({room, position: roomLanding(room)!}));
+    const first = rooms[0]!.room, preferred = rooms[1]!.room;
+    const fallback = new THREE.Vector3(...rooms[0]!.position);
+    const corner = new THREE.Vector3(...rooms[1]!.position);
+    const world = {
+      landing: vi.fn((_p: THREE.Vector3, _height: number, room: Room) => room === first ? fallback : null),
+      landingAt: vi.fn((): THREE.Vector3 | null => corner), yardLanding: vi.fn(),
+    };
+    const labels = { [preferred.id]: "Living room" };
+    expect(walkthroughStart(rooms, labels, world as unknown as WalkWorld, 1.75)).toBe(corner);
+    expect(world.landing.mock.calls.map(call => call[2])).toEqual([preferred]);
+    world.landingAt.mockReturnValue(null);
+    expect(walkthroughStart(rooms, labels, world as unknown as WalkWorld, 1.75)).toBe(fallback);
+    expect(walkthroughStart(rooms, {}, world as unknown as WalkWorld, 1.75)).toBe(fallback);
   });
 
   it("captures one eye to an owned target, preserves transparency and restores stereo rendering", async () => {

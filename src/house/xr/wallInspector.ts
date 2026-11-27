@@ -90,7 +90,7 @@ export class WallInspector {
     return patch ? target.fromArray(patch.hit).applyMatrix4(matrix) : null;
   }
 
-  confirm(ray: THREE.Ray, matrix: THREE.Matrix4): void {
+  confirm(ray: THREE.Ray, matrix: THREE.Matrix4) {
     if (!this.aiming) return;
     const patch = pickWallPatch(this.room, this.walls, ray, matrix);
     if (!patch) { this.notice = "Point at a wall face inside the aligned room, away from the menu."; return; }
@@ -100,6 +100,7 @@ export class WallInspector {
     this.overlay.setWallPatch(patch);
     this.drawOutline(patch);
     this.syncRoutes();
+    return true;
   }
 
   frame(matrix: THREE.Matrix4 | null): void {

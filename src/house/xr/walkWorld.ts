@@ -298,9 +298,11 @@ export class WalkWorld {
         if (this.cells.get(x)?.get(z)?.some(obstacle)) return false;
     return !this.solids.some(solid => solid.containsBody(b));
   }
-  step(from: THREE.Vector3, dx: number, dz: number, height: number) {
+  step(from: THREE.Vector3, dx: number, dz: number, height: number, renderedFloor?: number) {
     const p = this.support(from.x + dx, from.z + dz, from.y);
-    return p && this.canStand(p, height) ? p : null;
+    // On a descent the view may still be above the new tread. Check that headroom
+    // before moving under a lintel so the camera never has to duck in one frame.
+    return p && this.canStand(p, height + Math.max(0, (renderedFloor ?? p.y) - p.y)) ? p : null;
   }
   landingAt(x: number, z: number, floor: number, height: number, room?: Room) {
     const p = this.support(x, z, floor, 0.45, 0.65);

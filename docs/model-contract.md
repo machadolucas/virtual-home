@@ -793,14 +793,23 @@ when no model object was selected.
 ## Quest walkthrough and mixed reality
 
 Open the signed-in HTTPS House page. It checks VR and passthrough separately. **Enter VR**
-starts a life-size walkthrough. Point the left controller at the ground to preview a landing.
+starts a life-size walkthrough in a clear spot in the living room, when the model has one.
+House uses the room’s name, translated name and aliases, and checks the landing at the wearer’s
+height. Point the left controller at the ground to preview a landing.
 Click its trigger to teleport. To choose your facing, hold the trigger, steer the arrow with
 the left thumbstick, then release the trigger. Between teleports, the left stick walks in the
 direction you face. The right stick turns continuously around your current head position.
 Under **Movement and comfort**, choose **Turn speed** (35–125°/s, default 90°/s) or **Snap turning**
-for a 30° turn per flick. These preferences are remembered on the headset. Stick walking eases the
-view between stair treads in both directions. Physical walking stays at 1:1 scale. The same menu
+for a 30° turn per flick. These preferences are remembered on the headset. When stick walking
+up or down stairs, the view accelerates gently as you cross a tread and eases into the next
+height. Stopping lets it settle. Physical walking stays at 1:1 scale. The same menu
 can disable stick walking.
+
+Controllers give a light tick when you settle on a button, door, route or equipment, a firmer
+click when you select it, and distinct pulses for aiming a teleport and landing. In mixed reality
+the controller also confirms accepted measurements. **Controller vibration** cycles through
+standard, light and off in **Movement and comfort** or the aligned mixed reality menu. Both
+modes use the saved setting on that headset.
 
 Point and trigger to inspect equipment or open a distant door. Approaching a virtual door clears
 its leaves once for the session. Frames, tall obstacles and low ceilings keep their clearance

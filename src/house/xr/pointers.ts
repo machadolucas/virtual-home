@@ -192,13 +192,3 @@ export class InputBeams {
     this.group.removeFromParent();
   }
 }
-export function pulse(source: XRInputSource) {
-  const pad = source.gamepad as
-    | (Gamepad & { hapticActuators?: Array<{ pulse: (amplitude: number, ms: number) => Promise<unknown> }> })
-    | undefined;
-  if (pad?.hapticActuators?.[0]) void pad.hapticActuators[0].pulse(0.35, 30).catch(() => {});
-  else if (pad?.vibrationActuator?.playEffect)
-    void pad.vibrationActuator
-      .playEffect("dual-rumble", { duration: 30, weakMagnitude: 0.35, strongMagnitude: 0.12 })
-      .catch(() => {});
-}

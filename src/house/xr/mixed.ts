@@ -221,7 +221,7 @@ export class MixedRealityCalibration {
   }
 
   /** A separately confirmed hand joint and a controller probe share the same fit and checks. */
-  capturePosition(frame: XRFrame, position: Vector3 | null): void {
+  capturePosition(frame: XRFrame, position: Vector3 | null) {
     const { phase, selected } = this.current;
     if (this.disposed || frame.session !== this.options.session || !selected || (phase !== "select" && phase !== "verify")) return;
     const tracking = this.haveViewer && this.options.session.visibilityState === "visible";
@@ -238,17 +238,16 @@ export class MixedRealityCalibration {
         this.loseTracking();
         return;
       }
-      if (this.checkPoint(matrix, pair)) {
-        this.update({ phase: "ready", message: "Alignment checked. The overlay shows approximate documented paths." });
-      }
-      return;
+      if (!this.checkPoint(matrix, pair)) return;
+      this.update({ phase: "ready", message: "Alignment checked. The overlay shows approximate documented paths." });
+      return true;
     }
 
     const [first, second] = this.pairs;
     if (!first) {
       this.pairs.push(pair);
       this.update({ selected: null, sampleCount: 1, message: "Choose a second floor feature at least 1.5 m from the first." });
-      return;
+      return true;
     }
     if (!second) {
       const result = fitCalibration(first, pair);
@@ -259,7 +258,7 @@ export class MixedRealityCalibration {
       this.fit = result.fit;
       this.pairs.push(pair);
       this.update({ selected: null, sampleCount: 2, message: "Choose a third feature away from the line between the first two touches." });
-      return;
+      return true;
     }
     if (!this.fit || !independentCheck(first, second, pair)) {
       this.update({ message: "Choose a third feature at least 30 cm to the side of the line between the first two." });
@@ -269,6 +268,7 @@ export class MixedRealityCalibration {
     this.check = selected;
     this.createPending = true;
     this.update({ phase: "ready", sampleCount: 3, message: "Alignment checked. The overlay shows approximate documented paths." });
+    return true;
   }
 
   reset(): void {

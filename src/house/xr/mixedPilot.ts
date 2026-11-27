@@ -446,19 +446,19 @@ export class MixedPilot {
     const { phase, selected } = calibration.state;
     if (this.facing && phase !== "ready") {
       this.resolveFacing(frame);
-      return;
+      return calibration.state.phase === "ready";
     }
     if (phase === "ready" && this.overlay) {
       if (this.inspectingWall && this.readyTransform) {
         const tracked = this.rays.trackedRay(frame, source, this.aimingRay);
-        if (tracked) this.wallInspector!.confirm(tracked, this.readyTransform);
-        return;
+        return !!tracked && this.wallInspector!.confirm(tracked, this.readyTransform);
       }
       if (!ray || !this.overlay.group.visible) return;
       const hit = this.overlay.pick(ray);
+      const previous = this.overlay.focusedId;
       const focused = this.overlay.toggleFocus(hit?.id ?? null);
       this.selectedRoute = focused && hit?.id === focused ? hit : null;
-      return;
+      return previous !== focused;
     }
     if (this.hint && this.alignmentModel && (phase === "select" || phase === "verify")) {
       const position = this.pointAtScan(frame, source, this.samplePoint);
@@ -470,30 +470,31 @@ export class MixedPilot {
       if (match && this.useCandidate(frame, match)) {
         this.hint = null;
         this.scanStatus = "";
+        return true;
       } else this.scanStatus = "That point did not identify a unique checked match. Aim farther from the corner or choose a different feature.";
       return;
     }
     if (!(phase === "ready" ? this.survey?.sampling : selected)) return;
     if (phase !== "ready" && !this.manual) return;
     if (this.survey?.aiming && phase === "ready") {
-      this.survey.captureAim(frame, source);
-      return;
+      return this.survey.captureAim(frame, source);
     }
     if (phase !== "ready" && this.remotePoints()) {
+      const awaitingSecondRay = !!this.firstRay;
       const position = this.firstRay ? this.pointByTwoAims(frame, source) : this.pointAtScan(frame, source, this.samplePoint) ??
         this.pointByTwoAims(frame, source);
       if (position) {
         const before = calibration.state.sampleCount;
-        calibration.capturePosition(frame, position);
+        const accepted = calibration.capturePosition(frame, position);
         this.scanStatus = calibration.state.sampleCount === before && calibration.state.phase !== "ready" ? calibration.state.message : "";
+        return accepted;
       }
-      return;
+      return !awaitingSecondRay && !!this.firstRay;
     }
     const input = this.hand.select(source);
     if (!input) return;
     const position = this.probePosition(frame, input, this.samplePoint);
-    if (phase === "ready") this.survey?.capture(position);
-    else calibration.capturePosition(frame, position);
+    return phase === "ready" ? this.survey?.capture(position) : calibration.capturePosition(frame, position);
   }
   home(): void {
     this.selectedRoute = null;

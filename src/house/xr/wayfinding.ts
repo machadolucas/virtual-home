@@ -1,8 +1,43 @@
 import { Vector3 } from "three";
 import type { HouseRuntime } from "../runtime";
-import { pointInFootprint } from "../model/geometry2d";
-import type { Room } from "../model/types";
+import { pointInFootprint, ringBBox } from "../model/geometry2d";
+import type { Room, Vec3 } from "../model/types";
 import type { FrameArea } from "./frameLog";
+import type { WalkWorld } from "./walkWorld";
+
+/** Room IDs belong to the installed model. Use its room names and keep menu order intact. */
+export function walkthroughStart(
+  rooms: ReadonlyArray<{ room: Room; position: Vec3 }>,
+  names: Readonly<Record<string, string>>,
+  world: WalkWorld,
+  eyeHeight: number,
+): Vector3 | null {
+  const ranked = rooms.map(({ room, position }) => {
+    const labels = [names[room.id], room.name, room.nameFi, ...room.aliases]
+      .filter((label): label is string => !!label)
+      .map(label => label.trim().toLowerCase().replace(/[-_\s]+/g, " "));
+    const rank = labels.some(label => /^(living room|livingroom|olohuone)$/.test(label)) ? 0
+      : labels.some(label => /^(lounge|family room|sitting room)$/.test(label)) ? 1
+      : room.kind === "closet" ? 3 : 2;
+    return { room, position, rank };
+  }).sort((a, b) => a.rank - b.rank);
+
+  for (const { room, position, rank } of ranked) {
+    const nearCentre = world.landing(new Vector3(...position), eyeHeight, room);
+    if (nearCentre) return nearCentre;
+    if (rank > 1) continue;
+    // A sofa or table can occupy the whole central landing area. Try the rest of the room.
+    const { minX, maxX, minZ, maxZ } = ringBBox(room.footprint.outer);
+    for (let row = 0; row < 7; row++)
+      for (let col = 0; col < 7; col++) {
+        const x = minX + (maxX - minX) * (col + 0.5) / 7;
+        const z = minZ + (maxZ - minZ) * (row + 0.5) / 7;
+        const point = world.landingAt(x, z, room.floorElevation, eyeHeight, room);
+        if (point) return point;
+      }
+  }
+  return null;
+}
 
 export interface WalkPlace {
   id: string;
