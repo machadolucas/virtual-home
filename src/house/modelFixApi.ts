@@ -11,6 +11,7 @@ import type {
 export const MODEL_FIX_SAVED_EVENT = "virtual-home:model-fix-saved";
 
 const messages: Record<string, string> = {
+  unknown_route_measurement_target: "This room or active route has changed. Reopen the house and select it again.",
   model_fix_changed: "Someone changed this fix. Reopen it and try again.",
   stale_fingerprint: "The house model changed. Reload the house view and capture again.",
   model_fix_request_too_large: "The screenshot is too large to save.",
@@ -86,6 +87,7 @@ async function postScreenshot(base: string, url: string, form: FormData) {
 
 interface CaptureOptions {
   selection?: Selection | null;
+  routeMeasurement?: ModelFixViewpoint["routeMeasurement"];
   overlay?: ModelFixViewpoint["overlay"];
   floorId?: string | null;
   roomId?: string | null;
@@ -147,6 +149,7 @@ export function snapshotModelFixView(
   };
   const viewpoint: ModelFixViewpoint = {
     mode, camera, view,
+    ...(options?.routeMeasurement && { routeMeasurement: options.routeMeasurement }),
     ...(mr ? { overlay } : {}),
     ...(options?.floorId !== undefined || options?.roomId !== undefined
       ? { context: { floorId: options.floorId, roomId: options.roomId } }

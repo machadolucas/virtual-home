@@ -40,8 +40,10 @@ export function EntryButtons() {
   return <div className="flex min-w-0 flex-wrap items-center gap-1" aria-label="Headset modes">{supported.vr && <Button size="sm" disabled={loading} onClick={() => void enter("vr")}>Enter VR</Button>}
     {supported.mr && <Button size="sm" disabled={loading} onClick={() => void enter("mr")}>Enter mixed reality</Button>}
     {supported.mr && <Button size="sm" disabled={loading} onClick={() => void enter("survey")}>Survey room</Button>}
-    {supported.vr && <details className="text-xs text-muted"><summary className="cursor-pointer px-1">Quest controls</summary>
-      <p className="max-w-64 p-1">Point the left controller at the ground. Click its trigger to teleport, or hold the trigger and steer the landing arrow with the left stick. Release to land. The left stick walks and the right stick turns. Choose smooth or snap turning under Movement and comfort. Squeeze a grip for the menu. Press B to go back a menu or undo a teleport. With hands, hold a floor pinch to aim, or point and pinch the wrist menu.</p></details>}
+    {(supported.vr || supported.mr) && <details className="text-xs text-muted"><summary className="cursor-pointer px-1">Quest controls</summary>
+      {supported.vr && <p className="max-w-64 p-1">Point the left controller at the ground. Click its trigger to teleport, or hold the trigger and steer the landing arrow with the left stick. Release to land. The left stick walks and the right stick turns. Choose smooth or snap turning under Movement and comfort. Squeeze a grip for the menu. Press B to go back a menu or undo a teleport. With hands, hold a floor pinch to aim, or point and pinch the wrist menu.</p>}
+      {supported.mr && <p className="max-w-64 p-1"><strong>Walking in mixed reality.</strong> Quest controls the play boundary. Use Quick controls → Boundary → Roomscale to draw a clear play area on one level. For another play area, open mixed reality there and let House recheck alignment.</p>}
+    </details>}
     {(supported.vr || supported.mr) && <FrameTiming userId={runtime.userId} />}
     {error && <p role="alert" className="text-xs text-overdue">{error}</p>}</div>;
 }

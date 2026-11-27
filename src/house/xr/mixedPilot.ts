@@ -26,6 +26,9 @@ import { triangulateFeature, triangulateFloorCorner } from "./roomAlignmentTrian
 import { frameCornerPicker, frameCorners } from "./frameCorners";
 import { canOpenHeadsetRoomSetup, openHeadsetRoomSetup, QUEST_ROOM_SETUP_GUIDE } from "./headsetRoomSetup";
 import { WallInspector } from "./wallInspector";
+import { RouteFixMeasurement } from "./routeFixMeasurement";
+import type { RouteMeasurement } from "../modelFixTypes";
+import { isActivePipeOrDuct } from "../model/routeVisibility";
 
 import { chooseFacing, FACING_HOLD_ANGLE, FacingHold, FacingProgress, facingTargets, sameFacing, type FacingTarget } from "./roomFacing";
 import { floorAim, WallTrace } from "./wallTrace";
@@ -83,6 +86,9 @@ export class MixedPilot {
   private features = new Map<string, CalibrationFeature[]>();
   private survey: RoomSurveyPilot | null = null;
   private wallInspector: WallInspector | null = null;
+  private routeFix: RouteFixMeasurement | null = null;
+  get measuringRoute() { return !!this.routeFix; }
+  get measuredRoute() { return this.routeFix?.measurement ?? null; }
   private readonly hand = new HandConfirmation();
   private readonly samplePoint = new THREE.Vector3();
   private readonly viewerPoint = new THREE.Vector3();
@@ -136,7 +142,7 @@ export class MixedPilot {
   get aimingAtRoom(): boolean {
     const state = this.calibration?.state;
     return !this.setupOpen && !!state && (state.phase === "ready"
-      ? this.survey?.aiming === true || this.inspectingWall
+      ? this.survey?.aiming === true || this.inspectingWall || this.measuringRoute
       : !!(this.preview?.placing === "aim" || this.hint || this.measuringFloor === "aim" || this.tracingWalls || (this.manual && state.selected && this.remotePoints())));
   }
   get inspectingWall(): boolean { return this.wallInspector?.aiming === true; }
@@ -144,7 +150,7 @@ export class MixedPilot {
   get checkedRoom() { return this.roaming.origin; }
   get scanSummary(): string { return this.scanFeedback.summary(performance.now(), this.sceneUnavailable); }
   get showHouseTools(): boolean {
-    return this.mode === "mr" && this.calibration?.state.phase === "ready" && !this.betweenRooms && !this.wallInspector?.active;
+    return this.mode === "mr" && this.calibration?.state.phase === "ready" && !this.betweenRooms && !this.wallInspector?.active && !this.measuringRoute;
   }
 
   constructor(private runtime: HouseRuntime, private session: XRSession, private space: XRReferenceSpace,
@@ -158,6 +164,9 @@ export class MixedPilot {
     this.space.addEventListener("reset", this.invalidateScan);
     this.session.addEventListener("visibilitychange", this.visibilityChanged);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8896a3, 2));
+    const inspectionLight = new THREE.DirectionalLight(0xfff6e8, 1.25);
+    inspectionLight.position.set(-2, 4, 2);
+    this.scene.add(inspectionLight);
     this.scene.add(this.scanFeedback.group);
     this.rooms = [...runtime.manifest!.rooms.values()].filter(r => r.kind !== "void" && r.kind !== "attic");
     const laundry = (r: Room) => [r.name, ...(r.aliases ?? []), runtime.store.getState().labelPreferences.names[r.id]]
@@ -195,7 +204,7 @@ export class MixedPilot {
     } else {
       this.preview = new RoomPreview(this.alignmentModel, this.sceneUnavailable);
       this.scene.add(this.preview.group);
-      this.overlay = buildMixedRealityOverlay(this.runtime.manifest!, state.routes, room.floorId);
+      this.overlay = buildMixedRealityOverlay(this.runtime.manifest!, state.routes, room.floorId, this.runtime.index);
       this.scene.add(this.overlay.group);
       this.wallInspector = new WallInspector(room, this.alignmentModel.walls, this.overlay);
       this.scene.add(this.wallInspector.group);
@@ -250,6 +259,7 @@ export class MixedPilot {
         this.overlay?.applyTransform(null);
         this.selectedRoute = null;
         this.survey?.pause();
+        this.routeFix?.pause();
         this.wallInspector?.frame(null);
         if (s.phase === "tracking-lost") this.clearScan();
       },
@@ -330,12 +340,12 @@ export class MixedPilot {
       rows: [{ label: "Choose room myself", act: allRooms }],
     };
   }
-  menu(fans: string, capture: () => void): PanelPage {
+  menu(fans: string, capture: (measurement?: RouteMeasurement) => void): PanelPage {
     const page = this.contentMenu(fans, capture);
     if (!this.recorder || this.calibration?.state.phase === "ready") return page;
     return {...page, lines:[...page.lines, this.recorder.notice]};
   }
-  private contentMenu(fans: string, capture: () => void): PanelPage {
+  private contentMenu(fans: string, capture: (measurement?: RouteMeasurement) => void): PanelPage {
     if (!this.room || !this.calibration) return this.discoveryMenu();
     const room = this.room, cal = this.calibration, state = cal.state;
     const features = this.roomFeatures(room);
@@ -558,12 +568,23 @@ export class MixedPilot {
       return this.wallInspector.menu(state.errorM, () => this.closeWallInspector());
     if (this.betweenRooms)
       return {title: "Between rooms", lines: ["Walk into a modeled room to see its equipment and routes."], rows: [change]};
+    if (this.routeFix) return this.routeFix.menu(capture, () => this.closeRouteMeasurement());
     const focused = this.overlay?.focusedId != null;
     const registration = this.checkedRoom && this.checkedRoom.id !== room.id
       ? "Alignment checked in " + this.checkedRoom.name : error;
     return { title: room.name, lines: [registration + (state.persistence === "saved" ? " · Anchor saved" : " · Session alignment"),
-      ...(this.registrationNote ? [this.registrationNote] : []), fans, focused ? this.selectedRoute?.label ?? "Tracing one route" : "Trigger a route to trace it. Dashed paths are approximate."],
+      ...(this.registrationNote ? [this.registrationNote] : []), fans, focused ? this.selectedRoute?.label ?? "Tracing one route" : "Trigger a pipe or duct to follow it. Twin bands mark approximate paths.",
+      ...(focused && this.selectedRoute?.sizeDetail ? [this.selectedRoute.sizeDetail] : [])],
       rows: [
+        ...(this.selectedRoute && this.checkedRoom?.id === room.id ? [{label: "Measure real position",
+          detail: "Point at the visible fitting from here", style: "primary" as const,
+          act: () => {
+            const fingerprint = this.runtime.store.getState().fingerprint;
+            if (!this.selectedRoute || !fingerprint || this.checkedRoom?.id !== room.id || !this.readyTransform) return;
+            this.closeRouteMeasurement();
+            this.routeFix = new RouteFixMeasurement(this.session, this.space, room, this.selectedRoute, fingerprint);
+            this.scene.add(this.routeFix.marker);
+          }}] : []),
         ...(focused ? [{ label: "Show all routes", act: () => this.clearRouteFocus() }] : []),
         ...(["pipes", "ducts", "both"] as const).map(filter => ({ label: (filter === this.filter ? "✓ " : "") + filter[0]!.toUpperCase() + filter.slice(1),
           act: () => { this.filter = filter; this.selectedRoute = null; this.overlay?.setFilter(filter); } })),
@@ -575,7 +596,13 @@ export class MixedPilot {
           this.clearRouteFocus();
           this.wallInspector?.start();
         } },
-        { label: "Capture model fix · overlay only", act: capture }, reset, change] };
+        { label: "Capture model fix · overlay only", act: () => capture() }, reset, change] };
+  }
+  closeRouteMeasurement() { this.routeFix?.dispose(); this.routeFix = null; }
+  canCapturePoint(mark: RouteMeasurement) {
+    return this.measuredRoute === mark && this.room?.id === mark.roomId && this.checkedRoom?.id === mark.roomId &&
+      this.readyTransform !== null && this.overlay?.group.visible && this.calibration?.state.phase === "ready" &&
+      !this.betweenRooms && this.session.visibilityState === "visible";
   }
   clearRouteFocus(): void {
     this.overlay?.clearFocus();
@@ -721,6 +748,13 @@ export class MixedPilot {
       this.updateFacingHold(frame, lookingAtPanel, promptAvailable);
     }
     this.readyTransform = matrix;
+    if (this.routeFix) {
+      const state = this.runtime.store.getState(), draft = this.routeFix;
+      const route = state.routes.find(r => r.id === draft.route.id);
+      if (state.fingerprint !== draft.fingerprint || !route || !isActivePipeOrDuct(route) || route.needsReconciliation)
+        this.closeRouteMeasurement();
+      else draft.frame(frame, !this.betweenRooms && this.checkedRoom?.id === draft.room.id ? matrix : null, this.calibration.state.errorM);
+    }
     this.comparison?.frame(this.betweenRooms ? null : matrix);
     this.drawScanFeedback(frame, delta);
     this.survey?.frame(frame, matrix, this.calibration.state.errorM);
@@ -737,6 +771,7 @@ export class MixedPilot {
   }
   private walkInto(room: Room) {
     if (!this.calibration || !this.room || !this.overlay) return;
+    this.closeRouteMeasurement();
     this.clearWallComparison();
     this.wallInspector?.dispose();
     // Keep a whole-floor route followed through a doorway. A wall patch belongs to its room.
@@ -744,7 +779,7 @@ export class MixedPilot {
     const state = this.runtime.store.getState();
     if (room.floorId !== this.room.floorId) {
       this.overlay.dispose();
-      this.overlay = buildMixedRealityOverlay(this.runtime.manifest!, state.routes, room.floorId);
+      this.overlay = buildMixedRealityOverlay(this.runtime.manifest!, state.routes, room.floorId, this.runtime.index);
       this.overlay.setFilter(this.filter);
       this.scene.add(this.overlay.group);
     }
@@ -761,6 +796,7 @@ export class MixedPilot {
   }
   probePosition(frame: XRFrame, source: XRInputSource, target: THREE.Vector3): THREE.Vector3 | null {
     if (!this.calibration) return null;
+    if (this.routeFix && this.calibration.state.phase === "ready") return this.routeFix.preview(frame, source, target);
     if (this.survey?.aiming && this.calibration.state.phase === "ready") return this.survey.previewAim(frame, source, target);
     if (this.inspectingWall && this.readyTransform) {
       const ray = this.rays.trackedRay(frame, source, this.aimingRay);
@@ -773,7 +809,7 @@ export class MixedPilot {
     return source.hand ? trackedIndexTip(frame, this.space, source, target)
       : this.calibration.pointerPosition(frame, source.gripSpace, target);
   }
-  hideAimPreview(source: XRInputSource): void { this.survey?.hideAimPreview(source); }
+  hideAimPreview(source: XRInputSource): void { this.survey?.hideAimPreview(source); this.routeFix?.hide(source); }
   select(frame: XRFrame, source: XRInputSource, ray: THREE.Ray | null) {
     const calibration = this.calibration;
     if (!calibration || this.setupOpen) return;
@@ -800,6 +836,9 @@ export class MixedPilot {
       return calibration.state.phase === "ready";
     }
     if (phase === "ready" && this.overlay) {
+      if (this.routeFix)
+        return this.readyTransform && !this.betweenRooms && this.checkedRoom?.id === this.room?.id
+          ? this.routeFix.select(frame, source) : false;
       if (this.inspectingWall && this.readyTransform) {
         const tracked = this.rays.trackedRay(frame, source, this.aimingRay);
         return !!tracked && this.wallInspector!.confirm(tracked, this.readyTransform);
@@ -850,6 +889,7 @@ export class MixedPilot {
     return phase === "ready" ? this.survey?.capture(position) : calibration.capturePosition(frame, position);
   }
   home(): void {
+    this.closeRouteMeasurement();
     this.selectedRoute = null;
     this.survey?.home();
     this.closeWallInspector();
@@ -1439,6 +1479,7 @@ export class MixedPilot {
     if (this.session.visibilityState !== "visible") { this.recorder?.interrupt("session-hidden"); this.clearScan(); this.resetDiscovery(); }
   };
   private clearRoom() {
+    this.closeRouteMeasurement();
     this.clearWallComparison();
     this.preview?.dispose(); this.preview = null;
     this.roaming.reset();

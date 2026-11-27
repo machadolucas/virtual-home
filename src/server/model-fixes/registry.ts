@@ -4,7 +4,7 @@ import { and, count, desc, eq, lt, or } from "drizzle-orm";
 import { z } from "zod";
 import { writeTx, type Db } from "@/db/client";
 import { newId, nowMs } from "@/db/ids";
-import { attachment, auditLog, modelFix, modelFixScreenshot, modelRevision, roomSurveyObservation } from "@/db/schema";
+import { attachment, auditLog, infraRoute, modelFix, modelFixScreenshot, modelNode, modelRevision, roomSurveyObservation } from "@/db/schema";
 import {
   MAX_MODEL_FIX_SCREENSHOTS,
   type ModelFix, type ModelFixPatch, type ModelFixScreenshot, type ModelFixSummary,
@@ -143,6 +143,21 @@ export async function saveModelFixScreenshot(db: Db, input: SaveScreenshot): Pro
       const duplicate = replay(tx);
       if (duplicate) return { fix: getModelFix(tx, duplicate, modelId), committed: new Set<string>() };
       const modelRevisionId = revision(tx);
+      const mark = viewer?.viewpoint.routeMeasurement;
+      let description = "";
+      if (mark && modelRevisionId) {
+        const route = tx.select({ name: infraRoute.name }).from(infraRoute)
+          .innerJoin(modelRevision, eq(modelRevision.id, infraRoute.modelRevisionId)).where(and(
+          eq(infraRoute.id, mark.routeId), eq(modelRevision.modelId, modelId),
+          eq(infraRoute.lifecycle, "installed"), eq(infraRoute.flowState, "active"), eq(infraRoute.needsReconciliation, false),
+        )).get();
+        const room = tx.select({ name: modelNode.name }).from(modelNode).where(and(
+          eq(modelNode.revisionId, modelRevisionId), eq(modelNode.nodeId, mark.roomId),
+          eq(modelNode.kind, "room"), eq(modelNode.parentNodeId, mark.floorId),
+        )).get();
+        if (!route || !room) throw badRequest("unknown_route_measurement_target");
+        description = `Measured position for ${route.name} in ${room.name}.`;
+      }
       const target = ensureTarget(tx);
       const fixId = target?.id ?? newId();
       const timestamp = Math.max(at, (target?.updatedAtMs ?? 0) + 1);
@@ -150,7 +165,7 @@ export async function saveModelFixScreenshot(db: Db, input: SaveScreenshot): Pro
       else {
         if (!viewer) throw notFound("unknown_model_fix");
         tx.insert(modelFix).values({
-          id: fixId, modelId, mode: viewer.viewpoint.mode, description: "", status: "pending",
+          id: fixId, modelId, mode: viewer.viewpoint.mode, description, status: "pending",
           createdAtMs: timestamp, updatedAtMs: timestamp, createdBy: actor, updatedBy: actor,
         }).run();
       }

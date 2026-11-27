@@ -9,7 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import sharp from "sharp";
 import { setDbForTests, writeTx, type DbHandle } from "@/db/client";
 import { newId } from "@/db/ids";
-import { attachment, modelFix, modelFixScreenshot, modelRevision } from "@/db/schema";
+import { attachment, infraRoute, infraRoutePoint, modelFix, modelFixScreenshot, modelNode, modelRevision } from "@/db/schema";
 import type { ModelFix, ModelFixResolution } from "@/house/modelFixTypes";
 import { createConnection } from "@/server/mcp/auth";
 import { deleteAttachment } from "@/server/files/store";
@@ -65,10 +65,10 @@ afterEach(() => {
   handle.close();
 });
 
-function captureRequest(input: { id?: string; screenshot?: Buffer; stale?: boolean; second?: Buffer } = {}) {
+function captureRequest(input: { id?: string; screenshot?: Buffer; stale?: boolean; second?: Buffer; viewpoint?: object } = {}) {
   const form = new FormData();
   form.set("metadata", JSON.stringify({
-    requestId: input.id ?? randomUUID(), fingerprint: input.stale ? "1".repeat(64) : fingerprint, viewpoint,
+    requestId: input.id ?? randomUUID(), fingerprint: input.stale ? "1".repeat(64) : fingerprint, viewpoint: input.viewpoint ?? viewpoint,
   }));
   const append = (buffer: Buffer) => form.append("image", new Blob([new Uint8Array(buffer)]), "fixture.png");
   append(input.screenshot ?? image);
@@ -98,6 +98,37 @@ function questRequest(id = randomUUID()) {
 }
 
 describe("private model fixes", () => {
+  it("saves a checked observation of an active route from a prior revision exactly once, without moving its geometry", async () => {
+    const current = handle.db.select().from(modelRevision).get()!;
+    const route = "fixture-supply", floor = "f-ground", room = "r-fixture";
+    writeTx(handle.db, tx => {
+      tx.insert(modelRevision).values({...current, id:"previous-fixture", contentHash:"2".repeat(64), status:"superseded"}).run();
+      tx.insert(modelNode).values({id:newId(), revisionId:current.id, nodeId:room, kind:"room", parentNodeId:floor, name:"Workshop"}).run();
+      tx.insert(infraRoute).values({id:route, name:"Supply duct", modelRevisionId:"previous-fixture", medium:"supply_air",
+        flowState:"active", createdAtMs:1, updatedAtMs:1}).run();
+      tx.insert(infraRoutePoint).values({id:newId(), routeId:route, seq:0, posX:2, posY:3, posZ:1}).run();
+    });
+    const original = handle.db.select().from(infraRoutePoint).all();
+    const mark = {routeId:route, floorId:floor, roomId:room, registrationErrorM:.029, method:"two_aims",
+      position:[2.3,2.5,1.2], selectedSpan:[[2,3,1],[2,2.5,1]]};
+    const view = {...viewpoint, view:{selection:{kind:"route", id:route}}, routeMeasurement:mark};
+    const id = randomUUID(), response = await CREATE(captureRequest({id,viewpoint:view}),context);
+    expect(response.status).toBe(200);
+    const fix = await response.json() as ModelFix;
+    expect(fix).toMatchObject({status:"pending", description:"Measured position for Supply duct in Workshop.",
+      screenshots:[{viewpoint:{routeMeasurement:mark}}]});
+    expect(await (await CREATE(captureRequest({id,viewpoint:view}),context)).json()).toEqual(fix);
+    expect(await (await DETAIL(new Request(endpoint),detailContext(fix.id))).json()).toEqual(fix);
+    expect(handle.db.select().from(infraRoutePoint).all()).toEqual(original);
+    for (const invalid of [
+      {...view, routeMeasurement:{...mark, registrationErrorM:.051}},
+      {...view, context:{...viewpoint.context, roomId:"other-room"}},
+      {...view, view:{selection:{kind:"route", id:"other-route"}}},
+      {...view, mode:"vr"},
+      {...view, context:{floorId:floor, roomId:"unknown-room"}, routeMeasurement:{...mark, roomId:"unknown-room"}},
+    ]) expect((await CREATE(captureRequest({viewpoint:invalid}),context)).status).toBe(400);
+    expect(handle.db.select().from(modelFix).all()).toHaveLength(1);
+  });
   it("captures once across concurrent retries and preserves viewpoint and screenshot context", async () => {
     const id = randomUUID();
     const requests = await Promise.all([CREATE(captureRequest({ id }), context), CREATE(captureRequest({ id }), context)]);

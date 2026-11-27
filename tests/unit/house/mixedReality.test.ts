@@ -445,7 +445,7 @@ describe("mixed reality runs", () => {
     const approximation = overlay.group.getObjectsByProperty("isMesh", true)[0];
     expect(approximation).toBeInstanceOf(Mesh);
     expect(approximation?.userData.vhApproximatePath).toBe(true);
-    expect(approximation?.userData.vhRouteSpanCount).toBeGreaterThan(2);
+    expect(approximation?.userData.vhRouteSpanCount).toBe(2);
     expect(overlay.pick(ray)).toMatchObject({ label: "Test pipe · Approximate concealed route", certainty: "observed" });
 
     const desktop = createSceneIndex(manifest);
@@ -477,7 +477,7 @@ describe("mixed reality runs", () => {
       const tube = overlay.group.getObjectsByProperty("isMesh", true).find((o) => o.userData.vhAirStream === stream);
       expect(tube).toBeInstanceOf(Mesh);
       expect(tube?.userData.vhApproximatePath).toBe(true);
-      expect(tube?.userData.vhRouteSpanCount).toBeGreaterThan(2);
+      expect(tube?.userData.vhRouteSpanCount).toBe(2);
       const { material, geometry } = tube as Mesh<BufferGeometry, MeshStandardMaterial>;
       expect(geometry.getAttribute("vhRouteDistance")).toBeDefined();
       const shader = {

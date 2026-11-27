@@ -79,6 +79,12 @@ interface Bucket {
   positions: number[];
 }
 
+/** A clipped physical run retains its position along the source route for stationary marks and flow. */
+export interface RenderRoute extends Route {
+  arcStartM?: number;
+  arcLengthM?: number;
+}
+
 export class RouteLayer {
   private readonly buckets = new Map<string, Bucket>();
   private readonly solids: RouteSolids;
@@ -95,15 +101,18 @@ export class RouteLayer {
    * Rebuild everything from the route list. Called when route data or the renovation-date filter
    * changes — never per frame.
    */
-  set(routes: readonly Route[], opts: { tubes?: boolean; approximatePaths?: (route: Route) => boolean } = {}): void {
+  set(routes: readonly RenderRoute[], opts: {
+    tubes?: boolean;
+    mixedReality?: { approximatePath: (route: Route) => boolean; outletNeighbors: readonly Route[] };
+  } = {}): void {
     this.clearGeometry();
 
     for (const route of routes) {
-      const approximate = opts.approximatePaths?.(route) === true;
-      const solid = opts.tubes && hasSolidRoute(route) && !approximate;
-      const routeLength = solid || approximate ? polylineLength(route.points) : 0;
-      const color = solid || approximate ? routeMediumColor(route, SYSTEM_COLORS[route.system]) : 0;
-      let distance = 0;
+      const approximate = opts.mixedReality?.approximatePath(route) === true;
+      const solid = opts.tubes && (hasSolidRoute(route) || approximate);
+      const routeLength = solid ? route.arcLengthM ?? polylineLength(route.points) : 0;
+      const color = solid ? routeMediumColor(route, SYSTEM_COLORS[route.system]) : 0;
+      let distance = route.arcStartM ?? 0;
       let previousGroup: ExplodeGroup | null = null;
       for (let i = 1; i < route.points.length; i++) {
         const a = route.points[i - 1] as Vec3;
@@ -111,10 +120,12 @@ export class RouteLayer {
         const group = this.groupOfSegment(route, i - 1);
         const length = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
         if (length < 1e-5) continue;
-        if (approximate) {
-          this.solids.addApproximate(route, group, color, a, b, distance, length, routeLength);
-        } else if (solid) {
-          this.solids.add(route, group, color, a, b, distance, length, routeLength, { join: previousGroup === group });
+        if (solid) {
+          this.solids.add(route, group, color, a, b, distance, length, routeLength, {
+            join: previousGroup === group, approximate, immersive: !!opts.mixedReality,
+            previous: previousGroup === group ? route.points[i - 2] : undefined,
+            next: i + 1 < route.points.length && this.groupOfSegment(route, i) === group ? route.points[i + 1] : undefined,
+          });
         } else {
           const bucket = this.bucketFor(group, route);
           bucket.positions.push(...a, ...b);
@@ -122,7 +133,10 @@ export class RouteLayer {
         distance += length;
         previousGroup = group;
       }
-      if (solid && route.kind === "duct") this.solids.addOutlets(route, color, routes);
+      if (solid && route.kind === "duct") {
+        const neighbors = opts.mixedReality?.outletNeighbors;
+        this.solids.addOutlets(route, color, neighbors ?? routes, neighbors?.find(r => r.id === route.id) ?? route, !!neighbors);
+      }
     }
     this.solids.flush();
 

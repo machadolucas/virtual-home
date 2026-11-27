@@ -6,6 +6,16 @@ const spatial = z.number().min(-100_000).max(100_000);
 const vector = z.tuple([spatial, spatial, spatial]);
 const unit = z.number().min(-1.001).max(1.001);
 const id = z.string().min(1).max(240);
+const routeMeasurement = z.strictObject({
+  routeId: id,
+  floorId: id,
+  roomId: id,
+  position: vector,
+  selectedSpan: z.tuple([vector, vector]),
+  method: z.enum(["tracked_surface", "two_aims"]),
+  registrationErrorM: z.number().min(0).max(0.05),
+});
+export type RouteMeasurement = z.infer<typeof routeMeasurement>;
 const selection = z.strictObject({
   kind: z.enum(["room", "surface", "element", "floor", "building", "equipment", "route", "routePoint", "annotation"]),
   id,
@@ -51,7 +61,14 @@ export const modelFixViewpoint = z.strictObject({
     renovationDate: z.iso.date().nullable().optional(),
   }).optional(),
   overlay: z.enum(["pipes", "ducts", "both"]).optional(),
+  routeMeasurement: routeMeasurement.optional(),
   context: z.strictObject({ floorId: id.nullable().optional(), roomId: id.nullable().optional() }).optional(),
+}).refine(({ mode, view, context, routeMeasurement: mark }) => !mark || (
+  mode === "mr" && view?.selection?.kind === "route" && view.selection.id === mark.routeId &&
+  context?.roomId === mark.roomId && context.floorId === mark.floorId
+), {
+  path: ["routeMeasurement"],
+  message: "A route measurement must match the selected route and verified room.",
 }).refine((value) => value.overlay === undefined || value.mode === "mr", {
   path: ["overlay"],
   message: "An overlay filter applies to mixed reality captures.",

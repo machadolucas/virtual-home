@@ -3,6 +3,7 @@ import type { HouseRuntime } from "../runtime";
 import type { Room, Selection, Vec3 } from "../model/types";
 import type { ImmersiveMode } from "./presentation";
 import { saveModelFix, snapshotModelFixView } from "../modelFixApi";
+import type { RouteMeasurement } from "../modelFixTypes";
 import { pointInFootprint } from "../model/geometry2d";
 import { captureEye } from "./captureEye";
 import { MixedPilot } from "./mixedPilot";
@@ -138,6 +139,7 @@ export class HouseSession {
   private firstPose = true;
   private placeMenu = true;
   private queuedCapture = false;
+  private queuedMeasurement: RouteMeasurement | undefined;
   private panelClickSource: XRInputSource | null = null;
   private uploading = false;
   private retrySave: (() => Promise<unknown>) | null = null;
@@ -358,12 +360,16 @@ export class HouseSession {
     this.notice = "";
     this.recall();
   }
-  private capture = () => {
+  private capture = () => this.queueCapture();
+  private queueCapture = (measurement?: RouteMeasurement) => {
     if (this.uploading || this.queuedCapture) return;
     if (this.retrySave) {
-      void this.save(this.retrySave);
+      if (measurement) this.tell("Retry the previous capture before saving another point.");
+      else void this.save(this.retrySave);
       return;
     }
+    if (measurement && !this.mixed?.canCapturePoint(measurement)) return;
+    this.queuedMeasurement = measurement;
     this.queuedCapture = true;
   };
   private async save(upload: () => Promise<unknown>) {
@@ -404,7 +410,7 @@ export class HouseSession {
           ],
         };
       }
-      const alignment = this.mixed.menu(options.fans, this.capture);
+      const alignment = this.mixed.menu(options.fans, this.queueCapture);
       alignment.lines.unshift(label + " is paused. Recheck " + room.name + " to resume.");
       return alignment;
     }
@@ -465,7 +471,7 @@ export class HouseSession {
         { label: "Capture model fix", act: this.capture },
       );
     } else if (this.mixed) {
-      menu = this.mixed.menu(options.fans, this.capture);
+      menu = this.mixed.menu(options.fans, this.queueCapture);
       if (this.mixed.showHouseTools) menu.rows.push(...toolRows, hapticsRow);
       if (this.mixed.readyTransform) menu.close = () => this.panel.hide();
     } else if (this.page === "destinations")
@@ -601,6 +607,7 @@ export class HouseSession {
       (this.page === "destinations" || this.page === "comfort")
     )
       menu.back = this.home;
+    if (this.retrySave) menu.rows.unshift({label: "Retry saving capture", act: this.capture});
     if (this.notice) menu.lines.unshift(this.notice);
     return menu;
   }
@@ -793,7 +800,7 @@ export class HouseSession {
       hasRay &&
       this.guide.hit(this.ray.ray) &&
       this.guide.target?.placementId &&
-      !this.mixed?.inspectingWall
+      !this.mixed?.inspectingWall && !this.mixed?.measuringRoute
     ) {
       press.kind = "marker";
       press.id = this.guide.target.placementId;
@@ -801,7 +808,7 @@ export class HouseSession {
       // World clicks belong to the open spatial tool.
     } else if (this.mixed) {
       press.kind = "mixed";
-      if (hasRay && !this.mixed.inspectingWall) {
+      if (hasRay && !this.mixed.inspectingWall && !this.mixed.measuringRoute) {
         press.id = this.mixed.overlay?.pick(this.ray.ray)?.id;
         if (!press.id) {
           const item = this.roomEquipment();
@@ -922,7 +929,7 @@ export class HouseSession {
         this.haptics.play(source, "select");
       }
     } else if (press.kind === "mixed" && this.mixed) {
-      const choosingRoute = this.mode === "mr" && !!this.mixed.readyTransform && !this.mixed.inspectingWall;
+      const choosingRoute = this.mode === "mr" && !!this.mixed.readyTransform && !this.mixed.inspectingWall && !this.mixed.measuringRoute;
       if (!choosingRoute || (hasRay && this.mixed.overlay?.pick(this.ray.ray)?.id === press.id)) {
         this.nextSample = source;
         this.routeAtPress = choosingRoute ? (press.id ?? null) : undefined;
@@ -1162,7 +1169,7 @@ export class HouseSession {
             active = true;
             text = "Place here";
           }
-        } else if (!this.mixed?.inspectingWall && this.guide.hit(this.ray.ray)) {
+        } else if (!this.mixed?.inspectingWall && !this.mixed?.measuringRoute && this.guide.hit(this.ray.ray)) {
           point = this.guide.hit(this.ray.ray) ?? undefined;
           active = !!this.guide.target?.placementId;
           text = this.guide.target?.name ?? "";
@@ -1193,7 +1200,7 @@ export class HouseSession {
             this.arc.aim(this.world, this.ray.ray, this.head.y, viewHeading(this.rig, this.orientation));
             continue;
           } else if (source.hand && target?.floor) active = true;
-        } else if (this.mixed?.overlay && !this.mixed.inspectingWall) {
+        } else if (this.mixed?.overlay && !this.mixed.inspectingWall && !this.mixed.measuringRoute) {
           const route = this.mixed.overlay.pick(this.ray.ray);
           if (route) {
             point = this.ray.ray.at(route.distance, new THREE.Vector3());
@@ -1242,6 +1249,7 @@ export class HouseSession {
     this.pinSpace.visible = false;
     this.guide.group.visible = false;
     this.queuedCapture = false;
+    this.queuedMeasurement = undefined;
     if (!this.alignedRoom) return;
     if (walking && !this.pausedWork && !this.planner && !this.pinned && !this.tasks.active) {
       this.equipment?.dispose();
@@ -1472,7 +1480,15 @@ export class HouseSession {
         const ray = this.rayFrom(frame, source) ? this.ray.ray : null;
         const overlay = this.mixed.overlay;
         if (expected === undefined) {
-          if (this.mixed.select(frame, source, ray)) this.haptics.play(source, "select");
+          const accepted = this.mixed.select(frame, source, ray);
+          if (accepted) this.haptics.play(source, "select");
+          if (this.mixed.measuringRoute && !this.panel.mesh.visible) {
+            if (this.mixed.measuredRoute) this.recall();
+            else this.statusCard.show({
+              title: accepted ? "First aim marked" : "Aim at the same spot again",
+              detail: "Move your hand sideways about 30 cm.",
+            }, this.head, this.orientation, now);
+          }
         } else if (ray && overlay?.group.visible && (overlay.pick(ray)?.id ?? null) === expected) {
           const previous = overlay.focusedId;
           this.mixed.select(frame, source, ray);
@@ -1484,8 +1500,8 @@ export class HouseSession {
                 ? {
                     title: route.name,
                     detail: route.approximate
-                      ? "Approximate · Select again for all"
-                      : "Tracing · Select again for all",
+                      ? "Approximate · Open menu to measure"
+                      : "Tracing · Open menu to measure",
                   }
                 : { title: "Showing all routes", detail: "Point at one and click to trace it." },
               this.head,
@@ -1500,12 +1516,14 @@ export class HouseSession {
     this.pointers(frame, sources, now);
     if (this.queuedCapture) {
       this.queuedCapture = false;
+      const measurement = this.queuedMeasurement;
+      this.queuedMeasurement = undefined;
       const view = viewer.views[0];
-      if (view) this.takeCapture(gl, view);
+      if (view && (!measurement || this.mixed?.canCapturePoint(measurement))) this.takeCapture(gl, view, measurement);
     }
     gl.render(this.scene, this.camera);
   }
-  private takeCapture(gl: THREE.WebGLRenderer, view: XRView) {
+  private takeCapture(gl: THREE.WebGLRenderer, view: XRView, measurement?: RouteMeasurement) {
     if (this.mixed && !this.mixed.overlay?.group.visible) {
       this.notice = "Verify alignment before capturing the overlay.";
       return;
@@ -1516,8 +1534,9 @@ export class HouseSession {
     const pose = new THREE.Matrix4().fromArray(view.transform.matrix).premultiply(this.rig.matrixWorld);
     pose.decompose(eye.position, eye.quaternion, eye.scale);
     eye.updateMatrixWorld();
-    const selection: Selection | null = this.mixed?.selectedRoute
-      ? { kind: "route", id: this.mixed.selectedRoute.id }
+    const routeId = measurement?.routeId ?? this.mixed?.selectedRoute?.id;
+    const selection: Selection | null = routeId
+      ? { kind: "route", id: routeId }
       : this.equipment
         ? { kind: "equipment", id: this.equipment.placement.id }
         : null;
@@ -1538,6 +1557,7 @@ export class HouseSession {
       )?.room;
     const snapshot = snapshotModelFixView(this.runtime, this.mode === "vr" ? "vr" : "mr", camera, {
       selection,
+      routeMeasurement: measurement,
       overlay: this.mixed?.filter,
       floorId: room?.floorId ?? this.equipment?.placement.floorId,
       roomId: room?.id ?? this.equipment?.placement.roomId,
@@ -1551,9 +1571,10 @@ export class HouseSession {
       const blob = captureEye(gl, this.scene, eye);
       this.uploading = true;
       void blob
-        .then((image) =>
-          this.save(() => saveModelFix(this.runtime.base, { ...snapshot, images: [image] }, requestId)),
-        )
+        .then((image) => {
+          if (measurement && this.mixed?.measuredRoute === measurement) this.mixed.closeRouteMeasurement();
+          return this.save(() => saveModelFix(this.runtime.base, { ...snapshot, images: [image] }, requestId));
+        })
         .catch(() => {
           this.notice = "Image encoding failed. Capture again.";
           this.uploading = false;

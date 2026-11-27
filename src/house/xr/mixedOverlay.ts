@@ -1,50 +1,63 @@
 import * as THREE from "three";
 import type { VentilationFan } from "@/domain/ventilationFeedback";
 import type { ManifestIndex } from "@/house/model/manifestIndex";
+import { polylineLength } from "@/house/model/geometry2d";
 import { isActivePipeOrDuct } from "@/house/model/routeVisibility";
 import type { Route } from "@/house/model/types";
 import { ClipGroups } from "@/house/scene/clipGroups";
-import { RouteLayer } from "@/house/scene/routes";
-import { createRouteFlowState } from "@/house/scene/routeSolids";
-import { createSceneIndex } from "@/house/scene/SceneIndex";
+import { RouteLayer, type RenderRoute } from "@/house/scene/routes";
+import { createRouteFlowState, routeBodyProfile } from "@/house/scene/routeSolids";
+import { createSceneIndex, type SceneIndex } from "@/house/scene/SceneIndex";
 import { clipWallRoutes, type WallPatch } from "./wallPatch";
 
 export type MixedRealityRouteFilter = "pipes" | "ducts" | "both";
 
-export type MixedRealityRoutePick = Pick<Route, "id" | "name" | "kind" | "certainty"> & { label: string; distance: number; segment: readonly [Route["points"][number], Route["points"][number]]; approximate: boolean };
+export type MixedRealityRoutePick = Pick<Route, "id" | "name" | "kind" | "certainty"> & { label: string; sizeDetail?: string; distance: number; segment: readonly [Route["points"][number], Route["points"][number]]; approximate: boolean };
 
 export const isApproximateRoute = (route: Route): boolean =>
   route.certainty === "inferred" || route.certainty === "unknown" ||
   (route.isEstimated ?? route.certainty !== "measured");
 
-const squaredSpanLength = (a: Route["points"][number], b: Route["points"][number]): number =>
-  (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+function sizeDetail(route: Route): string {
+  const { width, height, radius, silencer } = routeBodyProfile(route);
+  const mm = (value: number) => Math.round(value * 10_000) / 10;
+  if (width && height) return `Width ${mm(width)} mm recorded · height ${mm(height)} mm schematic`;
+  const diameter = `Ø${mm(radius * 2)} mm`;
+  if (silencer && route.diameterM) return `${diameter} connection recorded · casing schematic`;
+  if (silencer) return `${diameter} schematic connection · casing schematic`;
+  return route.diameterM ? `${diameter} recorded` : `Schematic diameter · ${diameter}`;
+}
 
 /** Keep contiguous spans so separate portions of a route never gain a connecting line across floors. */
 export function mixedRealityRuns(
   routes: readonly Route[],
   floorId: string,
   filter: MixedRealityRouteFilter,
-): Route[] {
-  const runs: Route[] = [];
+): RenderRoute[] {
+  const runs: RenderRoute[] = [];
   for (const route of routes) {
     if (!isActivePipeOrDuct(route) || route.needsReconciliation) continue;
     if (filter !== "both" && (filter === "pipes" ? route.kind !== "pipe" : route.kind !== "duct")) continue;
     let start: number | null = null;
+    const total = polylineLength(route.points);
+    let station = 0, runStart = 0;
     for (let i = 0; i < route.points.length; i++) {
       const a = route.points[i];
       const b = route.points[i + 1];
       const spansFloor = route.segments[i]?.floorId === floorId;
       const startFloor = route.pointPlaces?.[i]?.floorId;
       const endFloor = route.pointPlaces?.[i + 1]?.floorId;
-      if (a && b && spansFloor && (!startFloor || startFloor === floorId) && (!endFloor || endFloor === floorId) &&
-        squaredSpanLength(a, b) >= 1e-10) {
-        start ??= i;
+      const length = a && b ? Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) : 0;
+      const spanStart = station;
+      station += length;
+      if (a && b && spansFloor && (!startFloor || startFloor === floorId) && (!endFloor || endFloor === floorId) && length >= 1e-5) {
+        if (start === null) { start = i; runStart = spanStart; }
         continue;
       }
       if (start === null) continue;
       runs.push({
         ...route,
+        arcStartM: runStart, arcLengthM: total,
         points: route.points.slice(start, i + 1),
         segments: route.segments.slice(start, i),
         pointPlaces: route.pointPlaces?.slice(start, i + 1),
@@ -61,6 +74,7 @@ export function buildMixedRealityOverlay(
   manifest: ManifestIndex,
   routes: readonly Route[],
   floorId: string,
+  sourceIndex?: SceneIndex | null,
 ) {
   const group = new THREE.Group();
   group.name = "vh-mixed-reality-routes";
@@ -70,6 +84,12 @@ export function buildMixedRealityOverlay(
   const clip = new ClipGroups([floorId]);
   function createLayer(name: string) {
     const index = createSceneIndex(manifest);
+    // Mount the grilles against the same finished wall surfaces as desktop, while
+    // keeping MR visibility, transforms and GPU resources in a separate overlay.
+    if (sourceIndex?.manifest === manifest) {
+      index.surfaceMesh = sourceIndex.surfaceMesh;
+      index.floorNodes = sourceIndex.floorNodes;
+    }
     const root = index.overlay.root;
     root.name = name;
     group.add(root);
@@ -86,6 +106,7 @@ export function buildMixedRealityOverlay(
   const activeTrace = () => trace?.root.visible ? trace : null;
   let filter: MixedRealityRouteFilter = "both";
   let source = routes;
+  let outletNeighbors: Route[] = [];
   let eligible: Route[] = [];
   let count = 0;
   const localRay = new THREE.Ray();
@@ -93,21 +114,17 @@ export function buildMixedRealityOverlay(
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const rayPoint = new THREE.Vector3();
-  const styled = new WeakSet<THREE.Material>();
 
   function draw({ layer, root }: ReturnType<typeof createLayer>, runs: Route[]): void {
-    layer.set(runs, { tubes: true, approximatePaths: isApproximateRoute });
+    layer.set(runs, { tubes: true, mixedReality: { approximatePath: isApproximateRoute, outletNeighbors } });
     root.traverse((object) => {
       const material = (object as THREE.Mesh<THREE.BufferGeometry, THREE.Material>).material;
-      if (!material || styled.has(material)) return;
-      styled.add(material);
-      // There is no physical occlusion map here. Soft, translucent graphics always read as an overlay.
-      material.transparent = true;
-      material.depthWrite = false;
-      material.opacity *= object.userData.vhApproximatePath === true ? 0.52 : 0.63;
       if (material instanceof THREE.MeshStandardMaterial) {
+        // Let nearer pipes occlude the far side of a bend and the duct behind a crossing.
+        // Passthrough fills the space around the runs.
         material.emissive.copy(material.color);
-        material.emissiveIntensity = 0.25;
+        material.emissiveIntensity = 0.09;
+        if (!material.vertexColors) material.roughness = 0.53;
       }
     });
   }
@@ -137,6 +154,7 @@ export function buildMixedRealityOverlay(
 
   function rebuild(): void {
     disposeTrace();
+    outletNeighbors = source.filter(r => r.modelId === manifest.modelId && r.kind === "duct" && isActivePipeOrDuct(r) && !r.needsReconciliation);
     eligible = mixedRealityRuns(source, floorId, filter).filter((r) => r.modelId === manifest.modelId);
     count = new Set(eligible.map(({ id }) => id)).size;
     draw(floor, eligible);
@@ -214,12 +232,12 @@ export function buildMixedRealityOverlay(
       let bestDistance = Infinity;
       let segmentEnd = 0;
       for (const span of activeTrace()?.runs ?? (patchSpec ? patchRuns : eligible)) {
+        const radius = Math.max(.055, routeBodyProfile(span).outerRadius);
         for (let i = 1; i < span.points.length; i++) {
           a.fromArray(span.points[i - 1]!);
           b.fromArray(span.points[i]!);
           const gapSquared = localRay.distanceSqToSegment(a, b, rayPoint);
           const distance = localRay.origin.distanceTo(rayPoint);
-          const radius = Math.max(0.055, (span.diameterM ?? span.widthM ?? 0) / 2);
           if (gapSquared <= radius * radius && distance > 0 && distance < bestDistance) {
             route = span;
             segmentEnd = i;
@@ -232,6 +250,7 @@ export function buildMixedRealityOverlay(
         id: route.id, distance:bestDistance,
         segment: [route.points[segmentEnd - 1]!, route.points[segmentEnd]!], approximate: isApproximateRoute(route),
         name: route.name,
+        sizeDetail: sizeDetail(route),
         kind: route.kind,
         certainty: route.certainty,
         label: isApproximateRoute(route)

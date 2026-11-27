@@ -18,6 +18,7 @@ const OUTLET_NORMAL = new THREE.Vector3(0, 0, 1);
 
 export interface DuctOutlet {
   surfaceId?: string;
+  schematic?: boolean;
   floorId: string;
   /** Physical contact point, without presentation offsets. */
   contact: THREE.Vector3;
@@ -26,6 +27,7 @@ export interface DuctOutlet {
 
 export function matchDuctOutlet(
   index: SceneIndex, route: Route, end: number, routes: readonly Route[],
+  mixedReality = false,
 ): DuctOutlet | null {
   if (!activeDuct(route) || route.pointKinds?.[end] !== "outlet") return null;
   const stream = classifyAirStream(route.medium, route.airStream);
@@ -47,12 +49,43 @@ export function matchDuctOutlet(
   const length = axis.length();
   axis.divideScalar(length);
   if (axis.y >= PERPENDICULAR_TOLERANCE && length >= MIN_VALVE_DROP && length <= MAX_VALVE_DROP &&
-      roomAt(manifest, floorId, contact.x, contact.z) === roomId &&
-      hasHorizontalThroughRun(routes, route, floorId, contact.clone().addScaledVector(axis, length))) {
-    return { floorId, contact, roomNormal: new THREE.Vector3(0, -1, 0) };
+      roomAt(manifest, floorId, contact.x, contact.z) === roomId) {
+    const bend = contact.clone().addScaledVector(axis, length);
+    if (hasHorizontalThroughRun(routes, route, floorId, bend)) {
+      return { floorId, contact, roomNormal: new THREE.Vector3(0, -1, 0) };
+    }
+    // Some terminal drops end their own horizontal run. Require a labeled outlet,
+    // a real elbow and the actual room ceiling crossing the end of this stub.
+    const approach = route.points[end + 2 * step];
+    if (mixedReality && approach) {
+      const span = new THREE.Vector3(...approach).sub(bend);
+      if (span.length() >= MIN_VALVE_DROP && Math.abs(span.normalize().y) <= LEVEL_TOLERANCE &&
+        meetsRoomCeiling(index, floorId, roomId, contact, length)) {
+        return { floorId, contact, roomNormal: new THREE.Vector3(0, -1, 0), schematic: true };
+      }
+    }
   }
   if (Math.abs(axis.y) > LEVEL_TOLERANCE) return null;
   return matchFinishedWall(index, floorId, roomId, contact, axis.setY(0).normalize());
+}
+
+function meetsRoomCeiling(index: SceneIndex, floorId: string, roomId: string, tip: THREE.Vector3, length: number): boolean {
+  // The display face sits on the authored duct tip. A small modeled standoff is
+  // possible, but the ceiling must pass through the bottom 10 cm of the drop.
+  const origin = tip.clone();
+  origin.y += (index.floorNodes.get(floorId)?.[0]?.position.y ?? 0) - .008;
+  const ray = new THREE.Raycaster(origin, new THREE.Vector3(0, 1, 0), 0, .008 + Math.min(.10, length));
+  const normalMatrix = new THREE.Matrix3();
+  for (const sid of index.manifest.roomSurfaces.get(roomId) ?? []) {
+    if (index.manifest.surfaces.get(sid)?.kind !== "ceiling") continue;
+    const mesh = index.surfaceMesh.get(sid);
+    if (!mesh) continue;
+    mesh.updateWorldMatrix(true, false);
+    normalMatrix.getNormalMatrix(mesh.matrixWorld);
+    if (ray.intersectObject(mesh, false).some(hit => hit.face &&
+      Math.abs(hit.face.normal.clone().applyNormalMatrix(normalMatrix).y) >= PERPENDICULAR_TOLERANCE)) return true;
+  }
+  return false;
 }
 
 function activeDuct(route: Route): boolean {
@@ -69,7 +102,7 @@ function hasHorizontalThroughRun(
   const axis = new THREE.Vector3();
   const projected = new THREE.Vector3();
   for (const route of routes) {
-    if (route === branch || !activeDuct(route) || route.medium !== branch.medium) continue;
+    if (route.id === branch.id || !activeDuct(route) || route.medium !== branch.medium) continue;
     for (let i = 0; i < route.points.length - 1; i++) {
       if (route.segments[i]?.floorId !== floorId) continue;
       a.set(...route.points[i]!);

@@ -18,6 +18,9 @@ test("survey entry follows AR capability and saved room evidence opens on deskto
   await login(page, "marja", { next: "/house" });
   await expect(page.getByRole("button", { name: "Survey room", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Enter VR", exact: true })).toHaveCount(0);
+  await page.getByText("Quest controls", { exact: true }).click();
+  await expect(page.getByText(/Quest controls the play boundary/)).toBeVisible();
+  await page.getByText("Quest controls", { exact: true }).click();
   const { fingerprint } = await (await page.request.get(base + "/status")).json();
   const room = manifest.rooms.find((r) => r.id === "r-l-a")!;
   const headers = { "x-vh-room-survey": "1" };

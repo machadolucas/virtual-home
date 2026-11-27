@@ -7,6 +7,7 @@ import type { ExplodeGroup, Route, Vec3 } from "@/house/model/types";
 import type { ClipGroups } from "./clipGroups";
 import { overlayGroup, type SceneIndex } from "./SceneIndex";
 import { ductOutletGeometry, matchDuctOutlet } from "./ductOutlets";
+import { rectangularDuctSpan } from "./rectangularDuct";
 
 const MEDIUM_COLORS: Record<InfraMedium, number> = {
   cold_water: 0x4089cf,
@@ -87,15 +88,27 @@ const UP = new THREE.Vector3(0, 1, 0);
 const SILENCER_CASING = new THREE.Color(0xa2aab0);
 const SILENCER_COLLAR = new THREE.Color(0x69757e);
 
+/** Display dimensions only. Nominal width supplies no evidence for a rectangular duct's height. */
+export function routeBodyProfile(route: Route) {
+  const silencer = route.kind === "duct" && route.ductFitting === "silencer" && route.points.length === 2;
+  const width = route.kind === "duct" && !route.diameterM && !silencer ? route.widthM : undefined;
+  const height = width ? Math.min(width, .15) : undefined;
+  const radius = (route.diameterM ?? (silencer ? .21 : route.kind === "duct" ? .125 : .032)) / 2;
+  const outerRadius = silencer ? silencerShellRadius(radius) : width && height ? Math.hypot(width, height) / 2 : radius;
+  return { silencer, width, height, radius, outerRadius };
+}
+
+const silencerShellRadius = (radius: number) => radius * 0.13 / 0.105;
+
 /** Display sizes for an inline fitting whose connection DN may be unrecorded. */
-function silencerParts(length: number): THREE.BufferGeometry[] {
+function silencerParts(length: number, radius = 0.105): THREE.BufferGeometry[] {
   const collarLength = Math.min(0.065, 0.16 * length);
   const bodyLength = length - 2 * collarLength;
   const collarCentre = (length - collarLength) / 2;
   return [
-    { centre: -collarCentre, length: collarLength, radius: 0.105, color: SILENCER_COLLAR },
-    { centre: 0, length: bodyLength, radius: 0.13, color: SILENCER_CASING },
-    { centre: collarCentre, length: collarLength, radius: 0.105, color: SILENCER_COLLAR },
+    { centre: -collarCentre, length: collarLength, radius, color: SILENCER_COLLAR },
+    { centre: 0, length: bodyLength, radius: silencerShellRadius(radius), color: SILENCER_CASING },
+    { centre: collarCentre, length: collarLength, radius, color: SILENCER_COLLAR },
   ].map(({ centre, length, radius, color }) => {
     const geometry = new THREE.CylinderGeometry(radius, radius, length, 20, 1).translate(0, centre, 0);
     const colors = new Float32Array(geometry.getAttribute("position").count * 3);
@@ -120,34 +133,15 @@ export class RouteSolids {
     private readonly motion: RouteFlowState = createRouteFlowState(),
   ) {}
 
-  /** Use metre-scaled gaps for stereo viewing. Flow phase still follows the whole route arc. */
-  addApproximate(
-    route: Route, group: ExplodeGroup, hex: number, a: Vec3, b: Vec3,
-    distance: number, length: number, routeLength: number,
-  ): void {
-    const period = Math.min(0.27, routeLength * 0.6);
-    const dashLength = period * 0.65;
-    const point = (station: number): Vec3 => {
-      const t = (station - distance) / length;
-      return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-    };
-    const end = distance + length;
-    for (let dash = Math.floor(distance / period) * period; dash < end; dash += period) {
-      const start = Math.max(distance, dash);
-      const finish = Math.min(end, dash + dashLength);
-      if (finish - start < 1e-5) continue;
-      this.add(route, group, hex, point(start), point(finish), start, finish - start, routeLength, { approximate: true });
-    }
-  }
-
   add(
     route: Route, group: ExplodeGroup, hex: number, a: Vec3, b: Vec3,
-    distance: number, length: number, routeLength: number, options: { join?: boolean; approximate?: boolean },
+    distance: number, length: number, routeLength: number,
+    options: { join: boolean; previous?: Vec3; next?: Vec3; approximate: boolean; immersive: boolean },
   ): void {
     const { join, approximate = false } = options;
     const motion = hasDocumentedFlow(route) ? (route.kind === "duct" ? "air" : "pipe") : null;
     const airStream = classifyAirStream(route.medium, route.airStream);
-    const silencer = !approximate && route.kind === "duct" && route.ductFitting === "silencer" && route.points.length === 2;
+    const { radius, width, height, silencer } = routeBodyProfile(route);
     const key = `${group}|${hex}|${route.flowState}|${route.certainty}|${motion ?? "static"}|${airStream ?? ""}${silencer ? "|silencer" : ""}${approximate ? "|approximate" : ""}`;
     let bucket = this.pending.get(key);
     if (!bucket) {
@@ -159,25 +153,35 @@ export class RouteSolids {
       this.pending.set(key, bucket);
     }
 
-    // Only a documented diameter sets the exact circular size. Width-only ducts need a
-    // schematic height; runs with no dimensions get a schematic diameter.
-    // Approximate paths use a schematic marker width to avoid implying an as-built diameter.
-    const radius = approximate ? (route.kind === "duct" ? 0.024 : 0.014)
-      : (route.diameterM ?? (route.kind === "duct" ? 0.125 : 0.032)) / 2;
-    const width = !approximate && route.kind === "duct" && !route.diameterM ? route.widthM : undefined;
-    const parts = silencer ? silencerParts(length) : [width
-      ? new THREE.BoxGeometry(width, length, Math.min(width, 0.15))
-      : new THREE.CylinderGeometry(radius, radius, length, 10, 1)];
     const direction = route.flowDirection === "reverse" ? -1 : 1;
     // Repeat the cue more closely on short terminals. All spans in a run share the
     // same scale and arc length, including spans on another floor.
     const repeat = motion ? Math.min(FLOW_MOTION[motion].repeatM, Math.max(0.12, routeLength / 1.35)) : 1;
     const cyclesPerMetre = direction / repeat;
+    // Confidence markings are a static surface treatment independent of flow speed or direction.
+    const mark = (geometry: THREE.BufferGeometry, station: (index: number, y: number) => number) => {
+      if (motion) this.setProgress(geometry, "vhRouteDistance", (i, y) => cyclesPerMetre * station(i, y));
+      if (approximate) this.setProgress(geometry, "vhRouteMark", (i, y) => station(i, y) / Math.min(.8, routeLength));
+    };
+    if (width && height && options.immersive) {
+      const shape = rectangularDuctSpan(a, b, width, height, options.previous, options.next);
+      // BoxGeometry UVs on the caps are face-oriented, so retain the original longitudinal
+      // coordinate of each vertex before the miter was applied.
+      const ends = shape.getAttribute("vhDuctEnd");
+      mark(shape, i => distance + length * ends.getX(i));
+      shape.deleteAttribute("vhDuctEnd");
+      bucket.spans.push(shape);
+      bucket.spanCount++;
+      return;
+    }
+    const parts = silencer ? silencerParts(length, options.immersive ? radius : undefined) : [width && height
+      ? new THREE.BoxGeometry(width, length, height)
+      : new THREE.CylinderGeometry(radius, radius, length, options.immersive ? 12 : 10, 1)];
     // Join circular spans only within one semantic floor so the elbow cannot bridge an explode
     // gap. The pulse uses the exact same progress at both sides of the join.
     if (join && !width && !silencer) {
       const elbow = new THREE.SphereGeometry(radius, 10, 6);
-      if (motion) this.setProgress(elbow, () => cyclesPerMetre * distance);
+      mark(elbow, () => distance);
       elbow.translate(...a);
       bucket.spans.push(elbow);
     }
@@ -187,7 +191,7 @@ export class RouteSolids {
     const rotation = new THREE.Quaternion().setFromUnitVectors(UP, axis);
     const centre = start.add(end).multiplyScalar(0.5);
     for (const part of parts) {
-      if (motion) this.setProgress(part, (y) => cyclesPerMetre * (distance + length / 2 + y));
+      mark(part, (_, y) => distance + length / 2 + y);
       part.applyQuaternion(rotation);
       part.translate(centre.x, centre.y, centre.z);
       bucket.spans.push(part);
@@ -195,9 +199,15 @@ export class RouteSolids {
     bucket.spanCount++;
   }
 
-  addOutlets(route: Route, hex: number, routes: readonly Route[]): void {
+  addOutlets(route: Route, hex: number, routes: readonly Route[], original = route, mixedReality = false): void {
     for (const end of [0, route.points.length - 1]) {
-      const outlet = matchDuctOutlet(this.index, route, end, routes);
+      const originalEnd = end === 0 ? 0 : original.points.length - 1;
+      if (original.pointKinds?.[originalEnd] !== "outlet") continue;
+      // A patch may expose an original terminal or cut a span at an arbitrary point.
+      // Keep a verified fitting only when that terminal survived the clip.
+      if (original !== route && route.points[end]!.some((v, axis) =>
+        Math.abs(v - original.points[originalEnd]![axis]!) > 1e-5)) continue;
+      const outlet = matchDuctOutlet(this.index, original, originalEnd, routes, mixedReality);
       if (!outlet) continue;
       const geometry = ductOutletGeometry(route, outlet, hex);
       const material = new THREE.MeshStandardMaterial({
@@ -209,6 +219,7 @@ export class RouteSolids {
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = `vh-duct-outlet-${route.id}-${end}`;
       mesh.userData.vhDuctOutlet = { floorId: outlet.floorId, surfaceId: outlet.surfaceId };
+      if (outlet.schematic) mesh.userData.vhDuctOutlet.schematic = true;
       mesh.raycast = () => {};
       const planes = outlet.surfaceId ? this.clip.planesFor(outlet.surfaceId) : [];
       if (planes.length > 0) material.clippingPlanes = [...planes];
@@ -218,11 +229,11 @@ export class RouteSolids {
     }
   }
 
-  private setProgress(geometry: THREE.BufferGeometry, distanceAtY: (y: number) => number): void {
+  private setProgress(geometry: THREE.BufferGeometry, name: string, distanceAtY: (index: number, y: number) => number): void {
     const positions = geometry.getAttribute("position");
     const progress = new Float32Array(positions.count);
-    for (let i = 0; i < positions.count; i++) progress[i] = distanceAtY(positions.getY(i));
-    geometry.setAttribute("vhRouteDistance", new THREE.BufferAttribute(progress, 1));
+    for (let i = 0; i < positions.count; i++) progress[i] = distanceAtY(i, positions.getY(i));
+    geometry.setAttribute(name, new THREE.BufferAttribute(progress, 1));
   }
 
   flush(): void {
@@ -264,6 +275,26 @@ float phase = fract(vhDistance - vhRoutePhase);
 ${glow}
 totalEmissiveRadiance += ${pulse !== undefined ? "vhRoutePulseColor" : "mix(diffuseColor.rgb, vec3(1.0), 0.5)"} * glow * vhRouteMotion;`,
           );
+        };
+      }
+      if (bucket.approximate) {
+        const compileFlow = material.onBeforeCompile.bind(material);
+        const flowKey = channel ? material.customProgramCacheKey() : "vh-route-static";
+        material.customProgramCacheKey = () => flowKey + "-confidence-bands-v1";
+        material.onBeforeCompile = (shader, renderer) => {
+          compileFlow(shader, renderer);
+          shader.vertexShader = `attribute float vhRouteMark;
+varying float vhMark;
+${shader.vertexShader}`.replace("#include <begin_vertex>", "#include <begin_vertex>\nvhMark = vhRouteMark;");
+          shader.fragmentShader = `varying float vhMark;
+${shader.fragmentShader}`.replace("#include <color_fragment>", `#include <color_fragment>
+float markPhase = fract(vhMark);
+float markDistance = min(abs(markPhase - 0.27), abs(markPhase - 0.34));
+float footprint = fwidth(vhMark);
+float edge = clamp(footprint, 0.001, 0.025);
+float bands = (1.0 - smoothstep(0.014 - edge, 0.014 + edge, markDistance)) *
+              (1.0 - smoothstep(0.04, 0.16, footprint));
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.85, 0.76, 0.49), bands * 0.65);`);
         };
       }
       const mesh = new THREE.Mesh(geometry, material);

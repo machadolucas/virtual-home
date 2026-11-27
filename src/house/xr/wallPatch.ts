@@ -1,6 +1,7 @@
 import { Matrix4, Ray, Vector3 } from "three";
-import { pointInFootprint } from "@/house/model/geometry2d";
+import { pointInFootprint, polylineLength } from "@/house/model/geometry2d";
 import type { Room, Route, Vec3 } from "@/house/model/types";
+import type { RenderRoute } from "@/house/scene/routes";
 import type { AlignmentWall } from "./roomAlignment";
 
 const HALF_WIDTH = 0.45;
@@ -92,14 +93,27 @@ function clipSegment(a: Vec3, b: Vec3, patch: WallPatch) {
 }
 
 /** Retain only the actual centre-line sections in the 3D wall volume. */
-export function clipWallRoutes(routes: readonly Route[], patch: WallPatch): Route[] {
-  const clipped: Route[] = [];
+export function clipWallRoutes(routes: readonly RenderRoute[], patch: WallPatch): RenderRoute[] {
+  const clipped: RenderRoute[] = [];
+  const distance = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
   for (const route of routes) {
+    const total = route.arcLengthM ?? polylineLength(route.points);
+    let station = route.arcStartM ?? 0, run: RenderRoute | null = null;
     for (let i = 1; i < route.points.length; i++) {
-      const span = clipSegment(route.points[i - 1]!, route.points[i]!, patch);
+      const a = route.points[i - 1]!, b = route.points[i]!, start = station;
+      station += distance(a, b);
+      const span = clipSegment(a, b, patch);
       const group = route.segments[i - 1];
-      if (!span || !group) continue;
-      clipped.push({ ...route, points: [...span], segments: [group], pointPlaces: undefined, pointKinds: undefined, endpoints: [] });
+      if (!span || !group) { run = null; continue; }
+      if (run && distance(span[0], a) < EPSILON && distance(run.points.at(-1)!, a) < EPSILON) {
+        run.points.push(span[1]); run.segments.push(group);
+      } else {
+        const entire = route.points.length === 2 && distance(a, span[0]) < EPSILON && distance(b, span[1]) < EPSILON;
+        run = { ...route, points: [...span], segments: [group], pointPlaces: undefined, pointKinds: undefined,
+          endpoints: [], ductFitting: entire ? route.ductFitting : undefined,
+          arcStartM: start + distance(a, span[0]), arcLengthM: total };
+        clipped.push(run);
+      }
     }
   }
   return clipped;

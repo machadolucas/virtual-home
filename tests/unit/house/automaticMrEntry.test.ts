@@ -1,7 +1,7 @@
-import { BoxGeometry, Group, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from "three";
+import { BoxGeometry, Group, Matrix4, Mesh, MeshBasicMaterial, Ray, Vector3 } from "three";
 import { afterEach, expect, it, vi } from "vitest";
 import { buildManifestIndex } from "@/house/model/manifestIndex";
-import type { Room, Vec2 } from "@/house/model/types";
+import type { Room, Route, Vec2 } from "@/house/model/types";
 import type { HouseRuntime } from "@/house/runtime";
 import { MixedPilot } from "@/house/xr/mixedPilot";
 import { createSceneIndex, indexAsset } from "@/house/scene/SceneIndex";
@@ -231,6 +231,43 @@ it("shows room choices immediately when the browser grants no scene geometry", (
   } finally {
     pilot.dispose();
   }
+});
+it("saves the indicated visible route in regular MR only while its original room remains verified", () => {
+  const {pilot, runtime, data, pass, tick, click} = fixture([room, smaller]);
+  const route: Route = {id:"sample-supply", name:"Workshop duct", kind:"duct", modelId:runtime.manifest!.modelId, system:"ventilation",
+    certainty:"inferred", flowState:"active", lifecycle:"installed", endpoints:[], photoIds:[],
+    points:[[1,2.3,1],[2,2.3,1]], segments:[{floorId:room.floorId,roomId:room.id}]};
+  const current = {...runtime.store.getState(), routes:[route]};
+  vi.spyOn(runtime.store, "getState").mockReturnValue(current);
+  try {
+    pilot.enter(room); data.detectedPlanes = new Set(full()); pass(); pass();
+    const frame = data as unknown as XRFrame;
+    const input = {targetRayMode:"tracked-pointer", targetRaySpace:{}} as XRInputSource;
+    const pose = new Matrix4(), oldPose = data.getPose;
+    data.getPose = space => space === input.targetRaySpace
+      ? {emulatedPosition:false, transform:{matrix:pose.toArray()}} : oldPose(space);
+    Object.assign(data.session, {inputSources:[input]});
+    expect(pilot.select(frame,input,new Ray(new Vector3(1.5,1.4,1),new Vector3(0,1,0)))).toBe(true);
+    click("Measure real position"); tick();
+    click("Use two aims");
+    const expected = new Vector3(1.7,2.36,1.2);
+    const aim = (x:number) => {
+      const hand = new Vector3(x,1.5,2.5);
+      pose.lookAt(hand,expected,new Vector3(0,1,0)).setPosition(hand);
+      return pilot.select(frame,input,null);
+    };
+    expect(aim(1)).toBe(true); expect(aim(1.5)).toBe(true);
+    const mark = pilot.measuredRoute!;
+    expect(mark.routeId).toBe(route.id); expect(new Vector3(...mark.position).distanceTo(expected)).toBeLessThan(.001);
+    const save = vi.fn();
+    pilot.menu("",save).rows.find(row => row.label === "Save measured fix")!.act!(0);
+    expect(save).toHaveBeenCalledWith(mark);
+    expect(pilot.canCapturePoint(mark)).toBe(true);
+    Object.assign(data.session, {visibilityState:"hidden"});
+    data.session.dispatchEvent(new Event("visibilitychange"));
+    expect(pilot.canCapturePoint(mark)).toBe(false); expect(pilot.measuredRoute).toBe(mark);
+    pilot.enter(smaller); expect(pilot.measuredRoute).toBeNull(); expect(pilot.canCapturePoint(mark)).toBe(false);
+  } finally { pilot.dispose(); }
 });
 it("enters a distinct room and reveals a verified unit-scale overlay with no controller or clicks", () => {
   const { pilot, data, pass, menu } = fixture([smaller, room]);

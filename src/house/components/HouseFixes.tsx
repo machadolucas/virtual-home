@@ -280,6 +280,7 @@ export function HouseFixes() {
               const sameRevision = viewer?.fingerprint === fingerprint;
               const title = viewer ? source[viewer.viewpoint.mode] : "Quest system screenshot";
               const overlay = viewer?.viewpoint.overlay;
+              const mark = viewer?.viewpoint.routeMeasurement;
               return (
                 <section key={screenshot.id} className="rounded-lg border border-line p-3">
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -293,6 +294,11 @@ export function HouseFixes() {
                     </Button>}
                   </div>
                   {viewer && !sameRevision && <p className="mb-2 text-xs text-ink-3">Captured on an earlier model revision.</p>}
+                  {mark && <div className="mb-3 rounded-md bg-surface-2 p-3 text-sm">
+                    <p className="font-medium text-ink">Measured route position</p>
+                    <p>{mark.position.map((v, i) => `${["X", "Y", "Z"][i]} ${v.toFixed(3)} m`).join(" · ")}</p>
+                    <p className="text-xs text-ink-3">{mark.method === "two_aims" ? "Two controller aims" : "Tracked surface"} · Room alignment check {(mark.registrationErrorM * 100).toFixed(1)} cm</p>
+                  </div>}
                   <div className={screenshot.imageCount === 2 ? "grid grid-cols-2 gap-2" : ""}>
                     {Array.from({ length: screenshot.imageCount }, (_, i) => {
                       const url = modelFixImageUrl(base, fix.id, screenshot, i);

@@ -924,18 +924,25 @@ the point from the two rays. Touch with the orange probe or use a tracked finger
 
 Choose **Pipes**, **Ducts** or **Both**. Supply and extract animate from their independent
 feedback channels. When alignment passes, the setup menu clears and a brief card shows the
-room and error. Select a pipe or duct to trace it alone on this floor. Select it again, select
-empty space, or choose **Show all routes** to restore the current filter. Concealed routes
-retain their own certainty labels. **Realign the room**
+room and error. Pipes and ducts have continuous bodies through bends. Twin bands mark approximate
+paths. Recorded diameters set the round section. For width-only ducts the height is schematic,
+and runs without a recorded size use a schematic section. Select a pipe or duct to inspect
+its size and certainty or trace it alone on this floor. Select it again, select empty space,
+or choose **Show all routes** to restore the current filter. **Realign the room**
 restarts registration. Lost or emulated tracking hides the overlay. A recovered anchor must
 agree with a fresh scan or a new check before the overlay returns.
 
-After the first room is aligned, walk through a doorway to continue in the next modeled room.
-The app follows your tracked head, changes the equipment context and switches to the current
-floor's routes when you reach another level. The menu names the room where alignment was
+Within a continuous tracked play area, walk through a doorway to continue in the next modeled
+room. The app follows your tracked head, changes the equipment context and displays the current
+floor's routes. The menu names the room where alignment was
 checked. Doorways allow a short transition, and routes hide if the app cannot place you in a
 modeled room. You can walk back to resume a room-specific placement draft or pinned step.
 **Survey room** records measurements in the room you selected.
+
+Quest can hide the browser when you leave the system play boundary, even after House has
+verified alignment. Use **Quick controls → Boundary → Roomscale** to draw a clear play area on
+one level. To use another play area or floor, open mixed reality there and let House recheck
+the room. Meta provides boundary suppression to standalone headset apps. [Quest boundary setup](https://www.meta.com/help/quest/463504908043519/) · [Meta boundaryless mode](https://developers.meta.com/vr/documentation/unreal/unreal-boundaryless/)
 
 If tracking drops while you compare placements or follow a pinned maintenance step, leave the
 session open. Recheck the original room to resume with both placements, the selected alternative
@@ -973,6 +980,15 @@ reopen the captured viewpoint from a compatible model revision. The MR in-app ca
 shows the overlay only. To include the physical room, take a Quest system screenshot
 and attach the file to the same entry. Screenshots and descriptions belong to the household's
 private installation. The public repository only contains synthetic fixtures.
+
+For an offset vent or pipe fitting, align in that room, select its modeled route and open the
+grip menu. Choose **Measure real position**. From where you stand, aim at the centre of the real
+fitting and click. An orange dot indicates tracked surface depth. If there is no dot, move
+your hand sideways about 30 cm and click the same physical point again. Choose **Use two aims**
+when the dot lands on a different surface. Check the orange marker, then choose **Save measured fix**.
+The private entry includes the physical point in model metres, the selected route segment, the room,
+the measurement method and the alignment check at the time. An agent can use this evidence to
+correct the infrastructure record after review.
 
 Authorized AI clients can use `list_model_fixes`, `get_model_fix` and `get_model_fix_image`
 on the existing MCP connection. Use the recorded model fingerprint, room, equipment placement
