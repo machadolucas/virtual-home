@@ -46,6 +46,19 @@ it("checkpoints discovery, retains failed marks across tracking resets, and keep
   expect(last.snapshots.some(s=>s.traces.length===1 && s.space===0)).toBe(true);
   expect(Object.keys(store)).toHaveLength(0);
 });
+it("keeps repeated explicit feature measurements with their model counterpart and tracking space", async ()=>{
+  const r=new AlignmentRecorder(base,"owner","abcdef12","mr",[]);
+  r.selectRoom("studio");
+  const feature = {roomId:"studio",id:"frame-a",label:"First opening",point:[0,2,3] as [number,number,number]};
+  r.mark({feature,observed:[0.12345,2,3]});
+  r.interrupt("reference-reset");
+  r.mark({feature,observed:[1.2222,2,3]});
+  r.finish();
+  await vi.advanceTimersByTimeAsync(100);
+  const measured=saved.at(-1)!.events.filter(e => e.measurement).map(e => e.measurement!);
+  expect(measured.map(m => [m.space,m.observed[0]])).toEqual([[0,0.123],[1,1.222]]);
+  expect(measured[0]).toMatchObject({modeled:feature.point,roomId:"studio",featureId:"frame-a"});
+});
 it("queues an offline exit and replays only on the same account and model endpoint",async ()=>{
   vi.mocked(fetch).mockRejectedValue(new TypeError("offline"));
   const r=new AlignmentRecorder(base,"owner","abcdef12","mr",[]);

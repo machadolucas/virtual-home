@@ -39,6 +39,7 @@ interface MixedRealityCalibrationOptions {
   floorId: string;
   roomId?: string;
   onState: (state: MixedRealityState, verifiedPose?: Matrix4) => void;
+  onMeasurement?: (pair: CalibrationPair, first?: CalibrationPair) => void;
   storage?: Pick<Storage, "getItem" | "setItem" | "removeItem">;
   probeOffset?: Readonly<Vec3>;
 }
@@ -71,6 +72,7 @@ export class MixedRealityCalibration {
   private readonly storage: MixedRealityCalibrationOptions["storage"];
   private readonly probeOffset: Readonly<Vec3>;
   private pairs: CalibrationPair[] = [];
+  private alternative: CalibrationPair | null = null;
   private fit: CalibrationFit | null = null;
   private check: CalibrationFeature | null = null;
   private anchor: XRAnchor | null = null;
@@ -134,11 +136,17 @@ export class MixedRealityCalibration {
   }
 
   /** Adopt a rigid fit independently verified against the room scan. */
-  acceptScanned(frame: XRFrame, fit: CalibrationFit, check: CalibrationFeature, errorM: number): boolean {
+  acceptScanned(frame: XRFrame, fit: CalibrationFit, check: CalibrationFeature, errorM: number, whileMeasuring = false): boolean {
     if (!this.canUseScan(frame, errorM) || !this.isLocalFeature(check) ||
       (!this.awaitingForeignAnchor && this.current.phase !== "select") ||
-      this.pairs.length > 0 || this.current.selected) return false;
+      (!whileMeasuring && (this.pairs.length > 0 || this.current.selected))) return false;
+    if (whileMeasuring) {
+      const touches = this.alternative ? [...this.pairs, this.alternative] : this.pairs;
+      if (touches.some(pair => calibrationError(fit.matrix,pair) > MAX_CALIBRATION_ERROR_M)) return false;
+    }
     if (this.awaitingForeignAnchor) this.clear();
+    this.alternative = null;
+    this.pairs = [];
     this.fit = fit;
     this.check = check;
     this.createPending = true;
@@ -212,6 +220,16 @@ export class MixedRealityCalibration {
     return this.current.phase === "select" && this.isLocalFeature(feature) && suitableNextFeature(this.pairs, feature);
   }
 
+  get canKeepLatestPoint() { return !!this.alternative && this.current.phase === "select"; }
+
+  keepLatestPoint() {
+    if (!this.canKeepLatestPoint || !this.alternative) return;
+    this.pairs = [this.alternative];
+    this.alternative = null;
+    this.fit = null;
+    this.update({selected:null, sampleCount:1, errorM:null, message:"First point replaced. Choose a different second feature."});
+  }
+
   chooseAnotherFeature(): void {
     if (this.current.phase === "select") this.update({ selected: null, errorM: null });
   }
@@ -240,6 +258,7 @@ export class MixedRealityCalibration {
       return;
     }
     const pair = { feature: selected, observed: touch.toArray() };
+    this.options.onMeasurement?.(pair, phase === "select" ? this.pairs[0] : undefined);
     if (phase === "verify") {
       // Input-event frames expose XRPose, even when the anchor set only updates on render frames.
       const matrix = this.anchor ? this.trackedMatrix(frame, false) : this.fit?.matrix;
@@ -261,9 +280,11 @@ export class MixedRealityCalibration {
     if (!second) {
       const result = fitCalibration(first, pair);
       if (!result.fit) {
+        this.alternative = pair;
         this.update({ message: result.message });
         return;
       }
+      this.alternative = null;
       this.fit = result.fit;
       this.pairs.push(pair);
       this.update({ selected: null, sampleCount: 2, message: "Choose a third feature away from the line between the first two touches." });
@@ -308,6 +329,7 @@ export class MixedRealityCalibration {
   }
 
   private clear(): void {
+    this.alternative = null;
     this.generation++;
     this.pairs = [];
     this.fit = null;

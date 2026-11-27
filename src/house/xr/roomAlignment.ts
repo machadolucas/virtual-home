@@ -8,6 +8,8 @@ import { architectureFromOpenings, checkOpeningGeometry, checkVisibleFloorCorner
 
 import { recordIndependentCheck, type AlignmentSearchDiagnostics, type AlignmentSearchOptions } from "./alignmentSearchDiagnostics";
 export { newAlignmentSearchDiagnostics, type AlignmentSearchDiagnostics, type AlignmentSearchOptions } from "./alignmentSearchDiagnostics";
+import { matchSelectedRoomCorners } from "./roomCornerConsensus";
+export { matchSelectedRoomCorners };
 export { openingCalibrationFeature } from "./roomArchitecture";
 
 type Point = [number, number];
@@ -49,6 +51,7 @@ export interface AlignmentCandidate {
   landmarkConflict: boolean;
   evidenceKind?: "architecture";
   separatedOpenings?: boolean;
+  wallRegistration?: { supportCorners: number; supportWalls: number };
 }
 export type AlignmentHint = { kind: "wall"; index: number } | { kind: "landmark"; index: number };
 const LIMIT = MAX_CALIBRATION_ERROR_M + 1e-8;
@@ -337,7 +340,11 @@ export function matchRoomAlignment(
   // outlier diagnostic yields part way through an individual room.
   const result = alignmentSearch(model, evidence, viewer, false, options).next();
   if (result.done && result.value.length) return result.value;
-  return architectureFromOpenings(model, evidence, viewer, options);
+  const openings = architectureFromOpenings(model, evidence, viewer, options);
+  if (openings.length || !options.selectedRoom) return openings;
+  const local = matchSelectedRoomCorners(model, evidence, viewer);
+  if (local.estimate?.checkM != null) recordIndependentCheck(options.diagnostics, local.estimate.checkM);
+  return local.verified ? [local.verified] : [];
 }
 
 function* alignmentSearch(

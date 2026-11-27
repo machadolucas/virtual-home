@@ -92,7 +92,7 @@ export function fitCalibration(
   }
   const spanError = Math.hypot(realLength - modelLength, (q[1] - p[1]) - (b[1] - a[1]));
   if (spanError > MAX_CALIBRATION_ERROR_M) {
-    return { message: `The first two touches disagree with the model by ${Math.round(spanError * 100)} cm. Check the selected feature and touch it again.` };
+    return { message: `The marked pair differs from the model by ${Math.round(spanError * 100)} cm. Try another feature or keep the latest point as your first.` };
   }
   // In the X/Z plane a positive rotation about Y decreases atan2(z, x).
   const yaw = Math.atan2(b[2] - a[2], b[0] - a[0]) -

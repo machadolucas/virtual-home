@@ -847,9 +847,17 @@ shows room selection, wall pairings, independent checks and tracking interruptio
 origin has its own coordinates. A perimeter discrepancy can describe a provisional heading, and a
 reported check distance requires an actual measured comparison. A blue scan alone does not establish
 a registration. For a room you explicitly choose, a locally simplified perimeter can be accepted
-when independent architectural evidence elsewhere in the room verifies the pose.
+when independent architectural evidence elsewhere in the room verifies the pose. If the floor polygon
+is simplified or the scan spans more than one level, House can use tagged wall sections meeting the
+selected floor. The directions and positions of separated wall junctions and openings establish room
+identity. Two wall faces set a rigid pose, and a junction of two other measured faces checks it within
+5 cm. Successive scans must agree. **Compare Quest and model walls** shows the recorded wall faces
+in solid blue and the modeled footprint in dashed amber at the checked position. The residual applies
+at the check point. Recesses and openings elsewhere may differ.
 
 Each report keeps up to four geometry checkpoints and 48 events with the model fingerprint.
+An explicit feature touch or aim records its feature ID, model position, measured point and tracking
+space. This lets a later review distinguish a baseline span difference from a height difference.
 The headset retries interrupted uploads for the same account. The household installation keeps up
 to 60 attempts per account for 30 days. Camera images, mesh triangles and controller motion are
 excluded. Account-bound MCP read tools can retrieve the observations and solver diagnostics for replay.
@@ -887,7 +895,10 @@ with modeled openings. Pick a numbered top corner and aim at that corner as you 
 opening from inside. When the headset supplies matching frame depth, one click records it.
 Otherwise, keep your feet still, move your hand sideways about 30 cm and aim at the same
 spot again. The menu offers the next sufficiently separated corner, then a third to check
-alignment. You can switch to an exposed floor corner and keep the points already recorded.
+alignment. You can switch to an exposed floor corner and keep the points already recorded. If two
+marks disagree, **Keep latest point as first** lets you replace the earlier reference. The automatic
+wall check continues while you mark points. It can finish when your marks agree, or offer
+**Use checked wall alignment** when they disagree.
 
 **Open headset room setup** refreshes the shared scan where supported.
 Alternatively, choose your room and hold a trigger or pinch while sweeping along about a metre

@@ -1,10 +1,11 @@
-import { Matrix4, Mesh, MeshStandardMaterial, Ray, Vector3, type BufferGeometry, type WebGLRenderer } from "three";
+import { LineSegments, Matrix4, Mesh, MeshStandardMaterial, Ray, Vector3, type BufferGeometry, type WebGLRenderer } from "three";
 import { describe, expect, it, vi } from "vitest";
 import { buildManifestIndex } from "@/house/model/manifestIndex";
 import type { Route, Vec3 } from "@/house/model/types";
 import { ClipGroups } from "@/house/scene/clipGroups";
 import { RouteLayer } from "@/house/scene/routes";
 import { createSceneIndex } from "@/house/scene/SceneIndex";
+import { RoomWallComparison } from "@/house/xr/roomWallComparison";
 import { MixedRealityCalibration } from "@/house/xr/mixed";
 import { calibrationError, calibrationFeatures, fitCalibration, independentCheck, type CalibrationFeature } from "@/house/xr/mixedCalibration";
 import { buildMixedRealityOverlay, mixedRealityRuns } from "@/house/xr/mixedOverlay";
@@ -89,6 +90,64 @@ describe("mixed reality registration", () => {
     const stretch = pair(second);
     stretch.observed[1] += 0.12;
     expect(fitCalibration(pair(first), stretch).message).toContain("12 cm");
+  });
+
+  it("keeps measured walls in headset space, excludes another level, and hides comparison on pose loss", () => {
+    const room = {...loadManifest(FIXTURE_DIR).rooms[0]!, floorElevation:0};
+    const [a,b] = room.footprint.outer;
+    const wall = {a:a!,b:b!,low:0,high:2.4,semanticWall:true};
+    const compare = new RoomWallComparison(room,{
+      floor:{y:0,outline:room.footprint.outer,semanticFloor:true,source:"plane"},
+      walls:[wall,{...wall,low:.32},{...wall,semanticWall:false}],landmarks:[],
+    },new Matrix4());
+    compare.enabled = true;
+    const pose = new Matrix4().makeRotationY(.06).setPosition(.01,0,0);
+    compare.frame(pose);
+    const [measured,model] = compare.group.children as LineSegments[];
+    expect(measured!.geometry.getAttribute("position").count).toBe(2);
+    expect(measured!.matrix.equals(new Matrix4())).toBe(true);
+    expect(model!.matrix.equals(pose)).toBe(true);
+    expect(compare.group.visible).toBe(true);
+    compare.frame(null);
+    expect(compare.group.visible).toBe(false);
+    compare.dispose();
+  });
+
+  it("can reuse the latest measured feature when the first pair disagrees", () => {
+    const {calibration, frame, touch} = mockXR();
+    calibration.frame(frame());
+    calibration.select(first);
+    const offset = physical(first);
+    offset[0] += .35;
+    touch(offset);
+    calibration.select(second);
+    touch(physical(second));
+    expect(calibration.state.phase).toBe("select");
+    expect(calibration.canKeepLatestPoint).toBe(true);
+    calibration.keepLatestPoint();
+    expect(calibration.state.sampleCount).toBe(1);
+    expect(calibration.canChoose(second)).toBe(false);
+    calibration.select(first);
+    touch(physical(first));
+    calibration.select(check);
+    touch(physical(check));
+    expect(calibration.state.phase).toBe("ready");
+    calibration.dispose();
+  });
+
+  it("checks saved manual observations before accepting a passive room registration", () => {
+    const {calibration, frame, touch} = mockXR();
+    calibration.frame(frame());
+    calibration.select(first);
+    touch(physical(first));
+    const fit = fitCalibration(pair(first),pair(second)).fit!;
+    const conflicting = {...fit, matrix:fit.matrix.clone()};
+    conflicting.matrix.elements[12]! += .25;
+    expect(calibration.acceptScanned(frame(),conflicting,check,.02,true)).toBe(false);
+    expect(calibration.state.sampleCount).toBe(1);
+    expect(calibration.acceptScanned(frame(),fit,check,.02,true)).toBe(true);
+    expect(calibration.state.phase).toBe("ready");
+    calibration.dispose();
   });
 
   it("withholds routes until the held-out check passes and until tracking is rechecked", () => {

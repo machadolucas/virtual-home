@@ -1,4 +1,5 @@
-import type { AlignmentAttempt, AlignmentAttemptSnapshot } from "../alignmentAttemptTypes";
+import type { CalibrationPair } from "./mixedCalibration";
+import type { AlignmentAttemptEvent, AlignmentAttempt, AlignmentAttemptSnapshot } from "../alignmentAttemptTypes";
 import { queueAlignmentAttempt, uploadAlignmentAttempt } from "../alignmentAttemptApi";
 
 const CHECKPOINT_MS = 4_000;
@@ -39,10 +40,26 @@ export class AlignmentRecorder {
     this.lastMessage.clear();
     this.event("room", id ?? "Room chooser opened.");
   }
-  event(kind: string, detail: string) {
-    if (this.closed || this.lastMessage.get(kind) === detail) return;
+  mark(pair: CalibrationPair, first?: CalibrationPair) {
+    const roomId = this.report.roomId;
+    if (!roomId) return;
+    const mm = (n: number) => Math.round(n * 1000) / 1000;
+    const rounded = ([x,y,z]: CalibrationPair["observed"]): [number,number,number] => [mm(x),mm(y),mm(z)];
+    let detail = `Measured ${pair.feature.label}.`;
+    if (first) {
+      const model = pair.feature.point, base = first.feature.point;
+      const observed = pair.observed, start = first.observed;
+      const span = (a: typeof base, b: typeof base) => Math.hypot(a[0]-b[0], a[2]-b[2]).toFixed(2);
+      detail += ` From ${first.feature.label}, horizontal span ${span(observed,start)} m measured, ${span(model,base)} m modeled.`
+        + ` Height change ${(observed[1]-start[1]).toFixed(2)} m measured, ${(model[1]-base[1]).toFixed(2)} m modeled.`;
+    }
+    this.event("measured-feature", detail, {space:this.space, roomId, featureId:pair.feature.id,
+      modeled:rounded(pair.feature.point), observed:rounded(pair.observed)});
+  }
+  event(kind: string, detail: string, measurement?: AlignmentAttemptEvent["measurement"]) {
+    if (this.closed || (!measurement && this.lastMessage.get(kind) === detail)) return;
     this.lastMessage.set(kind, detail);
-    this.report.events.push({atMs:this.elapsed, kind, detail:detail.slice(0,320)});
+    this.report.events.push({atMs:this.elapsed, kind, detail:detail.slice(0,320), ...(measurement && {measurement})});
     if (this.report.events.length > 48) this.report.events.splice(1,1);
     this.changed();
   }

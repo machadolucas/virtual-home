@@ -34,7 +34,10 @@ const snapshot = z.strictObject({
     axis: pair.optional(), width: length, height: length, elementId: id.optional() })).max(24),
   diagnosis: diagnosis.nullable(),
 });
-const event = z.strictObject({ atMs: offset, kind: code, detail: z.string().max(320) });
+const event = z.strictObject({
+  atMs: offset, kind: code, detail: z.string().max(320),
+  measurement: z.strictObject({space:count, roomId:id, featureId:id, modeled:triple, observed:triple}).optional(),
+});
 export const alignmentAttemptInput = z.strictObject({
   id: z.uuid(), userId: id, fingerprint: z.string().regex(/^[0-9a-f]{8,64}$/),
   revision: z.int().min(1).max(2_147_483_647), startedAtMs: z.int().positive(), elapsedMs: offset,
