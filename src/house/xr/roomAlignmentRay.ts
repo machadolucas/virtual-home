@@ -1,11 +1,12 @@
 import { Matrix4, Ray, Vector3 } from "three";
-import { intersectAlignmentEvidence, type AlignmentEvidence } from "./roomAlignmentEvidence";
+import { classifyStructuralHit, intersectAlignmentEvidence, type AlignmentEvidence } from "./roomAlignmentEvidence";
 
 /** Optional native hit testing on each tracked input ray. Scanned geometry provides another source. */
 export class AlignmentRays {
   private readonly sources = new Map<XRInputSource, { hit: XRHitTestSource | null }>();
   private readonly matrix = new Matrix4();
   private readonly ray = new Ray();
+  private readonly depth = new Vector3();
 
   constructor(private readonly session: XRSession, private readonly space: XRReferenceSpace) {}
 
@@ -38,6 +39,15 @@ export class AlignmentRays {
 
   hit(frame: XRFrame, input: XRInputSource, evidence: AlignmentEvidence | null, target: Vector3): Vector3 | null {
     if (!this.trackedRay(frame, input, this.ray)) return null;
+    return this.nativeHit(frame, input, target) ?? (evidence ? intersectAlignmentEvidence(evidence, this.ray, target) : null);
+  }
+
+  structuralHit(frame: XRFrame, input: XRInputSource, evidence: AlignmentEvidence | null, target: Vector3, kind: "wall" | "door" | "window") {
+    if (!this.trackedRay(frame, input, this.ray) || !evidence) return "unverified";
+    return classifyStructuralHit(evidence, this.ray, target, this.nativeHit(frame, input, this.depth), kind);
+  }
+
+  private nativeHit(frame: XRFrame, input: XRInputSource, target: Vector3): Vector3 | null {
     const source = this.sources.get(input)?.hit;
     if (source) {
       try {
@@ -51,7 +61,7 @@ export class AlignmentRays {
         }
       } catch { /* Try the scanned geometry if the provider currently cannot resolve the ray. */ }
     }
-    return evidence ? intersectAlignmentEvidence(evidence, this.ray, target) : null;
+    return null;
   }
 
   trackedRay(frame: XRFrame, input: XRInputSource, target: Ray): Ray | null {

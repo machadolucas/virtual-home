@@ -832,15 +832,25 @@ The House page shows frame timing from the last session on that browser.
 Choose **Enter mixed reality** or **Survey room** and look around from where you are. House
 compares the shared scan with the modeled rooms and floors. Two fresh scans must agree on
 one room before it is selected automatically. A checked, unique orientation reveals the
-overlay. Blue outlines follow surfaces the headset has shared. A badge stays in view as
-you turn and reports the floor and wall count, or that no surfaces have arrived.
+overlay. Blue outlines mark labeled structure, green marks doors and windows, and gray
+marks unclassified surfaces. A badge stays in view as you turn and reports which
+architectural features have arrived.
 The matcher can use a labeled floor on an adjacent split level and small recesses in
 the measured floor outline. If several rooms still fit, select yours from the shortlist. **Choose room myself**
 opens the full room list immediately.
 
+In a furnished room, look across exposed wall faces above the furniture, then toward a
+doorway or window. Two nonparallel measured wall sections, a measured floor height and
+an independently observed opening can register the room even when its wall bases are
+covered. Two distinct modeled openings at least 1.5 m apart can also establish and check
+the pose without a shared floor. House checks these matches on successive scans. The badge
+counts walls and openings. Named furniture and virtual room dividers are excluded, and
+unclassified vertical surfaces need independent structural support.
+
 An amber dashed outline shows an early, life-size estimate when the shared floor has a distinctive
 shape. You can also choose **Preview room outline**, pick a wall on the plan, face it squarely
-and aim at the middle of its base. Continue looking around. The app can finish automatically
+and aim halfway along its exposed face at a comfortable height. **Use the exposed wall base**
+is available without wall depth. Continue looking around. The app can finish automatically
 when the measured floor and wall geometry agree, even if you have already started tracing.
 In a symmetric room, the same wall tap can also resolve the heading once the geometry passes.
 The estimated outline supports repositioning or hiding. Routes, equipment and recording tools
@@ -857,7 +867,14 @@ ring fills. A trigger click or pinch confirms immediately, including when you al
 the feature. Head direction only distinguishes geometrically checked orientations. The
 scale stays 1:1 and the pilot registration threshold stays at 5 cm.
 
-If there is too little scan data, **Open headset room setup** refreshes it where supported.
+If the headset supplies too little geometry, choose **Use door or window frames** in a room
+with modeled openings. Pick a numbered top corner and aim at that corner as you face the
+opening from inside. When the headset supplies matching frame depth, one click records it.
+Otherwise, keep your feet still, move your hand sideways about 30 cm and aim at the same
+spot again. The menu offers the next sufficiently separated corner, then a third to check
+alignment. You can switch to an exposed floor corner and keep the points already recorded.
+
+**Open headset room setup** refreshes the shared scan where supported.
 Alternatively, choose your room and hold a trigger or pinch while sweeping along about a metre
 of a wall base. Release when the line turns green. **Trace wall bases** also opens this tool
 explicitly. Mark two walls that meet, then two on other sides of the room. The badge counts

@@ -8,7 +8,7 @@ const MIN_DEPTH_M = 0.25;
 const MAX_DEPTH_M = 8;
 const FLOOR_TOLERANCE_M = 0.22;
 
-export function triangulateFloorCorner(first: Ray, second: Ray, maxFloorOffset = FLOOR_TOLERANCE_M): { point?: never; message: string } | { point: Vector3 } {
+export function triangulateFeature(first: Ray, second: Ray): { point?: never; message: string } | { point: Vector3 } {
   const from = first.direction.clone().normalize(), toward = second.direction.clone().normalize();
   const delta = first.origin.clone().sub(second.origin);
   const baseline = delta.length();
@@ -26,11 +26,16 @@ export function triangulateFloorCorner(first: Ray, second: Ray, maxFloorOffset =
   }
   const p = first.origin.clone().addScaledVector(from, a), q = second.origin.clone().addScaledVector(toward, b);
   if (!Number.isFinite(p.distanceToSquared(q)) || p.distanceTo(q) > MAX_RAY_GAP_M) {
-    return { message: "The two aims missed each other. Aim at precisely the same floor corner." };
+    return { message: "The two aims missed each other. Aim at precisely the same feature." };
   }
   p.lerp(q, 0.5);
-  if (Math.abs(p.y) > maxFloorOffset) {
+  return { point: p };
+}
+
+export function triangulateFloorCorner(first: Ray, second: Ray, maxFloorOffset = FLOOR_TOLERANCE_M): ReturnType<typeof triangulateFeature> {
+  const result = triangulateFeature(first, second);
+  if (result.point && Math.abs(result.point.y) > maxFloorOffset) {
     return { message: "Aim where the two walls meet the physical floor." };
   }
-  return { point: p };
+  return result;
 }

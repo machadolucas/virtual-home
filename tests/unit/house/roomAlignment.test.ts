@@ -131,7 +131,7 @@ describe("automatic room alignment", () => {
     expect(matchRoomAlignment(model, evidence, viewer)).toHaveLength(2);
   });
 
-  it("extracts floor and independent wall evidence from an unlabeled mesh when planes are absent", () => {
+  it("keeps unlabeled mesh depth available without treating its verticals as independent structural walls", () => {
     const vertices: number[] = [], indices: number[] = [];
     const quad = (...points: Vec3[]) => {
       const i = vertices.length / 3;
@@ -145,8 +145,11 @@ describe("automatic room alignment", () => {
       getPose: () => ({ emulatedPosition: false, transform: { matrix: new Matrix4().toArray() } }) });
     const evidence = readAlignmentEvidence(frame, reference, viewer);
     expect(evidence.floor?.y).toBeCloseTo(0);
-    expect(evidence.walls).toHaveLength(4);
-    expect(matchRoomAlignment(model, evidence, viewer)).toHaveLength(2);
+    expect(evidence.walls).toHaveLength(0);
+    expect(matchRoomAlignment(model, evidence, viewer)).toHaveLength(0);
+    const target = tracking([2, 4.2, 0]);
+    const ray = new Ray(viewer, target.clone().sub(viewer).normalize());
+    expect(intersectAlignmentEvidence(evidence, ray, new Vector3())?.distanceTo(target)).toBeLessThan(.001);
   });
 });
 

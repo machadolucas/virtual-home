@@ -4,19 +4,27 @@ import type { AlignmentEvidence } from "./roomAlignmentEvidence";
 const MAX_EDGES = 384;
 const STALE_MS = 1500;
 const up = new THREE.Vector3(0, 1, 0);
+const structureColor = new THREE.Color(0x75ceff), openingColor = new THREE.Color(0x64ebbc), unknownColor = new THREE.Color(0x8b98a3);
+function edgeColor(role?: string) {
+  if (role === "door" || role === "window") return openingColor;
+  if (role === "floor" || role === "wall" || role === "ceiling") return structureColor;
+  return unknownColor;
+}
 
 export function scanSummary(evidence: AlignmentEvidence | null, unavailable: boolean) {
   if (unavailable) return "Room scan access unavailable";
   if (!evidence || !(evidence.patches.length || evidence.triangles.length)) return "No room surfaces received";
   const walls = evidence.walls.length;
-  return `${evidence.floor ? "Floor found" : "No floor under you"} · ${walls} ${walls === 1 ? "wall" : "walls"}`;
+  const parts = [evidence.floor ? "Floor found" : "No floor under you", `${walls} ${walls === 1 ? "wall" : "walls"}`];
+  if (evidence.landmarks.length) parts.push(`${evidence.landmarks.length} ${evidence.landmarks.length === 1 ? "opening" : "openings"}`);
+  return parts.join(" · ");
 }
 
 /** Local tracking space only. Edges come directly from native polygons or sampled mesh triangles. */
 export class ScanFeedback {
   readonly group = new THREE.Group();
   private readonly edges = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0x75ceff, toneMapped: false }),
+    new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ toneMapped: false }),
     MAX_EDGES,
   );
   private readonly segment = new THREE.Object3D();
@@ -56,7 +64,7 @@ export class ScanFeedback {
     this.observedAt = now;
     this.message = scanSummary(evidence, false);
     this.edges.count = 0;
-    const addEdge = (a: THREE.Vector3, b: THREE.Vector3) => {
+    const addEdge = (a: THREE.Vector3, b: THREE.Vector3, color: THREE.Color) => {
       if (this.edges.count >= MAX_EDGES) return;
       this.direction.subVectors(b, a);
       const length = this.direction.length();
@@ -65,10 +73,13 @@ export class ScanFeedback {
       this.segment.scale.set(.012, length, .012);
       this.segment.quaternion.setFromUnitVectors(up, this.direction.divideScalar(length));
       this.segment.updateMatrix();
+      this.edges.setColorAt(this.edges.count, color);
       this.edges.setMatrixAt(this.edges.count++, this.segment.matrix);
     };
-    for (const { boundary } of evidence.patches) {
-      for (let i = 0; i < boundary.length; i++) addEdge(boundary[i]!, boundary[(i + 1) % boundary.length]!);
+    for (const { boundary, role } of evidence.patches) {
+      if (role === "object") continue;
+      const color = edgeColor(role);
+      for (let i = 0; i < boundary.length; i++) addEdge(boundary[i]!, boundary[(i + 1) % boundary.length]!, color);
       if (this.edges.count >= MAX_EDGES) break;
     }
     if (!this.edges.count) {
@@ -76,11 +87,14 @@ export class ScanFeedback {
       const triangles = evidence.triangles;
       const stride = Math.max(1, Math.ceil(triangles.length / 72));
       for (let i = 0; i < triangles.length; i += stride) {
-        const [a, b, c] = triangles[i]!;
-        addEdge(a, b); addEdge(b, c); addEdge(c, a);
+        const triangle = triangles[i]!;
+        if (triangle.role === "object") continue;
+        const [a, b, c] = triangle, color = edgeColor(triangle.role);
+        addEdge(a, b, color); addEdge(b, c, color); addEdge(c, a, color);
       }
     }
     this.edges.instanceMatrix.needsUpdate = true;
+    if (this.edges.instanceColor) this.edges.instanceColor.needsUpdate = true;
   }
 
   summary(now: number, unavailable: boolean) {
@@ -93,7 +107,7 @@ export class ScanFeedback {
     const fresh = now - this.observedAt <= STALE_MS;
     this.edges.visible = !traceStatus && fresh && !unavailable && this.edges.count > 0;
     const title = traceStatus?.title ?? this.summary(now, unavailable);
-    const subtitle = traceStatus?.instruction ?? (this.edges.visible ? checking ? "Comparing the room to the model" : "Blue outlines show shared surfaces"
+    const subtitle = traceStatus?.instruction ?? (this.edges.visible ? checking ? "Comparing the room to the model" : "Blue structure · green openings · gray unclassified"
       : fallback);
     if (this.badge && this.context) {
       const key = title + subtitle;

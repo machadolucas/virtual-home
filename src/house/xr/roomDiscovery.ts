@@ -1,5 +1,5 @@
 import { Vector3 } from "three";
-import { pointInFootprint } from "../model/geometry2d";
+import { pointInFootprint, signedClearance } from "../model/geometry2d";
 import type { Room, Vec2 } from "../model/types";
 import {
   matchRoomAlignment,
@@ -11,7 +11,7 @@ import {
   type AlignmentWall,
   type RoomEvidence,
 } from "./roomAlignment";
-import { floorEdges, outlinesAgree, type Edge } from "./roomOutline";
+import { floorEdges, outlinesAgree, type Edge } from "./floorBoundary";
 import { MAX_CALIBRATION_ERROR_M } from "./mixedCalibration";
 import { confirmsRecessedFloor } from "./distinctiveRoom";
 
@@ -32,11 +32,12 @@ export interface RoomDiscoveryState {
 type Extent = "same" | "different" | "unknown";
 type NativeEvidence = RoomEvidence & { floor: NonNullable<RoomEvidence["floor"]> };
 interface Pass {
-  evidence: NativeEvidence;
+  evidence: RoomEvidence;
   viewer: Vector3;
   capturedAtMs: number;
   next: number;
   unavailable: boolean;
+  openingsUnavailable: boolean;
   contradicted: boolean;
   options: RoomDiscoveryChoice[];
   proofs: Map<string, AlignmentCandidate[]>;
@@ -93,22 +94,30 @@ function enclosingWall([a, b]: Edge, observed: readonly AlignmentWall[], nativeO
   return false;
 }
 
-function extentOf(model: AlignmentModel, evidence: NativeEvidence, candidate: AlignmentCandidate): Extent {
+function extentOf(model: AlignmentModel, evidence: RoomEvidence, candidate: AlignmentCandidate): Extent {
+  const floor = evidence.floor;
+  if (!floor) return "unknown";
   const { footprint, floorElevation, ceilingHeight } = model.room;
   const p = new Vector3();
   const transformed = footprint.outer.map(([x, z]): Vec2 => {
     p.set(x, floorElevation, z).applyMatrix4(candidate.fit.matrix);
     return [p.x, p.z];
   });
-  const nativeOutline = evidence.floor.source === "plane";
-  if (nativeOutline && !outlinesAgree(transformed, evidence.floor.outline)) return "different";
+  const nativeOutline = floor.source === "plane";
+  if (nativeOutline && !outlinesAgree(transformed, floor.outline)) {
+    // A clipped floor entirely inside the room can accompany two fixed openings. A floor extending
+    // outside that proposed room contradicts its identity.
+    if (!candidate.separatedOpenings || !floor.outline.every(([x, z]) =>
+      signedClearance(x, z, { outer: transformed }) >= -EXTENT_LIMIT_M)) return "different";
+    return "unknown";
+  }
   if (footprint.holes?.length) return "unknown";
   const minHeight = Math.min(1.2, (ceilingHeight ?? 2.6) * 0.65);
   const observed = evidence.walls.filter(
     (wall) =>
       !wall.baseOnly &&
       wall.high - wall.low >= minHeight &&
-      Math.abs(wall.low - evidence.floor.y) <= (nativeOutline ? 0.35 : EXTENT_LIMIT_M),
+      Math.abs(wall.low - floor.y) <= (nativeOutline ? 0.35 : EXTENT_LIMIT_M),
   );
   const perimeter = floorEdges(transformed).filter(([a, b]) => Math.hypot(b[0] - a[0], b[1] - a[1]) >= 0.1);
   let checked = 0, perimeterM = 0, unmeasuredM = 0;
@@ -175,23 +184,30 @@ export class RoomDiscovery {
       return false;
     this.lastCapturedAtMs = capturedAtMs;
     this.lastEvidence = evidence;
-    if (!isNative(evidence, viewer)) {
+    const fixedOpenings = evidence.landmarks.filter(mark => mark.rawCenter && mark.axis);
+    const canIdentifyOpenings = (evidence.floor === null ||
+      ((evidence.floor.source === "mesh" || evidence.floor.source === "plane") &&
+        trackedFloorHeightAllowed(evidence.floor.y, evidence.floor.semanticFloor))) &&
+      fixedOpenings.length >= 2 && [viewer.x, viewer.y, viewer.z].every(Number.isFinite);
+    if (!isNative(evidence, viewer) && !canIdentifyOpenings) {
       this.prior = null;
       this.result = idle("unmatched");
       return false;
     }
     this.pass = {
       evidence: {
-        floor: { ...evidence.floor, outline: evidence.floor.outline.map(([x, z]) => [x, z]) },
+        floor: evidence.floor && { ...evidence.floor, outline: evidence.floor.outline.map(([x, z]) => [x, z]) },
         walls: evidence.walls
           .filter((wall) => !wall.baseOnly)
           .map((wall) => ({ ...wall, a: [...wall.a], b: [...wall.b] })),
-        landmarks: evidence.landmarks.map((mark) => ({ ...mark, center: [...mark.center] })),
+        landmarks: evidence.landmarks.map(mark => ({ ...mark, center: [...mark.center],
+          rawCenter: mark.rawCenter && [...mark.rawCenter], axis: mark.axis && [...mark.axis] })),
       },
       viewer: viewer.clone(),
       capturedAtMs,
       next: 0,
       unavailable: false,
+      openingsUnavailable: false,
       contradicted: false,
       options: [],
       proofs: new Map(),
@@ -218,6 +234,7 @@ export class RoomDiscovery {
         pass.unavailable = true;
         continue;
       }
+      if (model.openingInventoryComplete === false) pass.openingsUnavailable = true;
       const shaped = matchRoomAlignment(model, pass.evidence, pass.viewer)
         .map((candidate) => ({ candidate, extent: extentOf(model, pass.evidence, candidate) }))
         .filter(({ extent }) => extent !== "different");
@@ -247,7 +264,11 @@ export class RoomDiscovery {
     this.pass = null;
     const options = pass.options;
     const choice = options[0];
-    const proofs = choice && pass.proofs.get(choice.room.id);
+    // A separated pair with an independent 3D check can identify a room when walls are
+    // hidden. Compare every room's available opening inventory before trusting that identity.
+    const extentProofs = choice && pass.proofs.get(choice.room.id);
+    const proofs = !extentProofs?.length && choice && !pass.openingsUnavailable
+      ? choice.candidates.filter(candidate => candidate.separatedOpenings) : extentProofs;
     if (
       options.length !== 1 ||
       !choice ||

@@ -4,6 +4,7 @@ import {
   calibrationError,
   fitCalibration,
   independentCheck,
+  suitableNextFeature,
   MAX_CALIBRATION_ERROR_M,
   type CalibrationFeature,
   type CalibrationFit,
@@ -207,6 +208,14 @@ export class MixedRealityCalibration {
     this.update({ selected: feature, message: `Touch ${feature.label} with the controller probe, then press the trigger.`, errorM: null });
   }
 
+  canChoose(feature: CalibrationFeature): boolean {
+    return this.current.phase === "select" && this.isLocalFeature(feature) && suitableNextFeature(this.pairs, feature);
+  }
+
+  chooseAnotherFeature(): void {
+    if (this.current.phase === "select") this.update({ selected: null, errorM: null });
+  }
+
   /** Use the same point for the visible probe and for a physical touch sample. */
   pointerPosition(frame: XRFrame, gripSpace: XRSpace | undefined | null, target: Vector3): Vector3 | null {
     if (!gripSpace || frame.session !== this.options.session) return null;
@@ -246,7 +255,7 @@ export class MixedRealityCalibration {
     const [first, second] = this.pairs;
     if (!first) {
       this.pairs.push(pair);
-      this.update({ selected: null, sampleCount: 1, message: "Choose a second floor feature at least 1.5 m from the first." });
+      this.update({ selected: null, sampleCount: 1, message: "Choose a second feature at least 1.5 m across from the first." });
       return true;
     }
     if (!second) {

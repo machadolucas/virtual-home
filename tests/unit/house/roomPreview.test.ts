@@ -65,6 +65,10 @@ it("uses the tracked face at a named wall midpoint even from a side angle, and h
   const sideEye = physical(2.2, 4.55, 2);
   const estimated = wallPreviewPose(room, model.walls[0]!, midpoint, sideEye, walls);
   expect(roomPoseDrift(room, pose, estimated!)).toBeCloseTo(0);
+  const atEyeLevel = midpoint.clone().add(new Vector3(0, 1.65, 0));
+  const upperPatch = [{ ...walls[0]!, low: 1.25, high: 2.2 }];
+  const aboveSofa = wallPreviewPose(room, model.walls[0]!, atEyeLevel, sideEye, upperPatch, midpoint.y);
+  expect(roomPoseDrift(room, pose, aboveSofa!)).toBeCloseTo(0);
   const reversed = { ...room, footprint: { outer: [...room.footprint.outer].reverse(), holes: [] } };
   const base = model.walls[0]!;
   expect(roomPoseDrift(room, pose, wallPreviewPose(reversed, { ...base, a: base.b, b: base.a }, midpoint, eye, [])!)).toBeCloseTo(0);

@@ -1,9 +1,13 @@
-import { Matrix4, Vector3 } from "three";
+import { BoxGeometry, Group, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from "three";
 import { afterEach, expect, it, vi } from "vitest";
 import { buildManifestIndex } from "@/house/model/manifestIndex";
 import type { Room, Vec2 } from "@/house/model/types";
 import type { HouseRuntime } from "@/house/runtime";
 import { MixedPilot } from "@/house/xr/mixedPilot";
+import { createSceneIndex, indexAsset } from "@/house/scene/SceneIndex";
+import { frameCorners } from "@/house/xr/frameCorners";
+import { buildAlignmentModel } from "@/house/xr/roomAlignment";
+import { calibrationFeatures } from "@/house/xr/mixedCalibration";
 import { FIXTURE_DIR, loadManifest } from "./glb";
 
 const manifest = loadManifest(FIXTURE_DIR);
@@ -145,11 +149,77 @@ function fixture(rooms: Room[], saved = false, enabledFeatures?: string[]) {
     tick(510);
     for (let i = 0; i < rooms.length + 2; i++) tick();
   };
-  return { pilot, data, ref, restore, tick, pass, menu, click };
+  return { pilot, runtime, data, ref, restore, tick, pass, menu, click };
 }
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it("aligns by visible frame corners after the model loads, with no headset floor or wall scan", () => {
+  const { pilot, runtime, data, pass, menu, click } = fixture([room]);
+  const asset = manifest.assets[0]!;
+  const elements = (["door", "window"] as const).map(kind => ({
+    id: kind, kind, floorId: room.floorId, certainty: "measured" as const, sourceRefs: [],
+    nodeRefs: [{ assetId: asset.id, nodeName: kind }], surfaceIds: [kind + "-reveal"],
+  }));
+  const surfaces = elements.map(element => ({
+    id: element.surfaceIds[0]!, elementId: element.id, kind: "other" as const, role: "reveal", defaultColor: "#ffffff",
+    nodeRefs: [{ assetId: asset.id, nodeName: element.surfaceIds[0]! }],
+  }));
+  const index = createSceneIndex(buildManifestIndex({ ...manifest, rooms: [room], elements, surfaces }));
+  const root = new Group();
+  const door = new Mesh(new BoxGeometry(1, 2, .06), new MeshBasicMaterial());
+  const window = new Mesh(new BoxGeometry(.06, 1, .9), new MeshBasicMaterial());
+  door.name = "door-reveal"; door.position.set(1, 1, 0);
+  window.name = "window-reveal"; window.position.set(0, 1.55, 2);
+  root.add(door, window);
+  root.updateMatrixWorld(true);
+  try {
+    pilot.enter(room);
+    pass();
+    runtime.index = index;
+    indexAsset(index, asset.id, root);
+    pass();
+    const features = frameCorners(buildAlignmentModel(room, calibrationFeatures({ ...manifest, rooms: [room] }, room.floorId), index));
+    expect(features).toHaveLength(4);
+    expect(features[0]).toMatchObject({ label: "Door 1 · top left", point: [.5, 2, 0] });
+    expect(features[2]?.point[2]).toBeCloseTo(2.45);
+    click("Use door or window frames");
+    const source = { targetRayMode: "tracked-pointer", targetRaySpace: {} } as XRInputSource;
+    const frame = data as unknown as XRFrame, ray = new Matrix4(), up = new Vector3(0, 1, 0);
+    const getPose = data.getPose;
+    data.getPose = space => space === source.targetRaySpace ? { emulatedPosition: false, transform: { matrix: ray.elements } } : getPose(space);
+    for (const i of [0, 2, 1]) {
+      menu().wallPicker!.choose(i);
+      const feature = features[i]!;
+      expect(menu().title).toBe(feature.label);
+      const target = new Vector3(...feature.point);
+      if (i === 0) {
+        const shelf = { ...wall([.05,.7], [1.5,.7]), semanticLabel: "shelf" };
+        data.detectedPlanes.add(shelf);
+        pass();
+        const from = new Vector3(.8, 1.3, 1.4);
+        ray.lookAt(from, target, up).setPosition(from);
+        expect(pilot.select(frame, source, null)).toBe(false);
+        expect(menu().lines.join(" ")).toContain("obstructed");
+        data.detectedPlanes.clear();
+        pass();
+      }
+      for (const x of [.8, 1.2]) {
+        const from = new Vector3(x, 1.3, 1.4);
+        ray.lookAt(from, target, up).setPosition(from);
+        expect(pilot.select(frame, source, null)).toBe(true);
+      }
+    }
+    pass();
+    expect(pilot.calibration?.state.errorM).toBeCloseTo(0);
+    expect(pilot.readyTransform?.determinant()).toBeCloseTo(1);
+    expect(pilot.overlay?.group.visible).toBe(true);
+  } finally {
+    pilot.dispose();
+    for (const mesh of [door, window]) { mesh.geometry.dispose(); mesh.material.dispose(); }
+  }
 });
 
 it("shows room choices immediately when the browser grants no scene geometry", () => {

@@ -4,6 +4,9 @@ import type { Room, Vec3 } from "@/house/model/types";
 import type { SceneIndex } from "@/house/scene/SceneIndex";
 import { explodeTargets, offsetsFor, type ExplodeState } from "@/house/scene/explode";
 import { MAX_CALIBRATION_ERROR_M, type CalibrationFeature, type CalibrationFit } from "./mixedCalibration";
+import { architectureFromOpenings, checkOpeningGeometry, checkVisibleFloorCorner } from "./roomArchitecture";
+
+export { openingCalibrationFeature } from "./roomArchitecture";
 
 type Point = [number, number];
 export interface AlignmentWall {
@@ -12,14 +15,20 @@ export interface AlignmentWall {
   low: number;
   high: number;
   baseOnly?: boolean;
+  semanticWall?: boolean;
 }
 export interface AlignmentLandmark {
   kind: "door" | "window";
   center: Vec3;
   width: number;
   height: number;
+  /** The original 3D opening center. The perimeter matcher projects center onto its supporting wall. */
+  rawCenter?: Vec3;
+  axis?: Point;
+  elementId?: string;
 }
 export interface AlignmentModel {
+  openingInventoryComplete?: boolean;
   room: Room;
   walls: AlignmentWall[];
   corners: CalibrationFeature[];
@@ -36,6 +45,8 @@ export interface AlignmentCandidate {
   errorM: number;
   landmarkCount: number;
   landmarkConflict: boolean;
+  evidenceKind?: "architecture";
+  separatedOpenings?: boolean;
 }
 export type AlignmentHint = { kind: "wall"; index: number } | { kind: "landmark"; index: number };
 const LIMIT = MAX_CALIBRATION_ERROR_M + 1e-8;
@@ -78,7 +89,8 @@ export function buildAlignmentModel(
     return length(sub(a, b)) >= MIN_WALL_M ? [{ a, b, low: floor, high }] : [];
   });
   const landmarks: AlignmentLandmark[] = [];
-  if (!index) return { room, walls, corners, landmarks };
+  if (!index) return { room, walls, corners, landmarks, openingInventoryComplete: false };
+  let openingInventoryComplete = true;
   const roots = new Set<Object3D>([...index.assets.values()].map(({ root }) => root));
   const presentation = new Map<Object3D, number>();
   if (explode?.enabled) {
@@ -97,6 +109,7 @@ export function buildAlignmentModel(
     const bounds = new Vector3();
     // A reveal is part of the opening. A door leaf may be depicted open.
     const meshes = ids.filter((id) => index.manifest.surfaces.get(id)?.role === "reveal").map((id) => index.surfaceMesh.get(id));
+    if (meshes.some(mesh => !mesh)) openingInventoryComplete = false;
     const box = new Box3();
     const points: Vector3[] = [];
     for (const mesh of meshes) if (mesh) {
@@ -134,9 +147,10 @@ export function buildAlignmentModel(
     if (!found || height < 0.3) continue;
     const { wall, lo, hi } = found;
     const along = (lo + hi) / 2, width = hi - lo, [x, z] = wallAxis(wall);
-    landmarks.push({ kind: element.kind, center: [wall.a[0] + x * along, bounds.y, wall.a[1] + z * along], width, height });
+    landmarks.push({ kind: element.kind, elementId: element.id, rawCenter: bounds.toArray(), axis: [x, z],
+      center: [wall.a[0] + x * along, bounds.y, wall.a[1] + z * along], width, height });
   }
-  return { room, walls, corners, landmarks };
+  return { room, walls, corners, landmarks, openingInventoryComplete };
 }
 
 function transformed(wall: AlignmentWall, yaw: number, translation: Point): AlignmentWall {
@@ -148,12 +162,12 @@ function transformed(wall: AlignmentWall, yaw: number, translation: Point): Alig
 }
 
 /** The distance residual covers the overlapping part of two measured wall faces. */
-function wallResidual(model: AlignmentWall, measured: AlignmentWall): number {
+function wallResidual(model: AlignmentWall, measured: AlignmentWall, minimumOverlap = measured.baseOnly ? 0.65 : 1.2): number {
   if (Math.abs(dot(wallAxis(model), wallAxis(measured))) < PARALLEL) return Infinity;
   const [start, end] = [projection(measured.a, model), projection(measured.b, model)].sort((a, b) => a - b);
   const span = length(sub(model.b, model.a));
   const lo = Math.max(0, start!), hi = Math.min(span, end!);
-  if (hi - lo < Math.min(span * 0.45, measured.baseOnly ? 0.65 : 1.2)) return Infinity;
+  if (hi - lo < Math.min(span * 0.45, minimumOverlap)) return Infinity;
   const [dx, dz] = wallAxis(model);
   const at = (s: number): Point => [model.a[0] + dx * s, model.a[1] + dz * s];
   return Math.max(lineError(at(lo), measured), lineError(at(hi), measured));
@@ -311,7 +325,8 @@ export function matchRoomAlignment(model: AlignmentModel, evidence: RoomEvidence
   // Foreground recognition has its own incremental per-room budget. Only the optional
   // outlier diagnostic yields part way through an individual room.
   const result = alignmentSearch(model, evidence, viewer, false).next();
-  return result.done ? result.value : [];
+  if (result.done && result.value.length) return result.value;
+  return architectureFromOpenings(model, evidence, viewer);
 }
 
 function* alignmentSearch(
@@ -333,10 +348,17 @@ function* alignmentSearch(
   const wallSpan = lowRoom ? Math.max(0.43, modeledHeight * 0.65) : 1.2;
   const handwritten = walls.filter(wall => wall.baseOnly);
   const traces = floor.source === "bounds" && handwritten.length >= 4;
+  const traditionalFace = (wall: AlignmentWall) => Math.abs(wall.low - floor.y) <= (floor.source === "plane" ? 0.45 : 0.2) &&
+    (wall.baseOnly ? floor.source === "bounds" && Math.abs(wall.high - wall.low) < 1e-6
+      : wall.high - floor.y >= wallTop && wall.high - wall.low >= wallSpan);
+  const haveOpening = model.landmarks.some(mark => mark.rawCenter && mark.axis) && landmarks.some(mark => mark.rawCenter && mark.axis);
+  const haveFloorOutline = floor.source === "plane" && floor.semanticFloor && model.room.ceilingHeight;
+  const architectureFace = (wall: AlignmentWall) => (haveOpening || haveFloorOutline) && wall.semanticWall && !wall.baseOnly &&
+    (floor.source === "plane" || floor.source === "mesh") && wall.high - wall.low >= 0.5 &&
+    wall.low >= floor.y - 0.15 && wall.high <= floor.y + modeledHeight + 0.25 &&
+    length(sub(wall.b, wall.a)) >= 0.8;
   const measured = (traces ? handwritten : walls)
-    .filter((wall) => Math.abs(wall.low - floor.y) <= (floor.source === "plane" ? 0.45 : 0.2) &&
-      (wall.baseOnly ? floor.source === "bounds" && Math.abs(wall.high - wall.low) < 1e-6
-        : wall.high - floor.y >= wallTop && wall.high - wall.low >= wallSpan))
+    .filter((wall) => traditionalFace(wall) || architectureFace(wall))
     .map((wall) => ({ wall, distance: wallDistance(station, wall), span: length(sub(wall.b, wall.a)) }))
     .filter(({ distance, span: size }) => Number.isFinite(distance) && distance <= span + 0.35 && size >= 0.28)
     .sort((a, b) => Math.floor(a.distance * 2) - Math.floor(b.distance * 2) || b.span - a.span)
@@ -344,6 +366,9 @@ function* alignmentSearch(
   if (traces && (measured.length > model.walls.length || measured.length !== handwritten.length ||
     measured.some(stroke => Math.abs(stroke.low - floor.y) > LIMIT))) return [];
   const candidates: AlignmentCandidate[] = [];
+  const perimeterFaces = measured.filter(traditionalFace);
+  const traditional = measured.map(wall => perimeterFaces.indexOf(wall));
+  const tagged = measured.map(architectureFace);
   const traceAssignments = new Map<string, number>();
   const vec = new Vector3();
   let deadline = incremental ? performance.now() + 2 : Infinity;
@@ -355,6 +380,9 @@ function* alignmentSearch(
         deadline = performance.now() + 2;
       }
       if (k === l) continue;
+      const taggedPair = !traces && tagged[k] && tagged[l];
+      const elevated = traditional[k]! < 0 || traditional[l]! < 0;
+      if (elevated && !taggedPair) continue;
       const observedNa = wallNormal(observedA), observedNb = wallNormal(observedB);
       if (Math.abs(cross(observedNa, observedNb)) < 0.5) continue;
       const da = wallAxis(a), oa = wallAxis(observedA);
@@ -377,25 +405,47 @@ function* alignmentSearch(
         const shift: Point = [(c1 * nb[1] - c2 * na[1]) / det, (na[0] * c2 - nb[0] * c1) / det];
         const here = rotate([viewer.x - shift[0], viewer.z - shift[1]], -yaw);
         if (!pointInFootprint(here[0], here[1], model.room.footprint)) continue;
-        const residualFor = traces ? strokeResidual : wallResidual;
+        const residualFor = traces ? strokeResidual : taggedPair
+          ? (face: AlignmentWall, seen: AlignmentWall) => wallResidual(face, seen, 0.8) : wallResidual;
         const trainingError = Math.max(residualFor(transformed(a, yaw, shift), observedA),
           residualFor(transformed(b, yaw, shift), observedB));
         if (trainingError > LIMIT) continue;
 
         // Only the two training walls set yaw and X/Z. Every other wall is withheld.
         const perimeter = model.walls.map((wall) => transformed(wall, yaw, shift));
+        const matrix = new Matrix4().makeRotationY(yaw).setPosition(shift[0], vertical, shift[1]);
         const validation: WallValidation | null | undefined = traces
           ? checkTraces(model, perimeter, measured, floor.y, i, j, k, l, yaw, shift)
-          : checkPerimeter(model, perimeter, measured, floor, lowRoom, i, j, k, l);
-        if (!validation) continue;
-        const { check, residual, assignment } = validation;
-        const matrix = new Matrix4().makeRotationY(yaw).setPosition(shift[0], vertical, shift[1]);
-        const opening = matchesLandmarks(matrix, model.landmarks, landmarks, perimeter, vertical);
-        const fit: CalibrationFit = { matrix, yaw, modelOrigin: check.point, anchorPosition: vec.fromArray(check.point).applyMatrix4(matrix).toArray() };
-        const candidate = {
-          fit, check, errorM: Math.max(residual, opening.error, trainingError),
-          landmarkCount: opening.count, landmarkConflict: opening.conflict,
-        };
+          : elevated ? null : checkPerimeter(model, perimeter, perimeterFaces, floor, lowRoom,
+            i, j, traditional[k]!, traditional[l]!);
+        let candidate: AlignmentCandidate;
+        if (validation) {
+          const { check, residual } = validation;
+          const opening = matchesLandmarks(matrix, model.landmarks, landmarks, perimeter, vertical);
+          const fit: CalibrationFit = { matrix, yaw, modelOrigin: check.point,
+            anchorPosition: vec.fromArray(check.point).applyMatrix4(matrix).toArray() };
+          candidate = { fit, check, errorM: Math.max(residual, opening.error, trainingError),
+            landmarkCount: opening.count, landmarkConflict: opening.conflict };
+        } else {
+          if (!taggedPair) continue;
+          let architectural: AlignmentCandidate | null = null;
+          if (haveOpening) {
+            const first = wallAxis(observedA), second = wallAxis(observedB);
+            const t = cross(sub(observedB.a, observedA.a), second) / cross(first, second);
+            const intersection: Point = [observedA.a[0] + t * first[0], observedA.a[1] + t * first[1]];
+            architectural = checkOpeningGeometry(model, evidence, matrix, undefined, intersection);
+          }
+          if (!architectural && !landmarks.length && floor.source === "plane" && floor.semanticFloor) {
+            const check = model.corners.find(({ point }) =>
+              lineError(planar(point), a) > 0.5 && lineError(planar(point), b) > 0.5);
+            if (check) architectural = checkVisibleFloorCorner(model, floor, perimeter, check, matrix, observedA, observedB);
+          }
+          if (!architectural) continue;
+          candidate = architectural;
+          candidate.errorM = Math.max(candidate.errorM, trainingError);
+        }
+        const { fit, check } = candidate;
+        const assignment = validation?.assignment;
         // Different training pairs can return slightly different noisy fits for exactly
         // the same observed-to-modeled wall assignment. They describe one orientation.
         const existing = (assignment ? traceAssignments.get(assignment) : undefined) ?? candidates.findIndex((entry) =>

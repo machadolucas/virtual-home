@@ -9,6 +9,7 @@ const MIN_CHECK_OFFSET_M = 0.3;
 export interface CalibrationFeature {
   id: string;
   label: string;
+  openingKind?: "door" | "window";
   roomId?: string;
   planLabel?: string;
   point: Vec3;
@@ -59,6 +60,14 @@ function offsetFromBaseline(a: Vec3, b: Vec3, c: Vec3): number {
     horizontalDistance(a, b);
 }
 
+export function suitableNextFeature(pairs: readonly CalibrationPair[], feature: CalibrationFeature): boolean {
+  if (pairs.some(pair => pair.feature.id === feature.id)) return false;
+  const [first, second] = pairs;
+  if (!first) return true;
+  if (!second) return horizontalDistance(first.feature.point, feature.point) >= MIN_CALIBRATION_BASELINE_M;
+  return offsetFromBaseline(first.feature.point, second.feature.point, feature.point) >= MIN_CHECK_OFFSET_M;
+}
+
 export interface CalibrationFit {
   /** Translation of the model origin and yaw in local-floor space, with unit scale. */
   matrix: Matrix4;
@@ -79,7 +88,7 @@ export function fitCalibration(
   const modelLength = horizontalDistance(a, b);
   const realLength = horizontalDistance(p, q);
   if (Math.min(modelLength, realLength) < MIN_CALIBRATION_BASELINE_M) {
-    return { message: "Choose two floor features at least 1.5 m apart." };
+    return { message: "Choose two fixed features at least 1.5 m apart in plan." };
   }
   const spanError = Math.hypot(realLength - modelLength, (q[1] - p[1]) - (b[1] - a[1]));
   if (spanError > MAX_CALIBRATION_ERROR_M) {
